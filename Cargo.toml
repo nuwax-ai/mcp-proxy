@@ -1,0 +1,49 @@
+[workspace]
+members = ["mcp-proxy"]
+resolver = "2"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[workspace.dependencies]
+mcp-proxy = { path = "mcp-proxy" }
+rmcp = { version = "0.1", features = [
+    "server",
+    "client",
+    "transport-sse-server",
+    "transport-sse",
+    "transport-child-process",
+    "transport-io",
+] }
+tokio = { version = "1", features = ["macros", "net", "rt", "rt-multi-thread"] }
+tokio-util = "0.7.15"
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+log = "0.4"
+anyhow = "1.0"
+chrono = { version = "0.4", features = ["serde", "now"] }
+thiserror = "2.0"
+axum = { version = "0.8", features = [
+    "http2",
+    "query",
+    "tracing",
+    "ws",
+    "multipart",
+    "macros",
+] }
+axum-extra = { version = "0.10", features = ["typed-header"] }
+utoipa = { version = "5.3", features = ["axum_extras", "chrono"] }
+utoipa-rapidoc = { version = "6", features = ["axum"] }
+utoipa-redoc = { version = "6", features = ["axum"] }
+utoipa-swagger-ui = { version = "9", features = ["axum"] }
+sqlx = { version = "0.8", features = [
+    "chrono",
+    "postgres",
+    "runtime-tokio",
+    "tls-rustls",
+] }
+dashmap = "6.1"
+criterion = "0.5"
+once_cell = "1.21"
+
+
