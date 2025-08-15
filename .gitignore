@@ -1,1 +1,10 @@
 /target
+.idea
+.vscode
+target
+.DS_Store
+**/target
+mcp-proxy/logs
+logs
+.venv
+.idea/rmcp_proxy.iml

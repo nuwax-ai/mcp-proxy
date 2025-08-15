@@ -16,6 +16,106 @@
 3. 服务器自动加载插件并启动服务，生成对应的 SSE URL。
 4. 客户端通过该 URL 地址，即可实时获取 mcp 服务推送的数据。
 
+## API 接口说明
+
+### 1. MCP 服务状态检查接口
+
+此接口用于检查指定 MCP 服务的状态，如果服务不存在，系统会自动启动对应的 MCP 服务。
+
+```
+POST http://localhost:8020/mcp/sse/check_status
+Content-Type: application/json
+```
+
+请求参数：
+```json
+{
+  "mcpId": "服务唯一标识符",
+  "mcpJsonConfig": "MCP服务的JSON配置",
+  "mcpType": "服务类型（如Persistent）"
+}
+```
+
+参数说明：
+- `mcpId`: 为 MCP 服务指定的唯一标识符，用于后续访问该服务
+- `mcpJsonConfig`: MCP 插件的 JSON 配置，包含命令、参数和环境变量等
+- `mcpType`: MCP 服务类型，如 "Persistent"（持久服务）;"OneShot"(短时服务)
+
+示例：
+```json
+{
+  "mcpId": "mysql-test-id",
+  "mcpJsonConfig": "{\"mcpServers\": {\"mysql\": {\"command\": \"go-mcp-mysql\", \"args\": [\"--host\", \"192.168.1.12\", \"--user\", \"username\", \"--pass\", \"password\", \"--port\", \"3306\", \"--db\", \"database_name\"], \"env\": {}}}}",
+  "mcpType": "Persistent"
+}
+```
+
+### 2. SSE 协议连接接口
+
+成功启动 MCP 服务后，可通过以下 URL 建立 SSE 连接，实时接收服务推送的数据：
+
+```
+http://localhost:8080/mcp/sse/proxy/{mcpId}/sse
+```
+
+参数说明：
+- `{mcpId}`: 在状态检查接口中指定的 MCP 服务唯一标识符
+- 请求header属性: x-mcp-json ,附加 mcp json配置
+- 请求header属性: x-mcp-type ,附加 MCP 服务类型，如 "Persistent"（持久服务）;"OneShot"(短时服务)
+
+示例：
+```
+http://localhost:8080/mcp/sse/proxy/mysql-test-id/sse
+```
+
+注意：此 URL 需要在支持 SSE 协议的客户端中打开，如浏览器或支持 SSE 的应用程序。
+
+### 3. 向 MCP 服务发送消息接口
+
+通过此接口向已启动的 MCP 服务发送消息：
+
+```
+POST http://localhost:8080/mcp/sse/proxy/{mcpId}/message
+Content-Type: application/json
+```
+
+参数说明：
+- `{mcpId}`: MCP 服务的唯一标识符
+- 请求header属性: x-mcp-json ,附加 mcp json配置
+- 请求header属性: x-mcp-type ,附加 MCP 服务类型，如 "Persistent"（持久服务）;"OneShot"(短时服务)
+
+请求体示例：
+```json
+{
+  "id": "消息ID",
+  "method": "调用的方法",
+  "params": {
+    "messages": [
+      {
+        "role": "user",
+        "content": "具体的指令内容"
+      }
+    ]
+  }
+}
+```
+
+示例（查询 MySQL 数据库中的所有表）：
+```json
+{
+  "id": "msg_123",
+  "method": "completions.create",
+  "params": {
+    "messages": [
+      {
+        "role": "user",
+        "content": "查询当前数据库中的所有表"
+      }
+    ]
+  }
+}
+```
+
 ---
 
 ## 环境设置

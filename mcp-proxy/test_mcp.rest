@@ -1,0 +1,86 @@
+
+
+### 测试检查MCP状态 (使用上面提取的mcp_id)
+GET http://localhost:8086/mcp/check/status/54-4915ed0811f14ee32258075aaa0debfc
+
+
+### 测试直接创建mcp插件的方式
+
+POST http://localhost:8086/mcp/sse/proxy/fetch_mcp22/sse
+Content-Type: application/json
+x-mcp-type: OneShot
+x-mcp-json: eyJtY3BTZXJ2ZXJzIjp7ImZldGNoIjp7ImNvbW1hbmQiOiJ1dngiLCJhcmdzIjpbIm1jcC1zZXJ2ZXItZmV0Y2giXSwiZW52Ijp7fX19fQ==
+
+### 使用base64编码的json进行请求
+POST http://localhost:8086/mcp/sse/proxy/fetch_mcp2/sse
+Content-Type: application/json
+x-mcp-type: OneShot
+x-mcp-json: eyJtY3BTZXJ2ZXJzIjp7IkZldGNo572R6aG15YaF5a655oqT5Y+WIjp7ImNvbW1hbmQiOiJ1dngiLCJhcmdzIjpbIm1jcC1zZXJ2ZXItZmV0Y2giXSwiZW52Ijp7fX19fQ==
+
+
+
+
+### 测试添加MySQL MCP路由
+# @name addMcp
+POST http://localhost:8080/mcp/sse/add
+Content-Type: application/json
+
+{
+  "user_id": "test_user",
+  "mcp_name": "mysql",
+  "mcp_json_config": "{\"mcpServers\": {\"mysql\": {\"command\": \"/Users/soddy/go/bin/go-mcp-mysql\", \"args\": [\"--host\", \"192.168.1.12\", \"--user\", \"agent_platform_test\", \"--pass\", \"SRJG7NdiwKGDkmPs\", \"--port\", \"3306\", \"--db\", \"agent_platform_test\"], \"env\": {}}}}",
+  "mcp_port": 8081,
+  "mcp_type": "Persistent"
+}
+
+### 提取返回的mcp_id和sse_path
+@mcp_id = {{addMcp.response.body.data.mcp_id}}
+@sse_path = {{addMcp.response.body.data.sse_path}}
+@message_path = {{addMcp.response.body.data.message_path}}
+### 打印 mcp_id 变量
+GET https://httpbin.org/get?mcp_id={{mcp_id}}
+
+### 测试SSE连接 (在浏览器中打开以下URL)
+# {{sse_path}}
+# 例如: http://localhost:8080/mcp/0196aad1041377929d241f08d2783232/sse
+
+### 测试向MCP服务发送消息
+POST http://localhost:8080{{message_path}}
+Content-Type: application/json
+
+{
+  "id": "msg_123",
+  "method": "completions.create",
+  "params": {
+    "messages": [
+      {
+        "role": "user",
+        "content": "查询当前数据库中的所有表"
+      }
+    ]
+  }
+}
+
+
+### 测试删除MCP路由 (使用上面提取的mcp_id)
+
+DELETE http://localhost:8086/mcp/config/delete/{{mcp_id}}
+
+### 测试添加一次性任务MCP路由
+# @name addOneshotMcp
+POST http://localhost:8080/mcp/sse/add
+Content-Type: application/json
+
+{
+  "user_id": "test_user",
+  "mcp_name": "mysql-query",
+  "mcp_json_config": "{\"mcpServers\": {\"mysql\": {\"command\": \"/Users/soddy/go/bin/go-mcp-mysql\", \"args\": [\"--host\", \"192.168.1.12\", \"--user\", \"agent_platform_test\", \"--pass\", \"SRJG7NdiwKGDkmPs\", \"--port\", \"3306\", \"--db\", \"agent_platform_test\"], \"env\": {}}}}",
+  "mcp_port": 8082,
+  "mcp_type": "OneShot"
+}
+
+### 提取返回的一次性任务mcp_id
+@oneshot_mcp_id = {{addOneshotMcp.response.body.data.mcp_id}}
+
+### 测试删除本地一次性任务
+DELETE http://localhost:8080/mcp/sse/delete/{{oneshot_mcp_id}}

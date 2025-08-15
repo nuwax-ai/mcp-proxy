@@ -4,8 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+rmcp = { workspace = true }
 axum = { workspace = true }
-tokio = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tokio = { workspace = true ,features = ["macros", "net", "rt", "rt-multi-thread","signal","io-util"]}
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
@@ -14,4 +17,35 @@ log = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 once_cell = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+reqwest = { workspace = true }
+http = { workspace = true }
+clap = { workspace = true }
+uuid = { workspace = true }
+dashmap = { workspace = true }
+futures = { workspace = true }
+chrono = { workspace = true }
+tokio-stream = "0.1.17"
+backtrace = "0.3"
+tracing-futures = "0.2.5"
+# 执行js/ts/python代码,通过 uv/deno 命令方式执行
+run_code_rmcp = { workspace = true }
+urlencoding = "2.1.3"
+base64 = "0.22"
 
+
+[dev-dependencies]
+criterion = "0.6"
+env_logger = "0.11"
+futures-util = "0.3.31"
+
+
+[[bench]]
+name = "run_code_bench"
+harness = false
+
+[[bench]]
+name = "run_code_advanced_bench"
+harness = false

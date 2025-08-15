@@ -1,0 +1,102 @@
+### 测试检查MySQL MCP服务状态
+# @name checkMySqlStatus
+POST http://localhost:8086/mcp/sse/check_status
+Content-Type: application/json
+
+{
+  "mcpId": "mysql-test-id",
+  "mcpJsonConfig": "{\"mcpServers\": {\"mysql\": {\"command\": \"/Users/soddy/go/bin/go-mcp-mysql\", \"args\": [\"--host\", \"192.168.1.12\", \"--user\", \"agent_platform_test\", \"--pass\", \"SRJG7NdiwKGDkmPs\", \"--port\", \"3306\", \"--db\", \"agent_platform_test\"], \"env\": {}}}}",
+  "mcpType": "Persistent"
+}
+### 测试检查MySQL MCP服务状态2
+POST http://localhost:8086/mcp/sse/check_status
+Content-Type: application/json
+
+{
+  "mcpId": "mysql-test-id",
+  "mcpJsonConfig": "{\"mcpServers\":{\"howtocook-mcp\":{\"command\":\"npx\",\"args\":[\"-y\",\"howtocook-mcp\"]}}}",
+  "mcpType": "Persistent"
+}
+
+
+### 测试检查context7
+POST http://localhost:8086/mcp/sse/check_status
+Content-Type: application/json
+
+{
+  "mcpId": "context7-test-id",
+  "mcpJsonConfig": "{\"mcpServers\":{\"fetch\":{\"command\":\"npx\",\"args\":[\"-y\",\"@upstash/context7-mcp\"]}}}",
+  "mcpType": "Persistent"
+}
+
+### 测试检查MySQL MCP服务状态2
+POST http://localhost:8086/mcp/sse/check_status
+Content-Type: application/json
+
+{
+  "mcpId": "fetch-test-id",
+  "mcpJsonConfig": "{\"mcpServers\":{\"fetch\":{\"command\":\"uvx\",\"args\":[\"mcp-server-fetch\"]}}}",
+  "mcpType": "Persistent"
+}
+
+### 测试mcp的参考地址: http://localhost:8086/mcp/mysql-test-id/sse
+
+### 提取返回的状态信息
+@ready = {{checkMySqlStatus.response.body.data.ready}}
+@status = {{checkMySqlStatus.response.body.data.status}}
+@message = {{checkMySqlStatus.response.body.data.message}}
+
+### 测试检查一次性任务MCP服务状态
+# @name checkOneShotStatus
+POST http://localhost:8086/mcp/sse/check_status
+Content-Type: application/json
+
+{
+  "mcpId": "mysql-query-oneshot",
+  "mcpJsonConfig": "{\"mcpServers\": {\"mysql\": {\"command\": \"/Users/soddy/go/bin/go-mcp-mysql\", \"args\": [\"--host\", \"192.168.1.12\", \"--user\", \"agent_platform_test\", \"--pass\", \"SRJG7NdiwKGDkmPs\", \"--port\", \"3306\", \"--db\", \"agent_platform_test\"], \"env\": {}}}}",
+  "mcpType": "OneShot"
+}
+
+### 测试检查Python脚本服务状态
+# @name checkPythonStatus
+POST http://localhost:8086/mcp/sse/check_status
+Content-Type: application/json
+
+{
+  "mcpId": "python-service-test",
+  "mcpJsonConfig": "{\"mcpServers\": {\"python\": {\"command\": \"python3\", \"args\": [\"-c\", \"import time, datetime; print('Python MCP服务启动'); count=0; while True: count+=1; print(f'当前时间: {datetime.datetime.now()} - 计数: {count}'); time.sleep(3);\"], \"env\": {\"PYTHONUNBUFFERED\": \"1\"}}}}",
+  "mcpType": "OneShot"
+}
+
+### 测试检查本地命令服务状态
+# @name checkLocalCommandStatus
+POST http://localhost:8086/mcp/sse/check_status
+Content-Type: application/json
+
+{
+  "mcpId": "local-echo-test",
+  "mcpJsonConfig": "{\"mcpServers\": {\"echo\": {\"command\": \"bash\", \"args\": [\"-c\", \"while true; do echo \\\"Hello from MCP $(date)\\\"; sleep 5; done\"], \"env\": {\"TEST_VAR\": \"test_value\"}}}}",
+  "mcpType": "Persistent"
+}
+
+### 测试检查已存在服务的状态
+# @name checkExistingStatus
+POST http://localhost:8086/mcp/sse/check_status
+Content-Type: application/json
+
+{
+  "mcpId": "mysql-test-id",
+  "mcpJsonConfig": "{\"mcpServers\": {\"mysql\": {\"command\": \"/Users/soddy/go/bin/go-mcp-mysql\", \"args\": [\"--host\", \"192.168.1.12\", \"--user\", \"agent_platform_test\", \"--pass\", \"SRJG7NdiwKGDkmPs\", \"--port\", \"3306\", \"--db\", \"agent_platform_test\"], \"env\": {}}}}",
+  "mcpType": "Persistent"
+}
+
+### 测试检查不存在的服务状态（错误配置测试）
+# @name checkErrorStatus
+POST http://localhost:8086/mcp/sse/check_status
+Content-Type: application/json
+
+{
+  "mcpId": "error-test",
+  "mcpJsonConfig": "{\"mcpServers\": {\"error\": {\"command\": \"/not/exist/command\", \"args\": [], \"env\": {}}}}",
+  "mcpType": "OneShot"
+}

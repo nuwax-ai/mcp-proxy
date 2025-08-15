@@ -1,0 +1,67 @@
+### 测试检查MySQL MCP服务状态（先检查服务状态）
+# @name checkMySqlStatus
+POST http://localhost:8020/mcp/sse/check_status
+Content-Type: application/json
+
+{
+  "mcpId": "mysql-test-id",
+  "mcpJsonConfig": "{\"mcpServers\": {\"mysql\": {\"command\": \"go-mcp-mysql\", \"args\": [\"--host\", \"192.168.1.12\", \"--user\", \"agent_platform_test\", \"--pass\", \"SRJG7NdiwKGDkmPs\", \"--port\", \"3306\", \"--db\", \"agent_platform_test\"], \"env\": {}}}}",
+  "mcpType": "Persistent"
+}
+
+@mcp_id = mysql-test-id
+
+### 测试SSE连接（在浏览器中打开以下URL）
+# 示例: http://localhost:8080/mcp/sse/proxy/mysql-test-id/sse
+# @name sseConnection
+# 注意：这个请求在REST Client中不会实际执行，需要在浏览器中打开
+
+### 测试向MySQL MCP服务发送消息
+# @name sendMySqlMessage
+POST http://localhost:8086/mcp/sse/proxy/{{mcp_id}}/message
+Content-Type: application/json
+
+{
+  "id": "msg_123",
+  "method": "completions.create",
+  "params": {
+    "messages": [
+      {
+        "role": "user",
+        "content": "查询当前数据库中的所有表"
+      }
+    ]
+  }
+}
+
+
+
+### 测试检查MySQL MCP服务状态（先检查服务状态）
+# 示例: http://localhost:8086/mcp/sse/proxy/playwright-test-id/sse
+# @name checkMySqlStatus
+POST http://localhost:8086/mcp/sse/check_status
+Content-Type: application/json
+
+{
+  "mcpId": "playwright-test-id",
+  "mcpJsonConfig": "{\"mcpServers\":{\"playwright\":{\"command\":\"npx\",\"args\":[\"@playwright/mcp@latest\",\"--headless\"]}}}",
+  "mcpType": "OneShot"
+}
+
+
+
+### 测试检查MySQL MCP服务状态（先检查服务状态）
+# header x-mcp-json = "{\"mcpServers\":{\"playwright\":{\"command\":\"npx\",\"args\":[\"@playwright/mcp@latest\",\"--headless\"]}}}"
+# 示例: http://192.168.31.101:8023/mcp/sse/proxy/playwright-test-id2/sse
+# @name checkMySqlStatus
+POST http://192.168.31.101:8023/mcp/sse/check_status
+Content-Type: application/json
+x-mcp-json: {"mcpServers":{"playwright":{"command":"npx","args":["@playwright/mcp@latest","--headless"]}}}
+x-mcp-type: OneShot
+
+{
+  "mcpId": "playwright-test-id2",
+  "mcpJsonConfig": "{\"mcpServers\":{\"playwright\":{\"command\":\"npx\",\"args\":[\"@playwright/mcp@latest\",\"--headless\"]}}}",
+  "mcpType": "OneShot"
+}
+
