@@ -1,0 +1,70 @@
+# 环境配置
+environment: "development"
+
+server:
+  port: 8087
+  host: "0.0.0.0"
+
+log:
+  level: "info"
+  path: "logs"
+
+# 文档解析配置
+document_parser:
+  # 并发控制
+  max_concurrent: 5
+  queue_size: 100
+  
+  # 超时设置（统一超时配置）
+  download_timeout: 3600
+  processing_timeout: 3600  # 60分钟，用于MinerU和MarkItDown解析超时
+
+# MinerU配置
+mineru:
+  backend: "pipeline"
+  python_path: "./venv/bin/python"  # 默认使用虚拟环境，如不存在则自动检测系统Python
+  max_concurrent: 3
+  queue_size: 100
+  # timeout 已移除，统一使用 document_parser.processing_timeout (3600秒)
+  batch_size: 1
+  quality_level: "Balanced"
+
+# MarkItDown配置
+markitdown:
+  python_path: "./venv/bin/python"  # 默认使用虚拟环境，如不存在则自动检测系统Python
+  # timeout 已移除，统一使用 document_parser.processing_timeout (3600秒)
+  enable_plugins: false
+  
+  # 功能开关
+  features:
+    ocr: true
+    audio_transcription: true
+    azure_doc_intel: false
+    youtube_transcription: false
+
+# 存储配置
+storage:
+  # Sled数据库配置
+  sled:
+    path: "data/document_parser"
+    cache_capacity: 104857600  # 100MB
+    
+  # OSS配置
+  oss:
+    endpoint: "oss-rg-china-mainland.aliyuncs.com"
+    bucket: "nuwa-packages"
+    access_key_id: "${OSS_ACCESS_KEY_ID}"  # 通过环境变量设置
+    access_key_secret: "${OSS_ACCESS_KEY_SECRET}"  # 通过环境变量设置
+    region: "oss-rg-china-mainland"
+    upload_directory: "edu"  # 上传文件的统一子目录前缀
+
+# 全局文件大小配置
+file_size_config:
+  max_file_size: "100MB"
+  large_document_threshold: "50MB"
+
+# 外部集成配置
+external_integration:
+  webhook_url: ""
+  api_key: ""
+  timeout: 30

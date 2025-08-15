@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <metadata>
+    <name>文档解析器项目</name>
+    <version>1.0.0</version>
+    <description>支持多种格式的智能文档解析系统</description>
+    <author>开发团队</author>
+    <created>2024-08-15</created>
+  </metadata>
+  
+  <components>
+    <component>
+      <name>格式检测器</name>
+      <type>core</type>
+      <description>自动识别文档格式</description>
+      <enabled>true</enabled>
+    </component>
+    
+    <component>
+      <name>解析引擎</name>
+      <type>core</type>
+      <description>支持多种格式的解析</description>
+      <enabled>true</enabled>
+    </component>
+    
+    <component>
+      <name>存储服务</name>
+      <type>service</type>
+      <description>管理解析结果和元数据</description>
+      <enabled>true</enabled>
+    </component>
+    
+    <component>
+      <name>任务队列</name>
+      <type>service</type>
+      <description>异步处理文档解析任务</description>
+      <enabled>true</enabled>
+    </component>
+  </components>
+  
+  <dependencies>
+    <dependency>
+      <name>tokio</name>
+      <version>1.0</version>
+      <type>runtime</type>
+    </dependency>
+    
+    <dependency>
+      <name>serde</name>
+      <version>1.0</version>
+      <type>serialization</type>
+    </dependency>
+    
+    <dependency>
+      <name>sled</name>
+      <version>0.34</version>
+      <type>database</type>
+    </dependency>
+  </dependencies>
+</project>
