@@ -7,4 +7,12 @@ target
 mcp-proxy/logs
 logs
 .venv
+venv
 .idea/rmcp_proxy.iml
+
+
+document-parser/data/*
+scripts/temp/*
+data/*
+temp/*
+server.log

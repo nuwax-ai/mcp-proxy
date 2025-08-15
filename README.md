@@ -2,13 +2,71 @@
 
 ## 项目简介
 
-本项目实现了一个 mcp 代理服务，用户可以通过 SSE（Server-Sent Events）协议，配置我们提供的 URL 地址，远程使用服务器提供的 mcp 功能。
+本项目包含两个主要服务：
 
-### 主要功能
+### Document Parser Service (文档解析服务)
+一个高性能的多格式文档解析服务，支持PDF、Word、Excel、PowerPoint等格式转换为结构化Markdown。
+
+**主要特性:**
+- 🔄 多引擎解析：MinerU (PDF) + MarkItDown (其他格式)
+- 🐍 智能Python环境管理：使用当前目录虚拟环境 (./venv/)
+- 📊 实时结构化处理：自动生成目录和章节
+- ☁️ OSS集成：支持阿里云对象存储
+- 🚀 异步任务处理：支持大文件批量处理
+
+### MCP Proxy Service (MCP代理服务)
+实现了一个 mcp 代理服务，用户可以通过 SSE（Server-Sent Events）协议，配置我们提供的 URL 地址，远程使用服务器提供的 mcp 功能。
+
+**主要功能:**
 - 支持通过 SSE 协议与客户端通信，实时推送数据。
 - 支持动态添加 mcp 插件：只需在 mcp 社区查找所需插件，复制对应的 JSON 配置，粘贴到本服务的配置中，即可自动加载并启用插件。
 - 每个插件配置完成后，服务器会自动启动对应的 mcp 服务，并生成可供访问的 SSE 协议 URL 地址。
 - 用户可通过该 URL 地址，直接使用远程服务器的 mcp 能力。
+
+## 🚀 Document Parser 快速开始
+
+### 1. 环境初始化
+```bash
+# 进入项目目录
+cd document-parser
+
+# 初始化虚拟环境和依赖（首次使用）
+document-parser uv-init
+
+# 检查环境状态
+document-parser check
+```
+
+### 2. 启动服务
+```bash
+# 启动HTTP服务器
+document-parser server
+
+# 或者指定端口
+document-parser server --port 8080
+```
+
+### 3. 虚拟环境管理
+
+**激活虚拟环境:**
+```bash
+# Linux/macOS
+source ./venv/bin/activate
+
+# Windows
+.\venv\Scripts\activate
+```
+
+**手动使用工具:**
+```bash
+# 激活环境后直接使用
+mineru --help
+python -m markitdown --help
+
+# 或使用uv直接运行
+uv run mineru --help
+uv run python -m markitdown --help
+```
 
 ### 使用流程
 1. 在 mcp 社区查找并复制所需插件的 JSON 配置。
@@ -199,3 +257,100 @@ cargo nextest 是一个 Rust 增强测试工具。
 ```bash
 cargo install cargo-nextest --locked
 ```
+
+## 🔧 Document Parser 故障排除
+
+### 常见问题
+
+#### 1. 虚拟环境问题
+
+**问题：虚拟环境创建失败**
+```bash
+# 检查当前目录权限
+ls -la  # Linux/macOS
+dir     # Windows
+
+# 解决方案
+chmod 755 .              # Linux/macOS 修改权限
+rm -rf ./venv            # 删除损坏的虚拟环境
+document-parser uv-init  # 重新初始化
+```
+
+**问题：虚拟环境激活失败**
+```bash
+# Linux/macOS
+source ./venv/bin/activate
+
+# Windows PowerShell (如果执行策略限制)
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+.\venv\Scripts\Activate.ps1
+
+# Windows CMD
+.\venv\Scripts\activate
+```
+
+#### 2. 依赖安装问题
+
+**问题：UV工具未安装**
+```bash
+# 官方安装脚本
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 或使用包管理器
+brew install uv          # macOS
+pip install uv           # 通用方法
+```
+
+**问题：网络连接问题**
+```bash
+# 使用国内镜像源
+uv pip install -i https://pypi.tuna.tsinghua.edu.cn/simple/ mineru[core]
+
+# 设置代理（如果需要）
+export HTTP_PROXY=http://proxy:port
+export HTTPS_PROXY=http://proxy:port
+```
+
+#### 3. 诊断命令
+
+```bash
+# 完整环境检查
+document-parser check
+
+# 详细故障排除指南
+document-parser troubleshoot
+
+# 手动验证
+uv --version
+./venv/bin/python --version    # Linux/macOS
+.\venv\Scripts\python --version # Windows
+```
+
+### 环境要求
+
+- **Python**: 3.8+ (推荐 3.11+)
+- **操作系统**: Linux, macOS, Windows
+- **磁盘空间**: 至少 500MB 可用空间
+- **网络**: 需要访问 PyPI (或配置镜像源)
+- **CUDA** (可选): 用于GPU加速，支持CUDA 11.8+
+
+### 目录结构
+
+```
+document-parser/
+├── venv/                    # 虚拟环境 (自动创建)
+│   ├── bin/                 # Linux/macOS 可执行文件
+│   ├── Scripts/             # Windows 可执行文件
+│   └── lib/                 # Python包
+├── logs/                    # 日志文件
+├── config.yml               # 配置文件
+└── src/                     # 源代码
+```
+
+### 获取帮助
+
+如果遇到问题：
+1. 运行 `document-parser troubleshoot` 查看详细指南
+2. 检查 `logs/` 目录中的日志文件
+3. 确保在正确的项目目录中运行命令
+4. 尝试在新目录中重新初始化环境
