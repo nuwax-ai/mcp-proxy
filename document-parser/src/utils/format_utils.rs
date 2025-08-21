@@ -1,11 +1,11 @@
-use crate::models::DocumentFormat;
 use crate::error::AppError;
+use crate::models::DocumentFormat;
 
 /// 从文件路径检测文档格式
 pub fn detect_format_from_path(file_path: &str) -> Result<DocumentFormat, AppError> {
     let extension = super::file_utils::get_file_extension(file_path)
         .ok_or_else(|| AppError::UnsupportedFormat("无法识别文件扩展名".to_string()))?;
-    
+
     Ok(DocumentFormat::from_extension(&extension))
 }
 

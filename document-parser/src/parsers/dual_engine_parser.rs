@@ -1,12 +1,15 @@
 use std::sync::Arc;
 
+use super::format_detector::FormatDetector;
+use super::markitdown_parser::MarkItDownConfig;
+use super::mineru_parser::MinerUConfig;
+use super::parser_trait::DocumentParser;
+use super::{MarkItDownParser, MinerUParser};
+use crate::config::{
+    MarkItDownConfig as ConfigMarkItDownConfig, MinerUConfig as ConfigMinerUConfig,
+};
 use crate::error::AppError;
 use crate::models::{DocumentFormat, ParseResult};
-use crate::config::{MinerUConfig as ConfigMinerUConfig, MarkItDownConfig as ConfigMarkItDownConfig};
-use super::mineru_parser::MinerUConfig;
-use super::markitdown_parser::MarkItDownConfig;
-use super::parser_trait::DocumentParser;
-use super::{MinerUParser, MarkItDownParser};
 
 /// 双引擎解析器管理器
 pub struct DualEngineParser {
@@ -16,36 +19,53 @@ pub struct DualEngineParser {
 
 impl DualEngineParser {
     /// 创建新的双引擎解析器
-    pub fn new(mineru_config: &ConfigMinerUConfig, markitdown_config: &ConfigMarkItDownConfig) -> Self {
+    pub fn new(
+        mineru_config: &ConfigMinerUConfig,
+        markitdown_config: &ConfigMarkItDownConfig,
+    ) -> Self {
         Self::with_timeout(mineru_config, markitdown_config, 3600) // 默认60分钟超时
     }
 
     /// 创建带指定超时的双引擎解析器
-    pub fn with_timeout(mineru_config: &ConfigMinerUConfig, markitdown_config: &ConfigMarkItDownConfig, default_timeout_seconds: u32) -> Self {
+    pub fn with_timeout(
+        mineru_config: &ConfigMinerUConfig,
+        markitdown_config: &ConfigMarkItDownConfig,
+        default_timeout_seconds: u32,
+    ) -> Self {
         // 转换配置类型
         let mineru_parser_config = MinerUConfig {
             python_path: mineru_config.get_effective_python_path(),
             backend: mineru_config.backend.clone(),
             max_concurrent: mineru_config.max_concurrent,
             queue_size: mineru_config.queue_size,
-            timeout: if mineru_config.timeout == 0 { default_timeout_seconds } else { mineru_config.timeout },
+            timeout: if mineru_config.timeout == 0 {
+                default_timeout_seconds
+            } else {
+                mineru_config.timeout
+            },
             batch_size: mineru_config.batch_size,
             quality_level: mineru_config.quality_level.clone(),
+            device: mineru_config.device.clone(),
+            vram: mineru_config.vram,
         };
-        
+
         let markitdown_parser_config = MarkItDownConfig::with_global_config();
         let markitdown_parser_config = MarkItDownConfig {
-             python_path: markitdown_config.get_effective_python_path(),
-             enable_plugins: markitdown_config.enable_plugins,
-             timeout_seconds: (if markitdown_config.timeout == 0 { default_timeout_seconds } else { markitdown_config.timeout }) as u64,
-             supported_formats: markitdown_parser_config.supported_formats,
-             output_format: markitdown_parser_config.output_format,
-             quality_settings: markitdown_parser_config.quality_settings,
-         };
-        
+            python_path: markitdown_config.get_effective_python_path(),
+            enable_plugins: markitdown_config.enable_plugins,
+            timeout_seconds: (if markitdown_config.timeout == 0 {
+                default_timeout_seconds
+            } else {
+                markitdown_config.timeout
+            }) as u64,
+            supported_formats: markitdown_parser_config.supported_formats,
+            output_format: markitdown_parser_config.output_format,
+            quality_settings: markitdown_parser_config.quality_settings,
+        };
+
         let mineru_parser = Arc::new(MinerUParser::new(mineru_parser_config));
         let markitdown_parser = Arc::new(MarkItDownParser::new(markitdown_parser_config));
-        
+
         Self {
             mineru_parser,
             markitdown_parser,
@@ -56,7 +76,7 @@ impl DualEngineParser {
     pub fn with_auto_venv_detection() -> Result<Self, AppError> {
         let mineru_parser = Arc::new(MinerUParser::with_auto_venv_detection()?);
         let markitdown_parser = Arc::new(MarkItDownParser::with_auto_venv_detection()?);
-        
+
         Ok(Self {
             mineru_parser,
             markitdown_parser,
@@ -68,7 +88,7 @@ impl DualEngineParser {
         // 简单的健康检查，可以根据需要扩展
         true
     }
-    
+
     /// 根据格式选择合适的解析器
     pub fn get_parser_for_format(&self, format: &DocumentFormat) -> Arc<dyn DocumentParser> {
         match format {
@@ -76,38 +96,44 @@ impl DualEngineParser {
             _ => self.markitdown_parser.clone() as Arc<dyn DocumentParser>,
         }
     }
-    
-    /// 解析文档（自动选择引擎）
-    pub async fn parse_document(&self, file_path: &str, format: &DocumentFormat) -> Result<ParseResult, AppError> {
-        // 检查格式是否支持
-        if !self.supports_format(format) {
+
+    /// 解析文档（自动检测格式）
+    ///
+    /// 根据文件路径自动检测 `DocumentFormat`（优先魔数，其次 MIME/扩展名/内容分析），
+    /// 然后选择合适的引擎进行解析。该方法避免了显式传入 `format`。
+    pub async fn parse_document_auto(&self, file_path: &str) -> Result<ParseResult, AppError> {
+        let detector = FormatDetector::new();
+        let detection = detector.detect_format(file_path, None)?;
+        let detected_format = detection.format;
+
+        if !self.supports_format(&detected_format) {
             return Err(AppError::UnsupportedFormat(format!(
-                "不支持的文件格式: {:?}", format
+                "不支持的文件格式: {detected_format:?}"
             )));
         }
-        
-        let parser = self.get_parser_for_format(format);
-        parser.parse(file_path, format).await
+
+        let parser = self.get_parser_for_format(&detected_format);
+        parser.parse(file_path).await
     }
-    
+
     /// 检查是否支持指定格式
     pub fn supports_format(&self, format: &DocumentFormat) -> bool {
         // 基于当前 `DocumentFormat` 定义进行判断
-        matches!(format,
+        matches!(
+            format,
             DocumentFormat::PDF
-            | DocumentFormat::Word
-            | DocumentFormat::Excel
-            | DocumentFormat::PowerPoint
-            | DocumentFormat::Image
-            | DocumentFormat::Audio
-            | DocumentFormat::HTML
-            | DocumentFormat::Text
-            | DocumentFormat::Txt
-            | DocumentFormat::Md
-            | DocumentFormat::Other(_)
+                | DocumentFormat::Word
+                | DocumentFormat::Excel
+                | DocumentFormat::PowerPoint
+                | DocumentFormat::Image
+                | DocumentFormat::Audio
+                | DocumentFormat::HTML
+                | DocumentFormat::Text
+                | DocumentFormat::Txt
+                | DocumentFormat::Md
         )
     }
-    
+
     /// 获取支持的格式列表
     pub fn get_supported_formats() -> Vec<DocumentFormat> {
         vec![
@@ -123,22 +149,22 @@ impl DualEngineParser {
             DocumentFormat::Md,
         ]
     }
-    
+
     /// 健康检查
     pub async fn health_check(&self) -> Result<(), AppError> {
         // 检查MinerU解析器
         if let Err(e) = self.mineru_parser.health_check().await {
-            log::warn!("MinerU解析器健康检查失败: {}", e);
+            log::warn!("MinerU解析器健康检查失败: {e}");
         }
-        
+
         // 检查MarkItDown解析器
         if let Err(e) = self.markitdown_parser.health_check().await {
-            log::warn!("MarkItDown解析器健康检查失败: {}", e);
+            log::warn!("MarkItDown解析器健康检查失败: {e}");
         }
-        
+
         Ok(())
     }
-    
+
     /// 获取解析器统计信息
     pub fn get_parser_stats(&self) -> ParserStats {
         ParserStats {
@@ -154,25 +180,25 @@ impl DualEngineParser {
 #[async_trait::async_trait]
 impl DocumentParser for DualEngineParser {
     /// 解析文档
-    async fn parse(&self, file_path: &str, format: &DocumentFormat) -> Result<ParseResult, AppError> {
-        self.parse_document(file_path, format).await
+    async fn parse(&self, file_path: &str) -> Result<ParseResult, AppError> {
+        self.parse_document_auto(file_path).await
     }
-    
+
     /// 检查是否支持指定格式
     fn supports_format(&self, format: &DocumentFormat) -> bool {
         self.supports_format(format)
     }
-    
+
     /// 获取解析器名称
     fn get_name(&self) -> &'static str {
         "DualEngineParser"
     }
-    
+
     /// 获取解析器描述
     fn get_description(&self) -> &'static str {
         "双引擎文档解析器，支持MinerU和MarkItDown"
     }
-    
+
     /// 健康检查
     async fn health_check(&self) -> Result<(), AppError> {
         self.health_check().await

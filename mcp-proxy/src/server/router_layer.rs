@@ -6,7 +6,9 @@ use http::Method;
 use tower_http::cors::{self, CorsLayer};
 
 use crate::{
-    model::{McpProtocol, GLOBAL_SSE_MCP_ROUTES_PREFIX, GLOBAL_STREAM_MCP_ROUTES_PREFIX}, server::handlers::check_mcp_is_status_handler, AppError, AppState, DynamicRouterService
+    AppError, AppState, DynamicRouterService,
+    model::{GLOBAL_SSE_MCP_ROUTES_PREFIX, GLOBAL_STREAM_MCP_ROUTES_PREFIX, McpProtocol},
+    server::handlers::check_mcp_is_status_handler,
 };
 
 use super::{
@@ -40,26 +42,29 @@ pub async fn get_router(state: AppState) -> Result<Router, AppError> {
         // .layer(from_fn_with_state(state.clone(), verify_token::<AppState>))
         //mcp sse 协议路由
         .route_service(
-            &format!("{}/proxy/{{*path}}", GLOBAL_SSE_MCP_ROUTES_PREFIX),
+            &format!("{GLOBAL_SSE_MCP_ROUTES_PREFIX}/proxy/{{*path}}"),
             DynamicRouterService(McpProtocol::Sse),
         )
         .route(
-            &format!("{}/add", GLOBAL_SSE_MCP_ROUTES_PREFIX),
+            &format!("{GLOBAL_SSE_MCP_ROUTES_PREFIX}/add"),
             post(add_route_handler),
         )
         .route("/mcp/config/delete/{mcp_id}", delete(delete_route_handler))
-        .route("/mcp/check/status/{mcp_id}", get(check_mcp_is_status_handler))
         .route(
-            &format!("{}/check_status", GLOBAL_SSE_MCP_ROUTES_PREFIX),
+            "/mcp/check/status/{mcp_id}",
+            get(check_mcp_is_status_handler),
+        )
+        .route(
+            &format!("{GLOBAL_SSE_MCP_ROUTES_PREFIX}/check_status"),
             post(check_mcp_status_handler_sse),
         )
         //mcp stream 协议路由
         .route_service(
-            &format!("{}/proxy/{{*path}}", GLOBAL_STREAM_MCP_ROUTES_PREFIX),
+            &format!("{GLOBAL_STREAM_MCP_ROUTES_PREFIX}/proxy/{{*path}}"),
             DynamicRouterService(McpProtocol::Stream),
         )
         .route(
-            &format!("{}/check_status", GLOBAL_STREAM_MCP_ROUTES_PREFIX),
+            &format!("{GLOBAL_STREAM_MCP_ROUTES_PREFIX}/check_status"),
             post(check_mcp_status_handler_stream),
         )
         .route("/api/run_code_with_log", post(run_code_handler))

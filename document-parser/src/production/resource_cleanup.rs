@@ -2,7 +2,7 @@
 //!
 //! 提供应用关闭时的资源清理功能，确保所有资源得到正确释放。
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -200,10 +200,7 @@ pub struct DatabaseConnectionCleaner {
 
 impl DatabaseConnectionCleaner {
     pub fn new(name: String, pool_size: usize) -> Self {
-        Self {
-            name,
-            pool_size,
-        }
+        Self { name, pool_size }
     }
 }
 
@@ -284,7 +281,7 @@ impl ResourceCleanupManager {
     /// 执行完整清理
     pub async fn cleanup_all(&self) -> Result<CleanupStatus> {
         info!("开始执行资源清理");
-        
+
         let mut status = self.cleanup_status.write().await;
         status.is_cleaning = true;
         status.started_at = Some(SystemTime::now());
@@ -298,33 +295,36 @@ impl ResourceCleanupManager {
         sorted_cleaners.sort_by(|a, b| {
             let phase_order_a = self.get_phase_order(&a.cleanup_phase());
             let phase_order_b = self.get_phase_order(&b.cleanup_phase());
-            
-            phase_order_a.cmp(&phase_order_b)
+
+            phase_order_a
+                .cmp(&phase_order_b)
                 .then_with(|| a.priority().cmp(&b.priority()))
         });
 
         // 按阶段分组执行清理
         let mut current_phase = None;
         let mut phase_cleaners = Vec::new();
-        
+
         for cleaner in sorted_cleaners {
             let cleaner_phase = cleaner.cleanup_phase();
-            
+
             if current_phase.as_ref() != Some(&cleaner_phase) {
                 // 执行当前阶段的清理
                 if !phase_cleaners.is_empty() {
-                    self.execute_phase_cleanup(&phase_cleaners, current_phase.as_ref()).await?;
+                    self.execute_phase_cleanup(&phase_cleaners, current_phase.as_ref())
+                        .await?;
                     phase_cleaners.clear();
                 }
                 current_phase = Some(cleaner_phase.clone());
             }
-            
+
             phase_cleaners.push(cleaner);
         }
-        
+
         // 执行最后一个阶段的清理
         if !phase_cleaners.is_empty() {
-            self.execute_phase_cleanup(&phase_cleaners, current_phase.as_ref()).await?;
+            self.execute_phase_cleanup(&phase_cleaners, current_phase.as_ref())
+                .await?;
         }
 
         // 更新最终状态
@@ -347,7 +347,7 @@ impl ResourceCleanupManager {
     ) -> Result<()> {
         if let Some(phase) = phase {
             info!("执行清理阶段: {:?}", phase);
-            
+
             let mut status = self.cleanup_status.write().await;
             status.current_phase = Some(phase.clone());
             drop(status);
@@ -355,43 +355,43 @@ impl ResourceCleanupManager {
 
         // 并发执行同一阶段的清理器
         let mut tasks = Vec::new();
-        
+
         for cleaner in cleaners {
             let cleaner = Arc::clone(cleaner);
             let semaphore = Arc::clone(&self.semaphore);
             let config = self.config.clone();
             let cleanup_status = Arc::clone(&self.cleanup_status);
             let cleanup_history = Arc::clone(&self.cleanup_history);
-            
+
             let task = tokio::spawn(async move {
                 let _permit = semaphore.acquire().await.unwrap();
-                
+
                 let result = Self::execute_cleaner_with_retry(&cleaner, &config).await;
-                
+
                 // 更新状态
                 let mut status = cleanup_status.write().await;
                 status.completed_cleaners += 1;
                 status.progress = status.completed_cleaners as f64 / status.total_cleaners as f64;
-                
+
                 if let Ok(ref cleanup_result) = result {
                     status.results.push(cleanup_result.clone());
-                    
+
                     // 添加到历史记录
                     let mut history = cleanup_history.write().await;
                     history.push(cleanup_result.clone());
-                    
+
                     // 保持历史记录大小
                     if history.len() > 1000 {
                         history.remove(0);
                     }
                 }
-                
+
                 result
             });
-            
+
             tasks.push(task);
         }
-        
+
         // 等待所有任务完成
         for task in tasks {
             match task.await {
@@ -406,7 +406,7 @@ impl ResourceCleanupManager {
                 }
             }
         }
-        
+
         Ok(())
     }
 
@@ -416,15 +416,17 @@ impl ResourceCleanupManager {
         config: &CleanupConfig,
     ) -> Result<CleanupResult> {
         let mut last_error = None;
-        
+
         for attempt in 0..=config.retry_count {
             match tokio::time::timeout(
                 config.cleanup_timeout,
                 tokio::task::spawn_blocking({
                     let cleaner = Arc::clone(cleaner);
                     move || cleaner.cleanup()
-                })
-            ).await {
+                }),
+            )
+            .await
+            {
                 Ok(Ok(Ok(result))) => return Ok(result),
                 Ok(Ok(Err(e))) => {
                     last_error = Some(e);
@@ -440,8 +442,10 @@ impl ResourceCleanupManager {
                             tokio::task::spawn_blocking({
                                 let cleaner = Arc::clone(cleaner);
                                 move || cleaner.force_cleanup()
-                            })
-                        ).await {
+                            }),
+                        )
+                        .await
+                        {
                             Ok(Ok(Ok(result))) => return Ok(result),
                             _ => {
                                 last_error = Some(anyhow::anyhow!("强制清理也超时"));
@@ -452,18 +456,21 @@ impl ResourceCleanupManager {
                     }
                 }
             }
-            
+
             if attempt < config.retry_count {
                 tokio::time::sleep(config.retry_interval).await;
             }
         }
-        
+
         // 返回失败结果
         Ok(CleanupResult {
             cleaner_name: cleaner.name().to_string(),
             cleanup_phase: cleaner.cleanup_phase(),
             status: CleanupResultStatus::Failed,
-            message: format!("清理失败: {}", last_error.unwrap_or_else(|| anyhow::anyhow!("未知错误"))),
+            message: format!(
+                "清理失败: {}",
+                last_error.unwrap_or_else(|| anyhow::anyhow!("未知错误"))
+            ),
             started_at: SystemTime::now(),
             completed_at: Some(SystemTime::now()),
             duration: Duration::from_millis(0),
@@ -475,7 +482,8 @@ impl ResourceCleanupManager {
 
     /// 获取阶段顺序
     fn get_phase_order(&self, phase: &CleanupPhase) -> usize {
-        self.config.cleanup_order
+        self.config
+            .cleanup_order
             .iter()
             .position(|p| p == phase)
             .unwrap_or(usize::MAX)
@@ -496,11 +504,11 @@ impl ResourceCleanupManager {
     /// 强制停止清理
     pub async fn force_stop_cleanup(&self) -> Result<()> {
         warn!("强制停止资源清理");
-        
+
         let mut status = self.cleanup_status.write().await;
         status.is_cleaning = false;
         status.current_phase = None;
-        
+
         Ok(())
     }
 }
@@ -510,12 +518,12 @@ impl ResourceCleanupManager {
 impl ResourceCleaner for DatabaseConnectionCleaner {
     fn cleanup(&self) -> Result<CleanupResult> {
         let start_time = SystemTime::now();
-        
+
         // 这里应该实现实际的数据库连接清理逻辑
         info!("清理数据库连接池");
-        
+
         let duration = start_time.elapsed().unwrap_or_default();
-        
+
         Ok(CleanupResult {
             cleaner_name: self.name.clone(),
             cleanup_phase: self.cleanup_phase(),
@@ -548,7 +556,7 @@ impl ResourceCleaner for TempFileCleaner {
         let start_time = SystemTime::now();
         let mut files_cleaned = 0;
         let mut memory_freed = 0;
-        
+
         // 这里应该实现实际的临时文件清理逻辑
         for temp_dir in &self.config.temp_directories {
             info!("清理临时目录: {}", temp_dir);
@@ -556,14 +564,14 @@ impl ResourceCleaner for TempFileCleaner {
             files_cleaned += 10; // 示例值
             memory_freed += 1024 * 1024; // 示例值
         }
-        
+
         let duration = start_time.elapsed().unwrap_or_default();
-        
+
         Ok(CleanupResult {
             cleaner_name: self.name.clone(),
             cleanup_phase: self.cleanup_phase(),
             status: CleanupResultStatus::Success,
-            message: format!("成功清理 {} 个临时文件", files_cleaned),
+            message: format!("成功清理 {files_cleaned} 个临时文件"),
             started_at: start_time,
             completed_at: Some(SystemTime::now()),
             duration,
@@ -590,27 +598,27 @@ impl ResourceCleaner for MemoryCleaner {
     fn cleanup(&self) -> Result<CleanupResult> {
         let start_time = SystemTime::now();
         let mut memory_freed = 0;
-        
+
         if self.config.enabled {
             if self.config.clear_caches {
                 info!("清理内存缓存");
                 memory_freed += 1024 * 1024; // 示例值
             }
-            
+
             if self.config.force_gc {
                 info!("强制垃圾回收");
                 // 这里应该触发垃圾回收
                 memory_freed += 512 * 1024; // 示例值
             }
-            
+
             if self.config.release_unused_memory {
                 info!("释放未使用内存");
                 memory_freed += 256 * 1024; // 示例值
             }
         }
-        
+
         let duration = start_time.elapsed().unwrap_or_default();
-        
+
         Ok(CleanupResult {
             cleaner_name: self.name.clone(),
             cleanup_phase: self.cleanup_phase(),
@@ -642,6 +650,12 @@ impl ResourceCleaner for MemoryCleaner {
     }
 }
 
+impl Default for CleanupStatus {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CleanupStatus {
     /// 创建新的清理状态
     pub fn new() -> Self {
@@ -659,13 +673,17 @@ impl CleanupStatus {
 
     /// 检查是否清理成功
     pub fn is_success(&self) -> bool {
-        !self.is_cleaning && 
-        self.results.iter().all(|r| r.status == CleanupResultStatus::Success)
+        !self.is_cleaning
+            && self
+                .results
+                .iter()
+                .all(|r| r.status == CleanupResultStatus::Success)
     }
 
     /// 获取失败的清理器
     pub fn get_failed_cleaners(&self) -> Vec<&CleanupResult> {
-        self.results.iter()
+        self.results
+            .iter()
             .filter(|r| r.status == CleanupResultStatus::Failed)
             .collect()
     }
@@ -716,14 +734,14 @@ mod tests {
     async fn test_resource_cleanup_manager() {
         let config = CleanupConfig::default();
         let mut manager = ResourceCleanupManager::new(config);
-        
+
         let cleaner = Arc::new(DatabaseConnectionCleaner {
             name: "test_db".to_string(),
             pool_size: 10,
         });
-        
+
         manager.add_cleaner(cleaner);
-        
+
         let status = manager.get_cleanup_status().await;
         assert!(!status.is_cleaning);
     }
@@ -734,7 +752,7 @@ mod tests {
             name: "test_db".to_string(),
             pool_size: 5,
         };
-        
+
         let result = cleaner.cleanup().unwrap();
         assert_eq!(result.status, CleanupResultStatus::Success);
         assert_eq!(result.resources_cleaned, 5);
@@ -751,7 +769,7 @@ mod tests {
                 release_unused_memory: true,
             },
         };
-        
+
         let result = cleaner.cleanup().unwrap();
         assert_eq!(result.status, CleanupResultStatus::Success);
         assert!(result.memory_freed > 0);

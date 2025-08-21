@@ -1,11 +1,11 @@
-use std::sync::Arc;
+use crate::utils::health_check::{HealthCheckResult, HealthStatus, SystemHealthStatus};
+use crate::utils::logging::{LogLevel, StructuredLogger};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::{RwLock, mpsc};
-use serde::{Serialize, Deserialize};
 use uuid::Uuid;
-use crate::utils::health_check::{HealthStatus, HealthCheckResult, SystemHealthStatus};
-use crate::utils::logging::{StructuredLogger, LogLevel};
 
 /// 告警级别
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -152,20 +152,14 @@ impl AlertCondition {
             AlertCondition::HealthStatusEquals(status) => result.status == *status,
             AlertCondition::HealthStatusNotEquals(status) => result.status != *status,
             AlertCondition::ResponseTimeExceeds(threshold) => result.response_time_ms > *threshold,
-            AlertCondition::DetailContains(key, value) => {
-                result.details.get(key) == Some(value)
-            }
-            AlertCondition::DetailValueExceeds(key, threshold) => {
-                result.details.get(key)
-                    .and_then(|v| v.parse::<f64>().ok())
-                    .is_some_and(|v| v > *threshold)
-            }
-            AlertCondition::And(conditions) => {
-                conditions.iter().all(|c| c.evaluate(result))
-            }
-            AlertCondition::Or(conditions) => {
-                conditions.iter().any(|c| c.evaluate(result))
-            }
+            AlertCondition::DetailContains(key, value) => result.details.get(key) == Some(value),
+            AlertCondition::DetailValueExceeds(key, threshold) => result
+                .details
+                .get(key)
+                .and_then(|v| v.parse::<f64>().ok())
+                .is_some_and(|v| v > *threshold),
+            AlertCondition::And(conditions) => conditions.iter().all(|c| c.evaluate(result)),
+            AlertCondition::Or(conditions) => conditions.iter().any(|c| c.evaluate(result)),
             // 这些条件需要历史数据，暂时返回false
             AlertCondition::ConsecutiveFailuresExceeds(_) => false,
             AlertCondition::ErrorRateExceeds(_) => false,
@@ -175,8 +169,12 @@ impl AlertCondition {
     /// 评估系统级条件
     pub fn evaluate_system(&self, status: &SystemHealthStatus) -> bool {
         match self {
-            AlertCondition::HealthStatusEquals(health_status) => status.overall_status == *health_status,
-            AlertCondition::HealthStatusNotEquals(health_status) => status.overall_status != *health_status,
+            AlertCondition::HealthStatusEquals(health_status) => {
+                status.overall_status == *health_status
+            }
+            AlertCondition::HealthStatusNotEquals(health_status) => {
+                status.overall_status != *health_status
+            }
             AlertCondition::ErrorRateExceeds(threshold) => {
                 let total = status.components.len() as f64;
                 if total == 0.0 {
@@ -185,12 +183,8 @@ impl AlertCondition {
                 let error_rate = (status.unhealthy_count as f64 / total) * 100.0;
                 error_rate > *threshold
             }
-            AlertCondition::And(conditions) => {
-                conditions.iter().all(|c| c.evaluate_system(status))
-            }
-            AlertCondition::Or(conditions) => {
-                conditions.iter().any(|c| c.evaluate_system(status))
-            }
+            AlertCondition::And(conditions) => conditions.iter().all(|c| c.evaluate_system(status)),
+            AlertCondition::Or(conditions) => conditions.iter().any(|c| c.evaluate_system(status)),
             _ => false, // 其他条件不适用于系统级评估
         }
     }
@@ -257,7 +251,8 @@ impl AlertEvent {
                 SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
-                    .as_secs() - self.timestamp,
+                    .as_secs()
+                    - self.timestamp,
             ))
         }
     }
@@ -266,8 +261,14 @@ impl AlertEvent {
 /// 告警通知器trait
 #[async_trait::async_trait]
 pub trait AlertNotifier: Send + Sync {
-    async fn send_alert(&self, event: &AlertEvent) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
-    async fn send_resolution(&self, event: &AlertEvent) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    async fn send_alert(
+        &self,
+        event: &AlertEvent,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    async fn send_resolution(
+        &self,
+        event: &AlertEvent,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     fn name(&self) -> &str;
 }
 
@@ -284,7 +285,10 @@ impl LogAlertNotifier {
 
 #[async_trait::async_trait]
 impl AlertNotifier for LogAlertNotifier {
-    async fn send_alert(&self, event: &AlertEvent) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn send_alert(
+        &self,
+        event: &AlertEvent,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let log_level = match event.level {
             AlertLevel::Info => LogLevel::Info,
             AlertLevel::Warning => LogLevel::Warn,
@@ -297,11 +301,11 @@ impl AlertNotifier for LogAlertNotifier {
         fields.insert("rule_id".to_string(), event.rule_id.clone());
         fields.insert("rule_name".to_string(), event.rule_name.clone());
         fields.insert("alert_level".to_string(), event.level.to_string());
-        
+
         if let Some(ref component) = event.component {
             fields.insert("component".to_string(), component.clone());
         }
-        
+
         for (k, v) in &event.details {
             fields.insert(format!("detail_{k}"), v.clone());
         }
@@ -310,32 +314,39 @@ impl AlertNotifier for LogAlertNotifier {
             log_level,
             format!("ALERT: {}", event.message),
             "alerting".to_string(),
-        ).with_field("alert_id", &event.id)
-         .with_field("rule_id", &event.rule_id)
-         .with_field("rule_name", &event.rule_name)
-         .with_field("alert_level", event.level.to_string());
-        
+        )
+        .with_field("alert_id", &event.id)
+        .with_field("rule_id", &event.rule_id)
+        .with_field("rule_name", &event.rule_name)
+        .with_field("alert_level", event.level.to_string());
+
         let mut final_entry = entry;
         for (k, v) in &fields {
             final_entry = final_entry.with_field(k, v);
         }
-        
+
         self.logger.log(final_entry).await;
 
         Ok(())
     }
 
-    async fn send_resolution(&self, event: &AlertEvent) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn send_resolution(
+        &self,
+        event: &AlertEvent,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let mut fields = HashMap::new();
         fields.insert("alert_id".to_string(), event.id.clone());
         fields.insert("rule_id".to_string(), event.rule_id.clone());
         fields.insert("rule_name".to_string(), event.rule_name.clone());
         fields.insert("alert_level".to_string(), event.level.to_string());
-        
+
         if let Some(duration) = event.duration() {
-            fields.insert("duration_seconds".to_string(), duration.as_secs().to_string());
+            fields.insert(
+                "duration_seconds".to_string(),
+                duration.as_secs().to_string(),
+            );
         }
-        
+
         if let Some(ref component) = event.component {
             fields.insert("component".to_string(), component.clone());
         }
@@ -344,16 +355,17 @@ impl AlertNotifier for LogAlertNotifier {
             LogLevel::Info,
             format!("ALERT RESOLVED: {}", event.message),
             "alerting".to_string(),
-        ).with_field("alert_id", &event.id)
-         .with_field("rule_id", &event.rule_id)
-         .with_field("rule_name", &event.rule_name)
-         .with_field("alert_level", event.level.to_string());
-        
+        )
+        .with_field("alert_id", &event.id)
+        .with_field("rule_id", &event.rule_id)
+        .with_field("rule_name", &event.rule_name)
+        .with_field("alert_level", event.level.to_string());
+
         let mut final_entry = entry;
         for (k, v) in &fields {
             final_entry = final_entry.with_field(k, v);
         }
-        
+
         self.logger.log(final_entry).await;
 
         Ok(())
@@ -382,7 +394,10 @@ impl ConsoleAlertNotifier {
 
 #[async_trait::async_trait]
 impl AlertNotifier for ConsoleAlertNotifier {
-    async fn send_alert(&self, event: &AlertEvent) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn send_alert(
+        &self,
+        event: &AlertEvent,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let color_code = match event.level {
             AlertLevel::Info => "\x1b[36m",      // 青色
             AlertLevel::Warning => "\x1b[33m",   // 黄色
@@ -417,8 +432,12 @@ impl AlertNotifier for ConsoleAlertNotifier {
         Ok(())
     }
 
-    async fn send_resolution(&self, event: &AlertEvent) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let duration_str = event.duration()
+    async fn send_resolution(
+        &self,
+        event: &AlertEvent,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let duration_str = event
+            .duration()
             .map(|d| format!("{:.1}s", d.as_secs_f64()))
             .unwrap_or_else(|| "Unknown".to_string());
 
@@ -458,39 +477,51 @@ impl WebhookAlertNotifier {
 
 #[async_trait::async_trait]
 impl AlertNotifier for WebhookAlertNotifier {
-    async fn send_alert(&self, event: &AlertEvent) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn send_alert(
+        &self,
+        event: &AlertEvent,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let payload = serde_json::json!({
             "type": "alert",
             "event": event
         });
 
-        let response = self.client
+        let response = self
+            .client
             .post(&self.webhook_url)
             .json(&payload)
             .send()
             .await?;
 
         if !response.status().is_success() {
-            return Err(format!("Webhook request failed with status: {}", response.status()).into());
+            return Err(
+                format!("Webhook request failed with status: {}", response.status()).into(),
+            );
         }
 
         Ok(())
     }
 
-    async fn send_resolution(&self, event: &AlertEvent) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn send_resolution(
+        &self,
+        event: &AlertEvent,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let payload = serde_json::json!({
             "type": "resolution",
             "event": event
         });
 
-        let response = self.client
+        let response = self
+            .client
             .post(&self.webhook_url)
             .json(&payload)
             .send()
             .await?;
 
         if !response.status().is_success() {
-            return Err(format!("Webhook request failed with status: {}", response.status()).into());
+            return Err(
+                format!("Webhook request failed with status: {}", response.status()).into(),
+            );
         }
 
         Ok(())
@@ -551,7 +582,7 @@ pub struct AlertManager {
 impl AlertManager {
     pub fn new() -> Self {
         let (event_sender, event_receiver) = mpsc::unbounded_channel();
-        
+
         Self {
             rules: Arc::new(RwLock::new(HashMap::new())),
             notifiers: Arc::new(RwLock::new(Vec::new())),
@@ -595,10 +626,16 @@ impl AlertManager {
     /// 处理健康检查结果
     pub async fn process_health_check(&self, result: &HealthCheckResult) {
         let rules = self.rules.read().await;
-        
+
         for rule in rules.values() {
             if rule.matches(result) {
-                self.trigger_alert(rule, Some(result.component.clone()), &result.message, result.details.clone()).await;
+                self.trigger_alert(
+                    rule,
+                    Some(result.component.clone()),
+                    &result.message,
+                    result.details.clone(),
+                )
+                .await;
             }
         }
     }
@@ -606,19 +643,36 @@ impl AlertManager {
     /// 处理系统健康状态
     pub async fn process_system_health(&self, status: &SystemHealthStatus) {
         let rules = self.rules.read().await;
-        
+
         for rule in rules.values() {
             if rule.matches_system(status) {
-                let message = format!("System health issue: {} healthy, {} degraded, {} unhealthy", 
-                    status.healthy_count, status.degraded_count, status.unhealthy_count);
-                
+                let message = format!(
+                    "System health issue: {} healthy, {} degraded, {} unhealthy",
+                    status.healthy_count, status.degraded_count, status.unhealthy_count
+                );
+
                 let mut details = HashMap::new();
-                details.insert("overall_status".to_string(), status.overall_status.to_string());
-                details.insert("healthy_count".to_string(), status.healthy_count.to_string());
-                details.insert("degraded_count".to_string(), status.degraded_count.to_string());
-                details.insert("unhealthy_count".to_string(), status.unhealthy_count.to_string());
-                details.insert("total_response_time_ms".to_string(), status.total_response_time_ms.to_string());
-                
+                details.insert(
+                    "overall_status".to_string(),
+                    status.overall_status.to_string(),
+                );
+                details.insert(
+                    "healthy_count".to_string(),
+                    status.healthy_count.to_string(),
+                );
+                details.insert(
+                    "degraded_count".to_string(),
+                    status.degraded_count.to_string(),
+                );
+                details.insert(
+                    "unhealthy_count".to_string(),
+                    status.unhealthy_count.to_string(),
+                );
+                details.insert(
+                    "total_response_time_ms".to_string(),
+                    status.total_response_time_ms.to_string(),
+                );
+
                 self.trigger_alert(rule, None, &message, details).await;
             }
         }
@@ -635,19 +689,20 @@ impl AlertManager {
         // 检查冷却时间
         {
             let mut history = self.alert_history.write().await;
-            let alert_history = history.entry(rule.id.clone())
+            let alert_history = history
+                .entry(rule.id.clone())
                 .or_insert_with(|| AlertHistory::new(rule.id.clone()));
-            
+
             if !alert_history.can_trigger(rule.cooldown) {
                 return;
             }
-            
+
             alert_history.record_trigger();
         }
 
         // 创建告警事件
         let event = AlertEvent::new(rule, component, message.to_string(), details);
-        
+
         // 存储活跃告警
         {
             let mut active_alerts = self.active_alerts.write().await;
@@ -663,15 +718,15 @@ impl AlertManager {
     /// 解决告警
     pub async fn resolve_alert(&self, alert_id: &str) -> bool {
         let mut active_alerts = self.active_alerts.write().await;
-        
+
         if let Some(mut event) = active_alerts.remove(alert_id) {
             event.resolve();
-            
+
             // 发送解决事件
             if let Err(e) = self.event_sender.send(event) {
                 eprintln!("Failed to send alert resolution event: {e}");
             }
-            
+
             true
         } else {
             false
@@ -688,14 +743,15 @@ impl AlertManager {
     pub async fn get_alert_stats(&self) -> AlertStats {
         let active_alerts = self.active_alerts.read().await;
         let history = self.alert_history.read().await;
-        
+
         let total_active = active_alerts.len();
-        let critical_count = active_alerts.values()
+        let critical_count = active_alerts
+            .values()
             .filter(|a| matches!(a.level, AlertLevel::Critical | AlertLevel::Emergency))
             .count();
-        
+
         let total_triggered = history.values().map(|h| h.total_triggers).sum();
-        
+
         AlertStats {
             total_active,
             critical_count,
@@ -712,19 +768,19 @@ impl AlertManager {
             let mut event_receiver = self.event_receiver.write().await;
             event_receiver.take()
         };
-        
+
         if let Some(mut receiver) = receiver {
             tokio::spawn(async move {
                 while let Some(event) = receiver.recv().await {
                     let notifiers_guard = notifiers.read().await;
-                    
+
                     for notifier in notifiers_guard.iter() {
                         let result = if event.resolved {
                             notifier.send_resolution(&event).await
                         } else {
                             notifier.send_alert(&event).await
                         };
-                        
+
                         if let Err(e) = result {
                             eprintln!("Failed to send notification via {}: {}", notifier.name(), e);
                         }
@@ -826,12 +882,18 @@ mod tests {
 
     #[async_trait::async_trait]
     impl AlertNotifier for MockNotifier {
-        async fn send_alert(&self, _event: &AlertEvent) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        async fn send_alert(
+            &self,
+            _event: &AlertEvent,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             self.alert_count.fetch_add(1, Ordering::Relaxed);
             Ok(())
         }
 
-        async fn send_resolution(&self, _event: &AlertEvent) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        async fn send_resolution(
+            &self,
+            _event: &AlertEvent,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             self.resolution_count.fetch_add(1, Ordering::Relaxed);
             Ok(())
         }
@@ -891,7 +953,7 @@ mod tests {
     async fn test_alert_manager() {
         let manager = AlertManager::new();
         let notifier = Arc::new(MockNotifier::new("test".to_string()));
-        
+
         manager.add_notifier(notifier.clone()).await;
         manager.start_event_processor().await;
 
@@ -901,7 +963,8 @@ mod tests {
             "Test description".to_string(),
             AlertCondition::HealthStatusEquals(HealthStatus::Unhealthy),
             AlertLevel::Critical,
-        ).with_cooldown(Duration::from_millis(100));
+        )
+        .with_cooldown(Duration::from_millis(100));
 
         manager.add_rule(rule).await;
 
@@ -912,10 +975,10 @@ mod tests {
         );
 
         manager.process_health_check(&unhealthy_result).await;
-        
+
         // 等待事件处理
         tokio::time::sleep(Duration::from_millis(50)).await;
-        
+
         assert_eq!(notifier.get_alert_count(), 1);
         assert_eq!(manager.get_active_alerts().await.len(), 1);
 

@@ -2,13 +2,13 @@
 //!
 //! 提供应用部署后的健康检查功能，包括启动检查、就绪检查、存活检查等。
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::sync::RwLock;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 /// 健康检查管理器
 #[derive(Clone)]
@@ -306,11 +306,11 @@ impl HealthCheckManager {
                                 overall_healthy = false;
                             }
                             checker_results.insert(checker.name().to_string(), result.clone());
-                            
+
                             // 添加到历史记录
                             let mut history = check_history.write().await;
                             history.push(result);
-                            
+
                             // 保持历史记录大小
                             if history.len() > 1000 {
                                 history.remove(0);
@@ -319,17 +319,17 @@ impl HealthCheckManager {
                         Err(e) => {
                             error!("健康检查器 {} 执行失败: {}", checker.name(), e);
                             overall_healthy = false;
-                            
+
                             let error_result = HealthCheckResult {
                                 checker_name: checker.name().to_string(),
                                 check_type: checker.check_type(),
                                 status: HealthCheckStatus::Unhealthy,
-                                message: format!("检查失败: {}", e),
+                                message: format!("检查失败: {e}"),
                                 checked_at: SystemTime::now(),
                                 duration: Duration::from_millis(0),
                                 details: HashMap::new(),
                             };
-                            
+
                             checker_results.insert(checker.name().to_string(), error_result);
                         }
                     }
@@ -355,25 +355,30 @@ impl HealthCheckManager {
         config: &HealthCheckConfig,
     ) -> Result<HealthCheckResult> {
         let mut last_error: Option<anyhow::Error> = None;
-        
+
         for attempt in 0..=config.retry_count {
-            match tokio::time::timeout(config.timeout, tokio::task::spawn_blocking({
-                let checker_name = checker.name().to_string();
-                let checker_type = checker.check_type();
-                move || {
-                    // 这里需要克隆检查器或使用其他方式
-                    // 由于 trait object 的限制，这里简化处理
-                    HealthCheckResult {
-                        checker_name,
-                        check_type: checker_type,
-                        status: HealthCheckStatus::Healthy,
-                        message: "检查通过".to_string(),
-                        checked_at: SystemTime::now(),
-                        duration: Duration::from_millis(10),
-                        details: HashMap::new(),
+            match tokio::time::timeout(
+                config.timeout,
+                tokio::task::spawn_blocking({
+                    let checker_name = checker.name().to_string();
+                    let checker_type = checker.check_type();
+                    move || {
+                        // 这里需要克隆检查器或使用其他方式
+                        // 由于 trait object 的限制，这里简化处理
+                        HealthCheckResult {
+                            checker_name,
+                            check_type: checker_type,
+                            status: HealthCheckStatus::Healthy,
+                            message: "检查通过".to_string(),
+                            checked_at: SystemTime::now(),
+                            duration: Duration::from_millis(10),
+                            details: HashMap::new(),
+                        }
                     }
-                }
-            })).await {
+                }),
+            )
+            .await
+            {
                 Ok(Ok(result)) => return Ok(result),
                 Ok(Err(e)) => {
                     last_error = Some(anyhow::anyhow!("任务执行失败: {}", e));
@@ -382,19 +387,19 @@ impl HealthCheckManager {
                     last_error = Some(anyhow::anyhow!("健康检查超时"));
                 }
             }
-            
+
             if attempt < config.retry_count {
                 tokio::time::sleep(config.retry_interval).await;
             }
         }
-        
+
         Err(last_error.unwrap_or_else(|| anyhow::anyhow!("健康检查失败")))
     }
 
     /// 执行初始检查
     async fn perform_initial_checks(&self) -> Result<()> {
         info!("执行初始健康检查");
-        
+
         for checker in &self.checkers {
             if checker.check_type() == HealthCheckType::Startup {
                 match Self::execute_check_with_retry(checker.as_ref(), &self.config).await {
@@ -408,7 +413,7 @@ impl HealthCheckManager {
                 }
             }
         }
-        
+
         Ok(())
     }
 
@@ -418,9 +423,13 @@ impl HealthCheckManager {
     }
 
     /// 获取特定类型的健康状态
-    pub async fn get_health_status_by_type(&self, check_type: HealthCheckType) -> Vec<HealthCheckResult> {
+    pub async fn get_health_status_by_type(
+        &self,
+        check_type: HealthCheckType,
+    ) -> Vec<HealthCheckResult> {
         let status = self.health_status.read().await;
-        status.checker_statuses
+        status
+            .checker_statuses
             .values()
             .filter(|result| result.check_type == check_type)
             .cloned()
@@ -435,16 +444,19 @@ impl HealthCheckManager {
     }
 
     /// 手动触发健康检查
-    pub async fn trigger_health_check(&self, checker_name: Option<String>) -> Result<Vec<HealthCheckResult>> {
+    pub async fn trigger_health_check(
+        &self,
+        checker_name: Option<String>,
+    ) -> Result<Vec<HealthCheckResult>> {
         let mut results = Vec::new();
-        
+
         for checker in &self.checkers {
             if let Some(ref name) = checker_name {
                 if checker.name() != name {
                     continue;
                 }
             }
-            
+
             match Self::execute_check_with_retry(checker.as_ref(), &self.config).await {
                 Ok(result) => results.push(result),
                 Err(e) => {
@@ -453,7 +465,7 @@ impl HealthCheckManager {
                         checker_name: checker.name().to_string(),
                         check_type: checker.check_type(),
                         status: HealthCheckStatus::Unhealthy,
-                        message: format!("检查失败: {}", e),
+                        message: format!("检查失败: {e}"),
                         checked_at: SystemTime::now(),
                         duration: Duration::from_millis(0),
                         details: HashMap::new(),
@@ -461,7 +473,7 @@ impl HealthCheckManager {
                 }
             }
         }
-        
+
         Ok(results)
     }
 
@@ -476,12 +488,12 @@ impl HealthCheckManager {
 impl HealthChecker for DatabaseHealthChecker {
     fn check_health(&self) -> Result<HealthCheckResult> {
         let start_time = SystemTime::now();
-        
+
         // 这里应该实现实际的数据库连接检查
         // 例如执行简单的 SELECT 1 查询
-        
+
         let duration = start_time.elapsed().unwrap_or_default();
-        
+
         Ok(HealthCheckResult {
             checker_name: self.name.clone(),
             check_type: HealthCheckType::Readiness,
@@ -505,12 +517,12 @@ impl HealthChecker for DatabaseHealthChecker {
 impl HealthChecker for HttpServiceHealthChecker {
     fn check_health(&self) -> Result<HealthCheckResult> {
         let start_time = SystemTime::now();
-        
+
         // 这里应该实现实际的 HTTP 服务检查
         // 例如发送 GET 请求到健康检查端点
-        
+
         let duration = start_time.elapsed().unwrap_or_default();
-        
+
         Ok(HealthCheckResult {
             checker_name: self.name.clone(),
             check_type: HealthCheckType::Liveness,
@@ -535,18 +547,18 @@ impl HealthChecker for FileSystemHealthChecker {
     fn check_health(&self) -> Result<HealthCheckResult> {
         let start_time = SystemTime::now();
         let mut details = HashMap::new();
-        
+
         // 检查文件系统空间
         for path in &self.check_paths {
             // 这里应该实现实际的文件系统检查
             details.insert(
-                format!("path_{}", path),
+                format!("path_{path}"),
                 serde_json::Value::String("可用".to_string()),
             );
         }
-        
+
         let duration = start_time.elapsed().unwrap_or_default();
-        
+
         Ok(HealthCheckResult {
             checker_name: self.name.clone(),
             check_type: HealthCheckType::Startup,
@@ -570,24 +582,24 @@ impl HealthChecker for FileSystemHealthChecker {
 impl HealthChecker for MemoryHealthChecker {
     fn check_health(&self) -> Result<HealthCheckResult> {
         let start_time = SystemTime::now();
-        
+
         // 这里应该实现实际的内存使用检查
         let memory_usage = 0.6; // 示例值
-        
+
         let status = if memory_usage > self.max_memory_usage {
             HealthCheckStatus::Warning
         } else {
             HealthCheckStatus::Healthy
         };
-        
+
         let duration = start_time.elapsed().unwrap_or_default();
-        
+
         let mut details = HashMap::new();
         details.insert(
             "memory_usage".to_string(),
             serde_json::Value::Number(serde_json::Number::from_f64(memory_usage).unwrap()),
         );
-        
+
         Ok(HealthCheckResult {
             checker_name: self.name.clone(),
             check_type: HealthCheckType::Liveness,
@@ -605,6 +617,12 @@ impl HealthChecker for MemoryHealthChecker {
 
     fn check_type(&self) -> HealthCheckType {
         HealthCheckType::Liveness
+    }
+}
+
+impl Default for HealthStatus {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -684,14 +702,14 @@ mod tests {
     async fn test_health_check_manager() {
         let config = HealthCheckConfig::default();
         let mut manager = HealthCheckManager::new(config);
-        
+
         let checker = Arc::new(DatabaseHealthChecker {
             name: "test_db".to_string(),
             connection_string: "test://localhost".to_string(),
         });
-        
+
         manager.add_checker(checker);
-        
+
         let status = manager.get_health_status().await;
         assert_eq!(status.overall_status, HealthCheckStatus::Unknown);
     }
@@ -702,7 +720,7 @@ mod tests {
             name: "test_db".to_string(),
             connection_string: "test://localhost".to_string(),
         };
-        
+
         let result = checker.check_health().unwrap();
         assert_eq!(result.status, HealthCheckStatus::Healthy);
         assert_eq!(result.checker_name, "test_db");
@@ -714,9 +732,12 @@ mod tests {
             name: "memory".to_string(),
             max_memory_usage: 0.8,
         };
-        
+
         let result = checker.check_health().unwrap();
-        assert!(result.status == HealthCheckStatus::Healthy || result.status == HealthCheckStatus::Warning);
+        assert!(
+            result.status == HealthCheckStatus::Healthy
+                || result.status == HealthCheckStatus::Warning
+        );
     }
 
     #[test]

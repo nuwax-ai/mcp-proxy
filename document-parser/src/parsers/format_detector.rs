@@ -1,13 +1,13 @@
+use crate::config::{FileSizePurpose, get_file_size_limit};
 use crate::models::{DocumentFormat, ParserEngine};
-use crate::config::{get_file_size_limit, FileSizePurpose};
-use anyhow::{Result, Context, bail};
-use std::path::Path;
+use anyhow::{Context, Result, bail};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
-use std::collections::HashMap;
-use tracing::{debug, warn};
-use tokio::io::AsyncReadExt;
+use std::path::Path;
 use std::time::Instant;
+use tokio::io::AsyncReadExt;
+use tracing::{debug, warn};
 
 /// 格式检测器
 #[derive(Debug, Clone)]
@@ -106,13 +106,10 @@ impl FormatDetector {
     /// 使用全局配置创建格式检测器
     pub fn with_global_config() -> Self {
         // 安全地获取文件大小限制，如果全局配置未初始化则使用默认值
-        let max_file_size = match std::panic::catch_unwind(|| {
+        let max_file_size = std::panic::catch_unwind(|| {
             get_file_size_limit(&FileSizePurpose::FormatDetector).bytes()
-        }) {
-            Ok(size) => size,
-            Err(_) => 100 * 1024 * 1024, // 默认100MB
-        };
-        
+        }).unwrap_or(100 * 1024 * 1024);
+
         Self {
             custom_mappings: HashMap::new(),
             max_file_size,
@@ -124,7 +121,9 @@ impl FormatDetector {
 
     /// 验证文件安全性
     fn validate_file_security(&self, file_path: &str) -> Result<()> {
-        if !self.security_config.enable_size_check && !self.security_config.enable_filename_validation {
+        if !self.security_config.enable_size_check
+            && !self.security_config.enable_filename_validation
+        {
             return Ok(());
         }
 
@@ -134,7 +133,11 @@ impl FormatDetector {
         if self.security_config.enable_filename_validation {
             if let Some(extension) = path.extension().and_then(|ext| ext.to_str()) {
                 let ext_lower = extension.to_lowercase();
-                if self.security_config.dangerous_extensions.contains(&ext_lower) {
+                if self
+                    .security_config
+                    .dangerous_extensions
+                    .contains(&ext_lower)
+                {
                     bail!("危险文件扩展名: {}", extension);
                 }
             }
@@ -152,8 +155,11 @@ impl FormatDetector {
             if let Ok(metadata) = std::fs::metadata(file_path) {
                 let file_size = metadata.len();
                 if file_size > self.security_config.max_allowed_size {
-                    bail!("文件大小超过限制: {} bytes (最大: {} bytes)", 
-                          file_size, self.security_config.max_allowed_size);
+                    bail!(
+                        "文件大小超过限制: {} bytes (最大: {} bytes)",
+                        file_size,
+                        self.security_config.max_allowed_size
+                    );
                 }
             }
         }
@@ -164,36 +170,29 @@ impl FormatDetector {
     /// 评估安全状态
     fn assess_security_status(&self, format: &DocumentFormat, file_path: &str) -> SecurityStatus {
         let path = Path::new(file_path);
-        
+
         // 检查文件扩展名
         if let Some(extension) = path.extension().and_then(|ext| ext.to_str()) {
             let ext_lower = extension.to_lowercase();
-            if self.security_config.dangerous_extensions.contains(&ext_lower) {
-                return SecurityStatus::Dangerous(format!("危险文件扩展名: {}", extension));
+            if self
+                .security_config
+                .dangerous_extensions
+                .contains(&ext_lower)
+            {
+                return SecurityStatus::Dangerous(format!("危险文件扩展名: {extension}"));
             }
         }
 
         // 根据格式评估安全性
         match format {
-            DocumentFormat::PDF | DocumentFormat::Word | DocumentFormat::Excel | DocumentFormat::PowerPoint => {
-                SecurityStatus::Safe
-            }
+            DocumentFormat::PDF
+            | DocumentFormat::Word
+            | DocumentFormat::Excel
+            | DocumentFormat::PowerPoint => SecurityStatus::Safe,
             DocumentFormat::Image | DocumentFormat::Audio => SecurityStatus::Safe,
             DocumentFormat::HTML => SecurityStatus::Suspicious("HTML文件可能包含脚本".to_string()),
             DocumentFormat::Text | DocumentFormat::Txt | DocumentFormat::Md => SecurityStatus::Safe,
             DocumentFormat::Other(_) => SecurityStatus::Unknown,
-        }
-    }
-
-    /// 方法名转换为枚举
-    fn method_name_to_enum(&self, method_name: &str) -> DetectionMethod {
-        match method_name {
-            "custom_mapping" => DetectionMethod::CustomMapping,
-            "magic_number" => DetectionMethod::MagicNumber,
-            "mime_type" => DetectionMethod::MimeType,
-            "extension" => DetectionMethod::FileExtension,
-            "content_analysis" => DetectionMethod::ContentAnalysis,
-            _ => DetectionMethod::FallbackDetection,
         }
     }
 
@@ -203,11 +202,14 @@ impl FormatDetector {
     }
 
     /// 异步版本的魔数检测
-    async fn detect_by_magic_number_async(&self, file_path: &str) -> Result<Option<DetectionResult>> {
+    async fn detect_by_magic_number_async(
+        &self,
+        file_path: &str,
+    ) -> Result<Option<DetectionResult>> {
         let mut file = tokio::fs::File::open(file_path).await?;
         let mut buffer = [0u8; 16]; // 读取前16字节
         let bytes_read = file.read(&mut buffer).await?;
-        
+
         if bytes_read < 4 {
             return Ok(None);
         }
@@ -217,13 +219,15 @@ impl FormatDetector {
             [0x50, 0x4B, 0x03, 0x04] | [0x50, 0x4B, 0x05, 0x06] => {
                 // ZIP格式，可能是Office文档
                 self.detect_office_format(file_path)?
-            },
+            }
             [0xFF, 0xD8, 0xFF, _] => Some(DocumentFormat::Image), // JPEG
             [0x89, 0x50, 0x4E, 0x47] => Some(DocumentFormat::Image), // PNG
             [0x47, 0x49, 0x46, 0x38] => Some(DocumentFormat::Image), // GIF
-            [0x42, 0x4D, _, _] => Some(DocumentFormat::Image), // BMP
+            [0x42, 0x4D, _, _] => Some(DocumentFormat::Image),    // BMP
             [0x49, 0x44, 0x33, _] => Some(DocumentFormat::Audio), // MP3 with ID3
-            [0xFF, 0xFB, _, _] | [0xFF, 0xF3, _, _] | [0xFF, 0xF2, _, _] => Some(DocumentFormat::Audio), // MP3
+            [0xFF, 0xFB, _, _] | [0xFF, 0xF3, _, _] | [0xFF, 0xF2, _, _] => {
+                Some(DocumentFormat::Audio)
+            } // MP3
             [0x52, 0x49, 0x46, 0x46] => {
                 // RIFF格式，可能是WAV
                 if bytes_read >= 8 && &buffer[8..12] == b"WAVE" {
@@ -231,7 +235,7 @@ impl FormatDetector {
                 } else {
                     None
                 }
-            },
+            }
             _ => None,
         };
 
@@ -253,15 +257,17 @@ impl FormatDetector {
         let mut file = File::open(file_path)?;
         let mut buffer = [0u8; 512]; // 读取前512字节进行内容分析
         let bytes_read = file.read(&mut buffer)?;
-        
+
         if bytes_read == 0 {
             return Ok(None);
         }
 
         // 检查是否为文本文件
-        let text_ratio = buffer[..bytes_read].iter()
+        let text_ratio = buffer[..bytes_read]
+            .iter()
             .filter(|&&b| b.is_ascii_graphic() || b.is_ascii_whitespace())
-            .count() as f32 / bytes_read as f32;
+            .count() as f32
+            / bytes_read as f32;
 
         if text_ratio > 0.8 {
             // 进一步分析文本内容
@@ -307,11 +313,16 @@ impl FormatDetector {
 
     /// 添加自定义格式映射
     pub fn add_custom_mapping(&mut self, extension: String, format: DocumentFormat) {
-        self.custom_mappings.insert(extension.to_lowercase(), format);
+        self.custom_mappings
+            .insert(extension.to_lowercase(), format);
     }
 
     /// 检测文件格式 (同步版本)
-    pub fn detect_format(&self, file_path: &str, mime_type: Option<&str>) -> Result<DetectionResult> {
+    pub fn detect_format(
+        &self,
+        file_path: &str,
+        mime_type: Option<&str>,
+    ) -> Result<DetectionResult> {
         let start_time = Instant::now();
         debug!("开始检测文件格式: {}", file_path);
 
@@ -337,7 +348,7 @@ impl FormatDetector {
             result.detection_time_ms = start_time.elapsed().as_millis() as u64;
             result.fallback_methods = fallback_methods.clone();
             result.security_status = self.assess_security_status(&result.format, file_path);
-            
+
             if result.confidence >= 0.9 {
                 debug!("高置信度检测成功: custom_mapping ({})", result.confidence);
                 return Ok(result);
@@ -348,20 +359,25 @@ impl FormatDetector {
         }
 
         // 魔数检测
-        if best_result.as_ref().map_or(true, |r| r.confidence < 0.9) {
+        if best_result.as_ref().is_none_or(|r| r.confidence < 0.9) {
             match self.detect_by_magic_number_sync(file_path) {
                 Ok(Some(mut result)) => {
                     result.file_size = Some(file_size);
                     result.detection_time_ms = start_time.elapsed().as_millis() as u64;
                     result.fallback_methods = fallback_methods.clone();
                     result.security_status = self.assess_security_status(&result.format, file_path);
-                    
-                    if best_result.is_none() || result.confidence > best_result.as_ref().unwrap().confidence {
+
+                    if best_result.is_none()
+                        || result.confidence > best_result.as_ref().unwrap().confidence
+                    {
                         best_result = Some(result);
                     }
-                    
+
                     if best_result.as_ref().unwrap().confidence >= 0.9 {
-                        debug!("高置信度检测成功: magic_number ({})", best_result.as_ref().unwrap().confidence);
+                        debug!(
+                            "高置信度检测成功: magic_number ({})",
+                            best_result.as_ref().unwrap().confidence
+                        );
                         return Ok(best_result.unwrap());
                     }
                 }
@@ -376,15 +392,17 @@ impl FormatDetector {
         }
 
         // MIME类型检测
-        if best_result.as_ref().map_or(true, |r| r.confidence < 0.9) {
+        if best_result.as_ref().is_none_or(|r| r.confidence < 0.9) {
             if let Some(mime) = mime_type {
                 if let Some(mut result) = self.detect_by_mime_type(mime) {
                     result.file_size = Some(file_size);
                     result.detection_time_ms = start_time.elapsed().as_millis() as u64;
                     result.fallback_methods = fallback_methods.clone();
                     result.security_status = self.assess_security_status(&result.format, file_path);
-                    
-                    if best_result.is_none() || result.confidence > best_result.as_ref().unwrap().confidence {
+
+                    if best_result.is_none()
+                        || result.confidence > best_result.as_ref().unwrap().confidence
+                    {
                         best_result = Some(result);
                     }
                 } else {
@@ -396,14 +414,16 @@ impl FormatDetector {
         }
 
         // 扩展名检测
-        if best_result.as_ref().map_or(true, |r| r.confidence < 0.9) {
+        if best_result.as_ref().is_none_or(|r| r.confidence < 0.9) {
             if let Some(mut result) = self.detect_by_extension(file_path) {
                 result.file_size = Some(file_size);
                 result.detection_time_ms = start_time.elapsed().as_millis() as u64;
                 result.fallback_methods = fallback_methods.clone();
                 result.security_status = self.assess_security_status(&result.format, file_path);
-                
-                if best_result.is_none() || result.confidence > best_result.as_ref().unwrap().confidence {
+
+                if best_result.is_none()
+                    || result.confidence > best_result.as_ref().unwrap().confidence
+                {
                     best_result = Some(result);
                 }
             } else {
@@ -412,15 +432,17 @@ impl FormatDetector {
         }
 
         // 内容分析检测
-        if best_result.as_ref().map_or(true, |r| r.confidence < 0.9) {
+        if best_result.as_ref().is_none_or(|r| r.confidence < 0.9) {
             match self.detect_by_content_analysis(file_path) {
                 Ok(Some(mut result)) => {
                     result.file_size = Some(file_size);
                     result.detection_time_ms = start_time.elapsed().as_millis() as u64;
                     result.fallback_methods = fallback_methods.clone();
                     result.security_status = self.assess_security_status(&result.format, file_path);
-                    
-                    if best_result.is_none() || result.confidence > best_result.as_ref().unwrap().confidence {
+
+                    if best_result.is_none()
+                        || result.confidence > best_result.as_ref().unwrap().confidence
+                    {
                         best_result = Some(result);
                     }
                 }
@@ -435,18 +457,16 @@ impl FormatDetector {
         }
 
         // 4. 返回最佳结果或默认结果
-        let mut final_result = best_result.unwrap_or_else(|| {
-            DetectionResult {
-                format: DocumentFormat::Other("unknown".to_string()),
-                confidence: 0.1,
-                detection_method: DetectionMethod::FallbackDetection,
-                recommended_engine: ParserEngine::MarkItDown,
-                file_size: Some(file_size),
-                mime_type: mime_type.map(|s| s.to_string()),
-                security_status: SecurityStatus::Unknown,
-                detection_time_ms: start_time.elapsed().as_millis() as u64,
-                fallback_methods: fallback_methods.clone(),
-            }
+        let mut final_result = best_result.unwrap_or_else(|| DetectionResult {
+            format: DocumentFormat::Other("unknown".to_string()),
+            confidence: 0.1,
+            detection_method: DetectionMethod::FallbackDetection,
+            recommended_engine: ParserEngine::MarkItDown,
+            file_size: Some(file_size),
+            mime_type: mime_type.map(|s| s.to_string()),
+            security_status: SecurityStatus::Unknown,
+            detection_time_ms: start_time.elapsed().as_millis() as u64,
+            fallback_methods: fallback_methods.clone(),
         });
 
         // 确保所有字段都正确设置
@@ -457,7 +477,8 @@ impl FormatDetector {
             final_result.fallback_methods = fallback_methods;
         }
         if final_result.security_status == SecurityStatus::Safe {
-            final_result.security_status = self.assess_security_status(&final_result.format, file_path);
+            final_result.security_status =
+                self.assess_security_status(&final_result.format, file_path);
         }
 
         debug!("文件格式检测完成: {:?}", final_result);
@@ -465,7 +486,11 @@ impl FormatDetector {
     }
 
     /// 异步检测文件格式
-    pub async fn detect_format_async(&self, file_path: &str, mime_type: Option<&str>) -> Result<DetectionResult> {
+    pub async fn detect_format_async(
+        &self,
+        file_path: &str,
+        mime_type: Option<&str>,
+    ) -> Result<DetectionResult> {
         let start_time = Instant::now();
         debug!("开始异步检测文件格式: {}", file_path);
 
@@ -473,7 +498,8 @@ impl FormatDetector {
         self.validate_file_security(file_path)?;
 
         // 2. 获取文件大小
-        let metadata = tokio::fs::metadata(file_path).await
+        let metadata = tokio::fs::metadata(file_path)
+            .await
             .context("无法获取文件元数据")?;
         let file_size = metadata.len();
 
@@ -491,7 +517,9 @@ impl FormatDetector {
 
         if best_result.is_none() || best_result.as_ref().unwrap().confidence < 0.9 {
             if let Ok(Some(result)) = self.detect_by_magic_number_async(file_path).await {
-                if best_result.is_none() || result.confidence > best_result.as_ref().unwrap().confidence {
+                if best_result.is_none()
+                    || result.confidence > best_result.as_ref().unwrap().confidence
+                {
                     best_result = Some(result);
                 }
             } else {
@@ -502,7 +530,9 @@ impl FormatDetector {
         if best_result.is_none() || best_result.as_ref().unwrap().confidence < 0.9 {
             if let Some(mime) = mime_type {
                 if let Some(result) = self.detect_by_mime_type(mime) {
-                    if best_result.is_none() || result.confidence > best_result.as_ref().unwrap().confidence {
+                    if best_result.is_none()
+                        || result.confidence > best_result.as_ref().unwrap().confidence
+                    {
                         best_result = Some(result);
                     }
                 } else {
@@ -513,7 +543,9 @@ impl FormatDetector {
 
         if best_result.is_none() || best_result.as_ref().unwrap().confidence < 0.9 {
             if let Some(result) = self.detect_by_extension(file_path) {
-                if best_result.is_none() || result.confidence > best_result.as_ref().unwrap().confidence {
+                if best_result.is_none()
+                    || result.confidence > best_result.as_ref().unwrap().confidence
+                {
                     best_result = Some(result);
                 }
             } else {
@@ -522,18 +554,16 @@ impl FormatDetector {
         }
 
         // 4. 设置最终结果属性
-        let mut final_result = best_result.unwrap_or_else(|| {
-            DetectionResult {
-                format: DocumentFormat::Other("unknown".to_string()),
-                confidence: 0.1,
-                detection_method: DetectionMethod::FallbackDetection,
-                recommended_engine: ParserEngine::MarkItDown,
-                file_size: Some(file_size),
-                mime_type: mime_type.map(|s| s.to_string()),
-                security_status: SecurityStatus::Unknown,
-                detection_time_ms: start_time.elapsed().as_millis() as u64,
-                fallback_methods: fallback_methods.clone(),
-            }
+        let mut final_result = best_result.unwrap_or_else(|| DetectionResult {
+            format: DocumentFormat::Other("unknown".to_string()),
+            confidence: 0.1,
+            detection_method: DetectionMethod::FallbackDetection,
+            recommended_engine: ParserEngine::MarkItDown,
+            file_size: Some(file_size),
+            mime_type: mime_type.map(|s| s.to_string()),
+            security_status: SecurityStatus::Unknown,
+            detection_time_ms: start_time.elapsed().as_millis() as u64,
+            fallback_methods: fallback_methods.clone(),
         });
 
         final_result.file_size = Some(file_size);
@@ -548,13 +578,11 @@ impl FormatDetector {
 
     /// 通过自定义映射检测
     fn detect_by_custom_mapping(&self, file_path: &str) -> Option<DetectionResult> {
-        let extension = Path::new(file_path)
-            .extension()?
-            .to_str()?
-            .to_lowercase();
+        let extension = Path::new(file_path).extension()?.to_str()?.to_lowercase();
 
-        self.custom_mappings.get(&extension).map(|format| {
-            DetectionResult {
+        self.custom_mappings
+            .get(&extension)
+            .map(|format| DetectionResult {
                 format: format.clone(),
                 confidence: 1.0,
                 detection_method: DetectionMethod::CustomMapping,
@@ -564,19 +592,15 @@ impl FormatDetector {
                 security_status: SecurityStatus::Safe,
                 detection_time_ms: 0,
                 fallback_methods: Vec::new(),
-            }
-        })
+            })
     }
 
     /// 通过文件扩展名检测
     fn detect_by_extension(&self, file_path: &str) -> Option<DetectionResult> {
-        let extension = Path::new(file_path)
-            .extension()?
-            .to_str()?
-            .to_lowercase();
+        let extension = Path::new(file_path).extension()?.to_str()?.to_lowercase();
 
         let format = DocumentFormat::from_extension(&extension);
-        
+
         // 如果是Other格式，说明不支持
         if matches!(format, DocumentFormat::Other(_)) {
             return None;
@@ -608,7 +632,7 @@ impl FormatDetector {
     /// 通过MIME类型检测
     fn detect_by_mime_type(&self, mime_type: &str) -> Option<DetectionResult> {
         let format = DocumentFormat::from_mime_type(mime_type);
-        
+
         // 如果是Other格式，说明不支持
         if matches!(format, DocumentFormat::Other(_)) {
             return None;
@@ -644,7 +668,7 @@ impl FormatDetector {
         let mut file = File::open(file_path)?;
         let mut buffer = [0u8; 16]; // 读取前16字节
         let bytes_read = file.read(&mut buffer)?;
-        
+
         if bytes_read < 4 {
             return Ok(None);
         }
@@ -654,13 +678,15 @@ impl FormatDetector {
             [0x50, 0x4B, 0x03, 0x04] | [0x50, 0x4B, 0x05, 0x06] => {
                 // ZIP格式，可能是Office文档
                 self.detect_office_format(file_path)?
-            },
+            }
             [0xFF, 0xD8, 0xFF, _] => Some(DocumentFormat::Image), // JPEG
             [0x89, 0x50, 0x4E, 0x47] => Some(DocumentFormat::Image), // PNG
             [0x47, 0x49, 0x46, 0x38] => Some(DocumentFormat::Image), // GIF
-            [0x42, 0x4D, _, _] => Some(DocumentFormat::Image), // BMP
+            [0x42, 0x4D, _, _] => Some(DocumentFormat::Image),    // BMP
             [0x49, 0x44, 0x33, _] => Some(DocumentFormat::Audio), // MP3 with ID3
-            [0xFF, 0xFB, _, _] | [0xFF, 0xF3, _, _] | [0xFF, 0xF2, _, _] => Some(DocumentFormat::Audio), // MP3
+            [0xFF, 0xFB, _, _] | [0xFF, 0xF3, _, _] | [0xFF, 0xF2, _, _] => {
+                Some(DocumentFormat::Audio)
+            } // MP3
             [0x52, 0x49, 0x46, 0x46] => {
                 // RIFF格式，可能是WAV
                 if bytes_read >= 8 && &buffer[8..12] == b"WAVE" {
@@ -668,7 +694,7 @@ impl FormatDetector {
                 } else {
                     None
                 }
-            },
+            }
             _ => None,
         };
 
@@ -821,27 +847,40 @@ impl FormatDetector {
     }
 
     /// 验证检测结果
-    pub fn validate_detection_result(&self, result: &DetectionResult, file_path: &str) -> Result<bool> {
+    pub fn validate_detection_result(
+        &self,
+        result: &DetectionResult,
+        file_path: &str,
+    ) -> Result<bool> {
         // 检查置信度
         if result.confidence < 0.1 || result.confidence > 1.0 {
             return Ok(false);
         }
 
         // 检查格式与文件扩展名的一致性
-        if let Some(extension) = Path::new(file_path).extension().and_then(|ext| ext.to_str()) {
+        if let Some(extension) = Path::new(file_path)
+            .extension()
+            .and_then(|ext| ext.to_str())
+        {
             let expected_format = DocumentFormat::from_extension(extension);
-            if !matches!(expected_format, DocumentFormat::Other(_)) && expected_format != result.format {
+            if !matches!(expected_format, DocumentFormat::Other(_))
+                && expected_format != result.format
+            {
                 // 如果扩展名和检测结果不一致，降低置信度
-                warn!("格式检测结果与文件扩展名不一致: 检测={:?}, 扩展名={:?}", 
-                      result.format, expected_format);
+                warn!(
+                    "格式检测结果与文件扩展名不一致: 检测={:?}, 扩展名={:?}",
+                    result.format, expected_format
+                );
             }
         }
 
         // 检查推荐引擎是否正确
         let expected_engine = Self::select_engine_for_format(&result.format);
         if result.recommended_engine != expected_engine {
-            warn!("推荐引擎不正确: 检测={:?}, 期望={:?}", 
-                  result.recommended_engine, expected_engine);
+            warn!(
+                "推荐引擎不正确: 检测={:?}, 期望={:?}",
+                result.recommended_engine, expected_engine
+            );
         }
 
         Ok(true)
@@ -863,13 +902,10 @@ impl SecurityConfig {
     /// 使用全局配置创建安全配置
     pub fn with_global_config() -> Self {
         // 安全地获取文件大小限制，如果全局配置未初始化则使用默认值
-        let max_allowed_size = match std::panic::catch_unwind(|| {
+        let max_allowed_size = std::panic::catch_unwind(|| {
             get_file_size_limit(&FileSizePurpose::FormatDetector).bytes()
-        }) {
-            Ok(size) => size,
-            Err(_) => 100 * 1024 * 1024, // 默认100MB
-        };
-        
+        }).unwrap_or(100 * 1024 * 1024);
+
         Self {
             enable_size_check: true,
             enable_malware_detection: false,
@@ -924,7 +960,7 @@ mod tests {
         let config = crate::tests::test_helpers::create_test_config();
         crate::config::init_global_config(config).unwrap();
         let detector = FormatDetector::new();
-        
+
         let result = detector.detect_by_extension("test.pdf").unwrap();
         assert!(matches!(result.format, DocumentFormat::PDF));
         assert_eq!(result.detection_method, DetectionMethod::FileExtension);
@@ -936,7 +972,7 @@ mod tests {
         let config = crate::tests::test_helpers::create_real_environment_test_config();
         crate::config::init_global_config(config).unwrap();
         let detector = FormatDetector::new();
-        
+
         let result = detector.detect_by_mime_type("application/pdf").unwrap();
         assert!(matches!(result.format, DocumentFormat::PDF));
         assert_eq!(result.detection_method, DetectionMethod::MimeType);
@@ -948,7 +984,7 @@ mod tests {
         crate::config::init_global_config(config).unwrap();
         let mut detector = FormatDetector::new();
         detector.add_custom_mapping("custom".to_string(), DocumentFormat::Text);
-        
+
         let result = detector.detect_by_custom_mapping("test.custom").unwrap();
         assert!(matches!(result.format, DocumentFormat::Text));
         assert_eq!(result.detection_method, DetectionMethod::CustomMapping);
@@ -960,16 +996,16 @@ mod tests {
         let config = crate::tests::test_helpers::create_real_environment_test_config();
         crate::config::init_global_config(config).unwrap();
         let detector = FormatDetector::new();
-        
+
         // 创建一个临时PDF文件
         let mut temp_file = NamedTempFile::new()?;
         temp_file.write_all(b"%PDF-1.4\n")?;
         temp_file.flush()?;
-        
+
         let result = detector.detect_format(temp_file.path().to_str().unwrap(), None)?;
         assert!(matches!(result.format, DocumentFormat::PDF));
         assert_eq!(result.detection_method, DetectionMethod::MagicNumber);
-        
+
         Ok(())
     }
 
@@ -978,16 +1014,16 @@ mod tests {
         let config = crate::tests::test_helpers::create_real_environment_test_config();
         crate::config::init_global_config(config).unwrap();
         let detector = FormatDetector::new();
-        
+
         // 创建一个临时JPEG文件
         let mut temp_file = NamedTempFile::new()?;
         temp_file.write_all(&[0xFF, 0xD8, 0xFF, 0xE0])?;
         temp_file.flush()?;
-        
+
         let result = detector.detect_format(temp_file.path().to_str().unwrap(), None)?;
         assert!(matches!(result.format, DocumentFormat::Image));
         assert_eq!(result.detection_method, DetectionMethod::MagicNumber);
-        
+
         Ok(())
     }
 
@@ -996,16 +1032,16 @@ mod tests {
         let config = crate::tests::test_helpers::create_real_environment_test_config();
         crate::config::init_global_config(config).unwrap();
         let detector = FormatDetector::new();
-        
+
         // 创建一个临时PNG文件
         let mut temp_file = NamedTempFile::new()?;
         temp_file.write_all(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])?;
         temp_file.flush()?;
-        
+
         let result = detector.detect_format(temp_file.path().to_str().unwrap(), None)?;
         assert!(matches!(result.format, DocumentFormat::Image));
         assert_eq!(result.detection_method, DetectionMethod::MagicNumber);
-        
+
         Ok(())
     }
 
@@ -1014,15 +1050,15 @@ mod tests {
         let config = crate::tests::test_helpers::create_real_environment_test_config();
         crate::config::init_global_config(config).unwrap();
         let detector = FormatDetector::new();
-        
+
         // 测试安全文件
         let mut temp_file = NamedTempFile::new()?;
         temp_file.write_all(b"Hello, world!")?;
         temp_file.flush()?;
-        
+
         let result = detector.validate_file_security(temp_file.path().to_str().unwrap());
         assert!(result.is_ok());
-        
+
         Ok(())
     }
 
@@ -1031,7 +1067,7 @@ mod tests {
         let config = crate::tests::test_helpers::create_real_environment_test_config();
         crate::config::init_global_config(config).unwrap();
         let detector = FormatDetector::new();
-        
+
         let result = detector.validate_file_security("malware.exe");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("危险文件扩展名"));
@@ -1042,16 +1078,18 @@ mod tests {
         let config = crate::tests::test_helpers::create_real_environment_test_config();
         crate::config::init_global_config(config).unwrap();
         let detector = FormatDetector::new();
-        
+
         // 创建一个临时HTML文件
         let mut temp_file = NamedTempFile::new()?;
-        temp_file.write_all(b"<!DOCTYPE html><html><head><title>Test</title></head><body>Hello</body></html>")?;
+        temp_file.write_all(
+            b"<!DOCTYPE html><html><head><title>Test</title></head><body>Hello</body></html>",
+        )?;
         temp_file.flush()?;
-        
+
         let result = detector.detect_format(temp_file.path().to_str().unwrap(), None)?;
         assert!(matches!(result.format, DocumentFormat::HTML));
         assert_eq!(result.detection_method, DetectionMethod::ContentAnalysis);
-        
+
         Ok(())
     }
 
@@ -1060,16 +1098,16 @@ mod tests {
         let config = crate::tests::test_helpers::create_real_environment_test_config();
         crate::config::init_global_config(config).unwrap();
         let detector = FormatDetector::new();
-        
+
         // 创建一个临时Markdown文件
         let mut temp_file = NamedTempFile::new()?;
         temp_file.write_all(b"# Test\n\nThis is a test markdown file.")?;
         temp_file.flush()?;
-        
+
         let result = detector.detect_format(temp_file.path().to_str().unwrap(), None)?;
         assert!(matches!(result.format, DocumentFormat::Md));
         assert_eq!(result.detection_method, DetectionMethod::ContentAnalysis);
-        
+
         Ok(())
     }
 
@@ -1097,7 +1135,9 @@ mod tests {
     fn test_format_support_check() {
         assert!(FormatDetector::is_format_supported(&DocumentFormat::PDF));
         assert!(FormatDetector::is_format_supported(&DocumentFormat::Word));
-        assert!(!FormatDetector::is_format_supported(&DocumentFormat::Other("unknown".to_string())));
+        assert!(!FormatDetector::is_format_supported(
+            &DocumentFormat::Other("unknown".to_string())
+        ));
     }
 
     #[test]
@@ -1110,9 +1150,11 @@ mod tests {
     fn test_magic_signatures() {
         let signatures = FormatDetector::get_magic_signatures();
         assert!(!signatures.is_empty());
-        
+
         // 检查PDF签名
-        let pdf_sig = signatures.iter().find(|s| matches!(s.format, DocumentFormat::PDF));
+        let pdf_sig = signatures
+            .iter()
+            .find(|s| matches!(s.format, DocumentFormat::PDF));
         assert!(pdf_sig.is_some());
         assert_eq!(pdf_sig.unwrap().signature, vec![0x25, 0x50, 0x44, 0x46]);
     }
@@ -1122,10 +1164,10 @@ mod tests {
         let config = crate::tests::test_helpers::create_real_environment_test_config();
         crate::config::init_global_config(config).unwrap();
         let detector = FormatDetector::new();
-        
+
         // 测试默认安全配置
         let security_config = &detector.security_config;
-        assert_eq!(security_config.max_allowed_size, 100 * 1024 * 1024); // 100MB
+        assert_eq!(security_config.max_allowed_size, 200 * 1024 * 1024); // 200MB
         assert_eq!(security_config.dangerous_extensions.len(), 9); // 默认包含9个危险扩展名
     }
 
@@ -1142,29 +1184,35 @@ mod tests {
         let config = crate::tests::test_helpers::create_test_config();
         crate::config::init_global_config(config).unwrap();
         let detector = FormatDetector::new();
-        
+
         // 创建临时文件
         let mut pdf_file = NamedTempFile::new()?;
         pdf_file.write_all(b"%PDF-1.4\n")?;
         pdf_file.flush()?;
-        
+
         let mut txt_file = NamedTempFile::new()?;
         txt_file.write_all(b"Hello, world!")?;
         txt_file.flush()?;
-        
+
         let files = vec![
-            (pdf_file.path().to_str().unwrap().to_string(), Some("application/pdf".to_string())),
-            (txt_file.path().to_str().unwrap().to_string(), Some("text/plain".to_string())),
+            (
+                pdf_file.path().to_str().unwrap().to_string(),
+                Some("application/pdf".to_string()),
+            ),
+            (
+                txt_file.path().to_str().unwrap().to_string(),
+                Some("text/plain".to_string()),
+            ),
         ];
-        
+
         let results = detector.detect_batch(&files);
         assert_eq!(results.len(), 2);
-        
+
         // 检查第一个结果（PDF）
         assert!(results[0].is_ok());
         let pdf_result = results[0].as_ref().unwrap();
         assert!(matches!(pdf_result.format, DocumentFormat::PDF));
-        
+
         Ok(())
     }
 
@@ -1173,22 +1221,21 @@ mod tests {
         let config = crate::tests::test_helpers::create_test_config();
         crate::config::init_global_config(config).unwrap();
         let detector = FormatDetector::new();
-        
+
         // 创建一个临时PDF文件
         let mut temp_file = NamedTempFile::new()?;
         temp_file.write_all(b"%PDF-1.4\n")?;
         temp_file.flush()?;
-        
-        let result = detector.detect_format_async(
-            temp_file.path().to_str().unwrap(), 
-            Some("application/pdf")
-        ).await?;
-        
+
+        let result = detector
+            .detect_format_async(temp_file.path().to_str().unwrap(), Some("application/pdf"))
+            .await?;
+
         assert!(matches!(result.format, DocumentFormat::PDF));
         assert!(result.confidence > 0.9);
         assert!(result.file_size.is_some());
         assert!(result.detection_time_ms >= 0);
-        
+
         Ok(())
     }
 
@@ -1197,7 +1244,7 @@ mod tests {
         let config = crate::tests::test_helpers::create_test_config();
         crate::config::init_global_config(config).unwrap();
         let detector = FormatDetector::new();
-        
+
         let valid_result = DetectionResult {
             format: DocumentFormat::PDF,
             confidence: 0.95,
@@ -1209,9 +1256,9 @@ mod tests {
             detection_time_ms: 100,
             fallback_methods: Vec::new(),
         };
-        
+
         assert!(detector.validate_detection_result(&valid_result, "test.pdf")?);
-        
+
         let invalid_result = DetectionResult {
             format: DocumentFormat::PDF,
             confidence: 1.5, // 无效的置信度
@@ -1223,9 +1270,9 @@ mod tests {
             detection_time_ms: 100,
             fallback_methods: Vec::new(),
         };
-        
+
         assert!(!detector.validate_detection_result(&invalid_result, "test.pdf")?);
-        
+
         Ok(())
     }
 
@@ -1234,13 +1281,17 @@ mod tests {
         let config = crate::tests::test_helpers::create_real_environment_test_config();
         crate::config::init_global_config(config).unwrap();
         let detector = FormatDetector::new();
-        
+
         // 测试安全状态评估
         let status = detector.assess_security_status(&DocumentFormat::PDF, "test.pdf");
         assert_eq!(status, SecurityStatus::Safe);
-        
+
         // 测试危险文件
-        let status = detector.assess_security_status(&DocumentFormat::Other("exe".to_string()), "test.exe");
-        assert_eq!(status, SecurityStatus::Dangerous("危险文件扩展名: exe".to_string()));
+        let status =
+            detector.assess_security_status(&DocumentFormat::Other("exe".to_string()), "test.exe");
+        assert_eq!(
+            status,
+            SecurityStatus::Dangerous("危险文件扩展名: exe".to_string())
+        );
     }
 }

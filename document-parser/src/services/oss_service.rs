@@ -1,17 +1,17 @@
-use std::path::{Path, PathBuf};
-use std::time::Duration;
-use std::collections::HashMap;
-use std::sync::Arc;
+use crate::config::OssConfig;
+use crate::error::AppError;
+use crate::models::ImageInfo;
 use aliyun_oss_rust_sdk::oss::OSS;
 use aliyun_oss_rust_sdk::request::RequestBuilder;
 use aliyun_oss_rust_sdk::url::UrlApi;
-use tokio::sync::Semaphore;
-use tokio::time::{sleep, timeout};
 use futures::stream::{self, StreamExt};
-use tracing::{info, warn, error, debug, instrument};
-use crate::error::AppError;
-use crate::models::{OssData, ImageInfo};
-use crate::config::OssConfig;
+use std::collections::HashMap;
+use std::path::Path;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::Semaphore;
+use tokio::time::sleep;
+use tracing::{error, info, instrument, warn};
 
 /// 批量操作进度回调
 pub type ProgressCallback = Arc<dyn Fn(usize, usize) + Send + Sync>;
@@ -80,30 +80,44 @@ pub struct OssService {
 
 impl OssService {
     /// 创建新的OSS服务实例
-    #[instrument(skip(oss_config), fields(bucket = %oss_config.bucket, endpoint = %oss_config.endpoint))]
+    #[instrument(skip(oss_config), fields(public_bucket = %oss_config.public_bucket, endpoint = %oss_config.endpoint))]
     pub async fn new(oss_config: &OssConfig) -> Result<Self, AppError> {
         Self::new_with_config(oss_config, OssServiceConfig::default()).await
     }
 
     /// 使用自定义配置创建OSS服务实例
-    #[instrument(skip(oss_config, service_config), fields(bucket = %oss_config.bucket, endpoint = %oss_config.endpoint))]
-    pub async fn new_with_config(oss_config: &OssConfig, service_config: OssServiceConfig) -> Result<Self, AppError> {
+    #[instrument(skip(oss_config, service_config), fields(public_bucket = %oss_config.public_bucket, endpoint = %oss_config.endpoint))]
+    pub async fn new_with_config(
+        oss_config: &OssConfig,
+        service_config: OssServiceConfig,
+    ) -> Result<Self, AppError> {
         info!("初始化OSS服务");
-        
+
+        // 检查OSS配置是否完整（环境变量是否已设置）
+        if oss_config.access_key_id.is_empty() || oss_config.access_key_secret.is_empty() {
+            warn!("OSS环境变量未配置，跳过OSS服务初始化");
+            return Err(AppError::Config(
+                "OSS环境变量未配置，请设置OSS_ACCESS_KEY_ID和OSS_ACCESS_KEY_SECRET".to_string(),
+            ));
+        }
+
+        //这里使用公网的公有 bucket
+        let bucket = oss_config.public_bucket.clone();
+
         // 创建OSS客户端 - 配置文件中endpoint已不包含协议前缀
         let client = OSS::new(
             &oss_config.access_key_id,
             &oss_config.access_key_secret,
             &oss_config.endpoint,
-            &oss_config.bucket,
+            &bucket,
         );
 
         // 构建base_url
-        let base_url = format!("https://{}.{}", oss_config.bucket, oss_config.endpoint);
+        let base_url = format!("https://{}.{}", bucket, oss_config.endpoint);
 
         let service = Self {
             client,
-            bucket: oss_config.bucket.clone(),
+            bucket,
             endpoint: oss_config.endpoint.clone(),
             base_url,
             config: service_config.clone(),
@@ -112,7 +126,7 @@ impl OssService {
 
         // 验证连接
         service.validate_connection().await?;
-        
+
         info!("OSS服务初始化成功");
         Ok(service)
     }
@@ -121,12 +135,15 @@ impl OssService {
     #[instrument(skip(self))]
     async fn validate_connection(&self) -> Result<(), AppError> {
         info!("验证OSS连接");
-        
+
         // 使用上传临时文件的方式验证连接
         let test_key = format!("health-check-{}", chrono::Utc::now().timestamp_millis());
         let test_content = b"OSS connection test";
-        
-        match self.upload_content(test_content, &test_key, Some("text/plain")).await {
+
+        match self
+            .upload_content(test_content, &test_key, Some("text/plain"))
+            .await
+        {
             Ok(_) => {
                 info!("OSS连接验证成功");
                 // 尝试删除测试文件（忽略删除失败）
@@ -135,7 +152,10 @@ impl OssService {
             }
             Err(e) => {
                 error!("OSS连接验证失败: {}", e);
-                Err(AppError::Oss(format!("无法连接到OSS存储桶 {}: {}", self.bucket, e)))
+                Err(AppError::Oss(format!(
+                    "无法连接到OSS存储桶 {}: {}",
+                    self.bucket, e
+                )))
             }
         }
     }
@@ -144,172 +164,227 @@ impl OssService {
     #[instrument(skip(self), fields(file_path, object_key))]
     pub async fn upload_file(&self, file_path: &str, object_key: &str) -> Result<String, AppError> {
         info!("开始上传文件到OSS: {} -> {}", file_path, object_key);
-        
-        let _permit = self.semaphore.acquire().await.map_err(|e| {
-            AppError::Oss(format!("获取上传许可失败: {}", e))
-        })?;
+
+        let _permit = self
+            .semaphore
+            .acquire()
+            .await
+            .map_err(|e| AppError::Oss(format!("获取上传许可失败: {e}")))?;
 
         let content_type = self.detect_mime_type(file_path)?;
-        
+
         // 检查文件大小决定上传方式
-        let metadata = std::fs::metadata(file_path).map_err(|e| {
-            AppError::Oss(format!("读取文件元数据失败: {}", e))
-        })?;
-        
+        let metadata = std::fs::metadata(file_path)
+            .map_err(|e| AppError::Oss(format!("读取文件元数据失败: {e}")))?;
+
         if metadata.len() > self.config.chunk_size as u64 {
-            self.upload_large_file(file_path, object_key, &content_type).await
+            self.upload_large_file(file_path, object_key, &content_type)
+                .await
         } else {
-            self.upload_small_file(file_path, object_key, &content_type).await
+            self.upload_small_file(file_path, object_key, &content_type)
+                .await
         }
     }
 
     /// 上传小文件
     #[instrument(skip(self))]
-    async fn upload_small_file(&self, file_path: &str, object_key: &str, content_type: &str) -> Result<String, AppError> {
+    async fn upload_small_file(
+        &self,
+        file_path: &str,
+        object_key: &str,
+        content_type: &str,
+    ) -> Result<String, AppError> {
         let builder = RequestBuilder::new().with_content_type(content_type);
-        
-        match self.client.put_object_from_file(object_key, file_path, builder).await {
+
+        match self
+            .client
+            .put_object_from_file(object_key, file_path, builder)
+            .await
+        {
             Ok(_) => Ok(format!("{}/{}", self.base_url, object_key)),
-            Err(e) => Err(AppError::Oss(format!("上传文件失败: {}", e))),
+            Err(e) => Err(AppError::Oss(format!("上传文件失败: {e}"))),
         }
     }
 
     /// 上传大文件（分片上传）
     #[instrument(skip(self))]
-    async fn upload_large_file(&self, file_path: &str, object_key: &str, content_type: &str) -> Result<String, AppError> {
+    async fn upload_large_file(
+        &self,
+        file_path: &str,
+        object_key: &str,
+        content_type: &str,
+    ) -> Result<String, AppError> {
         // 对于大文件，我们仍然使用简单上传，因为aliyun-oss-rust-sdk的分片上传API可能不同
         // 如果需要分片上传，需要查看具体的API文档
         warn!("大文件上传，当前使用简单上传方式");
-        
+
         let builder = RequestBuilder::new().with_content_type(content_type);
-        
-        match self.client.put_object_from_file(object_key, file_path, builder).await {
+
+        match self
+            .client
+            .put_object_from_file(object_key, file_path, builder)
+            .await
+        {
             Ok(_) => Ok(format!("{}/{}", self.base_url, object_key)),
-            Err(e) => Err(AppError::Oss(format!("上传大文件失败: {}", e))),
+            Err(e) => Err(AppError::Oss(format!("上传大文件失败: {e}"))),
         }
     }
 
     /// 上传内容到OSS
     #[instrument(skip(self, content), fields(object_key, content_size = content.len()))]
-    pub async fn upload_content(&self, content: &[u8], object_key: &str, content_type: Option<&str>) -> Result<String, AppError> {
-        self.upload_content_with_retry(content, object_key, content_type).await
+    pub async fn upload_content(
+        &self,
+        content: &[u8],
+        object_key: &str,
+        content_type: Option<&str>,
+    ) -> Result<String, AppError> {
+        self.upload_content_with_retry(content, object_key, content_type)
+            .await
     }
-    
+
     /// 上传markdown内容到OSS，返回(URL, object_key)
     #[instrument(skip(self, content), fields(task_id, content_size = content.len()))]
-    pub async fn upload_markdown(&self, task_id: &str, content: &[u8], original_filename: Option<&str>) -> Result<(String, String), AppError> {
+    pub async fn upload_markdown(
+        &self,
+        task_id: &str,
+        content: &[u8],
+        original_filename: Option<&str>,
+    ) -> Result<(String, String), AppError> {
         // 生成唯一的object key
         let object_key = self.generate_markdown_object_key(task_id, original_filename);
-        
+
         // 上传内容
-        let url = self.upload_content(content, &object_key, Some("text/markdown; charset=utf-8")).await?;
-        
+        let url = self
+            .upload_content(content, &object_key, Some("text/markdown; charset=utf-8"))
+            .await?;
+
         Ok((url, object_key))
     }
-    
+
     /// 上传用户文件到OSS，返回(URL, object_key, download_url)
     #[instrument(skip(self), fields(file_path))]
-    pub async fn upload_user_file(&self, file_path: &str, original_filename: Option<&str>) -> Result<(String, String, String), AppError> {
+    pub async fn upload_user_file(
+        &self,
+        file_path: &str,
+        original_filename: Option<&str>,
+    ) -> Result<(String, String, String), AppError> {
         // 生成唯一的object key
         let object_key = self.generate_user_file_object_key(original_filename);
-        
+
         // 上传文件
         let url = self.upload_file(file_path, &object_key).await?;
-        
+
         // 生成4小时有效期的下载链接
-        let download_url = self.generate_download_url(&object_key, Some(Duration::from_secs(4 * 3600))).await?;
-        
+        let download_url = self
+            .generate_download_url(&object_key, Some(Duration::from_secs(4 * 3600)))
+            .await?;
+
         Ok((url, object_key, download_url))
     }
-    
+
     /// 根据object_key生成下载链接（如果文件存在）
     #[instrument(skip(self), fields(object_key))]
     pub async fn get_download_url_for_file(&self, object_key: &str) -> Result<String, AppError> {
         // 先检查文件是否存在
         if !self.file_exists(object_key).await? {
-            return Err(AppError::Oss(format!("文件不存在: {}", object_key)));
+            return Err(AppError::Oss(format!("文件不存在: {object_key}")));
         }
-        
+
         // 生成4小时有效期的下载链接
-        self.generate_download_url(object_key, Some(Duration::from_secs(4 * 3600))).await
+        self.generate_download_url(object_key, Some(Duration::from_secs(4 * 3600)))
+            .await
     }
-    
+
     /// 根据object_key和指定bucket生成下载链接（如果文件存在）
     /// 注意：这个方法仅适用于同一OSS账户下的不同bucket
     #[instrument(skip(self), fields(object_key, bucket))]
-    pub async fn get_download_url_for_file_with_bucket(&self, object_key: &str, bucket: &str) -> Result<String, AppError> {
+    pub async fn get_download_url_for_file_with_bucket(
+        &self,
+        object_key: &str,
+        bucket: &str,
+    ) -> Result<String, AppError> {
         // 如果指定的bucket与当前bucket相同，直接使用现有方法
-        if bucket == &self.bucket {
+        if bucket == self.bucket {
             return self.get_download_url_for_file(object_key).await;
         }
-        
+
         // 对于不同的bucket，我们构建一个临时的下载URL
         // 注意：这假设所有bucket都在同一endpoint下，且访问权限相同
-        
+
         // 构建临时URL (这是一个简化版本，实际环境中可能需要更复杂的签名逻辑)
-        let temp_url = format!("https://{}.{}/{}", bucket, 
-            self.endpoint.trim_start_matches("https://"), 
-            object_key);
-        
+        let temp_url = format!(
+            "https://{}.{}/{}",
+            bucket,
+            self.endpoint.trim_start_matches("https://"),
+            object_key
+        );
+
         // 由于我们无法直接验证不同bucket中的文件存在性，
         // 这里返回URL但在实际使用时可能需要额外的验证
-        warn!("使用不同bucket生成下载URL，无法预先验证文件存在性: bucket={}, object_key={}", bucket, object_key);
-        
+        warn!(
+            "使用不同bucket生成下载URL，无法预先验证文件存在性: bucket={}, object_key={}",
+            bucket, object_key
+        );
+
         Ok(temp_url)
     }
-    
+
     /// 生成markdown文件的OSS object key
-    fn generate_markdown_object_key(&self, task_id: &str, original_filename: Option<&str>) -> String {
+    fn generate_markdown_object_key(
+        &self,
+        task_id: &str,
+        original_filename: Option<&str>,
+    ) -> String {
         let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
         let uid = uuid::Uuid::new_v4().to_string()[..8].to_string(); // 取前8位作为短UID
-        
+
         // 如果有原始文件名，使用原始文件名和后缀
         let filename = if let Some(original) = original_filename {
             let clean_name = self.sanitize_filename(original);
-            
+
             // 分离文件名和扩展名
             if let Some(dot_pos) = clean_name.rfind('.') {
                 let name_part = &clean_name[..dot_pos];
                 let ext_part = &clean_name[dot_pos..]; // 包含点号
-                format!("{}_{}_{}{}", name_part, timestamp, uid, ext_part)
+                format!("{name_part}_{timestamp}_{uid}{ext_part}")
             } else {
                 // 没有扩展名，默认加上.md
-                format!("{}_{}_{}. md", clean_name, timestamp, uid)
+                format!("{clean_name}_{timestamp}_{uid}. md")
             }
         } else {
             // 没有原始文件名，生成默认名称
-            format!("document_{}_{}.md", timestamp, uid)
+            format!("document_{timestamp}_{uid}.md")
         };
-        
-        format!("markdown/{}/{}", task_id, filename)
+
+        format!("markdown/{task_id}/{filename}")
     }
-    
+
     /// 生成用户文件的OSS object key
     fn generate_user_file_object_key(&self, original_filename: Option<&str>) -> String {
         let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
         let uid = uuid::Uuid::new_v4().to_string()[..8].to_string(); // 取前8位作为短UID
-        
+
         // 如果有原始文件名，使用原始文件名和后缀
         let filename = if let Some(original) = original_filename {
             let clean_name = self.sanitize_filename(original);
-            
+
             // 分离文件名和扩展名
             if let Some(dot_pos) = clean_name.rfind('.') {
                 let name_part = &clean_name[..dot_pos];
                 let ext_part = &clean_name[dot_pos..]; // 包含点号
-                format!("{}_{}_{}{}", name_part, timestamp, uid, ext_part)
+                format!("{name_part}_{timestamp}_{uid}{ext_part}")
             } else {
                 // 没有扩展名，保持原名
-                format!("{}_{}_{}.", clean_name, timestamp, uid)
+                format!("{clean_name}_{timestamp}_{uid}.")
             }
         } else {
             // 没有原始文件名，生成默认名称
-            format!("file_{}_{}", timestamp, uid)
+            format!("file_{timestamp}_{uid}")
         };
-        
-        format!("uploads/{}", filename)
+
+        format!("uploads/{filename}")
     }
-    
+
     /// 清理文件名，移除特殊字符
     fn sanitize_filename(&self, filename: &str) -> String {
         filename
@@ -323,12 +398,17 @@ impl OssService {
             })
             .collect()
     }
-    
+
     /// 带重试的内容上传
     #[instrument(skip(self, content))]
-    async fn upload_content_with_retry(&self, content: &[u8], object_key: &str, content_type: Option<&str>) -> Result<String, AppError> {
+    async fn upload_content_with_retry(
+        &self,
+        content: &[u8],
+        object_key: &str,
+        content_type: Option<&str>,
+    ) -> Result<String, AppError> {
         let mut last_error = None;
-        
+
         for attempt in 1..=self.config.retry_attempts {
             match self.do_upload(content, object_key, content_type).await {
                 Ok(url) => {
@@ -340,7 +420,10 @@ impl OssService {
                 Err(e) => {
                     last_error = Some(e);
                     if attempt < self.config.retry_attempts {
-                        warn!("第{}次上传失败，{}ms后重试", attempt, self.config.retry_delay_ms);
+                        warn!(
+                            "第{}次上传失败，{}ms后重试",
+                            attempt, self.config.retry_delay_ms
+                        );
                         sleep(Duration::from_millis(self.config.retry_delay_ms)).await;
                     } else {
                         error!("上传失败，已达到最大重试次数");
@@ -348,34 +431,43 @@ impl OssService {
                 }
             }
         }
-        
-        Err(last_error.unwrap_or_else(|| {
-            AppError::Oss("上传失败，未知错误".to_string())
-        }))
+
+        Err(last_error.unwrap_or_else(|| AppError::Oss("上传失败，未知错误".to_string())))
     }
-    
+
     /// 执行上传
     #[instrument(skip(self, content))]
-    async fn do_upload(&self, content: &[u8], object_key: &str, content_type: Option<&str>) -> Result<String, AppError> {
-        let _permit = self.semaphore.acquire().await.map_err(|e| {
-            AppError::Oss(format!("获取上传许可失败: {}", e))
-        })?;
-        
+    async fn do_upload(
+        &self,
+        content: &[u8],
+        object_key: &str,
+        content_type: Option<&str>,
+    ) -> Result<String, AppError> {
+        let _permit = self
+            .semaphore
+            .acquire()
+            .await
+            .map_err(|e| AppError::Oss(format!("获取上传许可失败: {e}")))?;
+
         let mut builder = RequestBuilder::new();
         if let Some(ct) = content_type {
             builder = builder.with_content_type(ct);
         }
-        
+
         // 将内容写入临时文件，然后使用put_object_from_file上传
         let temp_file = tempfile::NamedTempFile::new()
-            .map_err(|e| AppError::Oss(format!("创建临时文件失败: {}", e)))?;
-        
+            .map_err(|e| AppError::Oss(format!("创建临时文件失败: {e}")))?;
+
         std::fs::write(temp_file.path(), content)
-            .map_err(|e| AppError::Oss(format!("写入临时文件失败: {}", e)))?;
-        
-        match self.client.put_object_from_file(object_key, temp_file.path().to_str().unwrap(), builder).await {
+            .map_err(|e| AppError::Oss(format!("写入临时文件失败: {e}")))?;
+
+        match self
+            .client
+            .put_object_from_file(object_key, temp_file.path().to_str().unwrap(), builder)
+            .await
+        {
             Ok(_) => Ok(format!("{}/{}", self.base_url, object_key)),
-            Err(e) => Err(AppError::Oss(format!("上传内容失败: {}", e))),
+            Err(e) => Err(AppError::Oss(format!("上传内容失败: {e}"))),
         }
     }
 
@@ -383,62 +475,77 @@ impl OssService {
     #[instrument(skip(self), fields(image_path))]
     pub async fn upload_image(&self, image_path: &str) -> Result<ImageInfo, AppError> {
         let path = Path::new(image_path);
-        let file_name = path.file_name()
+        let file_name = path
+            .file_name()
             .and_then(|n| n.to_str())
             .ok_or_else(|| AppError::Oss("无效的文件名".to_string()))?;
-        
-        let object_key = format!("images/{}", file_name);
+
+        let object_key = format!("images/{file_name}");
         let url = self.upload_file(image_path, &object_key).await?;
-        
-        let metadata = std::fs::metadata(image_path).map_err(|e| {
-            AppError::Oss(format!("读取图片元数据失败: {}", e))
-        })?;
-        
-        Ok(ImageInfo {
-            original_path: image_path.to_string(),
-            oss_url: url,
-            file_size: metadata.len(),
-            mime_type: self.detect_mime_type(image_path)?,
-            width: None,
-            height: None,
-        })
+
+        let metadata = std::fs::metadata(image_path)
+            .map_err(|e| AppError::Oss(format!("读取图片元数据失败: {e}")))?;
+
+        Ok(ImageInfo::with_full_info(
+            image_path.to_string(),
+            file_name.to_string(),
+            object_key,
+            url,
+            metadata.len(),
+            self.detect_mime_type(image_path)?,
+        ))
     }
 
     /// 批量上传图片
     #[instrument(skip(self, image_paths), fields(count = image_paths.len()))]
     pub async fn upload_images(&self, image_paths: &[String]) -> Result<Vec<ImageInfo>, AppError> {
         let result = self.upload_images_with_progress(image_paths, None).await?;
-        Ok(result.successful.into_iter().map(|item| ImageInfo {
-            original_path: item.object_key.clone(), // 使用 object_key 作为原始路径
-            oss_url: item.url,
-            file_size: item.size,
-            mime_type: item.content_type,
-            width: None,
-            height: None,
-        }).collect())
+        Ok(result
+            .successful
+            .into_iter()
+            .map(|item| {
+                let original_filename = Path::new(&item.local_path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+
+                ImageInfo::with_full_info(
+                    item.local_path,
+                    original_filename,
+                    item.object_key,
+                    item.url,
+                    item.size,
+                    item.content_type,
+                )
+            })
+            .collect())
     }
 
     /// 带进度的批量上传图片
     #[instrument(skip(self, image_paths, progress_callback), fields(count = image_paths.len()))]
     pub async fn upload_images_with_progress(
-        &self, 
-        image_paths: &[String], 
-        progress_callback: Option<ProgressCallback>
+        &self,
+        image_paths: &[String],
+        progress_callback: Option<ProgressCallback>,
     ) -> Result<BatchUploadResult, AppError> {
         let start_time = std::time::Instant::now();
         let total_count = image_paths.len();
-        
+
         info!("开始批量上传{}个图片", total_count);
-        
-        let files: Vec<(String, String)> = image_paths.iter().map(|path| {
-            let file_name = Path::new(path)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("unknown");
-            let object_key = format!("images/{}", file_name);
-            (path.clone(), object_key)
-        }).collect();
-        
+
+        let files: Vec<(String, String)> = image_paths
+            .iter()
+            .map(|path| {
+                let file_name = Path::new(path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unknown");
+                let object_key = format!("images/{file_name}");
+                (path.clone(), object_key)
+            })
+            .collect();
+
         self.upload_batch(files, progress_callback).await
     }
 
@@ -454,9 +561,9 @@ impl OssService {
         let mut successful = Vec::new();
         let mut failed = Vec::new();
         let mut total_bytes = 0u64;
-        
+
         info!("开始批量上传{}个文件", total_count);
-        
+
         // 使用流处理来控制并发
         let mut stream = stream::iter(files.into_iter().enumerate())
             .map(|(index, (local_path, object_key))| {
@@ -467,12 +574,12 @@ impl OssService {
                 }
             })
             .buffer_unordered(self.config.max_concurrent_uploads);
-        
+
         let mut processed = 0;
-        
+
         while let Some((index, local_path, object_key, result)) = stream.next().await {
             processed += 1;
-            
+
             match result {
                 Ok(url) => {
                     let metadata = std::fs::metadata(&local_path).unwrap_or_else(|_| {
@@ -482,8 +589,10 @@ impl OssService {
                         })
                     });
                     let size = metadata.len();
-                    let content_type = self.detect_mime_type(&local_path).unwrap_or_else(|_| "application/octet-stream".to_string());
-                    
+                    let content_type = self
+                        .detect_mime_type(&local_path)
+                        .unwrap_or_else(|_| "application/octet-stream".to_string());
+
                     total_bytes += size;
                     successful.push(BatchUploadItem {
                         local_path,
@@ -502,19 +611,19 @@ impl OssService {
                     });
                 }
             }
-            
+
             // 调用进度回调
             if let Some(ref callback) = progress_callback {
                 callback(processed, total_count);
             }
-            
+
             if processed % 10 == 0 {
                 info!("已处理 {}/{} 个文件", processed, total_count);
             }
         }
-        
+
         let duration = start_time.elapsed();
-        
+
         info!(
             "批量上传完成: 成功 {}, 失败 {}, 总大小 {} bytes, 耗时 {:?}",
             successful.len(),
@@ -522,7 +631,7 @@ impl OssService {
             total_bytes,
             duration
         );
-        
+
         Ok(BatchUploadResult {
             successful,
             failed,
@@ -533,7 +642,7 @@ impl OssService {
     }
 
     /// 从URL提取object key
-    fn extract_object_key(&self, url: &str) -> String {
+    pub fn extract_object_key(&self, url: &str) -> String {
         url.trim_start_matches(&format!("{}/", self.base_url))
             .trim_start_matches('/')
             .to_string()
@@ -547,26 +656,29 @@ impl OssService {
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("download");
-        
-        let temp_path = temp_dir.join(format!("oss_download_{}", file_name));
-        
+
+        let temp_path = temp_dir.join(format!("oss_download_{file_name}"));
+
         self.download_to_path(object_key, &temp_path).await?;
-        
+
         Ok(temp_path.to_string_lossy().to_string())
     }
 
     /// 下载文件到指定路径
     #[instrument(skip(self), fields(object_key, target_path = %target_path.as_ref().display()))]
-    pub async fn download_to_path<P: AsRef<Path>>(&self, object_key: &str, target_path: P) -> Result<(), AppError> {
+    pub async fn download_to_path<P: AsRef<Path>>(
+        &self,
+        object_key: &str,
+        target_path: P,
+    ) -> Result<(), AppError> {
         let target_path = target_path.as_ref();
-        
+
         // 创建目标目录
         if let Some(parent) = target_path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                AppError::Oss(format!("创建目标目录失败: {}", e))
-            })?;
+            std::fs::create_dir_all(parent)
+                .map_err(|e| AppError::Oss(format!("创建目标目录失败: {e}")))?;
         }
-        
+
         self.do_download(object_key, target_path).await
     }
 
@@ -574,68 +686,94 @@ impl OssService {
     #[instrument(skip(self))]
     async fn do_download(&self, object_key: &str, target_path: &Path) -> Result<(), AppError> {
         let builder = RequestBuilder::new();
-        
+
         let content = match self.client.get_object(object_key, builder).await {
             Ok(content) => content,
-            Err(e) => return Err(AppError::Oss(format!("下载文件失败: {}", e))),
+            Err(e) => return Err(AppError::Oss(format!("下载文件失败: {e}"))),
         };
-        
-        std::fs::write(target_path, content).map_err(|e| {
-            AppError::Oss(format!("写入文件失败: {}", e))
-        })?;
-        
+
+        std::fs::write(target_path, content)
+            .map_err(|e| AppError::Oss(format!("写入文件失败: {e}")))?;
+
         info!("文件下载成功: {}", target_path.display());
         Ok(())
     }
 
+    /// 获取对象内容（直接返回字节数组）
+    #[instrument(skip(self), fields(object_key))]
+    pub async fn get_object_content(&self, object_key: &str) -> Result<Vec<u8>, AppError> {
+        let builder = RequestBuilder::new();
+
+        match self.client.get_object(object_key, builder).await {
+            Ok(content) => {
+                info!(
+                    "成功获取对象内容: object_key={}, size={} bytes",
+                    object_key,
+                    content.len()
+                );
+                Ok(content)
+            }
+            Err(e) => {
+                let error_msg = e.to_string();
+                if error_msg.contains("404") || error_msg.contains("NoSuchKey") {
+                    Err(AppError::Oss(format!("OSS文件不存在: {object_key}")))
+                } else {
+                    Err(AppError::Oss(format!("获取文件内容失败: {e}")))
+                }
+            }
+        }
+    }
+
     /// 生成下载URL
     #[instrument(skip(self), fields(object_key, expires_in = ?expires_in))]
-    pub async fn generate_download_url(&self, object_key: &str, expires_in: Option<Duration>) -> Result<String, AppError> {
-        let expire_seconds = expires_in
-            .unwrap_or(Duration::from_secs(3600))
-            .as_secs() as i64;
-        
+    pub async fn generate_download_url(
+        &self,
+        object_key: &str,
+        expires_in: Option<Duration>,
+    ) -> Result<String, AppError> {
+        let expire_seconds = expires_in.unwrap_or(Duration::from_secs(3600)).as_secs() as i64;
+
         let builder = RequestBuilder::new().with_expire(expire_seconds);
-        
+
         let url = self.client.sign_download_url(object_key, &builder);
-        
+
         Ok(url)
     }
 
     /// 生成上传签名URL
     #[instrument(skip(self), fields(object_key, expires_in = ?expires_in))]
-    pub async fn generate_upload_url(&self, object_key: &str, expires_in: Option<Duration>) -> Result<String, AppError> {
-        let expire_seconds = expires_in
-            .unwrap_or(Duration::from_secs(3600))
-            .as_secs() as i64;
-        
+    pub async fn generate_upload_url(
+        &self,
+        object_key: &str,
+        expires_in: Option<Duration>,
+    ) -> Result<String, AppError> {
+        let expire_seconds = expires_in.unwrap_or(Duration::from_secs(3600)).as_secs() as i64;
+
         let builder = RequestBuilder::new()
             .with_expire(expire_seconds)
             .with_content_type("application/octet-stream"); // 默认内容类型
-        
+
         let url = self.client.sign_upload_url(object_key, &builder);
-        
+
         Ok(url)
     }
 
     /// 生成带自定义内容类型的上传签名URL
     #[instrument(skip(self), fields(object_key, content_type, expires_in = ?expires_in))]
     pub async fn generate_upload_url_with_content_type(
-        &self, 
-        object_key: &str, 
-        content_type: &str, 
-        expires_in: Option<Duration>
+        &self,
+        object_key: &str,
+        content_type: &str,
+        expires_in: Option<Duration>,
     ) -> Result<String, AppError> {
-        let expire_seconds = expires_in
-            .unwrap_or(Duration::from_secs(3600))
-            .as_secs() as i64;
-        
+        let expire_seconds = expires_in.unwrap_or(Duration::from_secs(3600)).as_secs() as i64;
+
         let builder = RequestBuilder::new()
             .with_expire(expire_seconds)
             .with_content_type(content_type);
-        
+
         let url = self.client.sign_upload_url(object_key, &builder);
-        
+
         Ok(url)
     }
 
@@ -643,13 +781,13 @@ impl OssService {
     #[instrument(skip(self), fields(object_key))]
     pub async fn delete_object(&self, object_key: &str) -> Result<(), AppError> {
         let builder = RequestBuilder::new();
-        
+
         match self.client.delete_object(object_key, builder).await {
             Ok(_) => {
                 info!("对象删除成功: {}", object_key);
                 Ok(())
             }
-            Err(e) => Err(AppError::Oss(format!("删除对象失败: {}", e))),
+            Err(e) => Err(AppError::Oss(format!("删除对象失败: {e}"))),
         }
     }
 
@@ -657,7 +795,7 @@ impl OssService {
     #[instrument(skip(self, object_keys), fields(count = object_keys.len()))]
     pub async fn delete_objects(&self, object_keys: &[String]) -> Result<Vec<String>, AppError> {
         let mut deleted = Vec::new();
-        
+
         for object_key in object_keys {
             match self.delete_object(object_key).await {
                 Ok(_) => deleted.push(object_key.clone()),
@@ -666,7 +804,7 @@ impl OssService {
                 }
             }
         }
-        
+
         Ok(deleted)
     }
 
@@ -674,7 +812,7 @@ impl OssService {
     #[instrument(skip(self), fields(object_key))]
     pub async fn file_exists(&self, object_key: &str) -> Result<bool, AppError> {
         let builder = RequestBuilder::new();
-        
+
         // 尝试获取对象来检查是否存在
         match self.client.get_object(object_key, builder).await {
             Ok(_) => Ok(true),
@@ -684,7 +822,10 @@ impl OssService {
 
     /// 获取对象元数据
     #[instrument(skip(self), fields(object_key))]
-    pub async fn get_object_metadata(&self, object_key: &str) -> Result<HashMap<String, String>, AppError> {
+    pub async fn get_object_metadata(
+        &self,
+        object_key: &str,
+    ) -> Result<HashMap<String, String>, AppError> {
         // 暂时返回空的元数据，因为 get_object_metadata 方法可能不存在
         // 如果需要元数据，可能需要使用其他方法或者升级SDK版本
         warn!("get_object_metadata 方法暂未实现，返回空元数据");
@@ -694,10 +835,8 @@ impl OssService {
     /// 检测MIME类型
     fn detect_mime_type(&self, file_path: &str) -> Result<String, AppError> {
         let path = Path::new(file_path);
-        let extension = path.extension()
-            .and_then(|ext| ext.to_str())
-            .unwrap_or("");
-        
+        let extension = path.extension().and_then(|ext| ext.to_str()).unwrap_or("");
+
         let mime_type = match extension.to_lowercase().as_str() {
             "jpg" | "jpeg" => "image/jpeg",
             "png" => "image/png",
@@ -727,7 +866,7 @@ impl OssService {
             "mov" => "video/quicktime",
             _ => "application/octet-stream",
         };
-        
+
         Ok(mime_type.to_string())
     }
 
@@ -748,7 +887,11 @@ impl OssService {
 
     /// 列出对象（简化版本）
     #[instrument(skip(self), fields(prefix, max_keys))]
-    pub async fn list_objects(&self, prefix: Option<&str>, max_keys: Option<i32>) -> Result<Vec<String>, AppError> {
+    pub async fn list_objects(
+        &self,
+        prefix: Option<&str>,
+        max_keys: Option<i32>,
+    ) -> Result<Vec<String>, AppError> {
         // 注意：aliyun-oss-rust-sdk可能没有直接的list_objects API
         // 这里返回空列表，实际使用时需要根据SDK的API来实现
         warn!("list_objects功能需要根据aliyun-oss-rust-sdk的API来实现");
@@ -783,7 +926,7 @@ impl StorageStats {
     pub fn formatted_size(&self) -> String {
         let size = self.total_size as f64;
         if size < 1024.0 {
-            format!("{} B", size)
+            format!("{size} B")
         } else if size < 1024.0 * 1024.0 {
             format!("{:.2} KB", size / 1024.0)
         } else if size < 1024.0 * 1024.0 * 1024.0 {

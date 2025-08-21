@@ -84,12 +84,12 @@ GET {{baseUrl}}/api/v1/tasks/{{uploadDocument.response.body.data.task_id}}/secti
 GET {{baseUrl}}/api/v1/tasks/{{uploadDocument.response.body.data.task_id}}/section/{{sectionId}}
 
 ### 16. 下载Markdown结果 (自动使用上传返回的task_id)
-GET {{baseUrl}}/api/v1/documents/{{uploadDocument.response.body.data.task_id}}/markdown/download
+GET {{baseUrl}}/api/v1/tasks/{{uploadDocument.response.body.data.task_id}}/markdown/download
 
 ### 17. 获取Markdown OSS URL（增强版 - 包含文件名和bucket信息）
-GET {{baseUrl}}/api/v1/documents/{{uploadDocument.response.body.data.task_id}}/markdown/url?temp=true&expires_hours=24
+GET {{baseUrl}}/api/v1/tasks/{{uploadDocument.response.body.data.task_id}}/markdown/url?temp=true&expires_hours=24
 
-### 18. 解析Markdown章节
+### 18. 解析Markdown章节 (统一接口)
 POST {{baseUrl}}/api/v1/documents/markdown/sections
 Content-Type: application/json
 
@@ -101,12 +101,6 @@ Content-Type: application/json
 
 ### 19. 获取解析器统计
 GET {{baseUrl}}/api/v1/documents/parser/stats
-
-### 20. 获取处理器缓存统计
-GET {{baseUrl}}/api/v1/documents/processor/cache/stats
-
-### 21. 清理处理器缓存
-DELETE {{baseUrl}}/api/v1/documents/processor/cache
 
 ### 22. 创建任务 (手动创建)
 POST {{baseUrl}}/api/v1/tasks
@@ -158,7 +152,7 @@ GET {{baseUrl}}/api/v1/oss/download-url?file_name=uploads/test-document_20241215
 # 2. GET /api/v1/documents/formats - 查看支持格式
 # 3. POST /api/v1/documents/upload - 上传文档（自动提取task_id）
 # 4. GET /api/v1/tasks/{{uploadDocument.response.body.data.task_id}} - 查询解析进度
-# 5. GET /api/v1/documents/{{uploadDocument.response.body.data.task_id}}/markdown/download - 下载结果
+# 5. GET /api/v1/tasks/{{uploadDocument.response.body.data.task_id}}/markdown/download - 下载结果
 
 ### 手动TaskId示例
 # @manualTaskId = 0198ad16-2051-762e-8238-172ea27ed480
@@ -185,6 +179,38 @@ Content-Type: application/json
 
 ### 测试无效的task_id
 GET {{baseUrl}}/api/v1/tasks/invalid-task-id
+
+### ========== 异步运行时修复测试流程 ==========
+### 专门用于测试修复后的异步运行时和 MinerU 后续流程
+
+### 步骤1: 创建任务（手动创建用于测试）
+# @name createTestTask
+POST {{baseUrl}}/api/v1/tasks
+Content-Type: application/json
+
+{
+  "source_type": "Upload",
+  "source_path": "均线为王之一：均线100分.pdf",
+  "format": "PDF"
+}
+
+### 步骤2: 查询任务状态（验证状态更新）
+GET {{baseUrl}}/api/v1/tasks/{{createTestTask.response.body.data.task_id}}
+
+### 步骤3: 获取任务结果概览（验证后续处理）
+GET {{baseUrl}}/api/v1/tasks/{{createTestTask.response.body.data.task_id}}/result
+
+### 步骤4: 获取文档目录（验证结构化处理）
+GET {{baseUrl}}/api/v1/tasks/{{createTestTask.response.body.data.task_id}}/toc
+
+### 步骤5: 下载 Markdown 文件（验证 OSS 上传）
+GET {{baseUrl}}/api/v1/tasks/{{createTestTask.response.body.data.task_id}}/markdown/download
+
+### ========== 测试说明 ==========
+### 1. 此测试流程用于验证任务创建和查询的完整流程
+### 2. 测试任务状态查询、结果获取、目录解析等功能
+### 3. 验证路由优化后的接口路径正确性
+### 4. 测试完整的处理链：任务创建 → 状态查询 → 结果获取 → 文件下载
 
 ### ========== 异步文档解析测试流程 ==========
 ### 专门针对大文件（如PDF）的异步解析测试
@@ -234,13 +260,13 @@ GET {{baseUrl}}/api/v1/oss/download-sign-url?file_name=simple.md
 GET {{baseUrl}}/api/v1/tasks/{{uploadAsync.response.body.data.task_id}}/result
 
 ### 步骤4: 等待任务完成后，获取Markdown下载URL（包含OSS文件名和bucket）
-GET {{baseUrl}}/api/v1/documents/{{uploadAsync.response.body.data.task_id}}/markdown/url
+GET {{baseUrl}}/api/v1/tasks/{{uploadAsync.response.body.data.task_id}}/markdown/url
 
 ### 步骤5: 直接下载Markdown文件
-GET {{baseUrl}}/api/v1/documents/{{uploadAsync.response.body.data.task_id}}/markdown/download
+GET {{baseUrl}}/api/v1/tasks/{{uploadAsync.response.body.data.task_id}}/markdown/download
 
 ### 步骤6: 获取临时下载URL（有时效性）
-GET {{baseUrl}}/api/v1/documents/{{uploadAsync.response.body.data.task_id}}/markdown/url?temp=true&expires_hours=1
+GET {{baseUrl}}/api/v1/tasks/{{uploadAsync.response.body.data.task_id}}/markdown/url?temp=true&expires_hours=1
 
 ### ========== 新接口特性说明 ==========
 ### 1. /upload 接口现在立即返回taskId，不再同步等待解析完成
@@ -249,7 +275,7 @@ GET {{baseUrl}}/api/v1/documents/{{uploadAsync.response.body.data.task_id}}/mark
 ###    - 文件信息（原始文件名、大小、格式）
 ###    - OSS信息（bucket、文件可用性、图片数量）
 ###    - 处理统计信息（处理时间等）
-### 3. /documents/{taskId}/markdown/url 现在包含：
+### 3. /tasks/{taskId}/markdown/url 现在包含：
 ###    - oss_file_name: OSS上的实际文件名（格式：原始名_时间_uid.扩展名）
 ###    - oss_bucket: OSS bucket名称
 ###    - 可以用这些信息调用OSS服务获取新的下载链接

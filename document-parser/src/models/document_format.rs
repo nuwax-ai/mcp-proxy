@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 /// 文档格式枚举
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, ToSchema)]
 pub enum DocumentFormat {
     PDF,
     Word,
@@ -27,7 +28,9 @@ impl DocumentFormat {
             "jpg" | "jpeg" | "png" | "gif" | "bmp" | "tiff" => DocumentFormat::Image,
             "mp3" | "wav" | "m4a" | "aac" => DocumentFormat::Audio,
             "html" | "htm" => DocumentFormat::HTML,
-            "txt" | "csv" | "json" | "xml" | "md" => DocumentFormat::Text,
+            "md" => DocumentFormat::Md,
+            "txt" => DocumentFormat::Txt,
+            "csv" | "json" | "xml" => DocumentFormat::Text,
             _ => DocumentFormat::Other(extension.to_string()),
         }
     }
@@ -36,13 +39,22 @@ impl DocumentFormat {
     pub fn from_mime_type(mime_type: &str) -> Self {
         match mime_type {
             "application/pdf" => DocumentFormat::PDF,
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => DocumentFormat::Word,
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => DocumentFormat::Excel,
-            "application/vnd.openxmlformats-officedocument.presentationml.presentation" => DocumentFormat::PowerPoint,
-            "image/jpeg" | "image/png" | "image/gif" | "image/bmp" | "image/tiff" => DocumentFormat::Image,
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => {
+                DocumentFormat::Word
+            }
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" => {
+                DocumentFormat::Excel
+            }
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation" => {
+                DocumentFormat::PowerPoint
+            }
+            "image/jpeg" | "image/png" | "image/gif" | "image/bmp" | "image/tiff" => {
+                DocumentFormat::Image
+            }
             "audio/mpeg" | "audio/wav" | "audio/mp4" | "audio/aac" => DocumentFormat::Audio,
             "text/html" => DocumentFormat::HTML,
-            "text/plain" | "text/csv" | "application/json" | "application/xml" | "text/markdown" => DocumentFormat::Text,
+            "text/plain" | "text/csv" | "application/json" | "application/xml"
+            | "text/markdown" => DocumentFormat::Text,
             _ => DocumentFormat::Other(mime_type.to_string()),
         }
     }
@@ -68,9 +80,15 @@ impl DocumentFormat {
     pub fn get_mime_type(&self) -> &'static str {
         match self {
             DocumentFormat::PDF => "application/pdf",
-            DocumentFormat::Word => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            DocumentFormat::Excel => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            DocumentFormat::PowerPoint => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            DocumentFormat::Word => {
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            }
+            DocumentFormat::Excel => {
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            }
+            DocumentFormat::PowerPoint => {
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            }
             DocumentFormat::Image => "image/jpeg",
             DocumentFormat::Audio => "audio/mpeg",
             DocumentFormat::HTML => "text/html",
@@ -100,7 +118,7 @@ impl std::fmt::Display for DocumentFormat {
             DocumentFormat::Text => write!(f, "text"),
             DocumentFormat::Txt => write!(f, "txt"),
             DocumentFormat::Md => write!(f, "md"),
-            DocumentFormat::Other(s) => write!(f, "other({})", s),
+            DocumentFormat::Other(s) => write!(f, "other({s})"),
         }
     }
 }

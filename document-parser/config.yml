@@ -13,7 +13,7 @@ log:
 document_parser:
   # 并发控制
   max_concurrent: 5
-  queue_size: 100
+  queue_size: 1000
   
   # 超时设置（统一超时配置）
   download_timeout: 3600
@@ -21,13 +21,17 @@ document_parser:
 
 # MinerU配置
 mineru:
+  # 后端选择：pipeline|vlm-transformers|vlm-sglang-engine|vlm-sglang-client, 有cuda环境目前推荐: vlm-transformers
   backend: "pipeline"
   python_path: "./venv/bin/python"  # 默认使用虚拟环境，如不存在则自动检测系统Python
-  max_concurrent: 3
+  # 这个是mineru的并发数，目前没用,占位使用,只需要小于document_parser.max_concurrent 即可
+  max_concurrent: 1
   queue_size: 100
   # timeout 已移除，统一使用 document_parser.processing_timeout (3600秒)
   batch_size: 1
   quality_level: "Balanced"
+  # 单进程最大GPU显存占用(GB)，仅对pipeline后端,这个是一个软上限
+  vram: 8
 
 # MarkItDown配置
 markitdown:
@@ -52,15 +56,18 @@ storage:
   # OSS配置
   oss:
     endpoint: "oss-rg-china-mainland.aliyuncs.com"
-    bucket: "nuwa-packages"
+    # 公共bucket，用于存储公共文件，如文档文件
+    public_bucket: "nuwa-packages"
+    # 私有bucket，用于存储私有文件，如模型文件
+    private_bucket: "edu-nuwa-packages"
     access_key_id: "${OSS_ACCESS_KEY_ID}"  # 通过环境变量设置
     access_key_secret: "${OSS_ACCESS_KEY_SECRET}"  # 通过环境变量设置
     region: "oss-rg-china-mainland"
-    upload_directory: "edu"  # 上传文件的统一子目录前缀
+    upload_directory: "document_parser"  # 上传文件的统一子目录前缀
 
 # 全局文件大小配置
 file_size_config:
-  max_file_size: "100MB"
+  max_file_size: "200MB"
   large_document_threshold: "50MB"
 
 # 外部集成配置

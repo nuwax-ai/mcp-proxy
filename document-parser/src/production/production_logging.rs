@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::sync::RwLock;
-use tracing::{error, info, warn};
+use tracing::error;
 
 /// 生产日志管理器
 #[derive(Clone)]
@@ -406,12 +406,15 @@ impl ProductionLogger {
     async fn update_stats(&self, entry: &LogEntry) {
         let mut stats = self.stats.write().await;
         stats.total_logs += 1;
-        
+
         let level_key = format!("{:?}", entry.level);
         *stats.logs_by_level.entry(level_key).or_insert(0) += 1;
-        
-        *stats.logs_by_module.entry(entry.module.clone()).or_insert(0) += 1;
-        
+
+        *stats
+            .logs_by_module
+            .entry(entry.module.clone())
+            .or_insert(0) += 1;
+
         match entry.level {
             LogLevel::Error => stats.error_count += 1,
             LogLevel::Warn => stats.warning_count += 1,
@@ -429,18 +432,18 @@ impl ProductionLogger {
         let buffer = Arc::clone(&self.buffer);
         let config = self.config.clone();
         let logger = self.clone();
-        
+
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(config.buffer_config.flush_interval);
-            
+
             loop {
                 interval.tick().await;
-                
+
                 let should_flush = {
                     let buffer = buffer.read().await;
                     !buffer.entries.is_empty()
                 };
-                
+
                 if should_flush {
                     if let Err(e) = logger.flush_buffer().await {
                         error!("定时刷新日志缓冲区失败: {}", e);
@@ -454,7 +457,7 @@ impl ProductionLogger {
 impl LogCollector for ConsoleCollector {
     fn collect(&self, entry: &LogEntry) -> Result<()> {
         let formatted = self.formatter.format(entry)?;
-        println!("{}", formatted);
+        println!("{formatted}");
         Ok(())
     }
 
@@ -505,17 +508,17 @@ impl LogCollector for RemoteCollector {
 
 impl LogFormatter for JsonFormatter {
     fn format(&self, entry: &LogEntry) -> Result<String> {
-        serde_json::to_string(entry)
-            .context("序列化日志条目为 JSON 失败")
+        serde_json::to_string(entry).context("序列化日志条目为 JSON 失败")
     }
 }
 
 impl LogFormatter for TextFormatter {
     fn format(&self, entry: &LogEntry) -> Result<String> {
-        let timestamp = entry.timestamp
+        let timestamp = entry
+            .timestamp
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default();
-        
+
         Ok(format!(
             "[{}] {:5} {}: {}",
             timestamp.as_secs(),
@@ -550,16 +553,22 @@ impl LevelFilter {
 
 impl LogFilter for ModuleFilter {
     fn filter(&self, entry: &LogEntry) -> bool {
-        if !self.denied_modules.is_empty() {
-            if self.denied_modules.iter().any(|m| entry.module.starts_with(m)) {
+        if !self.denied_modules.is_empty()
+            && self
+                .denied_modules
+                .iter()
+                .any(|m| entry.module.starts_with(m))
+            {
                 return false;
             }
-        }
-        
+
         if !self.allowed_modules.is_empty() {
-            return self.allowed_modules.iter().any(|m| entry.module.starts_with(m));
+            return self
+                .allowed_modules
+                .iter()
+                .any(|m| entry.module.starts_with(m));
         }
-        
+
         true
     }
 
@@ -601,8 +610,8 @@ impl LogBuffer {
 
     /// 检查是否应该刷新
     pub fn should_flush(&self, config: &BufferConfig) -> bool {
-        self.entries.len() >= config.batch_size ||
-        self.last_flush.elapsed().unwrap_or_default() >= config.flush_interval
+        self.entries.len() >= config.batch_size
+            || self.last_flush.elapsed().unwrap_or_default() >= config.flush_interval
     }
 
     /// 排空缓冲区
@@ -662,7 +671,7 @@ mod tests {
     async fn test_production_logger() {
         let config = LoggingConfig::default();
         let logger = ProductionLogger::new(config);
-        
+
         let entry = LogEntry {
             timestamp: SystemTime::now(),
             level: LogLevel::Info,
@@ -674,9 +683,9 @@ mod tests {
             trace_id: None,
             span_id: None,
         };
-        
+
         logger.log(entry).await.unwrap();
-        
+
         let stats = logger.get_stats().await;
         assert_eq!(stats.total_logs, 1);
     }
@@ -686,7 +695,7 @@ mod tests {
         let filter = LevelFilter {
             min_level: LogLevel::Warn,
         };
-        
+
         let info_entry = LogEntry {
             timestamp: SystemTime::now(),
             level: LogLevel::Info,
@@ -698,12 +707,12 @@ mod tests {
             trace_id: None,
             span_id: None,
         };
-        
+
         let error_entry = LogEntry {
             level: LogLevel::Error,
             ..info_entry.clone()
         };
-        
+
         assert!(!filter.filter(&info_entry));
         assert!(filter.filter(&error_entry));
     }
@@ -711,7 +720,7 @@ mod tests {
     #[test]
     fn test_json_formatter() {
         let formatter = JsonFormatter;
-        
+
         let entry = LogEntry {
             timestamp: SystemTime::now(),
             level: LogLevel::Info,
@@ -723,7 +732,7 @@ mod tests {
             trace_id: Some("trace123".to_string()),
             span_id: Some("span456".to_string()),
         };
-        
+
         let formatted = formatter.format(&entry).unwrap();
         assert!(formatted.contains("测试消息"));
         assert!(formatted.contains("trace123"));

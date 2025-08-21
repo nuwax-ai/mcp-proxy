@@ -1,11 +1,12 @@
 [workspace]
-members = [ "document-parser","mcp-proxy"]
+members = [ "document-parser","mcp-proxy", "oss-client"]
 resolver = "2"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [workspace.dependencies]
 mcp-proxy = { path = "mcp-proxy" }
+oss-client = { path = "oss-client" }
 
 rmcp = { version = "0.5", features = [
     "server",
@@ -49,6 +50,7 @@ utoipa-rapidoc = { version = "6", features = ["axum"] }
 utoipa-redoc = { version = "6", features = ["axum"] }
 utoipa-swagger-ui = { version = "9", features = ["axum"] }
 dashmap = "6.1"
+moka = { version = "0.12", features = ["future"] }
 criterion = "0.7"
 once_cell = "1.21"
 serde = { version = "1.0", features = ["derive"] }
@@ -63,3 +65,4 @@ uuid = { version = "1", features = ["v7"] }
 futures = "0.3"
 run_code_rmcp = "0.0.31"
 rand = "0.9"
+derive_builder = "0.20"

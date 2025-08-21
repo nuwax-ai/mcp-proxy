@@ -1,11 +1,12 @@
-use serde::{Deserialize, Serialize};
 use crate::models::DocumentFormat;
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 /// 解析引擎枚举
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ToSchema)]
 pub enum ParserEngine {
-    MinerU,      // PDF专用
-    MarkItDown,  // 其他格式
+    MinerU,     // PDF专用
+    MarkItDown, // 其他格式
 }
 
 impl ParserEngine {
@@ -29,7 +30,9 @@ impl ParserEngine {
     pub fn get_description(&self) -> &'static str {
         match self {
             ParserEngine::MinerU => "专业PDF解析引擎，支持图片提取、表格识别、布局保持",
-            ParserEngine::MarkItDown => "多格式文档解析引擎，支持Word、Excel、PowerPoint、图片、音频等",
+            ParserEngine::MarkItDown => {
+                "多格式文档解析引擎，支持Word、Excel、PowerPoint、图片、音频等"
+            }
         }
     }
 

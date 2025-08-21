@@ -2,21 +2,22 @@
 
 use axum::body::Body;
 use axum::http::Request;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use crate::models::*;
 use super::test_helpers::*;
+use crate::models::*;
 
 #[cfg(test)]
 mod document_handler_tests {
     use super::*;
+    
 
     #[tokio::test]
     async fn test_upload_document_success() {
         let _app_state = create_test_app_state().await;
-        
+
         // 创建模拟的multipart请求
         // 注意：这里需要实际的multipart数据，在真实测试中需要构造
         let _request = Request::builder()
@@ -33,7 +34,7 @@ mod document_handler_tests {
     #[tokio::test]
     async fn test_upload_document_invalid_content_type() {
         let _app_state = create_test_app_state().await;
-        
+
         let _request = Request::builder()
             .method("POST")
             .uri("/api/v1/document/upload")
@@ -48,7 +49,7 @@ mod document_handler_tests {
     #[tokio::test]
     async fn test_submit_document_url_success() {
         let _app_state = create_test_app_state().await;
-        
+
         let request_body = json!({
             "url": "https://example.com/test.pdf",
             "filename": "test.pdf"
@@ -68,7 +69,7 @@ mod document_handler_tests {
     #[tokio::test]
     async fn test_submit_document_url_invalid_url() {
         let _app_state = create_test_app_state().await;
-        
+
         let request_body = json!({
             "url": "invalid-url",
             "filename": "test.pdf"
@@ -87,7 +88,7 @@ mod document_handler_tests {
     #[tokio::test]
     async fn test_submit_document_url_missing_fields() {
         let _app_state = create_test_app_state().await;
-        
+
         // 缺少必需字段的请求
         let request_body = json!({
             "url": "https://example.com/test.pdf"
@@ -111,31 +112,37 @@ mod task_handler_tests {
 
     #[tokio::test]
     async fn test_get_task_status_success() {
+        let app_config = crate::tests::test_helpers::create_real_environment_test_config();
+        crate::config::init_global_config(app_config).unwrap();
         let _app_state = create_test_app_state().await;
         let task_id = create_test_task_id();
-        
+
         // 首先创建一个测试任务
-        let mut task = DocumentTask::builder()
-            .id(task_id.clone())
-            .source_type(SourceType::Upload)
-            .source_path(Some("/tmp/test.pdf".to_string()))
-            .document_format(DocumentFormat::PDF)
-            .parser_engine(ParserEngine::MinerU)
-            .backend("pipeline")
-            .file_size(1024)
-            .mime_type("application/pdf")
-            .max_retries(3)
-            .expires_in_hours(24)
-            .build()
-            .unwrap();
+        let mut task = DocumentTask::new(
+            task_id.clone(),
+            SourceType::Upload,
+            Some("/tmp/test.pdf".to_string()),
+            Some("test.pdf".to_string()),
+            Some(DocumentFormat::PDF),
+            Some("pipeline".to_string()),
+            Some(24),
+            Some(3),
+        );
+        task.parser_engine = Some(ParserEngine::MinerU);
+        task.file_size = Some(1024);
+        task.mime_type = Some("application/pdf".to_string());
         task.status = TaskStatus::new_pending();
 
         // 保存任务到存储
-        _app_state.storage_service.save_task(&task).await.expect("Failed to save task");
+        _app_state
+            .storage_service
+            .save_task(&task)
+            .await
+            .expect("Failed to save task");
 
         let _request = Request::builder()
             .method("GET")
-            .uri(&format!("/api/v1/task/{}/status", task_id))
+            .uri(format!("/api/v1/task/{task_id}/status"))
             .body(Body::empty())
             .unwrap();
 
@@ -146,10 +153,10 @@ mod task_handler_tests {
     async fn test_get_task_status_not_found() {
         let _app_state = create_test_app_state().await;
         let non_existent_task_id = Uuid::new_v4().to_string();
-        
+
         let _request = Request::builder()
             .method("GET")
-            .uri(&format!("/api/v1/task/{}/status", non_existent_task_id))
+            .uri(format!("/api/v1/task/{non_existent_task_id}/status"))
             .body(Body::empty())
             .unwrap();
 
@@ -161,10 +168,10 @@ mod task_handler_tests {
     async fn test_get_task_status_invalid_uuid() {
         let _app_state = create_test_app_state().await;
         let invalid_task_id = "invalid-uuid";
-        
+
         let _request = Request::builder()
             .method("GET")
-            .uri(&format!("/api/v1/task/{}/status", invalid_task_id))
+            .uri(format!("/api/v1/task/{invalid_task_id}/status"))
             .body(Body::empty())
             .unwrap();
 
@@ -181,19 +188,19 @@ mod markdown_handler_tests {
     async fn test_download_markdown_success() {
         let _app_state = create_test_app_state().await;
         let task_id = create_test_task_id();
-        
+
         // 创建测试任务
-        let mut task = DocumentTask::builder()
-            .id(task_id.clone())
-            .source_type(SourceType::Upload)
-            .source_path(Some("/tmp/test.pdf".to_string()))
-            .document_format(DocumentFormat::PDF)
-            .parser_engine(ParserEngine::MinerU)
-            .backend("pipeline")
-            .max_retries(3)
-            .expires_in_hours(24)
-            .build()
-            .unwrap();
+        let mut task = DocumentTask::new(
+            task_id.clone(),
+            SourceType::Upload,
+            Some("/tmp/test.pdf".to_string()),
+            Some("test.pdf".to_string()),
+            Some(DocumentFormat::PDF),
+            Some("pipeline".to_string()),
+            Some(24),
+            Some(3),
+        );
+        task.parser_engine = Some(ParserEngine::MinerU);
         task.status = TaskStatus::new_completed(std::time::Duration::from_secs(60));
         task.progress = 100;
         task.oss_data = Some(OssData {
@@ -203,11 +210,15 @@ mod markdown_handler_tests {
             bucket: "test-bucket".to_string(),
         });
 
-        _app_state.storage_service.save_task(&task).await.expect("Failed to save task");
+        _app_state
+            .storage_service
+            .save_task(&task)
+            .await
+            .expect("Failed to save task");
 
         let _request = Request::builder()
             .method("GET")
-            .uri(&format!("/api/v1/task/{}/markdown/download", task_id))
+            .uri(format!("/api/v1/task/{task_id}/markdown/download"))
             .body(Body::empty())
             .unwrap();
 
@@ -218,27 +229,31 @@ mod markdown_handler_tests {
     async fn test_download_markdown_task_not_completed() {
         let _app_state = create_test_app_state().await;
         let task_id = create_test_task_id();
-        
+
         // 创建未完成的任务
-        let mut task = DocumentTask::builder()
-            .id(task_id.clone())
-            .source_type(SourceType::Upload)
-            .source_path(Some("/tmp/test.pdf".to_string()))
-            .document_format(DocumentFormat::PDF)
-            .parser_engine(ParserEngine::MinerU)
-            .backend("pipeline")
-            .max_retries(3)
-            .expires_in_hours(24)
-            .build()
-            .unwrap();
+        let mut task = DocumentTask::new(
+            task_id.clone(),
+            SourceType::Upload,
+            Some("/tmp/test.pdf".to_string()),
+            Some("test.pdf".to_string()),
+            Some(DocumentFormat::PDF),
+            Some("pipeline".to_string()),
+            Some(24),
+            Some(3),
+        );
+        task.parser_engine = Some(ParserEngine::MinerU);
         task.status = TaskStatus::new_processing(ProcessingStage::MinerUExecuting);
         task.progress = 50;
 
-        _app_state.storage_service.save_task(&task).await.expect("Failed to save task");
+        _app_state
+            .storage_service
+            .save_task(&task)
+            .await
+            .expect("Failed to save task");
 
         let _request = Request::builder()
             .method("GET")
-            .uri(&format!("/api/v1/task/{}/markdown/download", task_id))
+            .uri(format!("/api/v1/task/{task_id}/markdown/download"))
             .body(Body::empty())
             .unwrap();
 
@@ -250,19 +265,19 @@ mod markdown_handler_tests {
     async fn test_get_markdown_url_success() {
         let _app_state = create_test_app_state().await;
         let task_id = create_test_task_id();
-        
+
         // 创建已完成的任务
-        let mut task = DocumentTask::builder()
-            .id(task_id.clone())
-            .source_type(SourceType::Upload)
-            .source_path(Some("/tmp/test.pdf".to_string()))
-            .document_format(DocumentFormat::PDF)
-            .parser_engine(ParserEngine::MinerU)
-            .backend("pipeline")
-            .max_retries(3)
-            .expires_in_hours(24)
-            .build()
-            .unwrap();
+        let mut task = DocumentTask::new(
+            task_id.clone(),
+            SourceType::Upload,
+            Some("/tmp/test.pdf".to_string()),
+            Some("test.pdf".to_string()),
+            Some(DocumentFormat::PDF),
+            Some("pipeline".to_string()),
+            Some(24),
+            Some(3),
+        );
+        task.parser_engine = Some(ParserEngine::MinerU);
         task.status = TaskStatus::new_completed(std::time::Duration::from_secs(60));
         task.progress = 100;
         task.oss_data = Some(OssData {
@@ -272,11 +287,15 @@ mod markdown_handler_tests {
             bucket: "test-bucket".to_string(),
         });
 
-        _app_state.storage_service.save_task(&task).await.expect("Failed to save task");
+        _app_state
+            .storage_service
+            .save_task(&task)
+            .await
+            .expect("Failed to save task");
 
         let _request = Request::builder()
             .method("GET")
-            .uri(&format!("/api/v1/task/{}/markdown/url", task_id))
+            .uri(format!("/api/v1/task/{task_id}/markdown/url"))
             .body(Body::empty())
             .unwrap();
 
@@ -287,39 +306,39 @@ mod markdown_handler_tests {
     async fn test_get_markdown_url_with_temp_params() {
         let _app_state = create_test_app_state().await;
         let task_id = create_test_task_id();
-        
-        // 创建已完成的任务
-        let task = DocumentTask {
-            id: task_id.clone(),
-            status: TaskStatus::new_completed(std::time::Duration::from_secs(60)),
-            source_type: SourceType::Upload,
-            source_path: Some("/tmp/test.pdf".to_string()),
-            document_format: DocumentFormat::PDF,
-            parser_engine: ParserEngine::MinerU,
-            backend: "pipeline".to_string(),
-            progress: 100,
-            error_message: None,
-            oss_data: Some(OssData {
-                markdown_url: "https://oss.example.com/test.md".to_string(),
-                markdown_object_key: Some("markdown/test_task/test.md".to_string()),
-                images: vec![],
-                bucket: "test-bucket".to_string(),
-            }),
-            structured_document: None,
-            file_size: None,
-            mime_type: None,
-            retry_count: 0,
-            max_retries: 3,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-            expires_at: chrono::Utc::now() + chrono::Duration::hours(24),
-        };
 
-        _app_state.storage_service.save_task(&task).await.expect("Failed to save task");
+        // 创建已完成的任务
+        let mut task = DocumentTask::new(
+            task_id.clone(),
+            SourceType::Upload,
+            Some("/tmp/test.pdf".to_string()),
+            Some("test.pdf".to_string()),
+            Some(DocumentFormat::PDF),
+            Some("pipeline".to_string()),
+            Some(24),
+            Some(3),
+        );
+        task.status = TaskStatus::new_completed(std::time::Duration::from_secs(60));
+        task.progress = 100;
+        task.parser_engine = Some(ParserEngine::MinerU);
+        task.oss_data = Some(OssData {
+            markdown_url: "https://oss.example.com/test.md".to_string(),
+            markdown_object_key: Some("markdown/test_task/test.md".to_string()),
+            images: vec![],
+            bucket: "test-bucket".to_string(),
+        });
+
+        _app_state
+            .storage_service
+            .save_task(&task)
+            .await
+            .expect("Failed to save task");
 
         let _request = Request::builder()
             .method("GET")
-            .uri(&format!("/api/v1/task/{}/markdown/url?temp=true&expires_hours=12", task_id))
+            .uri(format!(
+                "/api/v1/task/{task_id}/markdown/url?temp=true&expires_hours=12"
+            ))
             .body(Body::empty())
             .unwrap();
 
@@ -329,21 +348,23 @@ mod markdown_handler_tests {
     #[tokio::test]
     async fn test_process_markdown_sections_success() {
         let _app_state = create_test_app_state().await;
-        
+
         // 创建测试Markdown内容
         let markdown_content = create_test_markdown();
-        
+
         // 构造multipart请求体
         let boundary = "----test-boundary";
         let body = format!(
-            "--{}\r\nContent-Disposition: form-data; name=\"markdown_file\"; filename=\"test.md\"\r\nContent-Type: text/markdown\r\n\r\n{}\r\n--{}--\r\n",
-            boundary, markdown_content, boundary
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"markdown_file\"; filename=\"test.md\"\r\nContent-Type: text/markdown\r\n\r\n{markdown_content}\r\n--{boundary}--\r\n"
         );
 
         let _request = Request::builder()
             .method("POST")
             .uri("/api/v1/markdown/sections")
-            .header("content-type", format!("multipart/form-data; boundary={}", boundary))
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
             .body(Body::from(body))
             .unwrap();
 
@@ -353,7 +374,7 @@ mod markdown_handler_tests {
     #[tokio::test]
     async fn test_process_markdown_sections_invalid_content() {
         let _app_state = create_test_app_state().await;
-        
+
         let _request = Request::builder()
             .method("POST")
             .uri("/api/v1/markdown/sections")
@@ -373,18 +394,19 @@ mod toc_handler_tests {
     async fn test_get_document_toc_success() {
         let _app_state = create_test_app_state().await;
         let task_id = create_test_task_id();
-        
+
         // 创建已完成的任务
-        let mut task = DocumentTask::builder()
-            .id(task_id.clone())
-            .source_type(SourceType::Upload)
-            .source_path(Some("/tmp/test.pdf".to_string()))
-            .document_format(DocumentFormat::PDF)
-            .parser_engine(ParserEngine::MinerU)
-            .backend("pipeline")
-            .expires_in_hours(24)
-            .build()
-            .unwrap();
+        let mut task = DocumentTask::new(
+            task_id.clone(),
+            SourceType::Upload,
+            Some("/tmp/test.pdf".to_string()),
+            Some("test.pdf".to_string()),
+            Some(DocumentFormat::PDF),
+            Some("pipeline".to_string()),
+            Some(24),
+            Some(3),
+        );
+        task.parser_engine = Some(ParserEngine::MinerU);
         task.status = TaskStatus::new_completed(std::time::Duration::from_secs(60));
         task.progress = 100;
         task.oss_data = Some(OssData {
@@ -394,11 +416,15 @@ mod toc_handler_tests {
             bucket: "test-bucket".to_string(),
         });
 
-        _app_state.storage_service.save_task(&task).await.expect("Failed to save task");
+        _app_state
+            .storage_service
+            .save_task(&task)
+            .await
+            .expect("Failed to save task");
 
         let _request = Request::builder()
             .method("GET")
-            .uri(&format!("/api/v1/task/{}/toc", task_id))
+            .uri(format!("/api/v1/task/{task_id}/toc"))
             .body(Body::empty())
             .unwrap();
 
@@ -409,26 +435,31 @@ mod toc_handler_tests {
     async fn test_get_document_toc_task_not_completed() {
         let app_state = create_test_app_state().await;
         let task_id = create_test_task_id();
-        
+
         // 创建未完成的任务
-        let mut task = DocumentTask::builder()
-            .id(task_id.clone())
-            .source_type(SourceType::Upload)
-            .source_path(Some("/tmp/test.pdf".to_string()))
-            .document_format(DocumentFormat::PDF)
-            .parser_engine(ParserEngine::MinerU)
-            .backend("pipeline")
-            .expires_in_hours(24)
-            .build()
-            .unwrap();
+        let mut task = DocumentTask::new(
+            task_id.clone(),
+            SourceType::Upload,
+            Some("/tmp/test.pdf".to_string()),
+            Some("test.pdf".to_string()),
+            Some(DocumentFormat::PDF),
+            Some("pipeline".to_string()),
+            Some(24),
+            Some(3),
+        );
+        task.parser_engine = Some(ParserEngine::MinerU);
         task.status = TaskStatus::new_processing(ProcessingStage::GeneratingToc);
         task.progress = 80;
 
-        app_state.storage_service.save_task(&task).await.expect("Failed to save task");
+        app_state
+            .storage_service
+            .save_task(&task)
+            .await
+            .expect("Failed to save task");
 
         let _request = Request::builder()
             .method("GET")
-            .uri(&format!("/api/v1/task/{}/toc", task_id))
+            .uri(format!("/api/v1/task/{task_id}/toc"))
             .body(Body::empty())
             .unwrap();
 
@@ -456,7 +487,7 @@ mod health_handler_tests {
     #[tokio::test]
     async fn test_readiness_check() {
         let _app_state = create_test_app_state().await;
-        
+
         let _request = Request::builder()
             .method("GET")
             .uri("/ready")
@@ -478,7 +509,7 @@ mod request_validation_tests {
         let mut params = HashMap::new();
         params.insert("temp".to_string(), "true".to_string());
         params.insert("expires_hours".to_string(), "24".to_string());
-        
+
         // 验证参数解析
         assert_eq!(params.get("temp"), Some(&"true".to_string()));
         assert_eq!(params.get("expires_hours"), Some(&"24".to_string()));
@@ -488,9 +519,10 @@ mod request_validation_tests {
     fn test_invalid_query_parameters() {
         let mut params = HashMap::new();
         params.insert("expires_hours".to_string(), "invalid".to_string());
-        
+
         // 测试无效参数值的处理
-        let expires_hours = params.get("expires_hours")
+        let expires_hours = params
+            .get("expires_hours")
             .and_then(|v| v.parse::<u32>().ok());
         assert_eq!(expires_hours, None);
     }
@@ -502,14 +534,14 @@ mod request_validation_tests {
             ("0", Some(0u32)),
             ("1", Some(1u32)),
             ("24", Some(24u32)),
-            ("168", Some(168u32)), // 7天
-            ("-1", None), // 负数
+            ("168", Some(168u32)),       // 7天
+            ("-1", None),                // 负数
             ("999999", Some(999999u32)), // 大数值
         ];
 
         for (input, expected) in test_cases {
             let result = input.parse::<u32>().ok();
-            assert_eq!(result, expected, "Failed for input: {}", input);
+            assert_eq!(result, expected, "Failed for input: {input}");
         }
     }
 }
@@ -532,7 +564,8 @@ mod response_format_tests {
 
     #[test]
     fn test_error_response_format() {
-        let response: HttpResult<Value> = HttpResult::<Value>::error("E001".to_string(), "系统内部错误".to_string());
+        let response: HttpResult<Value> =
+            HttpResult::<Value>::error("E001".to_string(), "系统内部错误".to_string());
 
         assert_eq!(response.code, "E001");
         assert_eq!(response.message, "系统内部错误");
@@ -542,11 +575,11 @@ mod response_format_tests {
     #[test]
     fn test_response_serialization() {
         let response = HttpResult::success("test_data".to_string());
-        
+
         let json = serde_json::to_string(&response).expect("Failed to serialize response");
-        let deserialized: HttpResult<String> = serde_json::from_str(&json)
-            .expect("Failed to deserialize response");
-        
+        let deserialized: HttpResult<String> =
+            serde_json::from_str(&json).expect("Failed to deserialize response");
+
         assert_eq!(response.code, deserialized.code);
         assert_eq!(response.message, deserialized.message);
         assert_eq!(response.data, deserialized.data);
@@ -558,31 +591,31 @@ mod comprehensive_handler_tests {
     use super::*;
     use axum::{
         body::Body,
-        extract::{Path, Query, State},
-        http::{Request, StatusCode},
-        response::Response,
+        http::Request,
     };
-    use std::sync::Arc;
-    use tempfile::TempDir;
+    
+    
 
     #[tokio::test]
     async fn test_document_upload_validation() {
         let _app_state = create_test_app_state().await;
-        
+
         // Test file size validation
         let large_file_content = "x".repeat(100 * 1024 * 1024); // 100MB
-        
+
         // Create multipart request
         let boundary = "----test-boundary";
         let body = format!(
-            "--{}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"large.pdf\"\r\nContent-Type: application/pdf\r\n\r\n{}\r\n--{}--\r\n",
-            boundary, large_file_content, boundary
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"large.pdf\"\r\nContent-Type: application/pdf\r\n\r\n{large_file_content}\r\n--{boundary}--\r\n"
         );
 
         let _request = Request::builder()
             .method("POST")
             .uri("/api/v1/document/upload")
-            .header("content-type", format!("multipart/form-data; boundary={}", boundary))
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
             .body(Body::from(body))
             .unwrap();
 
@@ -593,18 +626,20 @@ mod comprehensive_handler_tests {
     #[tokio::test]
     async fn test_document_upload_mime_type_validation() {
         let _app_state = create_test_app_state().await;
-        
+
         // Test unsupported MIME type
         let boundary = "----test-boundary";
         let body = format!(
-            "--{}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"test.exe\"\r\nContent-Type: application/x-executable\r\n\r\nfake exe content\r\n--{}--\r\n",
-            boundary, boundary
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"test.exe\"\r\nContent-Type: application/x-executable\r\n\r\nfake exe content\r\n--{boundary}--\r\n"
         );
 
         let _request = Request::builder()
             .method("POST")
             .uri("/api/v1/document/upload")
-            .header("content-type", format!("multipart/form-data; boundary={}", boundary))
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
             .body(Body::from(body))
             .unwrap();
 
@@ -614,7 +649,7 @@ mod comprehensive_handler_tests {
     #[tokio::test]
     async fn test_url_submission_validation() {
         let _app_state = create_test_app_state().await;
-        
+
         // Test various URL formats
         let test_cases = vec![
             ("https://example.com/doc.pdf", true),
@@ -645,38 +680,58 @@ mod comprehensive_handler_tests {
     #[tokio::test]
     async fn test_task_status_retrieval_comprehensive() {
         let _app_state = create_test_app_state().await;
-        
+
         // Create tasks in different states
         let tasks = vec![
             (TaskStatus::new_pending(), "pending"),
-            (TaskStatus::new_processing(ProcessingStage::FormatDetection), "processing"),
-            (TaskStatus::new_completed(std::time::Duration::from_secs(60)), "completed"),
-            (TaskStatus::new_failed(
-                TaskError::new("E001".to_string(), "Test error".to_string(), None),
-                1
-            ), "failed"),
+            (
+                TaskStatus::new_processing(ProcessingStage::FormatDetection),
+                "processing",
+            ),
+            (
+                TaskStatus::new_completed(std::time::Duration::from_secs(60)),
+                "completed",
+            ),
+            (
+                TaskStatus::new_failed(
+                    TaskError::new("E001".to_string(), "Test error".to_string(), None),
+                    1,
+                ),
+                "failed",
+            ),
         ];
 
         for (status, _status_name) in tasks {
-            let task = DocumentTask::builder()
-                .generate_id()
-                .source_type(SourceType::Upload)
-                .document_format(DocumentFormat::PDF)
-                .parser_engine(ParserEngine::MinerU)
-                .build()
-                .expect("Failed to build task");
+            let task = DocumentTask::new(
+                Uuid::new_v4().to_string(),
+                SourceType::Upload,
+                None,
+                None,
+                Some(DocumentFormat::PDF),
+                Some("pipeline".to_string()),
+                Some(24),
+                Some(3),
+            );
+            let task = {
+                let mut t = task;
+                t.parser_engine = Some(ParserEngine::MinerU);
+                t
+            };
 
             let mut task_with_status = task.clone();
             task_with_status.status = status;
 
             // Save task
-            _app_state.storage_service.save_task(&task_with_status).await
+            _app_state
+                .storage_service
+                .save_task(&task_with_status)
+                .await
                 .expect("Failed to save task");
 
             // Test status retrieval
             let _request = Request::builder()
                 .method("GET")
-                .uri(&format!("/api/v1/task/{}/status", task.id))
+                .uri(format!("/api/v1/task/{}/status", task.id))
                 .body(Body::empty())
                 .unwrap();
 
@@ -687,27 +742,32 @@ mod comprehensive_handler_tests {
     #[tokio::test]
     async fn test_markdown_processing_edge_cases() {
         let _app_state = create_test_app_state().await;
-        
+
         // Test various markdown content scenarios
         let test_cases = vec![
             ("", "empty content"),
             ("# Single Header\nContent", "simple document"),
             ("No headers at all", "no structure"),
             ("# 中文标题\n中文内容", "unicode content"),
-            ("# Header\n![Image](image.png)\n[Link](http://example.com)", "with media"),
+            (
+                "# Header\n![Image](image.png)\n[Link](http://example.com)",
+                "with media",
+            ),
         ];
 
         for (content, _description) in test_cases {
             let boundary = "----test-boundary";
             let body = format!(
-                "--{}\r\nContent-Disposition: form-data; name=\"markdown_file\"; filename=\"test.md\"\r\nContent-Type: text/markdown\r\n\r\n{}\r\n--{}--\r\n",
-                boundary, content, boundary
+                "--{boundary}\r\nContent-Disposition: form-data; name=\"markdown_file\"; filename=\"test.md\"\r\nContent-Type: text/markdown\r\n\r\n{content}\r\n--{boundary}--\r\n"
             );
 
             let _request = Request::builder()
                 .method("POST")
                 .uri("/api/v1/markdown/sections")
-                .header("content-type", format!("multipart/form-data; boundary={}", boundary))
+                .header(
+                    "content-type",
+                    format!("multipart/form-data; boundary={boundary}"),
+                )
                 .body(Body::from(body))
                 .unwrap();
 
@@ -719,7 +779,7 @@ mod comprehensive_handler_tests {
     #[tokio::test]
     async fn test_error_response_formats() {
         let _app_state = create_test_app_state().await;
-        
+
         // Test various error scenarios
         let error_cases = vec![
             ("invalid-task-id", "Invalid UUID format"),
@@ -729,7 +789,7 @@ mod comprehensive_handler_tests {
         for (task_id, _expected_error_type) in error_cases {
             let _request = Request::builder()
                 .method("GET")
-                .uri(&format!("/api/v1/task/{}/status", task_id))
+                .uri(format!("/api/v1/task/{task_id}/status"))
                 .body(Body::empty())
                 .unwrap();
 
@@ -741,24 +801,30 @@ mod comprehensive_handler_tests {
     #[tokio::test]
     async fn test_concurrent_request_handling() {
         let app_state = create_test_app_state().await;
-        
+
         // Create multiple tasks concurrently
         let mut handles = vec![];
-        
+
         for i in 0..10 {
             let app_state_clone = app_state.clone();
             let handle = tokio::spawn(async move {
                 // Simulate concurrent task creation
-                let task = DocumentTask::builder()
-                    .generate_id()
-                    .source_type(SourceType::Upload)
-                    .source_path(Some(format!("/tmp/test{}.pdf", i)))
-                    .document_format(DocumentFormat::PDF)
-                    .parser_engine(ParserEngine::MinerU)
-                    .build()
-                    .expect("Failed to build task");
+                let mut task = DocumentTask::new(
+                    Uuid::new_v4().to_string(),
+                    SourceType::Upload,
+                    Some(format!("/tmp/test{i}.pdf")),
+                    Some(format!("test{i}.pdf")),
+                    Some(DocumentFormat::PDF),
+                    Some("pipeline".to_string()),
+                    Some(24),
+                    Some(3),
+                );
+                task.parser_engine = Some(ParserEngine::MinerU);
 
-                app_state_clone.storage_service.save_task(&task).await
+                app_state_clone
+                    .storage_service
+                    .save_task(&task)
+                    .await
                     .expect("Failed to save task");
 
                 task.id
@@ -775,7 +841,7 @@ mod comprehensive_handler_tests {
 
         // Verify all tasks were created successfully
         assert_eq!(task_ids.len(), 10);
-        
+
         // Test concurrent status retrieval
         let mut status_handles = vec![];
         for task_id in task_ids {
@@ -783,7 +849,7 @@ mod comprehensive_handler_tests {
             let handle = tokio::spawn(async move {
                 let _request = Request::builder()
                     .method("GET")
-                    .uri(&format!("/api/v1/task/{}/status", task_id))
+                    .uri(format!("/api/v1/task/{task_id}/status"))
                     .body(Body::empty())
                     .unwrap();
 
@@ -802,10 +868,10 @@ mod comprehensive_handler_tests {
     #[tokio::test]
     async fn test_request_timeout_handling() {
         let _app_state = create_test_app_state().await;
-        
+
         // Test timeout scenarios
-        use tokio::time::{timeout, Duration};
-        
+        use tokio::time::{Duration, timeout};
+
         let _request = Request::builder()
             .method("GET")
             .uri("/health")
@@ -817,7 +883,8 @@ mod comprehensive_handler_tests {
             // Simulate handler execution
             tokio::time::sleep(Duration::from_millis(100)).await;
             "success"
-        }).await;
+        })
+        .await;
 
         assert!(result.is_ok(), "Request should complete within timeout");
     }
@@ -825,7 +892,7 @@ mod comprehensive_handler_tests {
     #[tokio::test]
     async fn test_health_check_comprehensive() {
         let _app_state = create_test_app_state().await;
-        
+
         let _request = Request::builder()
             .method("GET")
             .uri("/health")
@@ -842,7 +909,7 @@ mod comprehensive_handler_tests {
     #[tokio::test]
     async fn test_monitoring_endpoints() {
         let _app_state = create_test_app_state().await;
-        
+
         // Test metrics endpoint
         let _metrics_request = Request::builder()
             .method("GET")
@@ -866,33 +933,35 @@ mod comprehensive_handler_tests {
 #[cfg(test)]
 mod handler_integration_tests {
     use super::*;
-    use std::sync::Arc;
+    
 
     #[tokio::test]
     async fn test_complete_document_processing_workflow() {
         let _app_state = create_test_app_state().await;
-        
+
         // Step 1: Upload document
         let boundary = "----test-boundary";
         let file_content = "fake pdf content";
         let upload_body = format!(
-            "--{}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"test.pdf\"\r\nContent-Type: application/pdf\r\n\r\n{}\r\n--{}--\r\n",
-            boundary, file_content, boundary
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"test.pdf\"\r\nContent-Type: application/pdf\r\n\r\n{file_content}\r\n--{boundary}--\r\n"
         );
 
         let _upload_request = Request::builder()
             .method("POST")
             .uri("/api/v1/document/upload")
-            .header("content-type", format!("multipart/form-data; boundary={}", boundary))
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
             .body(Body::from(upload_body))
             .unwrap();
 
         // Step 2: Check task status
         // (Would need task ID from upload response)
-        
+
         // Step 3: Download results when complete
         // (Would check status until complete, then download)
-        
+
         // This test demonstrates the complete workflow
         // In actual implementation, would verify each step
     }
@@ -900,40 +969,46 @@ mod handler_integration_tests {
     #[tokio::test]
     async fn test_error_recovery_workflow() {
         let app_state = create_test_app_state().await;
-        
+
         // Create a task that will fail
-        let task = DocumentTask::builder()
-            .generate_id()
-            .source_type(SourceType::Upload)
-            .source_path(Some("/nonexistent/file.pdf".to_string()))
-            .document_format(DocumentFormat::PDF)
-            .parser_engine(ParserEngine::MinerU)
-            .build()
-            .expect("Failed to build task");
+        let mut task = DocumentTask::new(
+            Uuid::new_v4().to_string(),
+            SourceType::Upload,
+            Some("/nonexistent/file.pdf".to_string()),
+            Some("file.pdf".to_string()),
+            Some(DocumentFormat::PDF),
+            Some("pipeline".to_string()),
+            Some(24),
+            Some(3),
+        );
+        task.parser_engine = Some(ParserEngine::MinerU);
 
         // Set task to failed state
         let mut failed_task = task.clone();
         failed_task.status = TaskStatus::new_failed(
             TaskError::new("E001".to_string(), "File not found".to_string(), None),
-            1
+            1,
         );
 
-        app_state.storage_service.save_task(&failed_task).await
+        app_state
+            .storage_service
+            .save_task(&failed_task)
+            .await
             .expect("Failed to save failed task");
 
         // Test error handling in status endpoint
         let _status_request = Request::builder()
             .method("GET")
-            .uri(&format!("/api/v1/task/{}/status", task.id))
+            .uri(format!("/api/v1/task/{}/status", task.id))
             .body(Body::empty())
             .unwrap();
 
         // Should return error information properly formatted
-        
+
         // Test retry mechanism (if implemented)
         let _retry_request = Request::builder()
             .method("POST")
-            .uri(&format!("/api/v1/task/{}/retry", task.id))
+            .uri(format!("/api/v1/task/{}/retry", task.id))
             .body(Body::empty())
             .unwrap();
 
@@ -943,10 +1018,10 @@ mod handler_integration_tests {
     #[tokio::test]
     async fn test_rate_limiting_behavior() {
         let _app_state = create_test_app_state().await;
-        
+
         // Send multiple requests rapidly
         let mut handles = vec![];
-        
+
         for i in 0..20 {
             let handle = tokio::spawn(async move {
                 let _request = Request::builder()
@@ -977,7 +1052,7 @@ mod handler_security_tests {
     #[tokio::test]
     async fn test_input_sanitization() {
         let _app_state = create_test_app_state().await;
-        
+
         // Test malicious input scenarios
         let malicious_inputs = vec![
             "<script>alert('xss')</script>",
@@ -1006,7 +1081,7 @@ mod handler_security_tests {
     #[tokio::test]
     async fn test_path_traversal_protection() {
         let _app_state = create_test_app_state().await;
-        
+
         // Test path traversal attempts
         let path_traversal_attempts = vec![
             "../../../etc/passwd",
@@ -1018,7 +1093,7 @@ mod handler_security_tests {
         for path in path_traversal_attempts {
             let _request = Request::builder()
                 .method("GET")
-                .uri(&format!("/api/v1/task/{}/status", path))
+                .uri(format!("/api/v1/task/{path}/status"))
                 .body(Body::empty())
                 .unwrap();
 
@@ -1029,36 +1104,40 @@ mod handler_security_tests {
     #[tokio::test]
     async fn test_file_upload_security() {
         let _app_state = create_test_app_state().await;
-        
+
         // Test malicious file uploads
         let boundary = "----test-boundary";
-        
+
         // Test executable file upload
         let exe_body = format!(
-            "--{}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"malware.exe\"\r\nContent-Type: application/x-executable\r\n\r\nMZ\x4D\x5A\x03\r\n--{}--\r\n",
-            boundary, boundary
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"malware.exe\"\r\nContent-Type: application/x-executable\r\n\r\nMZ\x4D\x5A\x03\r\n--{boundary}--\r\n"
         );
 
         let _exe_request = Request::builder()
             .method("POST")
             .uri("/api/v1/document/upload")
-            .header("content-type", format!("multipart/form-data; boundary={}", boundary))
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
             .body(Body::from(exe_body))
             .unwrap();
 
         // Should reject executable files
-        
+
         // Test oversized file
         let large_content = "x".repeat(1024 * 1024 * 1024); // 1GB
         let large_body = format!(
-            "--{}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"large.pdf\"\r\nContent-Type: application/pdf\r\n\r\n{}\r\n--{}--\r\n",
-            boundary, large_content, boundary
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"large.pdf\"\r\nContent-Type: application/pdf\r\n\r\n{large_content}\r\n--{boundary}--\r\n"
         );
 
         let _large_request = Request::builder()
             .method("POST")
             .uri("/api/v1/document/upload")
-            .header("content-type", format!("multipart/form-data; boundary={}", boundary))
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
             .body(Body::from(large_body))
             .unwrap();
 

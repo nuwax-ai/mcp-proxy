@@ -1,21 +1,18 @@
 //! 性能优化模块
-//! 
+//!
 //! 包含内存使用优化、并发处理优化和缓存策略
 
-pub mod memory_optimizer;
-pub mod concurrency_optimizer;
 pub mod cache_manager;
+pub mod concurrency_optimizer;
+pub mod memory_optimizer;
 pub mod metrics_collector;
 // pub mod resource_monitor; // 模块不存在，暂时注释
 
-use std::sync::Arc;
-use std::time::{Duration, SystemTime};
-use dashmap::DashMap;
-use tokio::sync::Semaphore;
-use serde::{Deserialize, Serialize};
-use async_trait::async_trait;
 use crate::config::AppConfig;
 use crate::error::AppError;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 
 /// 性能优化器主结构
 #[derive(Clone)]
@@ -33,11 +30,12 @@ impl PerformanceOptimizer {
     pub async fn new(config: &AppConfig) -> Result<Self, AppError> {
         let performance_config = PerformanceConfig::default();
         let memory_optimizer = Arc::new(memory_optimizer::MemoryOptimizer::new(config).await?);
-        let concurrency_optimizer = Arc::new(concurrency_optimizer::ConcurrencyOptimizer::new(config).await?);
+        let concurrency_optimizer =
+            Arc::new(concurrency_optimizer::ConcurrencyOptimizer::new(config).await?);
         let cache_manager = Arc::new(cache_manager::CacheManager::new(config).await?);
         let metrics_collector = Arc::new(metrics_collector::MetricsCollector::new(config).await?);
         // let resource_monitor = Arc::new(resource_monitor::ResourceMonitor::new(config).await?); // 模块不存在，暂时注释
-        
+
         Ok(Self {
             memory_optimizer,
             concurrency_optimizer,
@@ -47,88 +45,88 @@ impl PerformanceOptimizer {
             config: performance_config,
         })
     }
-    
+
     /// 启动性能监控
     pub async fn start_monitoring(&self) -> Result<(), AppError> {
         // self.resource_monitor.start_monitoring().await?; // 模块不存在，暂时注释
         // self.metrics_collector.start_monitoring().await?; // 方法不存在，暂时注释
         Ok(())
     }
-    
+
     /// 停止性能监控
     pub async fn stop_monitoring(&self) -> Result<(), AppError> {
         // self.resource_monitor.stop_monitoring().await?; // 模块不存在，暂时注释
         // self.metrics_collector.stop_monitoring().await?; // 方法不存在，暂时注释
         Ok(())
     }
-    
+
     /// 获取内存优化器
     pub fn memory_optimizer(&self) -> &Arc<memory_optimizer::MemoryOptimizer> {
         &self.memory_optimizer
     }
-    
+
     /// 获取并发优化器
     pub fn concurrency_optimizer(&self) -> &Arc<concurrency_optimizer::ConcurrencyOptimizer> {
         &self.concurrency_optimizer
     }
-    
+
     /// 获取缓存管理器
     pub fn cache_manager(&self) -> &Arc<cache_manager::CacheManager> {
         &self.cache_manager
     }
-    
+
     /// 获取指标收集器
     pub fn metrics_collector(&self) -> &Arc<metrics_collector::MetricsCollector> {
         &self.metrics_collector
     }
-    
+
     // /// 获取资源监控器
     // pub fn resource_monitor(&self) -> &Arc<resource_monitor::ResourceMonitor> {
     //     &self.resource_monitor
     // } // 模块不存在，暂时注释
-    
+
     // /// 启动资源监控
     // pub async fn start_resource_monitoring(&self) -> Result<(), DocumentParserError> {
     //     self.resource_monitor.start_monitoring().await
     // } // 模块不存在，暂时注释
-    
+
     // /// 停止资源监控
     // pub async fn stop_resource_monitoring(&self) -> Result<(), DocumentParserError> {
     //     self.resource_monitor.stop_monitoring().await
     // } // 模块不存在，暂时注释
-    
+
     // /// 获取资源统计
     // pub async fn get_resource_stats(&self) -> Result<resource_monitor::ResourceStats, DocumentParserError> {
     //     self.resource_monitor.get_stats().await
     // } // 模块不存在，暂时注释
-    
+
     /// 优化资源使用
     pub async fn optimize_resources(&self) -> Result<(), AppError> {
         // self.resource_monitor.optimize().await // 模块不存在，暂时注释
         Ok(())
     }
-    
+
     /// 执行性能优化
     pub async fn optimize(&self) -> Result<(), AppError> {
         // 执行内存优化
         self.memory_optimizer.optimize().await?;
-        
+
         // 执行并发优化
         self.concurrency_optimizer.optimize().await?;
-        
+
         // 执行缓存优化
         self.cache_manager.optimize().await?;
-        
+
         Ok(())
     }
-    
+
     /// 获取性能报告
     pub async fn get_performance_report(&self) -> Result<PerformanceReport, AppError> {
         // let system_resources = self.resource_monitor.get_system_resources().await?; // 模块不存在，暂时注释
         // let app_resources = self.resource_monitor.get_application_resources().await?; // 模块不存在，暂时注释
         let metrics = self.metrics_collector.get_stats().await?;
         let cache_stats = self.cache_manager.get_stats().await?;
-        
+
         Ok(PerformanceReport {
             system_resources: Default::default(),
             application_resources: Default::default(),
@@ -279,7 +277,7 @@ impl Default for PerformanceConfig {
         Self {
             memory: MemoryConfig {
                 max_memory_usage: 2 * 1024 * 1024 * 1024, // 2GB
-                cleanup_threshold: 0.8, // 80%
+                cleanup_threshold: 0.8,                   // 80%
                 pool_size: 100,
                 enable_compression: true,
             },
@@ -294,10 +292,10 @@ impl Default for PerformanceConfig {
                 document_cache_size: 1000,
                 result_cache_size: 500,
                 metadata_cache_size: 200,
-                ttl: Duration::from_secs(3600), // 1小时
-                document_ttl: Duration::from_secs(3600), // 1小时
-                result_ttl: Duration::from_secs(1800), // 30分钟
-                metadata_ttl: Duration::from_secs(7200), // 2小时
+                ttl: Duration::from_secs(3600),             // 1小时
+                document_ttl: Duration::from_secs(3600),    // 1小时
+                result_ttl: Duration::from_secs(1800),      // 30分钟
+                metadata_ttl: Duration::from_secs(7200),    // 2小时
                 cleanup_interval: Duration::from_secs(300), // 5分钟
                 enable_lru: true,
                 enable_compression: true,
@@ -351,10 +349,10 @@ impl Default for CacheConfig {
             document_cache_size: 1000,
             result_cache_size: 500,
             metadata_cache_size: 2000,
-            ttl: Duration::from_secs(3600), // 1 hour
-            document_ttl: Duration::from_secs(3600), // 1 hour
-            result_ttl: Duration::from_secs(1800), // 30 minutes
-            metadata_ttl: Duration::from_secs(7200), // 2 hours
+            ttl: Duration::from_secs(3600),             // 1 hour
+            document_ttl: Duration::from_secs(3600),    // 1 hour
+            result_ttl: Duration::from_secs(1800),      // 30 minutes
+            metadata_ttl: Duration::from_secs(7200),    // 2 hours
             cleanup_interval: Duration::from_secs(300), // 5 minutes
             enable_lru: true,
             enable_compression: false,
@@ -376,8 +374,8 @@ impl Default for ResourceConfig {
     fn default() -> Self {
         Self {
             max_cpu_usage: 80.0,
-            max_memory_usage: 1024 * 1024 * 1024, // 1GB
-            max_disk_usage: 10 * 1024 * 1024 * 1024, // 10GB
+            max_memory_usage: 1024 * 1024 * 1024,     // 1GB
+            max_disk_usage: 10 * 1024 * 1024 * 1024,  // 10GB
             max_network_bandwidth: 100 * 1024 * 1024, // 100MB/s
             max_connections: 1000,
             max_file_descriptors: 1024,
@@ -396,8 +394,8 @@ impl Default for MetricsConfig {
             enable_application_metrics: true,
             enable_custom_metrics: false,
             retention_period: Duration::from_secs(3600 * 24), // 24小时
-            aggregation_window: Duration::from_secs(300), // 5分钟
-            aggregation_interval: Duration::from_secs(60), // 1分钟
+            aggregation_window: Duration::from_secs(300),     // 5分钟
+            aggregation_interval: Duration::from_secs(60),    // 1分钟
             enable_export: false,
             export_format: "json".to_string(),
             report_interval: Duration::from_secs(300), // 5分钟
@@ -411,10 +409,10 @@ impl Default for MetricsConfig {
 pub trait PerformanceOptimizable {
     /// 执行性能优化
     async fn optimize(&self) -> Result<(), AppError>;
-    
+
     /// 获取性能统计
     async fn get_stats(&self) -> Result<serde_json::Value, AppError>;
-    
+
     /// 重置性能统计
     async fn reset_stats(&self) -> Result<(), AppError>;
 }
@@ -422,8 +420,8 @@ pub trait PerformanceOptimizable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::AppConfig;
     
+
     #[tokio::test]
     async fn test_performance_optimizer_creation() {
         // 使用默认配置进行测试
@@ -431,7 +429,7 @@ mod tests {
         let optimizer = PerformanceOptimizer::new(&config).await;
         assert!(optimizer.is_ok());
     }
-    
+
     #[tokio::test]
     async fn test_performance_config_default() {
         let config = PerformanceConfig::default();

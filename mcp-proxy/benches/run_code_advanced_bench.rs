@@ -87,7 +87,7 @@ fn get_test_scenarios() -> Vec<TestScenario> {
 
 // 读取测试脚本文件
 fn read_script_file(file_path: &str) -> String {
-    fs::read_to_string(file_path).unwrap_or_else(|_| panic!("无法读取文件: {}", file_path))
+    fs::read_to_string(file_path).unwrap_or_else(|_| panic!("无法读取文件: {file_path}"))
 }
 
 // 创建运行代码请求

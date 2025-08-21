@@ -42,7 +42,7 @@ pub async fn run_code_handler(
     let params = match serde_json::to_value(run_code_message_request.json_param.clone()) {
         Ok(v) => v,
         Err(e) => {
-            error!("run_code_handler参数序列化失败: {:?}", e);
+            error!("run_code_handler参数序列化失败: {e:?}");
             return Err(AppError::from(e));
         }
     };
@@ -51,14 +51,14 @@ pub async fn run_code_handler(
     let code = run_code_message_request.code.clone();
     let language = run_code_message_request.get_language_script();
 
-    debug!("run_code_handler language:{:?}", language);
-    debug!("run_code_handler code:{:?}", code);
-    debug!("run_code_handler params:{:?}", params);
+    debug!("run_code_handler language:{language:?}");
+    debug!("run_code_handler code:{code:?}");
+    debug!("run_code_handler params:{params:?}");
     let result = match CodeExecutor::execute_with_params(&code, language, Some(params), None).await
     {
         Ok(result) => result,
         Err(e) => {
-            error!("run_code_handler执行失败: {:?}", e);
+            error!("run_code_handler执行失败: {e:?}");
             return Err(AppError::from(e));
         }
     };
@@ -66,7 +66,7 @@ pub async fn run_code_handler(
     let data = match serde_json::to_value(&result) {
         Ok(data) => data,
         Err(e) => {
-            error!("run_code_handler序列化结果失败: {:?}", e);
+            error!("run_code_handler序列化结果失败: {e:?}");
             return Err(AppError::from(e));
         }
     };

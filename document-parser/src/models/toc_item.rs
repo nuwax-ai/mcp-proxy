@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use utoipa::ToSchema;
 
 /// 目录项数据结构
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TocItem {
     pub id: String,
     pub title: String,
@@ -10,6 +11,8 @@ pub struct TocItem {
     pub anchor: String,
     pub start_pos: usize,
     pub end_pos: usize,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    #[schema(no_recursion)]
     pub children: Vec<TocItem>,
     pub parent_id: Option<String>,
     pub content_preview: Option<String>,
@@ -17,7 +20,7 @@ pub struct TocItem {
 }
 
 /// 文档结构
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DocumentStructure {
     pub title: String,
     pub toc: Vec<TocItem>,
@@ -28,15 +31,9 @@ pub struct DocumentStructure {
 
 impl TocItem {
     /// 创建新的目录项
-    pub fn new(
-        id: String,
-        title: String,
-        level: u8,
-        start_pos: usize,
-        end_pos: usize,
-    ) -> Self {
+    pub fn new(id: String, title: String, level: u8, start_pos: usize, end_pos: usize) -> Self {
         let anchor = Self::generate_anchor_id(&title);
-        
+
         Self {
             id,
             title,
@@ -104,7 +101,12 @@ impl TocItem {
         if self.children.is_empty() {
             0
         } else {
-            1 + self.children.iter().map(|c| c.get_depth()).max().unwrap_or(0)
+            1 + self
+                .children
+                .iter()
+                .map(|c| c.get_depth())
+                .max()
+                .unwrap_or(0)
         }
     }
 
@@ -211,10 +213,12 @@ impl DocumentStructure {
 
     /// 获取统计信息
     pub fn get_statistics(&self) -> DocumentStatistics {
-        let total_words = self.sections.values()
+        let total_words = self
+            .sections
+            .values()
             .map(|content| content.split_whitespace().count())
             .sum();
-        
+
         DocumentStatistics {
             total_sections: self.total_sections,
             max_level: self.max_level,
@@ -239,18 +243,16 @@ impl DocumentStructure {
             if !item.is_valid_position() {
                 return Err(format!("Invalid position for item: {}", item.id));
             }
-            if let Err(e) = self.validate_item_recursive(item) {
-                return Err(e);
-            }
+            self.validate_item_recursive(item)?
         }
-        
+
         // 检查章节内容完整性
         for item in &self.toc {
             if !self.sections.contains_key(&item.id) {
                 return Err(format!("Missing content for section: {}", item.id));
             }
         }
-        
+
         Ok(())
     }
 
@@ -262,16 +264,14 @@ impl DocumentStructure {
             if child.level <= item.level {
                 return Err(format!("Invalid level hierarchy for item: {}", child.id));
             }
-            if let Err(e) = self.validate_item_recursive(child) {
-                return Err(e);
-            }
+            self.validate_item_recursive(child)?
         }
         Ok(())
     }
 }
 
 /// 文档统计信息
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DocumentStatistics {
     pub total_sections: usize,
     pub max_level: u8,
@@ -286,20 +286,20 @@ mod tests {
     #[test]
     fn test_anchor_generation() {
         assert_eq!(TocItem::generate_anchor_id("第一章 介绍"), "第一章-介绍");
-        assert_eq!(TocItem::generate_anchor_id("1.1 Background"), "1_1-background");
-        assert_eq!(TocItem::generate_anchor_id("API设计 & 实现"), "api设计-_-实现");
+        assert_eq!(
+            TocItem::generate_anchor_id("1.1 Background"),
+            "1_1-background"
+        );
+        assert_eq!(
+            TocItem::generate_anchor_id("API设计 & 实现"),
+            "api设计-_-实现"
+        );
     }
 
     #[test]
     fn test_toc_item_creation() {
-        let item = TocItem::new(
-            "section-1".to_string(),
-            "第一章".to_string(),
-            1,
-            0,
-            100,
-        );
-        
+        let item = TocItem::new("section-1".to_string(), "第一章".to_string(), 1, 0, 100);
+
         assert_eq!(item.id, "section-1");
         assert_eq!(item.title, "第一章");
         assert_eq!(item.level, 1);
@@ -310,15 +310,15 @@ mod tests {
     #[test]
     fn test_document_structure() {
         let mut doc = DocumentStructure::new("测试文档".to_string());
-        
+
         let item1 = TocItem::new("s1".to_string(), "章节1".to_string(), 1, 0, 50);
         let item2 = TocItem::new("s2".to_string(), "章节2".to_string(), 1, 51, 100);
-        
+
         doc.add_toc_item(item1);
         doc.add_toc_item(item2);
         doc.add_section("s1".to_string(), "章节1的内容".to_string());
         doc.add_section("s2".to_string(), "章节2的内容".to_string());
-        
+
         assert_eq!(doc.total_sections, 2);
         assert_eq!(doc.max_level, 1);
         assert!(doc.validate().is_ok());

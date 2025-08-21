@@ -4,7 +4,7 @@ use std::env;
 use std::fs::File;
 use std::path::Path;
 use std::str::FromStr;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock, RwLock};
 use thiserror::Error;
 use tracing::{info, warn};
 
@@ -46,11 +46,11 @@ impl FileSize {
     pub fn bytes(&self) -> u64 {
         self.0
     }
-    
+
     pub fn mb(&self) -> u64 {
         self.0 / (1024 * 1024)
     }
-    
+
     pub fn from_mb(mb: u64) -> Self {
         Self(mb * 1024 * 1024)
     }
@@ -68,7 +68,7 @@ pub struct GlobalFileSizeConfig {
 impl Default for GlobalFileSizeConfig {
     fn default() -> Self {
         Self {
-            max_file_size: FileSize(100 * 1024 * 1024), // 100MB
+            max_file_size: FileSize(100 * 1024 * 1024),      // 100MB
             large_document_threshold: FileSize(1024 * 1024), // 1MB
         }
     }
@@ -79,54 +79,58 @@ impl GlobalFileSizeConfig {
     pub fn new() -> Self {
         get_global_file_size_config().clone()
     }
-    
+
     /// 验证配置的有效性
     pub fn validate(&self) -> Result<(), ConfigError> {
         let configs = [
             ("max_file_size", self.max_file_size.bytes()),
-            ("large_document_threshold", self.large_document_threshold.bytes()),
+            (
+                "large_document_threshold",
+                self.large_document_threshold.bytes(),
+            ),
         ];
-        
+
         for (name, size) in configs {
             if size == 0 {
                 return Err(ConfigError::Validation {
-                    field: format!("file_size_config.{}", name),
+                    field: format!("file_size_config.{name}"),
                     message: "文件大小不能为0".to_string(),
                 });
             }
-            
-            if size > 10 * 1024 * 1024 * 1024 { // 10GB
+
+            if size > 10 * 1024 * 1024 * 1024 {
+                // 10GB
                 return Err(ConfigError::Validation {
-                    field: format!("file_size_config.{}", name),
+                    field: format!("file_size_config.{name}"),
                     message: "文件大小不能超过10GB".to_string(),
                 });
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// 获取指定用途的文件大小限制
     pub fn get_max_size_for(&self, _purpose: FileSizePurpose) -> u64 {
         // 统一使用同一个文件大小限制
         self.max_file_size.bytes()
     }
-    
+
     /// 检查文件大小是否超过指定用途的限制
     pub fn is_size_allowed(&self, file_size: u64, purpose: FileSizePurpose) -> bool {
         file_size <= self.get_max_size_for(purpose)
     }
-    
+
     /// 获取大文档阈值
     pub fn get_large_document_threshold(&self) -> u64 {
         self.large_document_threshold.bytes()
     }
-    
+
     /// 检查是否为大文档
     pub fn is_large_document(&self, file_size: u64) -> bool {
         file_size >= self.get_large_document_threshold()
     }
-    
+
     /// 获取指定用途的文件大小限制（返回FileSize结构体）
     pub fn get_file_size_limit(&self, _purpose: &FileSizePurpose) -> &FileSize {
         // 统一使用同一个文件大小限制
@@ -160,26 +164,28 @@ pub enum FileSizePurpose {
 /// 解析文件大小字符串 (例如: "100MB", "1GB", "500KB")
 pub fn parse_file_size(size_str: &str) -> Result<u64, String> {
     let size_str = size_str.trim().to_uppercase();
-    
+
     if let Some(pos) = size_str.find(|c: char| c.is_alphabetic()) {
         let (number_part, unit_part) = size_str.split_at(pos);
-        let number: f64 = number_part.parse()
-            .map_err(|_| format!("无效的数字: {}", number_part))?;
-        
+        let number: f64 = number_part
+            .parse()
+            .map_err(|_| format!("无效的数字: {number_part}"))?;
+
         let multiplier = match unit_part {
             "B" => 1,
             "KB" => 1024,
             "MB" => 1024 * 1024,
             "GB" => 1024 * 1024 * 1024,
             "TB" => 1024_u64.pow(4),
-            _ => return Err(format!("不支持的单位: {}", unit_part)),
+            _ => return Err(format!("不支持的单位: {unit_part}")),
         };
-        
+
         Ok((number * multiplier as f64) as u64)
     } else {
         // 如果没有单位，假设是字节
-        size_str.parse::<u64>()
-            .map_err(|_| format!("无效的文件大小: {}", size_str))
+        size_str
+            .parse::<u64>()
+            .map_err(|_| format!("无效的文件大小: {size_str}"))
     }
 }
 
@@ -201,57 +207,57 @@ impl ConfigBuilder {
     pub fn new() -> Self {
         Self::default()
     }
-    
+
     pub fn environment(mut self, environment: String) -> Self {
         self.environment = Some(environment);
         self
     }
-    
+
     pub fn server(mut self, server: ServerConfig) -> Self {
         self.server = Some(server);
         self
     }
-    
+
     pub fn log(mut self, log: LogConfig) -> Self {
         self.log = Some(log);
         self
     }
-    
+
     pub fn document_parser(mut self, document_parser: DocumentParserConfig) -> Self {
         self.document_parser = Some(document_parser);
         self
     }
-    
+
     pub fn mineru(mut self, mineru: MinerUConfig) -> Self {
         self.mineru = Some(mineru);
         self
     }
-    
+
     pub fn markitdown(mut self, markitdown: MarkItDownConfig) -> Self {
         self.markitdown = Some(markitdown);
         self
     }
-    
+
     pub fn storage(mut self, storage: StorageConfig) -> Self {
         self.storage = Some(storage);
         self
     }
-    
+
     pub fn external_integration(mut self, external_integration: ExternalIntegrationConfig) -> Self {
         self.external_integration = Some(external_integration);
         self
     }
-    
+
     pub fn file_size_config(mut self, file_size_config: GlobalFileSizeConfig) -> Self {
         self.file_size_config = Some(file_size_config);
         self
     }
-    
+
     pub fn build(self) -> Result<AppConfig, ConfigError> {
         // 使用默认配置作为基础
         let mut config: AppConfig = serde_yaml::from_str(DEFAULT_CONFIG_YAML)
             .map_err(|e| ConfigError::Parse(e.to_string()))?;
-        
+
         // 应用构建器中的配置
         if let Some(environment) = self.environment {
             config.environment = environment;
@@ -280,13 +286,24 @@ impl ConfigBuilder {
         if let Some(file_size_config) = self.file_size_config {
             config.file_size_config = file_size_config;
         }
-        
+
         // 验证配置
         config.validate()?;
-        
+
         Ok(config)
     }
 }
+
+/// CUDA环境状态
+#[derive(Debug, Clone)]
+#[derive(Default)]
+pub struct CudaStatus {
+    pub available: bool,
+    pub version: Option<String>,
+    pub device_count: usize,
+    pub recommended_device: Option<String>,
+}
+
 
 /// 应用配置
 #[derive(Debug, Clone, Deserialize)]
@@ -319,22 +336,26 @@ impl ServerConfig {
                 message: "端口号不能为0".to_string(),
             });
         }
-        
+
         if self.host.is_empty() {
             return Err(ConfigError::Validation {
                 field: "server.host".to_string(),
                 message: "主机地址不能为空".to_string(),
             });
         }
-        
+
         // 验证主机地址格式
-        if !self.host.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == ':' || c == '-') {
+        if !self
+            .host
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == ':' || c == '-')
+        {
             return Err(ConfigError::Validation {
                 field: "server.host".to_string(),
                 message: "主机地址包含无效字符".to_string(),
             });
         }
-        
+
         Ok(())
     }
 }
@@ -353,17 +374,20 @@ impl LogConfig {
         if !valid_levels.contains(&self.level.to_lowercase().as_str()) {
             return Err(ConfigError::Validation {
                 field: "log.level".to_string(),
-                message: format!("无效的日志级别: {}，支持的级别: {:?}", self.level, valid_levels),
+                message: format!(
+                    "无效的日志级别: {}，支持的级别: {:?}",
+                    self.level, valid_levels
+                ),
             });
         }
-        
+
         if self.path.is_empty() {
             return Err(ConfigError::Validation {
                 field: "log.path".to_string(),
                 message: "日志路径不能为空".to_string(),
             });
         }
-        
+
         // 验证路径是否可以创建
         let path = Path::new(&self.path);
         if let Some(parent) = path.parent() {
@@ -374,7 +398,7 @@ impl LogConfig {
                 });
             }
         }
-        
+
         Ok(())
     }
 }
@@ -396,37 +420,37 @@ impl DocumentParserConfig {
                 message: "最大并发数不能为0".to_string(),
             });
         }
-        
+
         if self.max_concurrent > 100 {
             return Err(ConfigError::Validation {
                 field: "document_parser.max_concurrent".to_string(),
                 message: "最大并发数不能超过100".to_string(),
             });
         }
-        
+
         if self.queue_size == 0 {
             return Err(ConfigError::Validation {
                 field: "document_parser.queue_size".to_string(),
                 message: "队列大小不能为0".to_string(),
             });
         }
-        
+
         // 文件大小限制现在由全局配置管理
-        
+
         if self.download_timeout == 0 {
             return Err(ConfigError::Validation {
                 field: "document_parser.download_timeout".to_string(),
                 message: "下载超时时间不能为0".to_string(),
             });
         }
-        
+
         if self.processing_timeout == 0 {
             return Err(ConfigError::Validation {
                 field: "document_parser.processing_timeout".to_string(),
                 message: "处理超时时间不能为0".to_string(),
             });
         }
-        
+
         Ok(())
     }
 }
@@ -441,27 +465,26 @@ pub struct MinerUConfig {
     pub max_concurrent: usize,
     pub queue_size: usize,
     #[serde(default)]
-    pub timeout: u32,  // 0表示使用统一的processing_timeout
+    pub timeout: u32, // 0表示使用统一的processing_timeout
     #[serde(default = "default_batch_size")]
     pub batch_size: usize,
     #[serde(default)]
     pub quality_level: QualityLevel,
+    #[serde(default = "default_device")]
+    pub device: String, // 推理设备：cpu/cuda/cuda:0/npu/mps等
+    #[serde(default = "default_vram")]
+    pub vram: u32, // 单进程最大GPU显存占用(GB)，仅对pipeline后端且支持CUDA时有效
 }
 
 /// 质量级别
 #[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Default)]
 pub enum QualityLevel {
     Fast,
+    #[default]
     Balanced,
     HighQuality,
 }
-
-impl Default for QualityLevel {
-    fn default() -> Self {
-        QualityLevel::Balanced
-    }
-}
-
 
 
 fn default_batch_size() -> usize {
@@ -481,65 +504,84 @@ fn default_python_path() -> String {
     }
 }
 
+fn default_device() -> String {
+    "cpu".to_string()
+}
+
+fn default_vram() -> u32 {
+    8 // 默认8GB显存限制
+}
+
 impl MinerUConfig {
     pub fn validate(&self) -> Result<(), ConfigError> {
-        let valid_backends = ["pipeline", "vlm-transformers", "vlm-sglang-engine", "vlm-sglang-client"];
+        let valid_backends = [
+            "pipeline",
+            "vlm-transformers",
+            "vlm-sglang-engine",
+            "vlm-sglang-client",
+        ];
         if !valid_backends.contains(&self.backend.as_str()) {
             return Err(ConfigError::Validation {
                 field: "mineru.backend".to_string(),
-                message: format!("无效的后端类型: {}，支持的类型: {:?}", self.backend, valid_backends),
+                message: format!(
+                    "无效的后端类型: {}，支持的类型: {:?}",
+                    self.backend, valid_backends
+                ),
             });
         }
-        
+
         if self.python_path.is_empty() {
             return Err(ConfigError::Validation {
                 field: "mineru.python_path".to_string(),
                 message: "Python路径不能为空".to_string(),
             });
         }
-        
+
         if self.max_concurrent == 0 {
             return Err(ConfigError::Validation {
                 field: "mineru.max_concurrent".to_string(),
                 message: "最大并发数不能为0".to_string(),
             });
         }
-        
+
         if self.queue_size == 0 {
             return Err(ConfigError::Validation {
                 field: "mineru.queue_size".to_string(),
                 message: "队列大小不能为0".to_string(),
             });
         }
-        
+
         // timeout 为 0 表示使用统一的 processing_timeout，这是允许的
-        
+
         if self.batch_size == 0 {
             return Err(ConfigError::Validation {
                 field: "mineru.batch_size".to_string(),
                 message: "批处理大小不能为0".to_string(),
             });
         }
-        
+
         Ok(())
     }
-    
+
     /// Get the effective python path, auto-detecting virtual environment if needed
     pub fn get_effective_python_path(&self) -> String {
         // If the configured path is the default and a virtual environment exists, use it
         let default_path = default_python_path();
-        if self.python_path == default_path || self.python_path == "python3" || self.python_path == "python" {
+        if self.python_path == default_path
+            || self.python_path == "python3"
+            || self.python_path == "python"
+        {
             let venv_python = if cfg!(windows) {
                 std::path::Path::new("./venv/Scripts/python.exe")
             } else {
                 std::path::Path::new("./venv/bin/python")
             };
-            
+
             if venv_python.exists() {
                 return venv_python.to_string_lossy().to_string();
             }
         }
-        
+
         self.python_path.clone()
     }
 }
@@ -550,7 +592,7 @@ pub struct MarkItDownConfig {
     #[serde(default = "default_python_path")]
     pub python_path: String,
     #[serde(default)]
-    pub timeout: u32,  // 0表示使用统一的processing_timeout
+    pub timeout: u32, // 0表示使用统一的processing_timeout
     pub enable_plugins: bool,
     pub features: MarkItDownFeatures,
 }
@@ -563,28 +605,31 @@ impl MarkItDownConfig {
                 message: "Python路径不能为空".to_string(),
             });
         }
-        
+
         // timeout 为 0 表示使用统一的 processing_timeout，这是允许的
-        
+
         Ok(())
     }
-    
+
     /// Get the effective python path, auto-detecting virtual environment if needed
     pub fn get_effective_python_path(&self) -> String {
         // If the configured path is the default and a virtual environment exists, use it
         let default_path = default_python_path();
-        if self.python_path == default_path || self.python_path == "python3" || self.python_path == "python" {
+        if self.python_path == default_path
+            || self.python_path == "python3"
+            || self.python_path == "python"
+        {
             let venv_python = if cfg!(windows) {
                 std::path::Path::new("./venv/Scripts/python.exe")
             } else {
                 std::path::Path::new("./venv/bin/python")
             };
-            
+
             if venv_python.exists() {
                 return venv_python.to_string_lossy().to_string();
             }
         }
-        
+
         self.python_path.clone()
     }
 }
@@ -628,14 +673,14 @@ impl SledConfig {
                 message: "数据库路径不能为空".to_string(),
             });
         }
-        
+
         if self.cache_capacity == 0 {
             return Err(ConfigError::Validation {
                 field: "storage.sled.cache_capacity".to_string(),
                 message: "缓存容量不能为0".to_string(),
             });
         }
-        
+
         Ok(())
     }
 }
@@ -644,12 +689,18 @@ impl SledConfig {
 #[derive(Debug, Clone, Deserialize)]
 pub struct OssConfig {
     pub endpoint: String,
-    pub bucket: String,
+    // pub bucket: String,
+    /// 公有存储桶名称 (默认: nuwa-packages)
+    pub public_bucket: String,
+    /// 私有存储桶名称 (默认: edu-nuwa-packages)
+    pub private_bucket: String,
     pub access_key_id: String,
     pub access_key_secret: String,
     /// 上传文件的统一子目录前缀
     #[serde(default = "default_upload_directory")]
     pub upload_directory: String,
+    /// 区域 (默认: oss-rg-china-mainland)
+    pub region: String,
 }
 
 /// 默认上传目录
@@ -665,18 +716,29 @@ impl OssConfig {
                 message: "OSS端点不能为空".to_string(),
             });
         }
-        
-        if self.bucket.is_empty() {
+
+        if self.public_bucket.is_empty() {
             return Err(ConfigError::Validation {
-                field: "storage.oss.bucket".to_string(),
+                field: "storage.oss.public_bucket".to_string(),
                 message: "OSS存储桶名称不能为空".to_string(),
             });
         }
-        
+
+        if self.private_bucket.is_empty() {
+            return Err(ConfigError::Validation {
+                field: "storage.oss.private_bucket".to_string(),
+                message: "OSS存储桶名称不能为空".to_string(),
+            });
+        }
         // 注意：region 现在是可选的，可以为 None
         // 注意：access_key_id 和 access_key_secret 可以为空，因为它们可能通过环境变量设置
-        
+
         Ok(())
+    }
+
+    /// 检查OSS配置是否完整（环境变量是否已设置）
+    pub fn is_configured(&self) -> bool {
+        !self.access_key_id.is_empty() && !self.access_key_secret.is_empty()
     }
 }
 
@@ -696,18 +758,19 @@ impl ExternalIntegrationConfig {
                 message: "超时时间不能为0".to_string(),
             });
         }
-        
+
         // webhook_url 和 api_key 可以为空，因为外部集成是可选的
         if !self.webhook_url.is_empty() {
             // 简单的URL格式验证
-            if !self.webhook_url.starts_with("http://") && !self.webhook_url.starts_with("https://") {
+            if !self.webhook_url.starts_with("http://") && !self.webhook_url.starts_with("https://")
+            {
                 return Err(ConfigError::Validation {
                     field: "external_integration.webhook_url".to_string(),
                     message: "Webhook URL必须以http://或https://开头".to_string(),
                 });
             }
         }
-        
+
         Ok(())
     }
 }
@@ -717,24 +780,24 @@ impl AppConfig {
     pub fn load_config() -> Result<Self, ConfigError> {
         // 1. 首先加载基础配置
         let mut config = Self::load_base_config()?;
-        
+
         // 2. 从环境变量覆盖配置
         config.load_all_from_env()?;
-        
+
         // 3. 验证最终配置
         config.validate()?;
-        
+
         // 4. 初始化必要的目录
         config.initialize_directories()?;
-        
+
         Ok(config)
     }
-    
+
     /// 加载基础配置文件
     pub fn load_base_config() -> Result<Self, ConfigError> {
         Self::load_base_config_with_path(None)
     }
-    
+
     /// 加载基础配置文件，支持可选的配置文件路径
     pub fn load_base_config_with_path(config_path: Option<String>) -> Result<Self, ConfigError> {
         // 优先尝试从传入的路径加载
@@ -743,64 +806,64 @@ impl AppConfig {
                 return Self::load_from_file(&path);
             }
         }
-        
+
         let config_paths = [
             "/app/config.yml",
-            "config.yml", 
+            "config.yml",
             "document-parser/config.yml",
         ];
-        
+
         // 尝试从环境变量指定的配置文件路径加载
         if let Ok(env_config_path) = env::var("DOCUMENT_PARSER_CONFIG") {
             return Self::load_from_file(&env_config_path);
         }
-        
+
         // 尝试从预定义路径加载
         for path in &config_paths {
             if Path::new(path).exists() {
                 return Self::load_from_file(path);
             }
         }
-        
+
         // 如果都没有找到，尝试在当前目录创建默认配置文件
         if let Err(e) = Self::create_default_config_in_current_dir() {
             warn!("无法在当前目录创建默认配置文件: {}", e);
         }
-        
+
         // 使用默认配置
         serde_yaml::from_str::<AppConfig>(DEFAULT_CONFIG_YAML)
-            .map_err(|e| ConfigError::Parse(format!("解析默认配置失败: {}", e)))
+            .map_err(|e| ConfigError::Parse(format!("解析默认配置失败: {e}")))
     }
-    
+
     /// 从指定文件加载配置
     fn load_from_file(path: &str) -> Result<Self, ConfigError> {
         let file = File::open(path)
-            .map_err(|e| ConfigError::FileRead(format!("无法打开配置文件 {}: {}", path, e)))?;
-        
+            .map_err(|e| ConfigError::FileRead(format!("无法打开配置文件 {path}: {e}")))?;
+
         serde_yaml::from_reader(file)
-            .map_err(|e| ConfigError::Parse(format!("解析配置文件 {} 失败: {}", path, e)))
+            .map_err(|e| ConfigError::Parse(format!("解析配置文件 {path} 失败: {e}")))
     }
-    
+
     /// 在当前目录创建默认配置文件
     fn create_default_config_in_current_dir() -> Result<(), ConfigError> {
         let current_dir = std::env::current_dir()
-            .map_err(|e| ConfigError::FileRead(format!("无法获取当前目录: {}", e)))?;
-        
+            .map_err(|e| ConfigError::FileRead(format!("无法获取当前目录: {e}")))?;
+
         let config_path = current_dir.join("config.yml");
-        
+
         // 如果配置文件已存在，不覆盖
         if config_path.exists() {
             return Ok(());
         }
-        
+
         // 创建配置文件
         std::fs::write(&config_path, DEFAULT_CONFIG_YAML)
-            .map_err(|e| ConfigError::FileRead(format!("无法创建默认配置文件: {}", e)))?;
-        
+            .map_err(|e| ConfigError::FileRead(format!("无法创建默认配置文件: {e}")))?;
+
         info!("已在当前目录创建默认配置文件: {}", config_path.display());
         Ok(())
     }
-    
+
     /// 验证整个配置的有效性
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.server.validate()?;
@@ -811,13 +874,13 @@ impl AppConfig {
         self.storage.validate()?;
         self.external_integration.validate()?;
         self.file_size_config.validate()?;
-        
+
         // 交叉验证
         self.cross_validate()?;
-        
+
         Ok(())
     }
-    
+
     /// 交叉验证不同配置项之间的一致性
     fn cross_validate(&self) -> Result<(), ConfigError> {
         // 验证并发配置的一致性
@@ -827,7 +890,7 @@ impl AppConfig {
                 message: "文档解析器的最大并发数应该大于MinerU的最大并发数".to_string(),
             });
         }
-        
+
         // 验证队列大小的合理性
         if self.document_parser.queue_size < self.mineru.queue_size {
             return Err(ConfigError::Validation {
@@ -835,53 +898,50 @@ impl AppConfig {
                 message: "文档解析器的队列大小应该大于等于MinerU的队列大小".to_string(),
             });
         }
-        
+
         // 验证超时配置的合理性（0表示使用统一超时，跳过验证）
-        if self.mineru.timeout > 0 && self.document_parser.processing_timeout < self.mineru.timeout {
+        if self.mineru.timeout > 0 && self.document_parser.processing_timeout < self.mineru.timeout
+        {
             return Err(ConfigError::Validation {
                 field: "document_parser.processing_timeout".to_string(),
                 message: "文档解析器的处理超时时间应该大于等于MinerU的超时时间".to_string(),
             });
         }
-        
-        if self.markitdown.timeout > 0 && self.document_parser.processing_timeout < self.markitdown.timeout {
+
+        if self.markitdown.timeout > 0
+            && self.document_parser.processing_timeout < self.markitdown.timeout
+        {
             return Err(ConfigError::Validation {
                 field: "document_parser.processing_timeout".to_string(),
                 message: "文档解析器的处理超时时间应该大于等于MarkItDown的超时时间".to_string(),
             });
         }
-        
+
         Ok(())
     }
-    
+
     /// 初始化必要的目录
     pub fn initialize_directories(&self) -> Result<(), ConfigError> {
-        let directories = [
-            &self.log.path,
-            &self.storage.sled.path,
-        ];
-        
+        let directories = [&self.log.path, &self.storage.sled.path];
+
         for dir_path in &directories {
             let path = Path::new(dir_path);
-            
+
             // 如果是文件路径，获取父目录
             let dir_to_create = if path.extension().is_some() {
                 path.parent().unwrap_or(path)
             } else {
                 path
             };
-            
+
             if !dir_to_create.exists() {
-                std::fs::create_dir_all(dir_to_create)
-                    .map_err(|e| ConfigError::InvalidPath {
-                        path: dir_to_create.to_string_lossy().to_string(),
-                        message: format!("无法创建目录: {}", e),
-                    })?;
+                std::fs::create_dir_all(dir_to_create).map_err(|e| ConfigError::InvalidPath {
+                    path: dir_to_create.to_string_lossy().to_string(),
+                    message: format!("无法创建目录: {e}"),
+                })?;
             }
         }
-        
 
-        
         Ok(())
     }
 
@@ -896,7 +956,7 @@ impl AppConfig {
         self.load_external_integration_config_from_env()?;
         Ok(())
     }
-    
+
     /// 从环境变量加载服务器配置
     fn load_server_config_from_env(&mut self) -> Result<(), ConfigError> {
         if let Ok(port_str) = env::var("SERVER_PORT") {
@@ -907,7 +967,7 @@ impl AppConfig {
         }
         Ok(())
     }
-    
+
     /// 从环境变量加载日志配置
     fn load_log_config_from_env(&mut self) -> Result<(), ConfigError> {
         if let Ok(level) = env::var("LOG_LEVEL") {
@@ -918,21 +978,27 @@ impl AppConfig {
         }
         Ok(())
     }
-    
+
     /// 从环境变量加载文档解析器配置
     fn load_document_parser_config_from_env(&mut self) -> Result<(), ConfigError> {
         if let Ok(max_concurrent_str) = env::var("DOCUMENT_PARSER_MAX_CONCURRENT") {
-            self.document_parser.max_concurrent = Self::parse_env_var("DOCUMENT_PARSER_MAX_CONCURRENT", &max_concurrent_str)?;
+            self.document_parser.max_concurrent =
+                Self::parse_env_var("DOCUMENT_PARSER_MAX_CONCURRENT", &max_concurrent_str)?;
         }
         if let Ok(queue_size_str) = env::var("DOCUMENT_PARSER_QUEUE_SIZE") {
-            self.document_parser.queue_size = Self::parse_env_var("DOCUMENT_PARSER_QUEUE_SIZE", &queue_size_str)?;
+            self.document_parser.queue_size =
+                Self::parse_env_var("DOCUMENT_PARSER_QUEUE_SIZE", &queue_size_str)?;
         }
         // 文件大小限制现在由全局配置管理
         if let Ok(download_timeout_str) = env::var("DOCUMENT_PARSER_DOWNLOAD_TIMEOUT") {
-            self.document_parser.download_timeout = Self::parse_env_var("DOCUMENT_PARSER_DOWNLOAD_TIMEOUT", &download_timeout_str)?;
+            self.document_parser.download_timeout =
+                Self::parse_env_var("DOCUMENT_PARSER_DOWNLOAD_TIMEOUT", &download_timeout_str)?;
         }
         if let Ok(processing_timeout_str) = env::var("DOCUMENT_PARSER_PROCESSING_TIMEOUT") {
-            self.document_parser.processing_timeout = Self::parse_env_var("DOCUMENT_PARSER_PROCESSING_TIMEOUT", &processing_timeout_str)?;
+            self.document_parser.processing_timeout = Self::parse_env_var(
+                "DOCUMENT_PARSER_PROCESSING_TIMEOUT",
+                &processing_timeout_str,
+            )?;
         }
         Ok(())
     }
@@ -942,8 +1008,11 @@ impl AppConfig {
         if let Ok(endpoint) = env::var("ALIYUN_OSS_ENDPOINT") {
             self.storage.oss.endpoint = endpoint;
         }
-        if let Ok(bucket) = env::var("ALIYUN_OSS_BUCKET") {
-            self.storage.oss.bucket = bucket;
+        if let Ok(public_bucket) = env::var("ALIYUN_OSS_PUBLIC_BUCKET") {
+            self.storage.oss.public_bucket = public_bucket;
+        }
+        if let Ok(private_bucket) = env::var("ALIYUN_OSS_PRIVATE_BUCKET") {
+            self.storage.oss.private_bucket = private_bucket;
         }
         if let Ok(access_key_id) = env::var("OSS_ACCESS_KEY_ID") {
             self.storage.oss.access_key_id = access_key_id;
@@ -963,7 +1032,8 @@ impl AppConfig {
             self.mineru.python_path = python_path;
         }
         if let Ok(max_concurrent_str) = env::var("MINERU_MAX_CONCURRENT") {
-            self.mineru.max_concurrent = Self::parse_env_var("MINERU_MAX_CONCURRENT", &max_concurrent_str)?;
+            self.mineru.max_concurrent =
+                Self::parse_env_var("MINERU_MAX_CONCURRENT", &max_concurrent_str)?;
         }
         if let Ok(queue_size_str) = env::var("MINERU_QUEUE_SIZE") {
             self.mineru.queue_size = Self::parse_env_var("MINERU_QUEUE_SIZE", &queue_size_str)?;
@@ -973,6 +1043,9 @@ impl AppConfig {
         }
         if let Ok(batch_size_str) = env::var("MINERU_BATCH_SIZE") {
             self.mineru.batch_size = Self::parse_env_var("MINERU_BATCH_SIZE", &batch_size_str)?;
+        }
+        if let Ok(device) = env::var("MINERU_DEVICE") {
+            self.mineru.device = device;
         }
         Ok(())
     }
@@ -986,23 +1059,38 @@ impl AppConfig {
             self.markitdown.timeout = Self::parse_env_var("MARKITDOWN_TIMEOUT", &timeout_str)?;
         }
         if let Ok(enable_plugins_str) = env::var("MARKITDOWN_ENABLE_PLUGINS") {
-            self.markitdown.enable_plugins = Self::parse_env_var("MARKITDOWN_ENABLE_PLUGINS", &enable_plugins_str)?;
+            self.markitdown.enable_plugins =
+                Self::parse_env_var("MARKITDOWN_ENABLE_PLUGINS", &enable_plugins_str)?;
         }
         if let Ok(enable_ocr_str) = env::var("MARKITDOWN_ENABLE_OCR") {
-            self.markitdown.features.ocr = Self::parse_env_var("MARKITDOWN_ENABLE_OCR", &enable_ocr_str)?;
+            self.markitdown.features.ocr =
+                Self::parse_env_var("MARKITDOWN_ENABLE_OCR", &enable_ocr_str)?;
         }
-        if let Ok(enable_audio_transcription_str) = env::var("MARKITDOWN_ENABLE_AUDIO_TRANSCRIPTION") {
-            self.markitdown.features.audio_transcription = Self::parse_env_var("MARKITDOWN_ENABLE_AUDIO_TRANSCRIPTION", &enable_audio_transcription_str)?;
+        if let Ok(enable_audio_transcription_str) =
+            env::var("MARKITDOWN_ENABLE_AUDIO_TRANSCRIPTION")
+        {
+            self.markitdown.features.audio_transcription = Self::parse_env_var(
+                "MARKITDOWN_ENABLE_AUDIO_TRANSCRIPTION",
+                &enable_audio_transcription_str,
+            )?;
         }
         if let Ok(enable_azure_doc_intel_str) = env::var("MARKITDOWN_ENABLE_AZURE_DOC_INTEL") {
-            self.markitdown.features.azure_doc_intel = Self::parse_env_var("MARKITDOWN_ENABLE_AZURE_DOC_INTEL", &enable_azure_doc_intel_str)?;
+            self.markitdown.features.azure_doc_intel = Self::parse_env_var(
+                "MARKITDOWN_ENABLE_AZURE_DOC_INTEL",
+                &enable_azure_doc_intel_str,
+            )?;
         }
-        if let Ok(enable_youtube_transcription_str) = env::var("MARKITDOWN_ENABLE_YOUTUBE_TRANSCRIPTION") {
-            self.markitdown.features.youtube_transcription = Self::parse_env_var("MARKITDOWN_ENABLE_YOUTUBE_TRANSCRIPTION", &enable_youtube_transcription_str)?;
+        if let Ok(enable_youtube_transcription_str) =
+            env::var("MARKITDOWN_ENABLE_YOUTUBE_TRANSCRIPTION")
+        {
+            self.markitdown.features.youtube_transcription = Self::parse_env_var(
+                "MARKITDOWN_ENABLE_YOUTUBE_TRANSCRIPTION",
+                &enable_youtube_transcription_str,
+            )?;
         }
         Ok(())
     }
-    
+
     /// 从环境变量加载外部集成配置
     fn load_external_integration_config_from_env(&mut self) -> Result<(), ConfigError> {
         if let Ok(webhook_url) = env::var("EXTERNAL_INTEGRATION_WEBHOOK_URL") {
@@ -1012,11 +1100,12 @@ impl AppConfig {
             self.external_integration.api_key = api_key;
         }
         if let Ok(timeout_str) = env::var("EXTERNAL_INTEGRATION_TIMEOUT") {
-            self.external_integration.timeout = Self::parse_env_var("EXTERNAL_INTEGRATION_TIMEOUT", &timeout_str)?;
+            self.external_integration.timeout =
+                Self::parse_env_var("EXTERNAL_INTEGRATION_TIMEOUT", &timeout_str)?;
         }
         Ok(())
     }
-    
+
     /// 类型安全的环境变量解析
     fn parse_env_var<T>(var_name: &str, value: &str) -> Result<T, ConfigError>
     where
@@ -1025,15 +1114,15 @@ impl AppConfig {
     {
         value.parse::<T>().map_err(|e| ConfigError::EnvVar {
             var: var_name.to_string(),
-            message: format!("无法解析值 '{}': {}", value, e),
+            message: format!("无法解析值 '{value}': {e}"),
         })
     }
-    
+
     /// 获取配置构建器，用于测试
     pub fn builder() -> ConfigBuilder {
         ConfigBuilder::new()
     }
-    
+
     /// 生成配置摘要，用于日志记录（隐藏敏感信息）
     pub fn summary(&self) -> String {
         format!(
@@ -1044,7 +1133,7 @@ impl AppConfig {
             self.document_parser.max_concurrent,
             self.storage.sled.path,
             self.storage.oss.endpoint,
-            self.storage.oss.bucket
+            self.storage.oss.public_bucket
         )
     }
 }
@@ -1058,17 +1147,21 @@ pub fn init_global_config(config: AppConfig) -> Result<(), ConfigError> {
     if GLOBAL_CONFIG.get().is_some() {
         return Ok(()); // 已经初始化过了，直接返回成功
     }
-    
-    GLOBAL_CONFIG.set(config).map_err(|_| ConfigError::Validation {
-        field: "global_config".to_string(),
-        message: "全局配置已经初始化过了".to_string(),
-    })?;
+
+    GLOBAL_CONFIG
+        .set(config)
+        .map_err(|_| ConfigError::Validation {
+            field: "global_config".to_string(),
+            message: "全局配置已经初始化过了".to_string(),
+        })?;
     Ok(())
 }
 
 /// 获取全局配置引用
 pub fn get_global_config() -> &'static AppConfig {
-    GLOBAL_CONFIG.get().expect("全局配置尚未初始化，请先调用 init_global_config")
+    GLOBAL_CONFIG
+        .get()
+        .expect("全局配置尚未初始化，请先调用 init_global_config")
 }
 
 /// 获取全局文件大小配置
@@ -1096,9 +1189,62 @@ pub fn get_large_document_threshold() -> u64 {
     get_global_file_size_config().get_large_document_threshold()
 }
 
+/// 便捷函数：检查CUDA是否可用
+pub fn is_cuda_available() -> bool {
+    get_global_cuda_status_clone().available
+}
+
+/// 便捷函数：获取推荐的CUDA设备
+pub fn get_recommended_cuda_device() -> Option<String> {
+    get_global_cuda_status_clone().recommended_device
+}
+
+/// 全局CUDA状态管理，使用线程安全的Arc<RwLock<>>
+static GLOBAL_CUDA_STATUS: OnceLock<Arc<RwLock<CudaStatus>>> = OnceLock::new();
+
+/// 初始化全局CUDA状态
+pub fn init_global_cuda_status(cuda_status: CudaStatus) -> Result<(), ConfigError> {
+    GLOBAL_CUDA_STATUS
+        .set(Arc::new(RwLock::new(cuda_status)))
+        .map_err(|_| ConfigError::Validation {
+            field: "global_cuda_status".to_string(),
+            message: "全局CUDA状态已经初始化过了".to_string(),
+        })?;
+    Ok(())
+}
+
+/// 更新全局CUDA状态
+pub fn update_global_cuda_status(cuda_status: CudaStatus) -> Result<(), ConfigError> {
+    if let Some(global_status) = GLOBAL_CUDA_STATUS.get() {
+        let mut status = global_status.write().map_err(|_| ConfigError::Validation {
+            field: "global_cuda_status".to_string(),
+            message: "无法获取CUDA状态写锁".to_string(),
+        })?;
+        *status = cuda_status;
+        Ok(())
+    } else {
+        Err(ConfigError::Validation {
+            field: "global_cuda_status".to_string(),
+            message: "全局CUDA状态尚未初始化".to_string(),
+        })
+    }
+}
+
+/// 获取全局CUDA状态的克隆
+pub fn get_global_cuda_status_clone() -> CudaStatus {
+    if let Some(global_status) = GLOBAL_CUDA_STATUS.get() {
+        if let Ok(status) = global_status.read() {
+            return status.clone();
+        }
+    }
+    warn!("全局CUDA状态尚未初始化，返回默认值");
+    CudaStatus::default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    
     use std::env;
     use tempfile::TempDir;
 
@@ -1108,8 +1254,11 @@ mod tests {
         assert_eq!(parse_file_size("1KB").unwrap(), 1024);
         assert_eq!(parse_file_size("1MB").unwrap(), 1024 * 1024);
         assert_eq!(parse_file_size("1GB").unwrap(), 1024 * 1024 * 1024);
-        assert_eq!(parse_file_size("2.5MB").unwrap(), (2.5 * 1024.0 * 1024.0) as u64);
-        
+        assert_eq!(
+            parse_file_size("2.5MB").unwrap(),
+            (2.5 * 1024.0 * 1024.0) as u64
+        );
+
         // 测试无效格式
         assert!(parse_file_size("invalid").is_err());
         assert!(parse_file_size("100XB").is_err());
@@ -1119,7 +1268,7 @@ mod tests {
     #[test]
     fn test_default_config_loading() {
         let config = AppConfig::load_base_config().unwrap();
-        
+
         // 验证默认值
         assert_eq!(config.server.port, 8087);
         assert_eq!(config.server.host, "0.0.0.0");
@@ -1130,14 +1279,14 @@ mod tests {
     #[test]
     fn test_config_validation() {
         let mut config = AppConfig::load_base_config().unwrap();
-        
+
         // 测试有效配置
         assert!(config.validate().is_ok());
-        
+
         // 测试无效端口
         config.server.port = 0;
         assert!(config.validate().is_err());
-        
+
         // 恢复有效端口，测试无效日志级别
         config.server.port = 8087;
         config.log.level = "invalid".to_string();
@@ -1150,12 +1299,9 @@ mod tests {
             port: 9000,
             host: "127.0.0.1".to_string(),
         };
-        
-        let config = ConfigBuilder::new()
-            .server(server_config)
-            .build()
-            .unwrap();
-        
+
+        let config = ConfigBuilder::new().server(server_config).build().unwrap();
+
         assert_eq!(config.server.port, 9000);
         assert_eq!(config.server.host, "127.0.0.1");
     }
@@ -1167,13 +1313,13 @@ mod tests {
             env::set_var("SERVER_PORT", "9999");
             env::set_var("LOG_LEVEL", "debug");
         }
-        
+
         let mut config = AppConfig::load_base_config().unwrap();
         config.load_all_from_env().unwrap();
-        
+
         assert_eq!(config.server.port, 9999);
         assert_eq!(config.log.level, "debug");
-        
+
         // 清理环境变量
         unsafe {
             env::remove_var("SERVER_PORT");
@@ -1187,12 +1333,12 @@ mod tests {
         unsafe {
             env::set_var("SERVER_PORT", "invalid_port");
         }
-        
+
         let mut config = AppConfig::load_base_config().unwrap();
         let result = config.load_all_from_env();
-        
+
         assert!(result.is_err());
-        
+
         // 清理环境变量
         unsafe {
             env::remove_var("SERVER_PORT");
@@ -1202,11 +1348,11 @@ mod tests {
     #[test]
     fn test_cross_validation() {
         let mut config = AppConfig::load_base_config().unwrap();
-        
+
         // 设置不一致的并发配置
         config.document_parser.max_concurrent = 1;
         config.mineru.max_concurrent = 5;
-        
+
         assert!(config.validate().is_err());
     }
 
@@ -1214,18 +1360,18 @@ mod tests {
     fn test_directory_initialization() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path().to_string_lossy().to_string();
-        
+
         let mut config = AppConfig::load_base_config().unwrap();
-        config.log.path = format!("{}/logs/app.log", temp_path);
+        config.log.path = format!("{temp_path}/logs/app.log");
         // temp_dir is now hardcoded, no need to set it
-        config.storage.sled.path = format!("{}/sled", temp_path);
-        
+        config.storage.sled.path = format!("{temp_path}/sled");
+
         assert!(config.initialize_directories().is_ok());
-        
+
         // 验证目录是否创建
-        assert!(Path::new(&format!("{}/logs", temp_path)).exists());
+        assert!(Path::new(&format!("{temp_path}/logs")).exists());
         // 注意：initialize_directories 方法不再创建 temp/mineru 和 temp/markitdown
-        assert!(Path::new(&format!("{}/sled", temp_path)).exists());
+        assert!(Path::new(&format!("{temp_path}/sled")).exists());
     }
 
     #[test]
@@ -1234,13 +1380,13 @@ mod tests {
             port: 8080,
             host: "localhost".to_string(),
         };
-        
+
         assert!(config.validate().is_ok());
-        
+
         // 测试无效端口
         config.port = 0;
         assert!(config.validate().is_err());
-        
+
         // 测试空主机
         config.port = 8080;
         config.host = "".to_string();
@@ -1253,13 +1399,13 @@ mod tests {
             level: "info".to_string(),
             path: "/tmp/test.log".to_string(),
         };
-        
+
         assert!(config.validate().is_ok());
-        
+
         // 测试无效日志级别
         config.level = "invalid".to_string();
         assert!(config.validate().is_err());
-        
+
         // 测试空路径
         config.level = "info".to_string();
         config.path = "".to_string();
@@ -1274,14 +1420,14 @@ mod tests {
             download_timeout: 3600,
             processing_timeout: 1800,
         };
-        
+
         assert!(config.validate().is_ok());
-        
+
         // 测试零并发
         let mut invalid_config = config.clone();
         invalid_config.max_concurrent = 0;
         assert!(invalid_config.validate().is_err());
-        
+
         // 测试过大的并发数
         invalid_config.max_concurrent = 200;
         assert!(invalid_config.validate().is_err());
@@ -1295,33 +1441,18 @@ mod tests {
             python_path: "/usr/bin/python3".to_string(),
             max_concurrent: 3,
             queue_size: 100,
-            timeout: 0,  // 使用统一超时配置
+            timeout: 0, // 使用统一超时配置
             batch_size: 10,
             quality_level: QualityLevel::Balanced,
+            device: "cpu".to_string(),
+            vram: 8, // 默认显存限制
         };
-        
+
         assert!(config.validate().is_ok());
-        
+
         // 测试无效后端
         let mut invalid_config = config.clone();
         invalid_config.backend = "invalid".to_string();
-        assert!(invalid_config.validate().is_err());
-    }
-
-    #[test]
-    fn test_oss_config_validation() {
-        let config = OssConfig {
-            endpoint: "https://oss-cn-hangzhou.aliyuncs.com".to_string(),
-            bucket: "test-bucket".to_string(),
-            access_key_id: "".to_string(), // 可以为空
-            access_key_secret: "".to_string(), // 可以为空
-        };
-        
-        assert!(config.validate().is_ok());
-        
-        // 测试空端点
-        let mut invalid_config = config.clone();
-        invalid_config.endpoint = "".to_string();
         assert!(invalid_config.validate().is_err());
     }
 
@@ -1332,14 +1463,14 @@ mod tests {
             api_key: "test-key".to_string(),
             timeout: 30,
         };
-        
+
         assert!(config.validate().is_ok());
-        
+
         // 测试无效URL
         let mut invalid_config = config.clone();
         invalid_config.webhook_url = "invalid-url".to_string();
         assert!(invalid_config.validate().is_err());
-        
+
         // 测试零超时
         invalid_config.webhook_url = "https://example.com/webhook".to_string();
         invalid_config.timeout = 0;
@@ -1350,7 +1481,7 @@ mod tests {
     fn test_config_summary() {
         let config = AppConfig::load_base_config().unwrap();
         let summary = config.summary();
-        
+
         assert!(summary.contains("AppConfig"));
         assert!(summary.contains("0.0.0.0:8087"));
         assert!(summary.contains("info"));

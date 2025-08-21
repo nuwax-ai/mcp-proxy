@@ -1,19 +1,15 @@
 use axum::{
+    Json,
     extract::{Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{info, warn, instrument};
+use tracing::{info, instrument};
 
-use crate::{
-    app_state::AppState,
-    error::AppError,
-    models::HttpResult,
-};
+use crate::{app_state::AppState, error::AppError, models::HttpResult};
 
 /// 健康检查查询参数
 #[derive(Debug, Deserialize)]
@@ -98,18 +94,14 @@ pub struct SimpleHealthStatus {
 
 /// 就绪检查端点（Kubernetes readiness probe）
 #[instrument(skip(_state))]
-pub async fn readiness_check(
-    State(_state): State<Arc<AppState>>,
-) -> Result<Response, AppError> {
+pub async fn readiness_check(State(_state): State<Arc<AppState>>) -> Result<Response, AppError> {
     info!("就绪检查请求");
     Ok((StatusCode::OK, "Ready").into_response())
 }
 
 /// 存活检查端点（Kubernetes liveness probe）
 #[instrument(skip(_state))]
-pub async fn liveness_check(
-    State(_state): State<Arc<AppState>>,
-) -> Result<Response, AppError> {
+pub async fn liveness_check(State(_state): State<Arc<AppState>>) -> Result<Response, AppError> {
     // 存活检查只需要确认服务进程正在运行
     Ok((StatusCode::OK, "Alive").into_response())
 }
@@ -131,31 +123,30 @@ pub async fn metrics(
                 StatusCode::OK,
                 [("content-type", "text/plain; version=0.0.4")],
                 metrics_data,
-            ).into_response())
+            )
+                .into_response())
         }
         "json" => {
             let metrics_data = r#"{"placeholder": "metrics"}"#;
-            
+
             Ok((
                 StatusCode::OK,
                 [("content-type", "application/json")],
                 metrics_data,
-            ).into_response())
+            )
+                .into_response())
         }
-        _ => {
-            Ok(HttpResult::<()>::error::<()>(
-                "INVALID_FORMAT".to_string(),
-                "支持的格式: prometheus, json".to_string(),
-            ).into_response())
-        }
+        _ => Ok(HttpResult::<()>::error::<()>(
+            "INVALID_FORMAT".to_string(),
+            "支持的格式: prometheus, json".to_string(),
+        )
+        .into_response()),
     }
 }
 
 /// 系统信息端点
 #[instrument(skip(_state))]
-pub async fn system_info(
-    State(_state): State<Arc<AppState>>,
-) -> Result<Response, AppError> {
+pub async fn system_info(State(_state): State<Arc<AppState>>) -> Result<Response, AppError> {
     info!("系统信息请求");
 
     // 获取内存信息
@@ -186,9 +177,7 @@ pub async fn system_info(
 
 /// 配置信息端点
 #[instrument(skip(state))]
-pub async fn config_info(
-    State(state): State<Arc<AppState>>,
-) -> Result<Response, AppError> {
+pub async fn config_info(State(state): State<Arc<AppState>>) -> Result<Response, AppError> {
     info!("配置信息请求");
 
     // 创建安全的配置摘要（隐藏敏感信息）
@@ -202,53 +191,72 @@ fn create_config_summary(config: &crate::config::AppConfig) -> HashMap<String, s
     let mut summary = HashMap::new();
 
     // 服务器配置
-    summary.insert("server".to_string(), serde_json::json!({
-        "host": config.server.host,
-        "port": config.server.port,
-    }));
+    summary.insert(
+        "server".to_string(),
+        serde_json::json!({
+            "host": config.server.host,
+            "port": config.server.port,
+        }),
+    );
 
     // 日志配置
-    summary.insert("log".to_string(), serde_json::json!({
-        "level": config.log.level,
-        "path": config.log.path,
-    }));
+    summary.insert(
+        "log".to_string(),
+        serde_json::json!({
+            "level": config.log.level,
+            "path": config.log.path,
+        }),
+    );
 
     // 文档解析配置
-    summary.insert("document_parser".to_string(), serde_json::json!({
-        "max_concurrent": config.document_parser.max_concurrent,
-        "queue_size": config.document_parser.queue_size,
-        "max_file_size": config.file_size_config.max_file_size.bytes(),
-        "download_timeout": config.document_parser.download_timeout,
-        "processing_timeout": config.document_parser.processing_timeout,
-    }));
+    summary.insert(
+        "document_parser".to_string(),
+        serde_json::json!({
+            "max_concurrent": config.document_parser.max_concurrent,
+            "queue_size": config.document_parser.queue_size,
+            "max_file_size": config.file_size_config.max_file_size.bytes(),
+            "download_timeout": config.document_parser.download_timeout,
+            "processing_timeout": config.document_parser.processing_timeout,
+        }),
+    );
 
     // MinerU配置（隐藏敏感路径）
-    summary.insert("mineru".to_string(), serde_json::json!({
-        "backend": config.mineru.backend,
-        "max_concurrent": config.mineru.max_concurrent,
-        "queue_size": config.mineru.queue_size,
-        "timeout": config.mineru.timeout,
-    }));
+    summary.insert(
+        "mineru".to_string(),
+        serde_json::json!({
+            "backend": config.mineru.backend,
+            "max_concurrent": config.mineru.max_concurrent,
+            "queue_size": config.mineru.queue_size,
+            "timeout": config.mineru.timeout,
+        }),
+    );
 
     // MarkItDown配置
-    summary.insert("markitdown".to_string(), serde_json::json!({
-        "max_file_size": config.file_size_config.max_file_size.bytes(),
-        "timeout": config.markitdown.timeout,
-        "enable_plugins": config.markitdown.enable_plugins,
-        "features": config.markitdown.features,
-    }));
+    summary.insert(
+        "markitdown".to_string(),
+        serde_json::json!({
+            "max_file_size": config.file_size_config.max_file_size.bytes(),
+            "timeout": config.markitdown.timeout,
+            "enable_plugins": config.markitdown.enable_plugins,
+            "features": config.markitdown.features,
+        }),
+    );
 
     // 存储配置（隐藏敏感信息）
-    summary.insert("storage".to_string(), serde_json::json!({
-        "sled": {
-            "cache_capacity": config.storage.sled.cache_capacity,
-        },
-        "oss": {
-            "endpoint": config.storage.oss.endpoint,
-            "bucket": config.storage.oss.bucket,
-            // 隐藏访问密钥
-        }
-    }));
+    summary.insert(
+        "storage".to_string(),
+        serde_json::json!({
+            "sled": {
+                "cache_capacity": config.storage.sled.cache_capacity,
+            },
+            "oss": {
+                "endpoint": config.storage.oss.endpoint,
+                "public_bucket": config.storage.oss.public_bucket,
+                "private_bucket": config.storage.oss.private_bucket,
+                // 隐藏访问密钥
+            }
+        }),
+    );
 
     summary
 }
@@ -287,7 +295,8 @@ async fn get_memory_info() -> (u64, u64) {
                     }
 
                     let page_size = 4096u64;
-                    let total = (free_pages + active_pages + inactive_pages + wired_pages) * page_size;
+                    let total =
+                        (free_pages + active_pages + inactive_pages + wired_pages) * page_size;
                     let used = (active_pages + inactive_pages + wired_pages) * page_size;
 
                     return (total / 1024 / 1024, used / 1024 / 1024);
@@ -320,7 +329,9 @@ async fn get_memory_info() -> (u64, u64) {
 
         // 默认值
         (0, 0)
-    }).await.unwrap_or((0, 0))
+    })
+    .await
+    .unwrap_or((0, 0))
 }
 
 #[cfg(target_os = "macos")]
@@ -342,46 +353,4 @@ fn extract_kb_value(line: &str) -> Option<u64> {
     } else {
         None
     }
-}
-
-/// 调试信息端点（仅在开发环境启用）
-#[instrument(skip(state))]
-pub async fn debug_info(
-    State(state): State<Arc<AppState>>,
-) -> Result<Response, AppError> {
-    // 检查是否为开发环境
-    let environment = std::env::var("ENVIRONMENT").unwrap_or_else(|_| "development".to_string());
-    if environment != "development" {
-        return Ok((StatusCode::NOT_FOUND, "Not Found").into_response());
-    }
-
-    info!("调试信息请求");
-
-    let mut debug_info = HashMap::new();
-
-    // 简化的调试信息
-    debug_info.insert("service", serde_json::json!({
-        "name": "document-parser",
-        "version": env!("CARGO_PKG_VERSION"),
-    }));
-
-    Ok(HttpResult::success(debug_info).into_response())
-}
-
-/// 重置指标端点（仅在开发环境启用）
-#[instrument(skip(state))]
-pub async fn reset_metrics(
-    State(state): State<Arc<AppState>>,
-) -> Result<Response, AppError> {
-    // 检查是否为开发环境
-    let environment = std::env::var("ENVIRONMENT").unwrap_or_else(|_| "development".to_string());
-    if environment != "development" {
-        return Ok((StatusCode::NOT_FOUND, "Not Found").into_response());
-    }
-
-    info!("重置指标请求");
-    //todo:重置指标请求
-
-    // 简化实现
-    Ok(HttpResult::success("指标已重置".to_string()).into_response())
 }

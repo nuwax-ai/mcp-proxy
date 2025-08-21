@@ -1,13 +1,13 @@
 //! Property-based testing utilities and tests
-//! 
+//!
 //! This module contains property-based tests using quickcheck to validate
 //! data model invariants and business logic properties.
 
 use quickcheck::{Arbitrary, Gen};
 use quickcheck_macros::quickcheck;
-use std::collections::HashMap;
 use uuid::Uuid;
 
+use crate::AppError;
 use crate::models::*;
 use crate::tests::test_helpers::safe_init_global_config;
 
@@ -38,7 +38,7 @@ impl Arbitrary for ParserEngine {
 /// Arbitrary implementation for SourceType
 impl Arbitrary for SourceType {
     fn arbitrary(g: &mut Gen) -> Self {
-        let types = vec![SourceType::Upload, SourceType::Url, SourceType::ExternalApi];
+        let types = vec![SourceType::Upload, SourceType::Url];
         g.choose(&types).unwrap().clone()
     }
 }
@@ -114,7 +114,7 @@ mod property_tests {
     #[quickcheck]
     fn prop_processing_stage_progress_bounds(stage: ProcessingStage) -> bool {
         let progress = stage.get_progress();
-        progress >= 0 && progress <= 100
+        (0..=100).contains(&progress)
     }
 
     #[quickcheck]
@@ -135,25 +135,27 @@ mod property_tests {
     }
 
     fn prop_document_task_builder_creates_valid_task() -> bool {
-        let task = DocumentTask::builder()
-            .generate_id()
-            .source_type(SourceType::Upload)
-            .source_path(Some("/tmp/test.pdf".to_string()))
-            .document_format(DocumentFormat::PDF)
-            .parser_engine(ParserEngine::MinerU)
-            .backend("pipeline")
-            .file_size(1024)
-            .mime_type("application/pdf")
-            .max_retries(3)
-            .expires_in_hours(24)
-            .build();
+        let mut t = DocumentTask::new(
+            Uuid::new_v4().to_string(),
+            SourceType::Upload,
+            Some("/tmp/test.pdf".to_string()),
+            Some("test.pdf".to_string()),
+            Some(DocumentFormat::PDF),
+            Some("pipeline".to_string()),
+            Some(24),
+            Some(3),
+        );
+        t.parser_engine = Some(ParserEngine::MinerU);
+        t.file_size = Some(1024);
+        t.mime_type = Some("application/pdf".to_string());
+        let task: Result<DocumentTask, AppError> = Ok(t);
 
         match task {
             Ok(t) => {
                 !t.id.is_empty()
                     && t.source_type == SourceType::Upload
-                    && t.document_format == DocumentFormat::PDF
-                    && t.parser_engine == ParserEngine::MinerU
+                    && t.document_format == Some(DocumentFormat::PDF)
+                    && t.parser_engine == Some(ParserEngine::MinerU)
                     && t.status.is_pending()
             }
             Err(_) => false,
@@ -166,14 +168,16 @@ mod property_tests {
         let processing = TaskStatus::new_processing(stage);
         let completed = TaskStatus::new_completed(std::time::Duration::from_secs(60));
 
-        pending.is_pending() && processing.is_processing() && matches!(completed, TaskStatus::Completed { .. })
+        pending.is_pending()
+            && processing.is_processing()
+            && matches!(completed, TaskStatus::Completed { .. })
     }
 
     #[quickcheck]
     fn prop_file_size_validation(size: u64) -> bool {
         // Test that file size validation behaves consistently
         let is_valid_size = size > 0 && size <= 1024 * 1024 * 1024 * 10; // 10GB max
-        
+
         // This property should hold: valid sizes should be accepted
         if is_valid_size {
             // For now, just check that the size is positive
@@ -187,26 +191,29 @@ mod property_tests {
 /// Test utilities for generating test data
 pub mod generators {
     use super::*;
-    use chrono::{DateTime, Utc};
-    use std::time::Duration;
+    
+    
 
     /// Generate a valid test DocumentTask
     pub fn generate_test_document_task() -> DocumentTask {
         // 安全初始化全局配置
         safe_init_global_config();
-        DocumentTask::builder()
-            .generate_id()
-            .source_type(SourceType::Upload)
-            .source_path(Some("/tmp/test.pdf".to_string()))
-            .document_format(DocumentFormat::PDF)
-            .parser_engine(ParserEngine::MinerU)
-            .backend("pipeline")
-            .file_size(1024 * 1024) // 1MB
-            .mime_type("application/pdf")
-            .max_retries(3)
-            .expires_in_hours(24)
-            .build()
-            .expect("Failed to build test task")
+        {
+            let mut t = DocumentTask::new(
+                Uuid::new_v4().to_string(),
+                SourceType::Upload,
+                Some("/tmp/test.pdf".to_string()),
+                Some("test.pdf".to_string()),
+                Some(DocumentFormat::PDF),
+                Some("pipeline".to_string()),
+                Some(24),
+                Some(3),
+            );
+            t.parser_engine = Some(ParserEngine::MinerU);
+            t.file_size = Some(1024 * 1024);
+            t.mime_type = Some("application/pdf".to_string());
+            t
+        }
     }
 
     /// Generate test markdown content with various structures
@@ -215,8 +222,8 @@ pub mod generators {
             // Simple document
             r#"# Title
 Content here.
-"#.to_string(),
-            
+"#
+            .to_string(),
             // Nested headings
             r#"# Chapter 1
 Introduction content.
@@ -232,8 +239,8 @@ More content.
 
 # Chapter 2
 Second chapter.
-"#.to_string(),
-            
+"#
+            .to_string(),
             // Document with images and links
             r#"# Document with Media
 ![Image](image.png)
@@ -241,18 +248,18 @@ Second chapter.
 
 ## Content Section
 Regular content here.
-"#.to_string(),
-            
+"#
+            .to_string(),
             // Empty document
             "".to_string(),
-            
             // Document with special characters
             r#"# 中文标题
 中文内容测试。
 
 ## English Section
 Mixed content with 特殊字符 and symbols: @#$%^&*()
-"#.to_string(),
+"#
+            .to_string(),
         ]
     }
 
@@ -274,11 +281,7 @@ Mixed content with 特殊字符 and symbols: @#$%^&*()
                 "Parser execution failed".to_string(),
                 Some(ProcessingStage::MinerUExecuting),
             ),
-            TaskError::new(
-                "E004".to_string(),
-                "Network timeout".to_string(),
-                None,
-            ),
+            TaskError::new("E004".to_string(), "Network timeout".to_string(), None),
         ]
     }
 }

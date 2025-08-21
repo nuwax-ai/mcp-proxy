@@ -4,12 +4,99 @@
 
 ## 📋 目录
 
-1. [虚拟环境问题](#虚拟环境问题)
-2. [依赖安装问题](#依赖安装问题)
-3. [网络和下载问题](#网络和下载问题)
-4. [系统环境问题](#系统环境问题)
-5. [常用诊断命令](#常用诊断命令)
-6. [获取帮助](#获取帮助)
+1. [FlashInfer编译失败](#flashinfer编译失败)
+2. [虚拟环境问题](#虚拟环境问题)
+3. [依赖安装问题](#依赖安装问题)
+4. [网络和下载问题](#网络和下载问题)
+5. [系统环境问题](#系统环境问题)
+6. [常用诊断命令](#常用诊断命令)
+7. [获取帮助](#获取帮助)
+
+## 🚀 FlashInfer编译失败
+
+### 问题: FlashInfer CUDA内核编译失败
+
+**症状:**
+- MinerU启动时出现 `fatal error: math.h: 没有那个文件或目录` 错误
+- 错误发生在CUDA图捕获阶段
+- FlashInfer ninja构建失败
+
+**原因:**
+系统缺少C标准库开发头文件，导致FlashInfer无法编译CUDA内核。这通常发生在Ubuntu 24.04等较新系统上。
+
+**诊断步骤:**
+```bash
+# 检查系统头文件是否存在
+ls -la /usr/include/math.h
+ls -la /usr/include/c++/13/cmath
+
+# 检查构建工具版本
+gcc --version
+ninja --version
+nvcc --version
+```
+
+**解决方案:**
+
+**步骤1: 安装缺失的开发包**
+```bash
+# 安装C标准库开发包
+sudo apt install -y libc6-dev libm-dev
+
+# 安装C++标准库开发包
+sudo apt install -y libstdc++-13-dev
+
+# 安装其他可能需要的包
+sudo apt install -y build-essential ninja-build cmake
+```
+
+**步骤2: 设置CUDA环境变量**
+```bash
+# 设置CUDA相关环境变量
+export CUDA_HOME=/usr/local/cuda
+export PATH=$CUDA_HOME/bin:$PATH
+export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+
+# 将这些环境变量添加到 ~/.bashrc 或 ~/.zshrc
+echo 'export CUDA_HOME=/usr/local/cuda' >> ~/.bashrc
+echo 'export PATH=$CUDA_HOME/bin:$PATH' >> ~/.bashrc
+echo 'export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH' >> ~/.bashrc
+```
+
+**步骤3: 清理缓存并重新安装**
+```bash
+# 清理FlashInfer缓存
+rm -rf ~/.cache/flashinfer
+
+# 重新安装MinerU（确保包含正确的sglang版本）
+pip uninstall mineru sglang -y
+pip install -U "mineru[all]" -i https://mirrors.aliyun.com/pypi/simple
+```
+
+**验证修复:**
+```bash
+# 检查头文件是否存在
+ls -la /usr/include/math.h
+ls -la /usr/include/c++/13/cmath
+
+# 检查CUDA头文件
+ls -la /usr/local/cuda/include/cuda_runtime.h
+
+# 重新启动服务测试
+document-parser server
+```
+
+**如果问题仍然存在:**
+```bash
+# 尝试使用系统ninja而不是虚拟环境中的ninja
+which ninja
+# 如果显示虚拟环境路径，使用系统ninja
+sudo apt install -y ninja-build
+export PATH=/usr/bin:$PATH
+
+# 或者尝试禁用CUDA图功能（性能会下降）
+# 在启动MinerU时添加 --disable-cuda-graph 参数
+```
 
 ## 🏠 虚拟环境问题
 

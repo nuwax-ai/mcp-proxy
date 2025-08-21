@@ -11,10 +11,10 @@ use log::{debug, info};
 use rmcp::{
     ServiceExt,
     model::{ClientCapabilities, ClientInfo},
-    transport::{SseServer, TokioChildProcess, sse_server::SseServerConfig},
     transport::streamable_http_server::{
         StreamableHttpService, session::local::LocalSessionManager,
-    }
+    },
+    transport::{SseServer, TokioChildProcess, sse_server::SseServerConfig},
 };
 use tokio::process::Command;
 
@@ -169,13 +169,13 @@ fn log_command_details(mcp_config: &McpServerCommandConfig, mcp_router_path: &Mc
         .as_ref()
         .map_or(String::new(), |args| args.join(" "));
     let cmd_str = format!("执行命令: {} {}", mcp_config.command, args_str);
-    debug!("{}", cmd_str);
+    debug!("{cmd_str}");
 
     // 打印环境变量
     if let Some(env_vars) = &mcp_config.env {
         let env_vars: Vec<String> = env_vars
             .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
+            .map(|(k, v)| format!("{k}={v}"))
             .collect();
         if !env_vars.is_empty() {
             debug!("环境变量: {}", env_vars.join(", "));
@@ -195,7 +195,7 @@ fn log_command_details(mcp_config: &McpServerCommandConfig, mcp_router_path: &Mc
         .map_or(String::new(), |args| args.join(" "));
     let env_str = mcp_config.env.as_ref().map_or(String::new(), |env| {
         env.iter()
-            .map(|(k, v)| format!("{}={}", k, v))
+            .map(|(k, v)| format!("{k}={v}"))
             .collect::<Vec<String>>()
             .join(" ")
     });

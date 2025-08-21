@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use serde::{Serialize, Deserialize};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 /// 指标类型
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -117,7 +117,7 @@ pub struct Histogram {
 impl Histogram {
     pub fn new(bucket_bounds: Vec<f64>, labels: Labels) -> Self {
         let buckets = bucket_bounds.iter().map(|_| AtomicU64::new(0)).collect();
-        
+
         Self {
             buckets,
             bucket_bounds,
@@ -212,7 +212,7 @@ impl Summary {
     pub async fn observe(&self, value: f64) {
         let mut values = self.values.write().await;
         values.push(value);
-        
+
         // 保持样本数量在限制内
         if values.len() > self.max_samples {
             values.remove(0);
@@ -225,7 +225,7 @@ impl Summary {
 
     pub async fn get_stats(&self) -> SummaryStats {
         let values = self.values.read().await;
-        
+
         if values.is_empty() {
             return SummaryStats {
                 count: 0,
@@ -317,7 +317,12 @@ impl MetricsRegistry {
     }
 
     /// 注册直方图
-    pub async fn register_histogram(&self, name: String, bucket_bounds: Vec<f64>, labels: Labels) -> Arc<Histogram> {
+    pub async fn register_histogram(
+        &self,
+        name: String,
+        bucket_bounds: Vec<f64>,
+        labels: Labels,
+    ) -> Arc<Histogram> {
         let histogram = Arc::new(Histogram::new(bucket_bounds, labels));
         let mut histograms = self.histograms.write().await;
         histograms.insert(name, histogram.clone());
@@ -325,7 +330,12 @@ impl MetricsRegistry {
     }
 
     /// 注册摘要
-    pub async fn register_summary(&self, name: String, max_samples: usize, labels: Labels) -> Arc<Summary> {
+    pub async fn register_summary(
+        &self,
+        name: String,
+        max_samples: usize,
+        labels: Labels,
+    ) -> Arc<Summary> {
         let summary = Arc::new(Summary::new(max_samples, labels));
         let mut summaries = self.summaries.write().await;
         summaries.insert(name, summary.clone());
@@ -381,7 +391,7 @@ impl MetricsRegistry {
         for (name, histogram) in histograms.iter() {
             output.push_str(&format!("# TYPE {name} histogram\n"));
             let base_labels = Self::format_labels(histogram.labels());
-            
+
             // 导出桶
             for bucket in histogram.get_buckets() {
                 let mut labels = histogram.labels().clone();
@@ -389,10 +399,20 @@ impl MetricsRegistry {
                 let labels_str = Self::format_labels(&labels);
                 output.push_str(&format!("{}_bucket{} {}\n", name, labels_str, bucket.count));
             }
-            
+
             // 导出总和和计数
-            output.push_str(&format!("{}_sum{} {}\n", name, base_labels, histogram.get_sum()));
-            output.push_str(&format!("{}_count{} {}\n", name, base_labels, histogram.get_count()));
+            output.push_str(&format!(
+                "{}_sum{} {}\n",
+                name,
+                base_labels,
+                histogram.get_sum()
+            ));
+            output.push_str(&format!(
+                "{}_count{} {}\n",
+                name,
+                base_labels,
+                histogram.get_count()
+            ));
         }
 
         output
@@ -407,39 +427,87 @@ impl MetricsRegistry {
         let mut counter_metrics = serde_json::Map::new();
         for (name, counter) in counters.iter() {
             let mut metric = serde_json::Map::new();
-            metric.insert("type".to_string(), serde_json::Value::String("counter".to_string()));
-            metric.insert("value".to_string(), serde_json::Value::Number(counter.get().into()));
-            metric.insert("labels".to_string(), serde_json::to_value(counter.labels())?);
+            metric.insert(
+                "type".to_string(),
+                serde_json::Value::String("counter".to_string()),
+            );
+            metric.insert(
+                "value".to_string(),
+                serde_json::Value::Number(counter.get().into()),
+            );
+            metric.insert(
+                "labels".to_string(),
+                serde_json::to_value(counter.labels())?,
+            );
             counter_metrics.insert(name.clone(), serde_json::Value::Object(metric));
         }
-        metrics.insert("counters".to_string(), serde_json::Value::Object(counter_metrics));
+        metrics.insert(
+            "counters".to_string(),
+            serde_json::Value::Object(counter_metrics),
+        );
 
         // 导出仪表
         let gauges = self.gauges.read().await;
         let mut gauge_metrics = serde_json::Map::new();
         for (name, gauge) in gauges.iter() {
             let mut metric = serde_json::Map::new();
-            metric.insert("type".to_string(), serde_json::Value::String("gauge".to_string()));
-            metric.insert("value".to_string(), serde_json::Value::Number(gauge.get().into()));
+            metric.insert(
+                "type".to_string(),
+                serde_json::Value::String("gauge".to_string()),
+            );
+            metric.insert(
+                "value".to_string(),
+                serde_json::Value::Number(gauge.get().into()),
+            );
             metric.insert("labels".to_string(), serde_json::to_value(gauge.labels())?);
             gauge_metrics.insert(name.clone(), serde_json::Value::Object(metric));
         }
-        metrics.insert("gauges".to_string(), serde_json::Value::Object(gauge_metrics));
+        metrics.insert(
+            "gauges".to_string(),
+            serde_json::Value::Object(gauge_metrics),
+        );
 
         // 导出直方图
         let histograms = self.histograms.read().await;
         let mut histogram_metrics = serde_json::Map::new();
         for (name, histogram) in histograms.iter() {
             let mut metric = serde_json::Map::new();
-            metric.insert("type".to_string(), serde_json::Value::String("histogram".to_string()));
-            metric.insert("buckets".to_string(), serde_json::to_value(histogram.get_buckets())?);
-            metric.insert("sum".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(histogram.get_sum()).unwrap_or_else(|| serde_json::Number::from(0))));
-            metric.insert("count".to_string(), serde_json::Value::Number(histogram.get_count().into()));
-            metric.insert("average".to_string(), serde_json::Value::Number(serde_json::Number::from_f64(histogram.get_average()).unwrap_or_else(|| serde_json::Number::from(0))));
-            metric.insert("labels".to_string(), serde_json::to_value(histogram.labels())?);
+            metric.insert(
+                "type".to_string(),
+                serde_json::Value::String("histogram".to_string()),
+            );
+            metric.insert(
+                "buckets".to_string(),
+                serde_json::to_value(histogram.get_buckets())?,
+            );
+            metric.insert(
+                "sum".to_string(),
+                serde_json::Value::Number(
+                    serde_json::Number::from_f64(histogram.get_sum())
+                        .unwrap_or_else(|| serde_json::Number::from(0)),
+                ),
+            );
+            metric.insert(
+                "count".to_string(),
+                serde_json::Value::Number(histogram.get_count().into()),
+            );
+            metric.insert(
+                "average".to_string(),
+                serde_json::Value::Number(
+                    serde_json::Number::from_f64(histogram.get_average())
+                        .unwrap_or_else(|| serde_json::Number::from(0)),
+                ),
+            );
+            metric.insert(
+                "labels".to_string(),
+                serde_json::to_value(histogram.labels())?,
+            );
             histogram_metrics.insert(name.clone(), serde_json::Value::Object(metric));
         }
-        metrics.insert("histograms".to_string(), serde_json::Value::Object(histogram_metrics));
+        metrics.insert(
+            "histograms".to_string(),
+            serde_json::Value::Object(histogram_metrics),
+        );
 
         // 导出摘要
         let summaries = self.summaries.read().await;
@@ -447,12 +515,21 @@ impl MetricsRegistry {
         for (name, summary) in summaries.iter() {
             let stats = summary.get_stats().await;
             let mut metric = serde_json::Map::new();
-            metric.insert("type".to_string(), serde_json::Value::String("summary".to_string()));
+            metric.insert(
+                "type".to_string(),
+                serde_json::Value::String("summary".to_string()),
+            );
             metric.insert("stats".to_string(), serde_json::to_value(stats)?);
-            metric.insert("labels".to_string(), serde_json::to_value(summary.labels())?);
+            metric.insert(
+                "labels".to_string(),
+                serde_json::to_value(summary.labels())?,
+            );
             summary_metrics.insert(name.clone(), serde_json::Value::Object(metric));
         }
-        metrics.insert("summaries".to_string(), serde_json::Value::Object(summary_metrics));
+        metrics.insert(
+            "summaries".to_string(),
+            serde_json::Value::Object(summary_metrics),
+        );
 
         serde_json::to_string_pretty(&metrics)
     }
@@ -463,11 +540,9 @@ impl MetricsRegistry {
             return String::new();
         }
 
-        let mut label_pairs: Vec<String> = labels
-            .iter()
-            .map(|(k, v)| format!("{k}=\"{v}\""))
-            .collect();
-        
+        let mut label_pairs: Vec<String> =
+            labels.iter().map(|(k, v)| format!("{k}=\"{v}\"")).collect();
+
         label_pairs.sort();
         format!("{{{}}}", label_pairs.join(","))
     }
@@ -510,7 +585,10 @@ impl AsyncMetricsCollector {
 
     /// 启动异步指标收集
     pub async fn start(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if self.is_running.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        if self
+            .is_running
+            .swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
             return Err("Metrics collector is already running".into());
         }
 
@@ -541,11 +619,14 @@ impl AsyncMetricsCollector {
 
     /// 停止异步指标收集
     pub fn stop(&self) {
-        self.is_running.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.is_running
+            .store(false, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// 收集系统指标
-    async fn collect_system_metrics(registry: &MetricsRegistry) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn collect_system_metrics(
+        registry: &MetricsRegistry,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // 内存使用情况
         if let Ok(memory_info) = Self::get_memory_usage().await {
             if let Some(gauge) = registry.get_gauge("system_memory_used_bytes").await {
@@ -555,7 +636,8 @@ impl AsyncMetricsCollector {
                 gauge.set(memory_info.total);
             }
             if let Some(gauge) = registry.get_gauge("system_memory_usage_percent").await {
-                let usage_percent = (memory_info.used as f64 / memory_info.total as f64 * 100.0) as u64;
+                let usage_percent =
+                    (memory_info.used as f64 / memory_info.total as f64 * 100.0) as u64;
                 gauge.set(usage_percent);
             }
         }
@@ -585,13 +667,15 @@ impl AsyncMetricsCollector {
     }
 
     /// 收集应用指标
-    async fn collect_application_metrics(registry: &MetricsRegistry) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn collect_application_metrics(
+        registry: &MetricsRegistry,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // 运行时间
         let uptime = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        
+
         if let Some(gauge) = registry.get_gauge("application_uptime_seconds").await {
             gauge.set(uptime);
         }
@@ -660,7 +744,8 @@ impl AsyncMetricsCollector {
             {
                 Err("Unsupported platform for memory info".into())
             }
-        }).await?
+        })
+        .await?
     }
 
     /// 获取CPU使用率
@@ -670,9 +755,14 @@ impl AsyncMetricsCollector {
             #[cfg(any(target_os = "macos", target_os = "linux"))]
             {
                 use std::process::Command;
-                let output = Command::new("top").arg("-l").arg("1").arg("-n").arg("0").output()?;
+                let output = Command::new("top")
+                    .arg("-l")
+                    .arg("1")
+                    .arg("-n")
+                    .arg("0")
+                    .output()?;
                 let output_str = String::from_utf8(output.stdout)?;
-                
+
                 // 解析top输出获取CPU使用率
                 for line in output_str.lines() {
                     if line.contains("CPU usage:") {
@@ -687,11 +777,14 @@ impl AsyncMetricsCollector {
             {
                 Ok(0.0)
             }
-        }).await?
+        })
+        .await?
     }
 
     /// 获取磁盘使用情况
-    async fn get_disk_usage(path: &str) -> Result<DiskInfo, Box<dyn std::error::Error + Send + Sync>> {
+    async fn get_disk_usage(
+        path: &str,
+    ) -> Result<DiskInfo, Box<dyn std::error::Error + Send + Sync>> {
         let path = path.to_string();
         tokio::task::spawn_blocking(move || {
             use std::process::Command;
@@ -709,7 +802,8 @@ impl AsyncMetricsCollector {
             }
 
             Err("Failed to parse df output".into())
-        }).await?
+        })
+        .await?
     }
 
     fn extract_pages(line: &str) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
@@ -762,7 +856,10 @@ impl PerformanceMonitor {
     }
 
     /// 创建带有异步收集器的性能监控器
-    pub fn with_async_collector(registry: Arc<MetricsRegistry>, collection_interval: Duration) -> Self {
+    pub fn with_async_collector(
+        registry: Arc<MetricsRegistry>,
+        collection_interval: Duration,
+    ) -> Self {
         let collector = AsyncMetricsCollector::new(registry.clone(), collection_interval);
         Self {
             registry,
@@ -790,136 +887,140 @@ impl PerformanceMonitor {
     pub async fn init_standard_metrics(&self) {
         // HTTP请求指标
         for method in &["GET", "POST", "PUT", "DELETE", "PATCH"] {
-            self.registry.register_counter(
-                "http_requests_total".to_string(),
-                HashMap::from([("method".to_string(), method.to_string())]),
-            ).await;
+            self.registry
+                .register_counter(
+                    "http_requests_total".to_string(),
+                    HashMap::from([("method".to_string(), method.to_string())]),
+                )
+                .await;
         }
-        
-        self.registry.register_histogram(
-            "http_request_duration_seconds".to_string(),
-            vec![0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0],
-            HashMap::new(),
-        ).await;
 
-        self.registry.register_counter(
-            "http_requests_errors_total".to_string(),
-            HashMap::new(),
-        ).await;
+        self.registry
+            .register_histogram(
+                "http_request_duration_seconds".to_string(),
+                vec![
+                    0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+                ],
+                HashMap::new(),
+            )
+            .await;
+
+        self.registry
+            .register_counter("http_requests_errors_total".to_string(), HashMap::new())
+            .await;
 
         // 任务处理指标
-        self.registry.register_counter(
-            "tasks_processed_total".to_string(),
-            HashMap::new(),
-        ).await;
-        
-        self.registry.register_counter(
-            "tasks_failed_total".to_string(),
-            HashMap::new(),
-        ).await;
-        
-        self.registry.register_gauge(
-            "tasks_active".to_string(),
-            HashMap::new(),
-        ).await;
-        
-        self.registry.register_gauge(
-            "tasks_queued".to_string(),
-            HashMap::new(),
-        ).await;
-        
-        self.registry.register_histogram(
-            "task_processing_duration_seconds".to_string(),
-            vec![1.0, 5.0, 10.0, 30.0, 60.0, 300.0, 600.0, 1800.0, 3600.0],
-            HashMap::new(),
-        ).await;
+        self.registry
+            .register_counter("tasks_processed_total".to_string(), HashMap::new())
+            .await;
+
+        self.registry
+            .register_counter("tasks_failed_total".to_string(), HashMap::new())
+            .await;
+
+        self.registry
+            .register_gauge("tasks_active".to_string(), HashMap::new())
+            .await;
+
+        self.registry
+            .register_gauge("tasks_queued".to_string(), HashMap::new())
+            .await;
+
+        self.registry
+            .register_histogram(
+                "task_processing_duration_seconds".to_string(),
+                vec![1.0, 5.0, 10.0, 30.0, 60.0, 300.0, 600.0, 1800.0, 3600.0],
+                HashMap::new(),
+            )
+            .await;
 
         // 文档解析指标
-        self.registry.register_counter(
-            "documents_parsed_total".to_string(),
-            HashMap::new(),
-        ).await;
+        self.registry
+            .register_counter("documents_parsed_total".to_string(), HashMap::new())
+            .await;
 
-        self.registry.register_counter(
-            "documents_parse_errors_total".to_string(),
-            HashMap::new(),
-        ).await;
+        self.registry
+            .register_counter("documents_parse_errors_total".to_string(), HashMap::new())
+            .await;
 
-        self.registry.register_histogram(
-            "document_parse_duration_seconds".to_string(),
-            vec![1.0, 5.0, 10.0, 30.0, 60.0, 300.0, 600.0, 1800.0, 3600.0],
-            HashMap::new(),
-        ).await;
+        self.registry
+            .register_histogram(
+                "document_parse_duration_seconds".to_string(),
+                vec![1.0, 5.0, 10.0, 30.0, 60.0, 300.0, 600.0, 1800.0, 3600.0],
+                HashMap::new(),
+            )
+            .await;
 
-        self.registry.register_histogram(
-            "document_size_bytes".to_string(),
-            vec![1024.0, 10240.0, 102400.0, 1048576.0, 10485760.0, 104857600.0, 1073741824.0],
-            HashMap::new(),
-        ).await;
+        self.registry
+            .register_histogram(
+                "document_size_bytes".to_string(),
+                vec![
+                    1024.0,
+                    10240.0,
+                    102400.0,
+                    1048576.0,
+                    10485760.0,
+                    104857600.0,
+                    1073741824.0,
+                ],
+                HashMap::new(),
+            )
+            .await;
 
         // OSS操作指标
-        self.registry.register_counter(
-            "oss_operations_total".to_string(),
-            HashMap::new(),
-        ).await;
+        self.registry
+            .register_counter("oss_operations_total".to_string(), HashMap::new())
+            .await;
 
-        self.registry.register_counter(
-            "oss_operations_errors_total".to_string(),
-            HashMap::new(),
-        ).await;
+        self.registry
+            .register_counter("oss_operations_errors_total".to_string(), HashMap::new())
+            .await;
 
-        self.registry.register_histogram(
-            "oss_operation_duration_seconds".to_string(),
-            vec![0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0],
-            HashMap::new(),
-        ).await;
+        self.registry
+            .register_histogram(
+                "oss_operation_duration_seconds".to_string(),
+                vec![0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0],
+                HashMap::new(),
+            )
+            .await;
 
         // 系统资源指标
-        self.registry.register_gauge(
-            "system_memory_used_bytes".to_string(),
-            HashMap::new(),
-        ).await;
+        self.registry
+            .register_gauge("system_memory_used_bytes".to_string(), HashMap::new())
+            .await;
 
-        self.registry.register_gauge(
-            "system_memory_total_bytes".to_string(),
-            HashMap::new(),
-        ).await;
+        self.registry
+            .register_gauge("system_memory_total_bytes".to_string(), HashMap::new())
+            .await;
 
-        self.registry.register_gauge(
-            "system_memory_usage_percent".to_string(),
-            HashMap::new(),
-        ).await;
-        
-        self.registry.register_gauge(
-            "system_cpu_usage_percent".to_string(),
-            HashMap::new(),
-        ).await;
+        self.registry
+            .register_gauge("system_memory_usage_percent".to_string(), HashMap::new())
+            .await;
 
-        self.registry.register_gauge(
-            "system_disk_used_bytes".to_string(),
-            HashMap::new(),
-        ).await;
+        self.registry
+            .register_gauge("system_cpu_usage_percent".to_string(), HashMap::new())
+            .await;
 
-        self.registry.register_gauge(
-            "system_disk_total_bytes".to_string(),
-            HashMap::new(),
-        ).await;
+        self.registry
+            .register_gauge("system_disk_used_bytes".to_string(), HashMap::new())
+            .await;
 
-        self.registry.register_gauge(
-            "system_disk_usage_percent".to_string(),
-            HashMap::new(),
-        ).await;
+        self.registry
+            .register_gauge("system_disk_total_bytes".to_string(), HashMap::new())
+            .await;
+
+        self.registry
+            .register_gauge("system_disk_usage_percent".to_string(), HashMap::new())
+            .await;
 
         // 应用指标
-        self.registry.register_gauge(
-            "application_uptime_seconds".to_string(),
-            HashMap::new(),
-        ).await;
+        self.registry
+            .register_gauge("application_uptime_seconds".to_string(), HashMap::new())
+            .await;
 
-        self.registry.register_gauge(
-            "tokio_active_tasks".to_string(),
-            HashMap::new(),
-        ).await;
+        self.registry
+            .register_gauge("tokio_active_tasks".to_string(), HashMap::new())
+            .await;
     }
 
     /// 记录HTTP请求
@@ -930,7 +1031,11 @@ impl PerformanceMonitor {
         }
 
         // 记录请求持续时间
-        if let Some(histogram) = self.registry.get_histogram("http_request_duration_seconds").await {
+        if let Some(histogram) = self
+            .registry
+            .get_histogram("http_request_duration_seconds")
+            .await
+        {
             histogram.observe_duration(duration);
         }
     }
@@ -943,7 +1048,11 @@ impl PerformanceMonitor {
         }
 
         // 记录处理持续时间
-        if let Some(histogram) = self.registry.get_histogram("task_processing_duration_seconds").await {
+        if let Some(histogram) = self
+            .registry
+            .get_histogram("task_processing_duration_seconds")
+            .await
+        {
             histogram.observe_duration(duration);
         }
     }
@@ -1024,15 +1133,15 @@ impl Timer {
 
     pub async fn stop(self) -> Duration {
         let duration = self.elapsed();
-        
+
         if let Some(histogram) = self.histogram {
             histogram.observe_duration(duration);
         }
-        
+
         if let Some(summary) = self.summary {
             summary.observe_duration(duration).await;
         }
-        
+
         duration
     }
 }
@@ -1045,15 +1154,15 @@ mod tests {
     #[tokio::test]
     async fn test_counter() {
         let counter = Counter::new(HashMap::new());
-        
+
         assert_eq!(counter.get(), 0);
-        
+
         counter.inc();
         assert_eq!(counter.get(), 1);
-        
+
         counter.add(5);
         assert_eq!(counter.get(), 6);
-        
+
         counter.reset();
         assert_eq!(counter.get(), 0);
     }
@@ -1061,41 +1170,38 @@ mod tests {
     #[tokio::test]
     async fn test_gauge() {
         let gauge = Gauge::new(HashMap::new());
-        
+
         assert_eq!(gauge.get(), 0);
-        
+
         gauge.set(10);
         assert_eq!(gauge.get(), 10);
-        
+
         gauge.inc();
         assert_eq!(gauge.get(), 11);
-        
+
         gauge.dec();
         assert_eq!(gauge.get(), 10);
-        
+
         gauge.add(5);
         assert_eq!(gauge.get(), 15);
-        
+
         gauge.sub(3);
         assert_eq!(gauge.get(), 12);
     }
 
     #[tokio::test]
     async fn test_histogram() {
-        let histogram = Histogram::new(
-            vec![0.1, 0.5, 1.0, 2.0, 5.0],
-            HashMap::new(),
-        );
-        
+        let histogram = Histogram::new(vec![0.1, 0.5, 1.0, 2.0, 5.0], HashMap::new());
+
         histogram.observe(0.05);
         histogram.observe(0.3);
         histogram.observe(1.5);
         histogram.observe(3.0);
-        
+
         assert_eq!(histogram.get_count(), 4);
         assert!(histogram.get_sum() > 0.0);
         assert!(histogram.get_average() > 0.0);
-        
+
         let buckets = histogram.get_buckets();
         assert_eq!(buckets.len(), 5);
         assert_eq!(buckets[0].count, 1); // 0.05 <= 0.1
@@ -1105,13 +1211,13 @@ mod tests {
     #[tokio::test]
     async fn test_summary() {
         let summary = Summary::new(1000, HashMap::new());
-        
+
         summary.observe(1.0).await;
         summary.observe(2.0).await;
         summary.observe(3.0).await;
         summary.observe(4.0).await;
         summary.observe(5.0).await;
-        
+
         let stats = summary.get_stats().await;
         assert_eq!(stats.count, 5);
         assert_eq!(stats.sum, 15.0);
@@ -1124,29 +1230,27 @@ mod tests {
     #[tokio::test]
     async fn test_metrics_registry() {
         let registry = MetricsRegistry::new();
-        
+
         // 注册指标
-        let counter = registry.register_counter(
-            "test_counter".to_string(),
-            HashMap::new(),
-        ).await;
-        
-        let gauge = registry.register_gauge(
-            "test_gauge".to_string(),
-            HashMap::new(),
-        ).await;
-        
+        let counter = registry
+            .register_counter("test_counter".to_string(), HashMap::new())
+            .await;
+
+        let gauge = registry
+            .register_gauge("test_gauge".to_string(), HashMap::new())
+            .await;
+
         // 使用指标
         counter.inc();
         gauge.set(42);
-        
+
         // 获取指标
         let retrieved_counter = registry.get_counter("test_counter").await.unwrap();
         assert_eq!(retrieved_counter.get(), 1);
-        
+
         let retrieved_gauge = registry.get_gauge("test_gauge").await.unwrap();
         assert_eq!(retrieved_gauge.get(), 42);
-        
+
         // 导出指标
         let json_export = registry.export_json().await.unwrap();
         assert!(json_export.contains("test_counter"));
@@ -1155,16 +1259,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_timer() {
-        let histogram = Arc::new(Histogram::new(
-            vec![0.001, 0.01, 0.1, 1.0],
-            HashMap::new(),
-        ));
-        
+        let histogram = Arc::new(Histogram::new(vec![0.001, 0.01, 0.1, 1.0], HashMap::new()));
+
         let timer = Timer::with_histogram(histogram.clone());
-        
+
         // 模拟一些工作
         sleep(Duration::from_millis(10)).await;
-        
+
         let duration = timer.stop().await;
         assert!(duration >= Duration::from_millis(10));
         assert_eq!(histogram.get_count(), 1);

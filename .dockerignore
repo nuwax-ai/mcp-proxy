@@ -1,0 +1,70 @@
+# Git 相关
+.git
+.gitignore
+.github
+
+# IDE 和编辑器
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# 构建产物
+target/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# 临时文件
+temp/
+*.tmp
+*.log
+
+# Cargo 缓存和锁文件（构建时会重新生成）
+.cargo/
+Cargo.lock
+
+# 文档和说明
+*.md
+README*
+CHANGELOG*
+LICENSE*
+
+# 配置文件（保留必要的）
+.env*
+!.env.example
+
+# 测试文件
+tests/
+benches/
+examples/
+fixtures/
+
+# 其他
+.DS_Store
+Thumb.db
+
+# 项目特定
+data/
+assets/
+scripts/
+spec/
+rmcp_code/
+.cursor/
+.devcontainer/
+.kiro/
+.pre-commit-config.yaml
+.trae/
+_typos.toml
+cliff.toml
+deny.toml
+test_*.rest
+test_*.md
+*.rest
+
+# 保留必要的配置文件
+!Cargo.toml
+!Cargo.lock
+!config.yml

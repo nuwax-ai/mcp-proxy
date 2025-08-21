@@ -3,11 +3,10 @@
 //! 提供生产环境配置验证功能，确保所有配置项都符合生产要求。
 
 use crate::config::AppConfig;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::path::Path;
 use std::time::Duration;
 
 /// 配置验证器
@@ -257,7 +256,9 @@ impl ConfigValidator {
         warnings: &mut Vec<ValidationWarning>,
     ) -> Result<()> {
         // 验证端口范围
-        if config.server.port < self.rules.port_range.0 || config.server.port > self.rules.port_range.1 {
+        if config.server.port < self.rules.port_range.0
+            || config.server.port > self.rules.port_range.1
+        {
             errors.push(ValidationError {
                 error_type: ValidationErrorType::InvalidValue,
                 message: format!(
@@ -346,9 +347,9 @@ impl ConfigValidator {
             if std::env::var(env_var).is_err() {
                 errors.push(ValidationError {
                     error_type: ValidationErrorType::MissingRequired,
-                    message: format!("缺少必需的环境变量: {}", env_var),
-                    config_path: format!("env.{}", env_var),
-                    suggestion: Some(format!("设置环境变量 {}", env_var)),
+                    message: format!("缺少必需的环境变量: {env_var}"),
+                    config_path: format!("env.{env_var}"),
+                    suggestion: Some(format!("设置环境变量 {env_var}")),
                 });
             }
         }
@@ -359,41 +360,44 @@ impl ConfigValidator {
     /// 生成验证报告
     pub fn generate_report(&self, result: &ValidationResult) -> String {
         let mut report = String::new();
-        
+
         report.push_str("=== 配置验证报告 ===\n");
-        report.push_str(&format!("验证状态: {}\n", 
+        report.push_str(&format!(
+            "验证状态: {}\n",
             if result.is_valid { "通过" } else { "失败" }
         ));
         report.push_str(&format!("验证时间: {:?}\n", result.validated_at));
-        
+
         if !result.errors.is_empty() {
             report.push_str("\n错误:\n");
             for error in &result.errors {
-                report.push_str(&format!("  - [{}] {}: {}\n", 
-                    error.config_path, 
+                report.push_str(&format!(
+                    "  - [{}] {}: {}\n",
+                    error.config_path,
                     format!("{:?}", error.error_type),
                     error.message
                 ));
                 if let Some(suggestion) = &error.suggestion {
-                    report.push_str(&format!("    建议: {}\n", suggestion));
+                    report.push_str(&format!("    建议: {suggestion}\n"));
                 }
             }
         }
-        
+
         if !result.warnings.is_empty() {
             report.push_str("\n警告:\n");
             for warning in &result.warnings {
-                report.push_str(&format!("  - [{}] {}: {}\n", 
+                report.push_str(&format!(
+                    "  - [{}] {}: {}\n",
                     warning.config_path,
                     format!("{:?}", warning.warning_type),
                     warning.message
                 ));
                 if let Some(suggestion) = &warning.suggestion {
-                    report.push_str(&format!("    建议: {}\n", suggestion));
+                    report.push_str(&format!("    建议: {suggestion}\n"));
                 }
             }
         }
-        
+
         report
     }
 }
@@ -513,12 +517,18 @@ impl EnvironmentValidator {
     }
 }
 
+impl Default for SystemInfoCollector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SystemInfoCollector {
     /// 创建新的系统信息收集器
     pub fn new() -> Self {
         Self {
             system_resources: SystemResources {
-                total_memory_mb: 8192,  // 默认值，实际应该从系统获取
+                total_memory_mb: 8192, // 默认值，实际应该从系统获取
                 available_memory_mb: 4096,
                 cpu_cores: 4,
                 disk_space_mb: 102400,
@@ -542,10 +552,7 @@ impl SystemInfoCollector {
 impl Default for ValidationRules {
     fn default() -> Self {
         Self {
-            required_env_vars: vec![
-                "RUST_LOG".to_string(),
-                "DATABASE_URL".to_string(),
-            ],
+            required_env_vars: vec!["RUST_LOG".to_string(), "DATABASE_URL".to_string()],
             port_range: (1024, 65535),
             min_memory_mb: 512,
             max_file_size_mb: 100,
@@ -573,10 +580,10 @@ mod tests {
     fn test_config_validation() {
         let rules = ValidationRules::default();
         let mut validator = ConfigValidator::new(rules);
-        
+
         let config = AppConfig::load_base_config().unwrap();
         let result = validator.validate_config(&config).unwrap();
-        
+
         // 应该有一些警告，因为使用的是默认配置
         assert!(!result.warnings.is_empty());
     }
@@ -585,7 +592,7 @@ mod tests {
     fn test_environment_validation() {
         let validator = EnvironmentValidator::new(Environment::Development);
         let result = validator.validate_environment().unwrap();
-        
+
         // 开发环境验证应该通过
         assert!(result.is_valid || !result.errors.is_empty());
     }
@@ -603,11 +610,11 @@ mod tests {
             warnings: vec![],
             validated_at: std::time::SystemTime::now(),
         };
-        
+
         let rules = ValidationRules::default();
         let validator = ConfigValidator::new(rules);
         let report = validator.generate_report(&result);
-        
+
         assert!(report.contains("配置验证报告"));
         assert!(report.contains("测试错误"));
     }

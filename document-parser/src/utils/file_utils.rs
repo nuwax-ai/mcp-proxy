@@ -1,6 +1,6 @@
-use std::path::Path;
 use crate::error::AppError;
 use regex::Regex;
+use std::path::Path;
 
 /// 检查文件是否存在
 pub fn file_exists(file_path: &str) -> bool {
@@ -35,7 +35,7 @@ pub fn create_temp_dir(dir_path: &str) -> Result<(), AppError> {
 pub fn validate_file_size(file_size: u64, max_size: u64) -> Result<(), AppError> {
     if file_size > max_size {
         return Err(AppError::Validation(format!(
-            "文件大小超过限制: {} > {} 字节", file_size, max_size
+            "文件大小超过限制: {file_size} > {max_size} 字节"
         )));
     }
     Ok(())
@@ -46,18 +46,18 @@ pub fn sanitize_filename(filename: &str) -> Result<String, AppError> {
     if filename.is_empty() {
         return Err(AppError::Validation("文件名不能为空".to_string()));
     }
-    
+
     // 移除路径分隔符和其他不安全字符
     let unsafe_chars = Regex::new(r#"[<>:"/\\|?*\x00-\x1f]"#).unwrap();
     let sanitized = unsafe_chars.replace_all(filename, "_").to_string();
-    
+
     // 移除开头和结尾的点和空格
     let sanitized = sanitized.trim_matches(|c| c == '.' || c == ' ').to_string();
-    
+
     if sanitized.is_empty() {
         return Err(AppError::Validation("清理后的文件名为空".to_string()));
     }
-    
+
     // 限制文件名长度
     if sanitized.len() > 255 {
         let truncated = sanitized.chars().take(255).collect::<String>();

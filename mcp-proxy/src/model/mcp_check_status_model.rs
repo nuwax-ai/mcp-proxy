@@ -87,13 +87,13 @@ impl From<CheckMcpStatusResponseStatus> for McpStatusResponseEnum {
 impl IntoResponse for CheckMcpStatusResponseParams {
     fn into_response(self) -> Response {
         if let Ok(body) = serde_json::to_string(&self) {
-            return (StatusCode::OK, body).into_response();
+            (StatusCode::OK, body).into_response()
         } else {
-            return (
+            (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "serde_json::to_string error".to_string(),
             )
-                .into_response();
+                .into_response()
         }
     }
 }

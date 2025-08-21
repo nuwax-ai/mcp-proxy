@@ -77,8 +77,8 @@ pub async fn add_route_handler(
                 HttpResult::success(data, None)
             }
             Err(e) => {
-                error!("启动 MCP 服务失败: {}", e);
-                let message = format!("启动 MCP 服务失败: {}", e);
+                error!("启动 MCP 服务失败: {e}");
+                let message = format!("启动 MCP 服务失败: {e}");
                 HttpResult::error("0002", &message, None)
             }
         }

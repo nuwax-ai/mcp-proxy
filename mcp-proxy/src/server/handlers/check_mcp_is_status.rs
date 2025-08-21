@@ -11,7 +11,7 @@ use crate::{
 pub async fn check_mcp_is_status_handler(
     Path(mcp_id): Path<String>,
 ) -> Result<HttpResult<CheckMcpStatusResponseParams>, AppError> {
-    info!("mcp_id: {}", mcp_id);
+    info!("mcp_id: {mcp_id}");
 
     let status = get_proxy_manager()
         .get_mcp_service_status(&mcp_id)
@@ -20,33 +20,33 @@ pub async fn check_mcp_is_status_handler(
     if let Some(status) = status {
         match status.clone() {
             CheckMcpStatusResponseStatus::Ready => {
-                return Ok(HttpResult::success(
+                Ok(HttpResult::success(
                     CheckMcpStatusResponseParams::new(true, status, None),
                     None,
-                ));
+                ))
             }
             CheckMcpStatusResponseStatus::Pending => {
-                return Ok(HttpResult::success(
+                Ok(HttpResult::success(
                     CheckMcpStatusResponseParams::new(false, status, None),
                     None,
-                ));
+                ))
             }
             CheckMcpStatusResponseStatus::Error(err) => {
-                return Ok(HttpResult::success(
+                Ok(HttpResult::success(
                     CheckMcpStatusResponseParams::new(false, status, Some(err)),
                     None,
-                ));
+                ))
             }
         }
     } else {
-        warn!("mcp_id: {} 不存在", mcp_id);
-        return Ok(HttpResult::success(
+        warn!("mcp_id: {mcp_id} 不存在");
+        Ok(HttpResult::success(
             CheckMcpStatusResponseParams::new(
                 false,
                 CheckMcpStatusResponseStatus::Error("mcp_id 不存在".to_string()),
                 None,
             ),
             None,
-        ));
+        ))
     }
 }

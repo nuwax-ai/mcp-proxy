@@ -1,15 +1,14 @@
 use http::HeaderName;
+use rmcp::transport::stdio;
 /**
  * Create a local server that proxies requests to a remote server over SSE.
  */
 use rmcp::{
     ServiceExt,
     model::{ClientCapabilities, ClientInfo},
-    transport::{SseClientTransport},
-
+    transport::SseClientTransport,
 };
 use std::{collections::HashMap, error::Error as StdError, str::FromStr};
-use rmcp::transport::stdio;
 use tracing::info;
 
 use crate::proxy::ProxyHandler;
@@ -57,7 +56,7 @@ pub async fn run_sse_client(config: SseClientConfig) -> Result<(), Box<dyn StdEr
 
     // Get server info
     let server_info = client.peer_info();
-    info!("Connected to server: {server_info:#?}" );
+    info!("Connected to server: {server_info:#?}");
 
     // Create proxy handler
     let proxy_handler = ProxyHandler::new(client);

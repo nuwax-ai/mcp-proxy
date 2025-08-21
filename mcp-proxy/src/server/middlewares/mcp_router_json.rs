@@ -13,7 +13,7 @@ pub(crate) async fn mcp_json_config_extract(
     next: Next,
 ) -> Result<Response, StatusCode> {
     let path = req.uri().path().to_string();
-    debug!("请求路径: {}", path);
+    debug!("请求路径: {path}");
     //检查请求路径,是否 /mcp 开头
     let check_mcp_path = McpRouterPath::check_mcp_path(&path);
     if check_mcp_path {

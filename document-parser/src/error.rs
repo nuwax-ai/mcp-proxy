@@ -106,24 +106,24 @@ impl AppError {
                     "尝试删除损坏的虚拟环境目录: rm -rf ./venv".to_string(),
                     "检查磁盘空间是否充足".to_string(),
                 ];
-                
+
                 if msg.contains("权限") || msg.contains("permission") {
                     suggestions.insert(0, "使用 sudo 或管理员权限运行命令".to_string());
                     suggestions.push("检查目录所有者和权限: ls -la".to_string());
                 }
-                
+
                 if msg.contains("存在") || msg.contains("exists") {
                     suggestions.push("备份现有虚拟环境后重新创建".to_string());
                 }
-                
+
                 suggestions
-            },
+            }
             AppError::Permission(msg) => {
                 let mut suggestions = vec![
                     "检查文件和目录权限设置".to_string(),
                     "确保当前用户有足够的权限".to_string(),
                 ];
-                
+
                 if cfg!(unix) {
                     suggestions.extend(vec![
                         "使用 chmod 修改权限: chmod 755 <目录>".to_string(),
@@ -137,26 +137,26 @@ impl AppError {
                         "确保目录不在受保护的系统路径中".to_string(),
                     ]);
                 }
-                
+
                 suggestions
-            },
+            }
             AppError::Path(msg) => {
                 let mut suggestions = vec![
                     "检查路径是否正确拼写".to_string(),
                     "确保路径存在且可访问".to_string(),
                     "检查路径中是否包含特殊字符".to_string(),
                 ];
-                
+
                 if msg.contains("不存在") || msg.contains("not found") {
                     suggestions.push("创建缺失的目录结构".to_string());
                 }
-                
+
                 if msg.contains("长度") || msg.contains("length") {
                     suggestions.push("使用较短的路径名称".to_string());
                 }
-                
+
                 suggestions
-            },
+            }
             _ => vec!["检查系统环境和配置".to_string()],
         }
     }
@@ -214,10 +214,10 @@ impl AppError {
     /// 转换为HTTP响应格式
     pub fn to_http_result<T>(&self) -> crate::models::HttpResult<T> {
         use crate::models::HttpResult;
-        
+
         HttpResult::<T>::error(
             self.get_error_code().to_string(),
-            format!("{} - {}", self.to_string(), self.get_suggestion()),
+            format!("{} - {}", self, self.get_suggestion()),
         )
     }
 }
@@ -232,21 +232,21 @@ impl From<std::io::Error> for AppError {
 /// 从serde错误转换
 impl From<serde_json::Error> for AppError {
     fn from(err: serde_json::Error) -> Self {
-        AppError::Parse(format!("JSON解析错误: {}", err))
+        AppError::Parse(format!("JSON解析错误: {err}"))
     }
 }
 
 /// 从serde_yaml错误转换
 impl From<serde_yaml::Error> for AppError {
     fn from(err: serde_yaml::Error) -> Self {
-        AppError::Config(format!("YAML配置错误: {}", err))
+        AppError::Config(format!("YAML配置错误: {err}"))
     }
 }
 
 /// 从sled错误转换
 impl From<sled::Error> for AppError {
     fn from(err: sled::Error) -> Self {
-        AppError::Database(format!("Sled数据库错误: {}", err))
+        AppError::Database(format!("Sled数据库错误: {err}"))
     }
 }
 
@@ -258,7 +258,7 @@ impl From<reqwest::Error> for AppError {
         } else if err.is_connect() {
             AppError::Network("网络连接失败".to_string())
         } else {
-            AppError::Network(format!("HTTP请求错误: {}", err))
+            AppError::Network(format!("HTTP请求错误: {err}"))
         }
     }
 }
@@ -273,21 +273,21 @@ impl From<anyhow::Error> for AppError {
 /// 从std::env::VarError转换
 impl From<std::env::VarError> for AppError {
     fn from(err: std::env::VarError) -> Self {
-        AppError::Config(format!("环境变量错误: {}", err))
+        AppError::Config(format!("环境变量错误: {err}"))
     }
 }
 
 /// 从std::num::ParseIntError转换
 impl From<std::num::ParseIntError> for AppError {
     fn from(err: std::num::ParseIntError) -> Self {
-        AppError::Config(format!("数字解析错误: {}", err))
+        AppError::Config(format!("数字解析错误: {err}"))
     }
 }
 
 /// 从std::str::ParseBoolError转换
 impl From<std::str::ParseBoolError> for AppError {
     fn from(err: std::str::ParseBoolError) -> Self {
-        AppError::Config(format!("布尔值解析错误: {}", err))
+        AppError::Config(format!("布尔值解析错误: {err}"))
     }
 }
 

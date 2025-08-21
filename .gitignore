@@ -10,9 +10,15 @@ logs
 venv
 .idea/rmcp_proxy.iml
 
+packages
+
 
 document-parser/data/*
 scripts/temp/*
 data/*
 temp/*
 server.log
+:memory:/*
+document-parser/:memory:/*
+
+document-parser/temp/*

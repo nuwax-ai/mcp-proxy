@@ -656,24 +656,29 @@ impl EnhancedHealthCheckManager {
         tracing::debug!("开始执行 {} 个健康检查", checkers.len());
 
         // 并发执行所有健康检查
-        let check_futures: Vec<_> = checkers.iter().map(|checker| {
-            let checker = checker.clone();
-            let timeout_duration = self.config.timeout;
-            async move {
-                let result = tokio::time::timeout(timeout_duration, checker.check_health()).await;
-                match result {
-                    Ok(health_result) => health_result,
-                    Err(_) => {
-                        tracing::warn!("健康检查超时: {}", checker.component_name());
-                        HealthCheckResult::new(
-                            checker.component_name().to_string(),
-                            HealthStatus::Unhealthy,
-                            "Health check timeout".to_string(),
-                        ).with_response_time(timeout_duration)
+        let check_futures: Vec<_> = checkers
+            .iter()
+            .map(|checker| {
+                let checker = checker.clone();
+                let timeout_duration = self.config.timeout;
+                async move {
+                    let result =
+                        tokio::time::timeout(timeout_duration, checker.check_health()).await;
+                    match result {
+                        Ok(health_result) => health_result,
+                        Err(_) => {
+                            tracing::warn!("健康检查超时: {}", checker.component_name());
+                            HealthCheckResult::new(
+                                checker.component_name().to_string(),
+                                HealthStatus::Unhealthy,
+                                "Health check timeout".to_string(),
+                            )
+                            .with_response_time(timeout_duration)
+                        }
                     }
                 }
-            }
-        }).collect();
+            })
+            .collect();
 
         results = futures::future::join_all(check_futures).await;
 
@@ -703,7 +708,11 @@ impl EnhancedHealthCheckManager {
     }
 
     /// 更新健康检查指标
-    async fn update_health_metrics(&self, registry: &crate::utils::metrics::MetricsRegistry, status: &SystemHealthStatus) {
+    async fn update_health_metrics(
+        &self,
+        registry: &crate::utils::metrics::MetricsRegistry,
+        status: &SystemHealthStatus,
+    ) {
         // 更新健康检查计数器
         if let Some(counter) = registry.get_counter("health_checks_total").await {
             counter.inc();
@@ -725,7 +734,10 @@ impl EnhancedHealthCheckManager {
                 gauge.set(status_value);
             }
 
-            if let Some(histogram) = registry.get_histogram("health_check_duration_seconds").await {
+            if let Some(histogram) = registry
+                .get_histogram("health_check_duration_seconds")
+                .await
+            {
                 histogram.observe(component.response_time_ms as f64 / 1000.0);
             }
         }
@@ -744,8 +756,13 @@ impl EnhancedHealthCheckManager {
     }
 
     /// 启动定期健康检查
-    pub async fn start_periodic_checks(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if self.is_running.swap(true, std::sync::atomic::Ordering::SeqCst) {
+    pub async fn start_periodic_checks(
+        &self,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if self
+            .is_running
+            .swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
             return Err("Health check manager is already running".into());
         }
 
@@ -767,23 +784,27 @@ impl EnhancedHealthCheckManager {
                 let mut results = Vec::new();
 
                 // 并发执行健康检查
-                let check_futures: Vec<_> = checkers_guard.iter().map(|checker| {
-                    let checker = checker.clone();
-                    let timeout_duration = config.timeout;
-                    async move {
-                        let result = tokio::time::timeout(timeout_duration, checker.check_health()).await;
-                        match result {
-                            Ok(health_result) => health_result,
-                            Err(_) => {
-                                HealthCheckResult::new(
+                let check_futures: Vec<_> = checkers_guard
+                    .iter()
+                    .map(|checker| {
+                        let checker = checker.clone();
+                        let timeout_duration = config.timeout;
+                        async move {
+                            let result =
+                                tokio::time::timeout(timeout_duration, checker.check_health())
+                                    .await;
+                            match result {
+                                Ok(health_result) => health_result,
+                                Err(_) => HealthCheckResult::new(
                                     checker.component_name().to_string(),
                                     HealthStatus::Unhealthy,
                                     "Health check timeout".to_string(),
-                                ).with_response_time(timeout_duration)
+                                )
+                                .with_response_time(timeout_duration),
                             }
                         }
-                    }
-                }).collect();
+                    })
+                    .collect();
 
                 results = futures::future::join_all(check_futures).await;
                 drop(checkers_guard);
@@ -824,8 +845,8 @@ impl EnhancedHealthCheckManager {
 
     /// 静态方法更新健康检查指标
     async fn update_health_metrics_static(
-        registry: &crate::utils::metrics::MetricsRegistry, 
-        status: &SystemHealthStatus
+        registry: &crate::utils::metrics::MetricsRegistry,
+        status: &SystemHealthStatus,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // 更新健康检查计数器
         if let Some(counter) = registry.get_counter("health_checks_total").await {
@@ -849,7 +870,8 @@ impl EnhancedHealthCheckManager {
 
     /// 停止定期健康检查
     pub fn stop_periodic_checks(&self) {
-        self.is_running.store(false, std::sync::atomic::Ordering::SeqCst);
+        self.is_running
+            .store(false, std::sync::atomic::Ordering::SeqCst);
         tracing::info!("停止定期健康检查");
     }
 
@@ -866,7 +888,8 @@ impl EnhancedHealthCheckManager {
 
         for checker in checkers.iter() {
             if checker.component_name() == component_name {
-                let result = tokio::time::timeout(self.config.timeout, checker.check_health()).await;
+                let result =
+                    tokio::time::timeout(self.config.timeout, checker.check_health()).await;
 
                 return match result {
                     Ok(health_result) => {
@@ -880,11 +903,14 @@ impl EnhancedHealthCheckManager {
                     }
                     Err(_) => {
                         tracing::warn!("组件健康检查超时: {}", component_name);
-                        Some(HealthCheckResult::new(
-                            component_name.to_string(),
-                            HealthStatus::Unhealthy,
-                            "Health check timeout".to_string(),
-                        ).with_response_time(self.config.timeout))
+                        Some(
+                            HealthCheckResult::new(
+                                component_name.to_string(),
+                                HealthStatus::Unhealthy,
+                                "Health check timeout".to_string(),
+                            )
+                            .with_response_time(self.config.timeout),
+                        )
                     }
                 };
             }

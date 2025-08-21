@@ -1,11 +1,12 @@
-use serde::{Deserialize, Serialize};
 use axum::{
-    response::{IntoResponse, Response},
     Json,
+    response::{IntoResponse, Response},
 };
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 /// 统一HTTP响应格式
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct HttpResult<T> {
     pub code: String,
     pub message: String,

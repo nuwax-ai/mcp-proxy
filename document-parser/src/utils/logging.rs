@@ -1,19 +1,14 @@
-use std::sync::Arc;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::SystemTime;
-use serde::{Serialize, Deserialize};
 use tokio::sync::RwLock;
-use uuid::Uuid;
-use tracing::{info, warn, error, debug, trace, instrument};
+use tracing::{info, instrument, warn};
 use tracing_subscriber::{
-    fmt::{self, format::FmtSpan},
-    layer::SubscriberExt,
-    util::SubscriberInitExt,
     EnvFilter, Registry,
+    util::SubscriberInitExt,
 };
-use tracing_appender::{non_blocking, rolling};
-use std::io;
-use std::path::Path;
+use uuid::Uuid;
 
 /// 日志级别
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -52,6 +47,7 @@ impl From<&str> for LogLevel {
 
 /// 关联ID管理器
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct CorrelationContext {
     pub request_id: Option<String>,
     pub task_id: Option<String>,
@@ -61,18 +57,6 @@ pub struct CorrelationContext {
     pub span_id: Option<String>,
 }
 
-impl Default for CorrelationContext {
-    fn default() -> Self {
-        Self {
-            request_id: None,
-            task_id: None,
-            user_id: None,
-            session_id: None,
-            trace_id: None,
-            span_id: None,
-        }
-    }
-}
 
 impl CorrelationContext {
     pub fn new() -> Self {
@@ -123,7 +107,7 @@ impl CorrelationContext {
 
     pub fn to_fields(&self) -> HashMap<String, String> {
         let mut fields = HashMap::new();
-        
+
         if let Some(ref request_id) = self.request_id {
             fields.insert("request_id".to_string(), request_id.clone());
         }
@@ -142,7 +126,7 @@ impl CorrelationContext {
         if let Some(ref span_id) = self.span_id {
             fields.insert("span_id".to_string(), span_id.clone());
         }
-        
+
         fields
     }
 }
@@ -218,14 +202,12 @@ impl LogEntry {
     pub fn sanitize(&mut self) {
         // 脱敏消息中的敏感信息
         self.message = self.sanitize_string(&self.message);
-        
+
         // 脱敏字段中的敏感信息
         let mut sanitized_fields = HashMap::new();
         for (key, value) in &self.fields {
             let sanitized_value = match value {
-                serde_json::Value::String(s) => {
-                    serde_json::Value::String(self.sanitize_string(s))
-                }
+                serde_json::Value::String(s) => serde_json::Value::String(self.sanitize_string(s)),
                 _ => value.clone(),
             };
             sanitized_fields.insert(key.clone(), sanitized_value);
@@ -236,23 +218,26 @@ impl LogEntry {
     /// 脱敏字符串
     fn sanitize_string(&self, input: &str) -> String {
         let mut result = input.to_string();
-        
+
         // 脱敏常见的敏感信息模式
         let patterns = vec![
             (r"password[\s]*[:=][\s]*[\S]+", "password: ***"),
             (r"token[\s]*[:=][\s]*[\S]+", "token: ***"),
             (r"key[\s]*[:=][\s]*[\S]+", "key: ***"),
             (r"secret[\s]*[:=][\s]*[\S]+", "secret: ***"),
-            (r"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b", "****-****-****-****"), // 信用卡号
+            (
+                r"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b",
+                "****-****-****-****",
+            ), // 信用卡号
             (r"\b\d{3}-\d{2}-\d{4}\b", "***-**-****"), // SSN
         ];
-        
+
         for (pattern, replacement) in patterns {
             if let Ok(re) = regex::Regex::new(pattern) {
                 result = re.replace_all(&result, replacement).to_string();
             }
         }
-        
+
         result
     }
 
@@ -263,31 +248,30 @@ impl LogEntry {
 
     /// 格式化为人类可读格式
     pub fn to_human_readable(&self) -> String {
-        let timestamp = self.timestamp
+        let timestamp = self
+            .timestamp
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        
+
         let location = if let (Some(file), Some(line)) = (&self.file, self.line) {
             format!(" [{file}:{line}]")
         } else {
             String::new()
         };
-        
+
         let context = if !self.fields.is_empty() {
-            format!(" {}", serde_json::to_string(&self.fields).unwrap_or_default())
+            format!(
+                " {}",
+                serde_json::to_string(&self.fields).unwrap_or_default()
+            )
         } else {
             String::new()
         };
-        
+
         format!(
             "{} [{}] {}{}: {}{}",
-            timestamp,
-            self.level,
-            self.target,
-            location,
-            self.message,
-            context
+            timestamp, self.level, self.target, location, self.message, context
         )
     }
 }
@@ -295,7 +279,10 @@ impl LogEntry {
 /// 日志输出器trait
 #[async_trait::async_trait]
 pub trait LogOutput: Send + Sync {
-    async fn write_log(&self, entry: &LogEntry) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    async fn write_log(
+        &self,
+        entry: &LogEntry,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn flush(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 }
 
@@ -312,13 +299,16 @@ impl ConsoleOutput {
 
 #[async_trait::async_trait]
 impl LogOutput for ConsoleOutput {
-    async fn write_log(&self, entry: &LogEntry) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn write_log(
+        &self,
+        entry: &LogEntry,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let output = if self.use_json {
             entry.to_json()?
         } else {
             entry.to_human_readable()
         };
-        
+
         println!("{}", output);
         Ok(())
     }
@@ -351,51 +341,54 @@ impl FileOutput {
     /// 检查并轮转日志文件
     async fn rotate_if_needed(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         use std::fs;
-        
+
         if let Ok(metadata) = fs::metadata(&self.file_path) {
             if metadata.len() > self.max_file_size {
                 // 轮转日志文件
                 for i in (1..self.max_files).rev() {
                     let old_file = format!("{}.{}", self.file_path, i);
                     let new_file = format!("{}.{}", self.file_path, i + 1);
-                    
+
                     if fs::metadata(&old_file).is_ok() {
                         fs::rename(&old_file, &new_file)?;
                     }
                 }
-                
+
                 // 移动当前文件
                 let backup_file = format!("{}.1", self.file_path);
                 fs::rename(&self.file_path, &backup_file)?;
             }
         }
-        
+
         Ok(())
     }
 }
 
 #[async_trait::async_trait]
 impl LogOutput for FileOutput {
-    async fn write_log(&self, entry: &LogEntry) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn write_log(
+        &self,
+        entry: &LogEntry,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         use std::fs::OpenOptions;
         use std::io::Write;
-        
+
         self.rotate_if_needed().await?;
-        
+
         let output = if self.use_json {
             format!("{}\n", entry.to_json()?)
         } else {
             format!("{}\n", entry.to_human_readable())
         };
-        
+
         let mut file = OpenOptions::new()
             .create(true)
             .append(true)
             .open(&self.file_path)?;
-        
+
         file.write_all(output.as_bytes())?;
         file.flush()?;
-        
+
         Ok(())
     }
 
@@ -468,8 +461,9 @@ impl EnhancedLoggingSystem {
     /// 初始化日志系统
     #[instrument(skip(config))]
     pub fn init(config: LoggingConfig) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let mut guards = Vec::new();
-        let mut layers: Vec<Box<dyn tracing_subscriber::Layer<Registry> + Send + Sync>> = Vec::new();
+        let guards = Vec::new();
+        let layers: Vec<Box<dyn tracing_subscriber::Layer<Registry> + Send + Sync>> =
+            Vec::new();
 
         // 设置环境过滤器
         let env_filter = EnvFilter::try_from_default_env()
@@ -477,7 +471,9 @@ impl EnhancedLoggingSystem {
             .unwrap_or_else(|_| EnvFilter::new("info"));
 
         // 控制台输出层
-        if config.enable_console && (config.output == LogOutputTarget::Console || config.output == LogOutputTarget::Both) {
+        if config.enable_console
+            && (config.output == LogOutputTarget::Console || config.output == LogOutputTarget::Both)
+        {
             // 简化的控制台层配置
             // 在实际实现中，这里需要更复杂的配置
         }
@@ -542,7 +538,7 @@ impl EnhancedLoggingSystem {
     pub async fn create_span(&self, name: &str) -> tracing::Span {
         let correlation = self.correlation_context.read().await;
         let fields = correlation.to_fields();
-        
+
         let span = tracing::info_span!(
             "custom_span",
             name = name,
@@ -553,7 +549,7 @@ impl EnhancedLoggingSystem {
 
         // 添加关联字段
         for (key, value) in fields {
-            span.record(key.as_str(), &tracing::field::display(&value));
+            span.record(key.as_str(), tracing::field::display(&value));
         }
 
         span
@@ -607,7 +603,7 @@ impl StructuredLogger {
         if entry.level < self.min_level {
             return;
         }
-        
+
         // 添加全局上下文
         {
             let context = self.context.read().await;
@@ -615,10 +611,10 @@ impl StructuredLogger {
                 entry.fields.insert(key.clone(), value.clone());
             }
         }
-        
+
         // 脱敏处理
         entry.sanitize();
-        
+
         // 输出到所有输出器
         for output in &self.outputs {
             if let Err(e) = output.write_log(&entry).await {
@@ -684,7 +680,7 @@ macro_rules! structured_log {
             $logger.log(entry).await;
         }
     };
-    
+
     ($logger:expr, $level:expr, $message:expr, $($key:expr => $value:expr),+) => {
         {
             let mut entry = $crate::utils::logging::LogEntry::new(
@@ -696,11 +692,11 @@ macro_rules! structured_log {
                 file!().to_string(),
                 line!(),
             );
-            
+
             $(
                 entry = entry.with_field($key, $value);
             )+
-            
+
             $logger.log(entry).await;
         }
     };
@@ -760,8 +756,8 @@ macro_rules! log_error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct TestOutput {
         entries: Arc<Mutex<Vec<LogEntry>>>,
@@ -787,7 +783,10 @@ mod tests {
 
     #[async_trait::async_trait]
     impl LogOutput for TestOutput {
-        async fn write_log(&self, entry: &LogEntry) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        async fn write_log(
+            &self,
+            entry: &LogEntry,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             self.entries.lock().unwrap().push(entry.clone());
             self.write_count.fetch_add(1, Ordering::SeqCst);
             Ok(())
@@ -801,12 +800,11 @@ mod tests {
     #[tokio::test]
     async fn test_structured_logger() {
         let test_output = Arc::new(TestOutput::new());
-        let logger = StructuredLogger::new(LogLevel::Debug)
-            .add_output(test_output.clone());
-        
+        let logger = StructuredLogger::new(LogLevel::Debug).add_output(test_output.clone());
+
         // 测试基本日志记录
         logger.info("测试消息", "test_module").await;
-        
+
         let entries = test_output.get_entries();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].level, LogLevel::Info);
@@ -817,17 +815,16 @@ mod tests {
     #[tokio::test]
     async fn test_log_level_filtering() {
         let test_output = Arc::new(TestOutput::new());
-        let logger = StructuredLogger::new(LogLevel::Warn)
-            .add_output(test_output.clone());
-        
+        let logger = StructuredLogger::new(LogLevel::Warn).add_output(test_output.clone());
+
         // 这些日志应该被过滤掉
         logger.debug("debug消息", "test").await;
         logger.info("info消息", "test").await;
-        
+
         // 这些日志应该被记录
         logger.warn("warn消息", "test").await;
         logger.error("error消息", "test").await;
-        
+
         let entries = test_output.get_entries();
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].level, LogLevel::Warn);
@@ -837,18 +834,17 @@ mod tests {
     #[tokio::test]
     async fn test_context() {
         let test_output = Arc::new(TestOutput::new());
-        let logger = StructuredLogger::new(LogLevel::Debug)
-            .add_output(test_output.clone());
-        
+        let logger = StructuredLogger::new(LogLevel::Debug).add_output(test_output.clone());
+
         // 设置全局上下文
         logger.set_context("service", "document-parser").await;
         logger.set_context("version", "1.0.0").await;
-        
+
         logger.info("测试消息", "test").await;
-        
+
         let entries = test_output.get_entries();
         assert_eq!(entries.len(), 1);
-        
+
         let entry = &entries[0];
         assert!(entry.fields.contains_key("service"));
         assert!(entry.fields.contains_key("version"));
@@ -861,9 +857,9 @@ mod tests {
             "用户登录: password=secret123 token=abc123".to_string(),
             "auth".to_string(),
         );
-        
+
         entry.sanitize();
-        
+
         assert!(entry.message.contains("password: ***"));
         assert!(entry.message.contains("token: ***"));
         assert!(!entry.message.contains("secret123"));

@@ -2,13 +2,13 @@
 //!
 //! 提供与各种监控系统的集成，包括指标收集、告警、追踪等功能。
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::sync::RwLock;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 /// 监控集成管理器
 #[derive(Clone)]
@@ -431,7 +431,11 @@ impl MonitoringIntegration {
                     match collector.collect_metrics() {
                         Ok(metrics) => {
                             total_metrics += metrics.len();
-                            info!("收集器 {} 收集了 {} 个指标", collector.name(), metrics.len());
+                            info!(
+                                "收集器 {} 收集了 {} 个指标",
+                                collector.name(),
+                                metrics.len()
+                            );
                         }
                         Err(e) => {
                             error!("收集器 {} 收集指标失败: {}", collector.name(), e);
@@ -567,7 +571,7 @@ impl MetricsCollector for SystemMetricsCollector {
 impl MetricsCollector for ApplicationMetricsCollector {
     fn collect_metrics(&self) -> Result<Vec<Metric>> {
         let mut metrics = Vec::new();
-        
+
         // 这里应该收集应用特定的指标
         metrics.push(Metric {
             name: "app_requests_total".to_string(),
@@ -596,18 +600,32 @@ impl AlertManager for ThresholdAlertManager {
                     let should_alert = match rule.condition {
                         AlertCondition::GreaterThan => metric.value > rule.threshold,
                         AlertCondition::LessThan => metric.value < rule.threshold,
-                        AlertCondition::Equal => (metric.value - rule.threshold).abs() < f64::EPSILON,
-                        AlertCondition::NotEqual => (metric.value - rule.threshold).abs() >= f64::EPSILON,
+                        AlertCondition::Equal => {
+                            (metric.value - rule.threshold).abs() < f64::EPSILON
+                        }
+                        AlertCondition::NotEqual => {
+                            (metric.value - rule.threshold).abs() >= f64::EPSILON
+                        }
                         AlertCondition::GreaterThanOrEqual => metric.value >= rule.threshold,
                         AlertCondition::LessThanOrEqual => metric.value <= rule.threshold,
                     };
 
                     if should_alert {
                         alerts.push(Alert {
-                            id: format!("{}-{}", rule.name, metric.timestamp.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs()),
+                            id: format!(
+                                "{}-{}",
+                                rule.name,
+                                metric
+                                    .timestamp
+                                    .duration_since(SystemTime::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_secs()
+                            ),
                             name: rule.name.clone(),
                             severity: rule.severity.clone(),
-                            message: rule.message_template.replace("{value}", &metric.value.to_string()),
+                            message: rule
+                                .message_template
+                                .replace("{value}", &metric.value.to_string()),
                             labels: metric.labels.clone(),
                             triggered_at: SystemTime::now(),
                             status: AlertStatus::Firing,
@@ -681,13 +699,13 @@ mod tests {
     async fn test_monitoring_integration() {
         let config = MonitoringConfig::default();
         let mut integration = MonitoringIntegration::new(config);
-        
+
         let collector = Arc::new(SystemMetricsCollector {
             name: "test_collector".to_string(),
         });
-        
+
         integration.add_metrics_collector(collector);
-        
+
         let stats = integration.get_stats().await;
         assert_eq!(stats.metrics_collected, 0);
     }
@@ -697,7 +715,7 @@ mod tests {
         let collector = SystemMetricsCollector {
             name: "system".to_string(),
         };
-        
+
         let metrics = collector.collect_metrics().unwrap();
         assert!(!metrics.is_empty());
         assert!(metrics.iter().any(|m| m.name == "system_cpu_usage"));
@@ -714,12 +732,12 @@ mod tests {
             severity: AlertSeverity::Warning,
             message_template: "CPU 使用率过高: {value}".to_string(),
         };
-        
+
         let manager = ThresholdAlertManager {
             name: "threshold".to_string(),
             rules: vec![rule],
         };
-        
+
         let metric = Metric {
             name: "cpu_usage".to_string(),
             value: 0.9,
@@ -728,7 +746,7 @@ mod tests {
             timestamp: SystemTime::now(),
             help: None,
         };
-        
+
         let alerts = manager.check_alerts(&[metric]).unwrap();
         assert_eq!(alerts.len(), 1);
         assert_eq!(alerts[0].name, "high_cpu");

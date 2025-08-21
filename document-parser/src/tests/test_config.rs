@@ -1,5 +1,5 @@
 //! Test configuration and setup utilities
-//! 
+//!
 //! This module provides comprehensive test configuration and setup utilities
 //! for running tests with proper isolation and cleanup.
 
@@ -33,10 +33,14 @@ impl TestEnvironment {
     /// Create a new isolated test environment
     pub fn new() -> Self {
         init_test_logging();
-        
+
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
-        let db_path = temp_dir.path().join("test.db").to_string_lossy().to_string();
-        
+        let db_path = temp_dir
+            .path()
+            .join("test.db")
+            .to_string_lossy()
+            .to_string();
+
         let config = crate::config::AppConfig {
             environment: "test".to_string(),
             server: crate::config::ServerConfig {
@@ -45,7 +49,11 @@ impl TestEnvironment {
             },
             log: crate::config::LogConfig {
                 level: "debug".to_string(),
-                path: temp_dir.path().join("test.log").to_string_lossy().to_string(),
+                path: temp_dir
+                    .path()
+                    .join("test.log")
+                    .to_string_lossy()
+                    .to_string(),
             },
             document_parser: crate::config::DocumentParserConfig {
                 max_concurrent: 2,
@@ -73,9 +81,12 @@ impl TestEnvironment {
                 },
                 oss: crate::config::OssConfig {
                     endpoint: "https://test-endpoint.com".to_string(),
-                    bucket: "test-bucket".to_string(),
-                    access_key_id: "test-key-id".to_string(),
-                    access_key_secret: "test-key-secret".to_string(),
+                    public_bucket: "test-public-bucket".to_string(),
+                    private_bucket: "test-private-bucket".to_string(),
+                    access_key_id: "test-key".to_string(),
+                    access_key_secret: "test-secret".to_string(),
+                    upload_directory: "test".to_string(),
+                    region: "oss-rg-china-mainland".to_string(),
                 },
             },
             external_integration: crate::config::ExternalIntegrationConfig {
@@ -88,13 +99,15 @@ impl TestEnvironment {
                 python_path: "python3".to_string(),
                 max_concurrent: 1,
                 queue_size: 5,
-                timeout: 0,  // 使用统一超时配置
+                timeout: 0, // 使用统一超时配置
                 batch_size: 1,
                 quality_level: crate::config::QualityLevel::Balanced,
+                device: "cpu".to_string(),
+                vram: 8,
             },
             markitdown: crate::config::MarkItDownConfig {
                 python_path: "python3".to_string(),
-                timeout: 0,  // 使用统一超时配置
+                timeout: 0, // 使用统一超时配置
                 enable_plugins: false,
                 features: crate::config::MarkItDownFeatures {
                     ocr: false,
@@ -174,19 +187,22 @@ pub mod generators {
     pub fn test_document_task() -> DocumentTask {
         // 安全初始化全局配置
         safe_init_global_config();
-        DocumentTask::builder()
-            .generate_id()
-            .source_type(SourceType::Upload)
-            .source_path(Some("/tmp/test.pdf".to_string()))
-            .document_format(DocumentFormat::PDF)
-            .parser_engine(ParserEngine::MinerU)
-            .backend("pipeline")
-            .file_size(1024 * 1024) // 1MB
-            .mime_type("application/pdf")
-            .max_retries(3)
-            .expires_in_hours(24)
-            .build()
-            .expect("Failed to build test task")
+        {
+            let mut t = DocumentTask::new(
+                Uuid::new_v4().to_string(),
+                SourceType::Upload,
+                Some("/tmp/test.pdf".to_string()),
+                Some("test.pdf".to_string()),
+                Some(DocumentFormat::PDF),
+                Some("pipeline".to_string()),
+                Some(24),
+                Some(3),
+            );
+            t.parser_engine = Some(ParserEngine::MinerU);
+            t.file_size = Some(1024 * 1024);
+            t.mime_type = Some("application/pdf".to_string());
+            t
+        }
     }
 
     /// Generate a test DocumentTask with custom parameters
@@ -197,32 +213,49 @@ pub mod generators {
     ) -> DocumentTask {
         // 安全初始化全局配置
         safe_init_global_config();
-        DocumentTask::builder()
-            .generate_id()
-            .source_type(source_type)
-            .source_path(Some("/tmp/test.pdf".to_string()))
-            .document_format(format)
-            .parser_engine(engine)
-            .backend("pipeline")
-            .file_size(1024 * 1024)
-            .mime_type("application/pdf")
-            .max_retries(3)
-            .expires_in_hours(24)
-            .build()
-            .expect("Failed to build test task")
+        {
+            let mut t = DocumentTask::new(
+                Uuid::new_v4().to_string(),
+                source_type,
+                Some("/tmp/test.pdf".to_string()),
+                Some("test.pdf".to_string()),
+                Some(format),
+                Some("pipeline".to_string()),
+                Some(24),
+                Some(3),
+            );
+            t.parser_engine = Some(engine);
+            t.file_size = Some(1024 * 1024);
+            t.mime_type = Some("application/pdf".to_string());
+            t
+        }
     }
 
     /// Generate test markdown content with various structures
     pub fn test_markdown_samples() -> Vec<(&'static str, &'static str)> {
         vec![
             ("simple", "# Title\nContent here."),
-            ("nested", "# Chapter 1\n## Section 1.1\n### Subsection 1.1.1\n## Section 1.2\n# Chapter 2"),
+            (
+                "nested",
+                "# Chapter 1\n## Section 1.1\n### Subsection 1.1.1\n## Section 1.2\n# Chapter 2",
+            ),
             ("empty", ""),
             ("no_headers", "Just content without any headers."),
-            ("unicode", "# 中文标题\n中文内容测试。\n## English Section\nMixed content."),
-            ("with_images", "# Document\n![Image](image.png)\nContent with image."),
-            ("with_links", "# Document\n[Link](https://example.com)\nContent with link."),
-            ("complex", r#"# Main Title
+            (
+                "unicode",
+                "# 中文标题\n中文内容测试。\n## English Section\nMixed content.",
+            ),
+            (
+                "with_images",
+                "# Document\n![Image](image.png)\nContent with image.",
+            ),
+            (
+                "with_links",
+                "# Document\n[Link](https://example.com)\nContent with link.",
+            ),
+            (
+                "complex",
+                r#"# Main Title
 
 Introduction paragraph.
 
@@ -255,7 +288,8 @@ Security best practices.
 ## Conclusion
 
 Final thoughts.
-"#),
+"#,
+            ),
         ]
     }
 
@@ -277,11 +311,7 @@ Final thoughts.
                 "Parser execution failed".to_string(),
                 Some(ProcessingStage::MinerUExecuting),
             ),
-            TaskError::new(
-                "E004".to_string(),
-                "Network timeout".to_string(),
-                None,
-            ),
+            TaskError::new("E004".to_string(), "Network timeout".to_string(), None),
             TaskError::new(
                 "E005".to_string(),
                 "Insufficient disk space".to_string(),
@@ -302,26 +332,26 @@ pub mod assertions {
         assert!(task.created_at <= task.updated_at);
         assert!(task.updated_at <= task.expires_at);
         assert!(task.retry_count <= task.max_retries);
-        
+
         // Validate status consistency
         match &task.status {
             TaskStatus::Pending { queued_at: _ } => {
                 assert_eq!(task.progress, 0);
                 assert!(task.error_message.is_none());
-            },
+            }
             TaskStatus::Processing { .. } => {
                 assert!(task.progress > 0 && task.progress < 100);
-            },
+            }
             TaskStatus::Completed { .. } => {
                 assert_eq!(task.progress, 100);
                 assert!(task.error_message.is_none());
-            },
+            }
             TaskStatus::Failed { .. } => {
                 assert!(task.error_message.is_some());
-            },
+            }
             TaskStatus::Cancelled { .. } => {
                 // Cancelled tasks can have any progress
-            },
+            }
         }
     }
 
@@ -330,7 +360,7 @@ pub mod assertions {
         assert!(!doc.task_id.is_empty());
         assert!(!doc.document_title.is_empty());
         assert_eq!(doc.toc.len(), doc.total_sections);
-        
+
         // Validate TOC structure
         for section in &doc.toc {
             assert_valid_structured_section(section);
@@ -342,13 +372,13 @@ pub mod assertions {
         assert!(!section.id.is_empty());
         assert!(!section.title.is_empty());
         assert!(section.level > 0);
-        
+
         // Validate children
         for child in &section.children {
             assert!(child.level > section.level);
             assert_valid_structured_section(child);
         }
-        
+
         // Validate position information if present
         if let (Some(start), Some(end)) = (section.start_pos, section.end_pos) {
             assert!(start <= end);
@@ -388,10 +418,7 @@ pub mod performance {
         let (value, duration) = result;
         assert!(
             duration <= limit,
-            "{} took {:?}, expected <= {:?}",
-            operation_name,
-            duration,
-            limit
+            "{operation_name} took {duration:?}, expected <= {limit:?}"
         );
         value
     }
@@ -414,6 +441,8 @@ pub mod performance {
     }
 }
 
+// Re-export submodules for external use
+
 #[cfg(test)]
 mod test_config_tests {
     use super::*;
@@ -422,7 +451,7 @@ mod test_config_tests {
     #[test]
     fn test_environment_creation() {
         let env = TestEnvironment::new();
-        
+
         assert!(env.temp_path().exists());
         assert!(!env.db_path.is_empty());
         assert_eq!(env.config.server.host, "127.0.0.1");
@@ -432,10 +461,10 @@ mod test_config_tests {
     #[test]
     fn test_file_creation() {
         let env = TestEnvironment::new();
-        
+
         let test_file = env.create_test_file("test.txt", b"test content");
         assert!(test_file.exists());
-        
+
         let content = std::fs::read(&test_file).expect("Failed to read test file");
         assert_eq!(content, b"test content");
     }
@@ -443,10 +472,10 @@ mod test_config_tests {
     #[test]
     fn test_pdf_creation() {
         let env = TestEnvironment::new();
-        
+
         let pdf_file = env.create_test_pdf("test.pdf");
         assert!(pdf_file.exists());
-        
+
         let content = std::fs::read(&pdf_file).expect("Failed to read PDF file");
         assert!(content.starts_with(b"%PDF"));
     }
@@ -454,10 +483,10 @@ mod test_config_tests {
     #[test]
     fn test_markdown_creation() {
         let env = TestEnvironment::new();
-        
+
         let md_file = env.create_test_markdown("test.md");
         assert!(md_file.exists());
-        
+
         let content = std::fs::read_to_string(&md_file).expect("Failed to read markdown file");
         assert!(content.contains("# Test Document"));
         assert!(content.contains("## Section 1"));
@@ -467,22 +496,22 @@ mod test_config_tests {
     fn test_generators() {
         let task = generators::test_document_task();
         assertions::assert_valid_task(&task);
-        
+
         let custom_task = generators::test_document_task_with_params(
             SourceType::Url,
             DocumentFormat::Word,
             ParserEngine::MarkItDown,
         );
         assert_eq!(custom_task.source_type, SourceType::Url);
-        assert_eq!(custom_task.document_format, DocumentFormat::Word);
-        assert_eq!(custom_task.parser_engine, ParserEngine::MarkItDown);
+        assert_eq!(custom_task.document_format, Some(DocumentFormat::Word));
+        assert_eq!(custom_task.parser_engine, Some(ParserEngine::MarkItDown));
     }
 
     #[test]
     fn test_markdown_samples() {
         let samples = generators::test_markdown_samples();
         assert!(!samples.is_empty());
-        
+
         for (name, _content) in samples {
             assert!(!name.is_empty());
             // Content can be empty for the "empty" test case
@@ -493,7 +522,7 @@ mod test_config_tests {
     fn test_error_scenarios() {
         let errors = generators::test_error_scenarios();
         assert!(!errors.is_empty());
-        
+
         for error in errors {
             assertions::assert_valid_task_error(&error);
         }
