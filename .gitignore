@@ -22,3 +22,4 @@ server.log
 document-parser/:memory:/*
 
 document-parser/temp/*
+models/*

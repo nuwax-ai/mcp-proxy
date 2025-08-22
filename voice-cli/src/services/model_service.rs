@@ -122,8 +122,8 @@ impl ModelService {
 
     /// Get the download URL for a specific model
     fn get_model_download_url(&self, model_name: &str) -> Result<String, VoiceCliError> {
-        // Whisper.cpp models are hosted on Hugging Face
-        let base_url = "https://huggingface.co/ggml-org/whisper.cpp/resolve/main";
+        // Whisper.cpp models are hosted on Hugging Face under ggerganov organization
+        let base_url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
         let model_filename = format!("ggml-{}.bin", model_name);
         Ok(format!("{}/{}", base_url, model_filename))
     }
