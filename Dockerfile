@@ -1,4 +1,4 @@
-# 多阶段构建 Dockerfile，用于跨平台编译 document-parser
+# 多阶段构建 Dockerfile，用于跨平台编译 document-parser 和 voice-cli
 FROM rust:1.85 AS builder
 
 # 安装必要的工具
@@ -22,27 +22,35 @@ COPY . .
 # 设置环境变量
 ENV PKG_CONFIG_ALLOW_CROSS=1
 
-# 根据目标架构编译 document-parser
+# 根据目标架构编译所有包
 ARG TARGETARCH
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
-        cargo build --release --target aarch64-unknown-linux-gnu --package document-parser; \
+        cargo build --release --target aarch64-unknown-linux-gnu; \
     else \
-        cargo build --release --target x86_64-unknown-linux-gnu --package document-parser; \
+        cargo build --release --target x86_64-unknown-linux-gnu; \
     fi
 
 # 复制编译好的二进制文件到指定位置
 RUN mkdir -p /output && \
     if [ "$TARGETARCH" = "arm64" ]; then \
-        cp target/aarch64-unknown-linux-gnu/release/document-parser /output/; \
+        cp target/aarch64-unknown-linux-gnu/release/document-parser /output/ && \
+        cp target/aarch64-unknown-linux-gnu/release/voice-cli /output/; \
     else \
-        cp target/x86_64-unknown-linux-gnu/release/document-parser /output/; \
+        cp target/x86_64-unknown-linux-gnu/release/document-parser /output/ && \
+        cp target/x86_64-unknown-linux-gnu/release/voice-cli /output/; \
     fi
 
-# 最终阶段 - 创建最小运行时镜像
+# 最终阶段 - 创建最小运行时镜像（document-parser）
 FROM scratch AS runtime
 COPY --from=builder /output/document-parser /document-parser
 ENTRYPOINT ["/document-parser"]
 
-# 导出阶段 - 用于提取二进制文件
+# 最终阶段 - 创建最小运行时镜像（voice-cli）
+FROM scratch AS runtime-voice-cli
+COPY --from=builder /output/voice-cli /voice-cli
+ENTRYPOINT ["/voice-cli"]
+
+# 导出阶段 - 用于提取所有二进制文件
 FROM scratch AS export
 COPY --from=builder /output/document-parser /document-parser
+COPY --from=builder /output/voice-cli /voice-cli
