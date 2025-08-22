@@ -336,9 +336,8 @@ fn detect_audio_format_from_magic_bytes(audio_data: &Bytes) -> Result<AudioForma
         }
     }
     
-    // MP3 file signatures
-    if header[0..3] == [0xFF, 0xFB, 0x90] || // MP3 frame header
-       header[0..3] == [0x49, 0x44, 0x33] {  // ID3 tag
+    // MP3 file signatures - comprehensive detection for audio/mpeg
+    if detect_mp3_format(audio_data) {
         return Ok(AudioFormat::Mp3);
     }
     
@@ -373,6 +372,98 @@ fn detect_audio_format_from_magic_bytes(audio_data: &Bytes) -> Result<AudioForma
     ))
 }
 
+/// Helper function to detect MP3 format with comprehensive magic byte checking
+/// This handles various MP3 file structures including ID3 tags and MPEG frame headers
+fn detect_mp3_format(audio_data: &Bytes) -> bool {
+    if audio_data.len() < 3 {
+        return false;
+    }
+    
+    // Check for ID3v2 tag at the beginning (most common)
+    if audio_data.len() >= 3 && &audio_data[0..3] == b"ID3" {
+        return true;
+    }
+    
+    // Check for ID3v1 tag at the end (if file is long enough)
+    if audio_data.len() >= 128 {
+        let id3v1_start = audio_data.len() - 128;
+        if &audio_data[id3v1_start..id3v1_start + 3] == b"TAG" {
+            return true;
+        }
+    }
+    
+    // Check for MPEG frame headers (various sync patterns)
+    // MPEG-1 Layer 3: 0xFF 0xFB (0x90-0x93)
+    // MPEG-2 Layer 3: 0xFF 0xF3 (0x90-0x93)
+    // MPEG-2.5 Layer 3: 0xFF 0xF2 (0x90-0x93)
+    if audio_data.len() >= 2 {
+        let first_byte = audio_data[0];
+        let second_byte = audio_data[1];
+        
+        // Check for MPEG sync byte (0xFF)
+        if first_byte == 0xFF {
+            // Check for valid MPEG frame header patterns
+            match second_byte {
+                0xFB | 0xF3 | 0xF2 => {
+                    // These are valid MPEG frame header patterns
+                    if audio_data.len() >= 4 {
+                        let third_byte = audio_data[2];
+                        // Check if the third byte is in valid range (0x90-0x93)
+                        if third_byte >= 0x90 && third_byte <= 0x93 {
+                            return true;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    
+    // Check for MPEG-1 Layer 1/2 patterns
+    if audio_data.len() >= 2 {
+        let first_byte = audio_data[0];
+        let second_byte = audio_data[1];
+        
+        if first_byte == 0xFF {
+            match second_byte {
+                0xF1 | 0xF5 | 0xF9 | 0xFD => {
+                    // MPEG-1 Layer 1/2 patterns
+                    if audio_data.len() >= 4 {
+                        let third_byte = audio_data[2];
+                        if third_byte >= 0x90 && third_byte <= 0x93 {
+                            return true;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    
+    // Check for MPEG-2 Layer 1/2 patterns
+    if audio_data.len() >= 2 {
+        let first_byte = audio_data[0];
+        let second_byte = audio_data[1];
+        
+        if first_byte == 0xFF {
+            match second_byte {
+                0xF0 | 0xF4 | 0xF8 | 0xFC => {
+                    // MPEG-2 Layer 1/2 patterns
+                    if audio_data.len() >= 4 {
+                        let third_byte = audio_data[2];
+                        if third_byte >= 0x90 && third_byte <= 0x93 {
+                            return true;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -390,5 +481,28 @@ mod tests {
         assert!(AudioFormat::from_filename("test.mp3").is_supported());
         assert!(AudioFormat::from_filename("test.wav").is_supported());
         assert!(!AudioFormat::from_filename("test.xyz").is_supported());
+    }
+    
+    #[test]
+    fn test_mp3_magic_bytes_detection() {
+        // Test ID3v2 tag
+        let id3v2_data = Bytes::from(b"ID3\x03\x00\x00\x00\x00\x00\x00".to_vec());
+        assert!(detect_mp3_format(&id3v2_data));
+        
+        // Test MPEG frame header (MPEG-1 Layer 3)
+        let mpeg_frame_data = Bytes::from(vec![0xFF, 0xFB, 0x90, 0x00]);
+        assert!(detect_mp3_format(&mpeg_frame_data));
+        
+        // Test MPEG frame header (MPEG-2 Layer 3)
+        let mpeg2_frame_data = Bytes::from(vec![0xFF, 0xF3, 0x92, 0x00]);
+        assert!(detect_mp3_format(&mpeg2_frame_data));
+        
+        // Test invalid data
+        let invalid_data = Bytes::from(b"RIFF".to_vec());
+        assert!(!detect_mp3_format(&invalid_data));
+        
+        // Test short data
+        let short_data = Bytes::from(vec![0xFF]);
+        assert!(!detect_mp3_format(&short_data));
     }
 }
