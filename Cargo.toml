@@ -68,4 +68,4 @@ rand = "0.9"
 derive_builder = "0.20"
 
 # 自己开发的语音相关工具
-voice-toolkit="0.2"
+voice-toolkit="0.3"
