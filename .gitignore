@@ -23,3 +23,4 @@ document-parser/:memory:/*
 
 document-parser/temp/*
 models/*
+dist/
