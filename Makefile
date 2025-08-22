@@ -32,7 +32,6 @@ build-linux-arm64:
 # 构建多平台版本
 .PHONY: build-multi-platform
 build-multi-platform:
-	git pull
 	@mkdir -p ./packages/linux-x86_64 ./packages/linux-arm64
 	docker buildx build --platform linux/amd64 --target export --output type=local,dest=./packages/linux-x86_64 .
 	docker buildx build --platform linux/arm64 --target export --output type=local,dest=./packages/linux-arm64 .
@@ -41,7 +40,6 @@ build-multi-platform:
 .PHONY: build-all-linux-x86_64
 build-all-linux-x86_64:
 	@echo "🚀 构建所有组件 Linux x86_64 版本..."
-	git pull
 	@mkdir -p ./packages/all/linux-x86_64
 	docker buildx build --platform linux/amd64 --target export --output type=local,dest=./packages/all/linux-x86_64 .
 	@echo "✅ 所有组件 Linux x86_64 版本构建完成"
