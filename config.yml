@@ -1,0 +1,30 @@
+server:
+  host: 0.0.0.0
+  port: 8081
+  max_file_size: 209715200
+  cors_enabled: true
+whisper:
+  default_model: base
+  models_dir: ./models
+  auto_download: true
+  supported_models:
+  - tiny
+  - tiny.en
+  - base
+  - base.en
+  - small
+  - small.en
+  - medium
+  - medium.en
+  - large-v1
+  - large-v2
+  - large-v3
+logging:
+  level: info
+  log_dir: ./logs
+  max_file_size: 10MB
+  max_files: 5
+daemon:
+  pid_file: ./voice-cli.pid
+  log_file: ./logs/daemon.log
+  work_dir: ./

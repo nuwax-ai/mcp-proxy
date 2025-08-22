@@ -1,5 +1,5 @@
 [workspace]
-members = [ "document-parser","mcp-proxy", "oss-client"]
+members = [ "document-parser","mcp-proxy", "oss-client", "voice-cli"]
 resolver = "2"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -66,3 +66,6 @@ futures = "0.3"
 run_code_rmcp = "0.0.31"
 rand = "0.9"
 derive_builder = "0.20"
+
+# 自己开发的语音相关工具
+voice-toolkit="0.2"

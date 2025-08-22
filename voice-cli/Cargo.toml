@@ -1,0 +1,78 @@
+[package]
+name = "voice-cli"
+version = "0.1.0"
+edition = "2021"
+authors = ["soddy <your.email@example.com>"]
+description = "Speech-to-text HTTP service with CLI interface"
+license = "MIT"
+
+[[bin]]
+name = "voice-cli"
+path = "src/main.rs"
+
+[dependencies]
+# Web framework and HTTP handling
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+
+# OpenAPI documentation generation
+utoipa = { workspace = true, features = ["axum_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { workspace = true, features = ["axum"] }
+
+# Async runtime
+tokio = { version = "1", features = [
+    "macros",
+    "net",
+    "rt",
+    "rt-multi-thread",
+    "signal",
+] }
+tokio-util = { workspace = true }
+
+# CLI argument parsing
+clap = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+
+# Logging and tracing
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# HTTP client for model downloads
+reqwest = { version = "0.12", features = ["json", "stream"] }
+
+# Time handling
+chrono = { workspace = true }
+
+# Utilities
+bytes = "1.0"
+futures = { workspace = true }
+uuid = { workspace = true }
+tempfile = "3.0"
+
+# Audio processing and STT (commenting out until exact package names are confirmed)
+# rs-voice-toolkit = { git = "https://github.com/soddygo/rs-voice-toolkit" }
+# rs-voice-toolkit-audio = { git = "https://github.com/soddygo/rs-voice-toolkit" }
+# rs-voice-toolkit-stt = { git = "https://github.com/soddygo/rs-voice-toolkit" }
+
+# Note: voice-toolkit will be added once the exact package details are confirmed
+voice-toolkit = { workspace = true }
+
+# Process management for daemon functionality
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["winuser", "processthreadsapi"] }
+
+[dev-dependencies]
+tempfile = "3.0"
