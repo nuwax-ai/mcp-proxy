@@ -1,6 +1,5 @@
 use crate::models::{
-    Config, TranscriptionResponse, HealthResponse, 
-    ModelsResponse, ModelInfo, AudioFormat
+    AudioFormat, Config, HealthResponse, ModelInfo, ModelsResponse, TranscriptionResponse,
 };
 use crate::services::{ModelService, TranscriptionWorkerPool};
 use crate::VoiceCliError;
@@ -12,7 +11,7 @@ use bytes::Bytes;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 use utoipa;
 
 // Explicitly import the types we need to avoid ambiguity
@@ -28,9 +27,10 @@ pub struct AppState {
 
 impl AppState {
     pub async fn new(config: Arc<Config>) -> crate::Result<Self> {
-        let transcription_worker_pool = Arc::new(TranscriptionWorkerPool::new(config.clone()).await?);
+        let transcription_worker_pool =
+            Arc::new(TranscriptionWorkerPool::new(config.clone()).await?);
         let model_service = Arc::new(ModelService::new((*config).clone()));
-        
+
         Ok(Self {
             config,
             transcription_worker_pool,
@@ -38,18 +38,18 @@ impl AppState {
             start_time: SystemTime::now(),
         })
     }
-    
+
     /// Gracefully shutdown the app state
     pub async fn shutdown(self) {
         info!("Shutting down application state");
-        
+
         // Convert Arc to owned value for shutdown
         if let Ok(worker_pool) = Arc::try_unwrap(self.transcription_worker_pool) {
             worker_pool.shutdown().await;
         } else {
             warn!("Could not shutdown worker pool - multiple references exist");
         }
-        
+
         info!("Application state shutdown complete");
     }
 }
@@ -67,21 +67,20 @@ impl AppState {
         (status = 500, description = "Service error", body = String)
     )
 )]
-pub async fn health_handler(State(state): State<AppState>) -> Result<Json<HealthResponse>, VoiceCliError> {
-    let uptime = state.start_time
-        .elapsed()
-        .unwrap_or_default()
-        .as_secs();
-    
+pub async fn health_handler(
+    State(state): State<AppState>,
+) -> Result<Json<HealthResponse>, VoiceCliError> {
+    let uptime = state.start_time.elapsed().unwrap_or_default().as_secs();
+
     let loaded_models = state.model_service.list_loaded_models().await?;
-    
+
     let response = HealthResponse {
         status: "healthy".to_string(),
         models_loaded: loaded_models,
         uptime,
         version: env!("CARGO_PKG_VERSION").to_string(),
     };
-    
+
     Ok(Json(response))
 }
 
@@ -98,13 +97,15 @@ pub async fn health_handler(State(state): State<AppState>) -> Result<Json<Health
         (status = 500, description = "Failed to retrieve models information", body = String)
     )
 )]
-pub async fn models_list_handler(State(state): State<AppState>) -> Result<Json<ModelsResponse>, VoiceCliError> {
+pub async fn models_list_handler(
+    State(state): State<AppState>,
+) -> Result<Json<ModelsResponse>, VoiceCliError> {
     let available_models = state.config.whisper.supported_models.clone();
     let loaded_models = state.model_service.list_loaded_models().await?;
     let downloaded_models = state.model_service.list_downloaded_models().await?;
-    
+
     let mut model_info = HashMap::new();
-    
+
     for model_name in &downloaded_models {
         match state.model_service.get_model_info(model_name).await {
             Ok(info) => {
@@ -112,21 +113,24 @@ pub async fn models_list_handler(State(state): State<AppState>) -> Result<Json<M
             }
             Err(e) => {
                 warn!("Failed to get info for model {}: {}", model_name, e);
-                model_info.insert(model_name.clone(), ModelInfo {
-                    size: "Unknown".to_string(),
-                    memory_usage: "Unknown".to_string(),
-                    status: "Error".to_string(),
-                });
+                model_info.insert(
+                    model_name.clone(),
+                    ModelInfo {
+                        size: "Unknown".to_string(),
+                        memory_usage: "Unknown".to_string(),
+                        status: "Error".to_string(),
+                    },
+                );
             }
         }
     }
-    
+
     let response = ModelsResponse {
         available_models,
         loaded_models,
         model_info,
     };
-    
+
     Ok(Json(response))
 }
 
@@ -160,22 +164,30 @@ pub async fn transcribe_handler(
     multipart: Multipart,
 ) -> Result<Json<TranscriptionResponse>, VoiceCliError> {
     let start_time = Instant::now();
-    let task_id = format!("task_{}_{}", 
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis(),
+    let task_id = format!(
+        "task_{}_{}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis(),
         std::process::id()
     );
-    
+
     info!("Starting transcription request {}", task_id);
-    
+
     // 1. Extract multipart form data
     let (audio_data, request) = extract_transcription_request(multipart).await?;
-    
+
     // 2. Validate audio file
-    validate_audio_file(&audio_data, &request.filename, state.config.server.max_file_size)?;
-    
+    validate_audio_file(
+        &audio_data,
+        &request.filename,
+        state.config.server.max_file_size,
+    )?;
+
     // 3. Create result channel for receiving worker response
     let (result_sender, result_receiver) = tokio::sync::oneshot::channel();
-    
+
     // 4. Create transcription task
     let task = crate::models::TranscriptionTask {
         task_id: task_id.clone(),
@@ -185,40 +197,46 @@ pub async fn transcribe_handler(
         response_format: request.response_format,
         result_sender,
     };
-    
+
     // 5. Submit task to worker pool
     state.transcription_worker_pool.submit_task(task).await?;
-    
+
     // 6. Wait for result from worker
     let worker_result = result_receiver
         .await
         .map_err(|_| VoiceCliError::WorkerPoolError("Worker result channel closed".to_string()))?;
-    
+
     // 7. Handle worker result
     match worker_result {
-        crate::models::TranscriptionResult { success: true, response: Some(mut response), .. } => {
+        crate::models::TranscriptionResult {
+            success: true,
+            response: Some(mut response),
+            ..
+        } => {
             response.processing_time = start_time.elapsed().as_secs_f32();
-            
+
             info!(
                 "Transcription {} completed successfully in {:.2}s, text length: {} chars",
                 task_id,
                 response.processing_time,
                 response.text.len()
             );
-            
+
             Ok(Json(response))
         }
-        crate::models::TranscriptionResult { success: false, error: Some(error), .. } => {
-            error!(
-                "Transcription {} failed: {}",
-                task_id,
-                error
-            );
+        crate::models::TranscriptionResult {
+            success: false,
+            error: Some(error),
+            ..
+        } => {
+            error!("Transcription {} failed: {}", task_id, error);
             Err(error)
         }
         _ => {
             error!("Invalid worker result for task {}", task_id);
-            Err(VoiceCliError::TranscriptionFailed("Invalid worker result".to_string()))
+            Err(VoiceCliError::TranscriptionFailed(
+                "Invalid worker result".to_string(),
+            ))
         }
     }
 }
@@ -231,26 +249,31 @@ async fn extract_transcription_request(
     let mut filename: Option<String> = None;
     let mut model: Option<String> = None;
     let mut response_format: Option<String> = None;
-    
+
     // Extract multipart fields
-    while let Some(field) = multipart.next_field().await.map_err(|e| {
-        VoiceCliError::MultipartError(format!("Multipart parsing error: {}", e))
-    })? {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| VoiceCliError::MultipartError(format!("Multipart parsing error: {}", e)))?
+    {
         let field_name = field.name().unwrap_or("unknown");
-        
+
         match field_name {
             "audio" => {
                 // Get filename if available
                 filename = field.file_name().map(|s| s.to_string());
-                
+
                 // Read audio data
                 let data = field.bytes().await.map_err(|e| {
                     VoiceCliError::MultipartError(format!("Failed to read audio field: {}", e))
                 })?;
-                
+
                 audio_data = Some(data);
-                info!("Received audio file: {} bytes, filename: {:?}", 
-                     audio_data.as_ref().unwrap().len(), filename);
+                info!(
+                    "Received audio file: {} bytes, filename: {:?}",
+                    audio_data.as_ref().unwrap().len(),
+                    filename
+                );
             }
             "model" => {
                 model = Some(field.text().await.map_err(|e| {
@@ -268,28 +291,21 @@ async fn extract_transcription_request(
             }
         }
     }
-    
+
     // Validate required fields
-    let audio_data = audio_data.ok_or_else(|| {
-        VoiceCliError::MissingField("audio".to_string())
-    })?;
-    
-    // Generate filename based on audio data if not provided
-    let filename = if let Some(provided_filename) = filename {
-        provided_filename
-    } else {
-        // Detect format from magic bytes and generate random filename
-        let detected_format = detect_audio_format_from_magic_bytes(&audio_data)?;
-        let uid = uuid::Uuid::new_v4();
-        format!("{}.{}", uid, detected_format.to_string())
-    };
-    
+    let audio_data = audio_data.ok_or_else(|| VoiceCliError::MissingField("audio".to_string()))?;
+
+    // Detect format from magic bytes and generate random filename
+    let detected_format = detect_audio_format_from_magic_bytes(&audio_data)?;
+    let uid = uuid::Uuid::new_v4();
+    let filename = format!("{}.{}", uid, detected_format.to_string());
+
     let request = WorkerTranscriptionRequest {
         filename,
         model,
         response_format,
     };
-    
+
     Ok((audio_data, request))
 }
 
@@ -306,15 +322,19 @@ fn validate_audio_file(
             max: max_file_size,
         });
     }
-    
+    info!("Audio file name: {}", filename);
+
     // Validate audio format
     let format = AudioFormat::from_filename(filename);
+    info!("Audio format: {:?}", format);
     if !format.is_supported() {
-        return Err(VoiceCliError::UnsupportedFormat(
-            format!("Unsupported audio format: {} (from filename: {})", format.to_string(), filename)
-        ));
+        return Err(VoiceCliError::UnsupportedFormat(format!(
+            "Unsupported audio format: {} (from filename: {})",
+            format.to_string(),
+            filename
+        )));
     }
-    
+
     Ok(())
 }
 
@@ -322,61 +342,104 @@ fn validate_audio_file(
 fn detect_audio_format_from_magic_bytes(audio_data: &Bytes) -> Result<AudioFormat, VoiceCliError> {
     if audio_data.len() < 4 {
         return Err(VoiceCliError::UnsupportedFormat(
-            "Audio data too short to detect format".to_string()
+            "Audio data too short to detect format".to_string(),
         ));
     }
-    
+
     let header = &audio_data[0..4];
-    
+
+    // Add debug logging to help diagnose format detection issues
+    info!(
+        "Audio data length: {}, First 4 bytes: {:02X?}",
+        audio_data.len(),
+        header
+    );
+
     // WAV file signature
     if header == b"RIFF" && audio_data.len() >= 12 {
         let wave_header = &audio_data[8..12];
         if wave_header == b"WAVE" {
+            info!("Detected WAV format");
             return Ok(AudioFormat::Wav);
         }
     }
-    
+
     // MP3 file signatures - comprehensive detection for audio/mpeg
     if detect_mp3_format(audio_data) {
+        info!("Detected MP3 format");
         return Ok(AudioFormat::Mp3);
     }
-    
+
     // FLAC file signature
     if header == b"fLaC" {
+        info!("Detected FLAC format");
         return Ok(AudioFormat::Flac);
     }
-    
+
     // OGG file signature
     if header == b"OggS" {
+        info!("Detected OGG format");
         return Ok(AudioFormat::Ogg);
     }
-    
+
     // Check for M4A/AAC (more complex detection)
     if audio_data.len() >= 8 {
         let ftyp_check = &audio_data[4..8];
         if ftyp_check == b"ftyp" {
+            info!("Detected M4A format");
             return Ok(AudioFormat::M4a);
         }
     }
-    
+
     // Try to detect AAC by checking for ADTS header
     if audio_data.len() >= 2 {
         let adts_header = &audio_data[0..2];
         if (adts_header[0] & 0xFF) == 0xFF && (adts_header[1] & 0xF0) == 0xF0 {
+            info!("Detected AAC format");
             return Ok(AudioFormat::Aac);
         }
     }
-    
+
     // Check for WebM format (EBML header)
     if audio_data.len() >= 4 {
         // WebM files start with EBML header: 0x1A 0x45 0xDF 0xA3
         if header[0] == 0x1A && header[1] == 0x45 && header[2] == 0xDF && header[3] == 0xA3 {
+            info!("Detected WebM format");
             return Ok(AudioFormat::Webm);
         }
+
+        // Alternative WebM detection: check for "webm" string in the first 100 bytes
+        if audio_data.len() >= 100 {
+            let search_range = &audio_data[0..100];
+            if search_range.windows(4).any(|window| window == b"webm") {
+                info!("Detected WebM format by 'webm' string");
+                return Ok(AudioFormat::Webm);
+            }
+        }
+
+        // Check for "webm" in the entire data if it's not too long
+        if audio_data.len() <= 1000 {
+            if audio_data.windows(4).any(|window| window == b"webm") {
+                info!("Detected WebM format by 'webm' string in data");
+                return Ok(AudioFormat::Webm);
+            }
+        }
     }
-    
+
+    // Log the first 16 bytes for debugging
+    let debug_bytes = if audio_data.len() >= 16 {
+        &audio_data[0..16]
+    } else {
+        &audio_data[..]
+    };
+    error!(
+        "Failed to detect audio format. First {} bytes: {:02X?}",
+        debug_bytes.len(),
+        debug_bytes
+    );
+
     Err(VoiceCliError::UnsupportedFormat(
-        "Unable to detect audio format from magic bytes".to_string()
+        "Unable to detect audio format from magic bytes".to_string(),
     ))
 }
 
@@ -386,12 +449,12 @@ fn detect_mp3_format(audio_data: &Bytes) -> bool {
     if audio_data.len() < 3 {
         return false;
     }
-    
+
     // Check for ID3v2 tag at the beginning (most common)
     if audio_data.len() >= 3 && &audio_data[0..3] == b"ID3" {
         return true;
     }
-    
+
     // Check for ID3v1 tag at the end (if file is long enough)
     if audio_data.len() >= 128 {
         let id3v1_start = audio_data.len() - 128;
@@ -399,7 +462,7 @@ fn detect_mp3_format(audio_data: &Bytes) -> bool {
             return true;
         }
     }
-    
+
     // Check for MPEG frame headers (various sync patterns)
     // MPEG-1 Layer 3: 0xFF 0xFB (0x90-0x93)
     // MPEG-2 Layer 3: 0xFF 0xF3 (0x90-0x93)
@@ -407,7 +470,7 @@ fn detect_mp3_format(audio_data: &Bytes) -> bool {
     if audio_data.len() >= 2 {
         let first_byte = audio_data[0];
         let second_byte = audio_data[1];
-        
+
         // Check for MPEG sync byte (0xFF)
         if first_byte == 0xFF {
             // Check for valid MPEG frame header patterns
@@ -426,12 +489,12 @@ fn detect_mp3_format(audio_data: &Bytes) -> bool {
             }
         }
     }
-    
+
     // Check for MPEG-1 Layer 1/2 patterns
     if audio_data.len() >= 2 {
         let first_byte = audio_data[0];
         let second_byte = audio_data[1];
-        
+
         if first_byte == 0xFF {
             match second_byte {
                 0xF1 | 0xF5 | 0xF9 | 0xFD => {
@@ -447,12 +510,12 @@ fn detect_mp3_format(audio_data: &Bytes) -> bool {
             }
         }
     }
-    
+
     // Check for MPEG-2 Layer 1/2 patterns
     if audio_data.len() >= 2 {
         let first_byte = audio_data[0];
         let second_byte = audio_data[1];
-        
+
         if first_byte == 0xFF {
             match second_byte {
                 0xF0 | 0xF4 | 0xF8 | 0xFC => {
@@ -468,7 +531,7 @@ fn detect_mp3_format(audio_data: &Bytes) -> bool {
             }
         }
     }
-    
+
     false
 }
 
@@ -490,40 +553,61 @@ mod tests {
         assert!(AudioFormat::from_filename("test.wav").is_supported());
         assert!(!AudioFormat::from_filename("test.xyz").is_supported());
     }
-    
+
     #[test]
     fn test_mp3_magic_bytes_detection() {
         // Test ID3v2 tag
         let id3v2_data = Bytes::from(b"ID3\x03\x00\x00\x00\x00\x00\x00".to_vec());
         assert!(detect_mp3_format(&id3v2_data));
-        
+
         // Test MPEG frame header (MPEG-1 Layer 3)
         let mpeg_frame_data = Bytes::from(vec![0xFF, 0xFB, 0x90, 0x00]);
         assert!(detect_mp3_format(&mpeg_frame_data));
-        
+
         // Test MPEG frame header (MPEG-2 Layer 3)
         let mpeg2_frame_data = Bytes::from(vec![0xFF, 0xF3, 0x92, 0x00]);
         assert!(detect_mp3_format(&mpeg2_frame_data));
-        
+
         // Test invalid data
         let invalid_data = Bytes::from(b"RIFF".to_vec());
         assert!(!detect_mp3_format(&invalid_data));
-        
+
         // Test short data
         let short_data = Bytes::from(vec![0xFF]);
         assert!(!detect_mp3_format(&short_data));
     }
-    
+
     #[test]
     fn test_webm_format_detection() {
         // Test WebM EBML header
         let webm_data = Bytes::from(vec![0x1A, 0x45, 0xDF, 0xA3]);
         let format = detect_audio_format_from_magic_bytes(&webm_data);
         assert!(matches!(format, Ok(AudioFormat::Webm)));
-        
+
         // Test WAV format
         let wav_data = Bytes::from(b"RIFF\x00\x00\x00\x00WAVE".to_vec());
         let format = detect_audio_format_from_magic_bytes(&wav_data);
         assert!(matches!(format, Ok(AudioFormat::Wav)));
+    }
+
+    #[test]
+    fn test_frontend_audio_data() {
+        // Test the actual data from frontend (based on curl request)
+        // The data starts with: \u001aEß£\u009fB\u0086\u0081\u0001B÷\u0081\u0001Bò\u0081\u0004Bó\u0081\u0008B\u0082\u0084webm
+        let frontend_data = Bytes::from(vec![
+            0x1A, 0x45, 0xDF, 0xA3, 0x42, 0x86, 0x81, 0x01, 0x42, 0xF7, 0x81, 0x01, 0x42, 0xF2,
+            0x81, 0x04, 0x42, 0xF3, 0x81, 0x08, 0x42, 0x82, 0x84, 0x77, 0x65, 0x62,
+            0x6D, // "webm" in ASCII
+        ]);
+        let format = detect_audio_format_from_magic_bytes(&frontend_data);
+        assert!(matches!(format, Ok(AudioFormat::Webm)));
+
+        // Test WebM detection by "webm" string
+        let webm_string_data = Bytes::from(vec![
+            0x00, 0x00, 0x00, 0x00, 0x77, 0x65, 0x62, 0x6D, // "webm" in ASCII
+            0x00, 0x00, 0x00, 0x00,
+        ]);
+        let format = detect_audio_format_from_magic_bytes(&webm_string_data);
+        assert!(matches!(format, Ok(AudioFormat::Webm)));
     }
 }
