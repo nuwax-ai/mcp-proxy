@@ -281,7 +281,9 @@ async fn extract_transcription_request(
         // Detect format from magic bytes and generate random filename
         let detected_format = detect_audio_format_from_magic_bytes(&audio_data)?;
         let uid = uuid::Uuid::new_v4();
-        format!("{}.{}", uid, detected_format.to_string())
+        // format!("{}.{}", uid, detected_format.to_string())
+        //TODO: 需要根据实际的音频格式生成文件名
+        format!("{}.{}", uid, "mp3")
     };
     
     let request = WorkerTranscriptionRequest {
