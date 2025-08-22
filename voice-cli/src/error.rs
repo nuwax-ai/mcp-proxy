@@ -44,6 +44,33 @@ pub enum VoiceCliError {
 
     #[error("Invalid model name: {0}")]
     InvalidModelName(String),
+    
+    // Worker pool related errors
+    #[error("Worker pool error: {0}")]
+    WorkerPoolError(String),
+    
+    #[error("Transcription timeout after {0} seconds")]
+    TranscriptionTimeout(u64),
+    
+    #[error("Transcription failed: {0}")]
+    TranscriptionFailed(String),
+    
+    // Audio processing specific errors
+    #[error("Audio conversion failed: {0}")]
+    AudioConversionFailed(String),
+    
+    #[error("Audio probe error: {0}")]
+    AudioProbeError(String),
+    
+    #[error("Temporary file error: {0}")]
+    TempFileError(String),
+    
+    // Multipart form handling errors
+    #[error("Multipart form error: {0}")]
+    MultipartError(String),
+    
+    #[error("Missing required field: {0}")]
+    MissingField(String),
 }
 
 impl IntoResponse for VoiceCliError {
@@ -62,6 +89,14 @@ impl IntoResponse for VoiceCliError {
             VoiceCliError::FileTooLarge { .. } => (StatusCode::PAYLOAD_TOO_LARGE, self.to_string()),
             VoiceCliError::ModelNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             VoiceCliError::InvalidModelName(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            VoiceCliError::WorkerPoolError(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+            VoiceCliError::TranscriptionTimeout(_) => (StatusCode::REQUEST_TIMEOUT, self.to_string()),
+            VoiceCliError::TranscriptionFailed(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+            VoiceCliError::AudioConversionFailed(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            VoiceCliError::AudioProbeError(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            VoiceCliError::TempFileError(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+            VoiceCliError::MultipartError(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            VoiceCliError::MissingField(_) => (StatusCode::BAD_REQUEST, self.to_string()),
         };
 
         let body = Json(json!({

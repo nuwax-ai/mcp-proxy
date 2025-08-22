@@ -1,8 +1,8 @@
 use crate::models::{
-    Config, TranscriptionRequest, TranscriptionResponse, HealthResponse, 
+    Config, TranscriptionResponse, HealthResponse, 
     ModelsResponse, ModelInfo, AudioFormat
 };
-use crate::services::{TranscriptionService, ModelService};
+use crate::services::{ModelService, TranscriptionWorkerPool};
 use crate::VoiceCliError;
 use axum::{
     extract::{Multipart, State},
@@ -11,29 +11,46 @@ use axum::{
 use bytes::Bytes;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Instant, SystemTime};
-use tracing::{info, warn};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use tracing::{info, warn, error};
 use utoipa;
+
+// Explicitly import the types we need to avoid ambiguity
+use crate::models::worker::TranscriptionRequest as WorkerTranscriptionRequest;
 
 #[derive(Clone)]
 pub struct AppState {
     pub config: Arc<Config>,
-    pub transcription_service: Arc<TranscriptionService>,
+    pub transcription_worker_pool: Arc<TranscriptionWorkerPool>,
     pub model_service: Arc<ModelService>,
     pub start_time: SystemTime,
 }
 
 impl AppState {
     pub async fn new(config: Arc<Config>) -> crate::Result<Self> {
-        let transcription_service = Arc::new(TranscriptionService::new(config.clone()).await?);
+        let transcription_worker_pool = Arc::new(TranscriptionWorkerPool::new(config.clone()).await?);
         let model_service = Arc::new(ModelService::new((*config).clone()));
         
         Ok(Self {
             config,
-            transcription_service,
+            transcription_worker_pool,
             model_service,
             start_time: SystemTime::now(),
         })
+    }
+    
+    /// Gracefully shutdown the app state
+    pub async fn shutdown(self) {
+        info!("Shutting down application state");
+        
+        // Convert Arc to owned value for shutdown
+        if let Ok(worker_pool) = Arc::try_unwrap(self.transcription_worker_pool) {
+            worker_pool.shutdown().await;
+        } else {
+            warn!("Could not shutdown worker pool - multiple references exist");
+        }
+        
+        info!("Application state shutdown complete");
     }
 }
 
@@ -119,14 +136,13 @@ pub async fn models_list_handler(State(state): State<AppState>) -> Result<Json<M
 /// Fields:
 /// - audio (file, required): Audio file to transcribe
 /// - model (text, optional): Whisper model to use
-/// - language (text, optional): Language hint
 /// - response_format (text, optional): Output format (json, text, verbose_json)
 #[utoipa::path(
     post,
     path = "/transcribe",
     tag = "Transcription",
     summary = "Transcribe audio to text",
-    description = "Upload an audio file and get the transcribed text. Supports multiple audio formats (MP3, WAV, FLAC, M4A, AAC, OGG) with automatic format conversion. Maximum file size is 200MB.",
+    description = "Upload an audio file and get the transcribed text with automatic language detection. Supports multiple audio formats (MP3, WAV, FLAC, M4A, AAC, OGG) with automatic format conversion. Maximum file size is 200MB.",
     request_body(
         content = String,
         description = "Multipart form data with audio file and optional parameters",
@@ -138,23 +154,87 @@ pub async fn models_list_handler(State(state): State<AppState>) -> Result<Json<M
         (status = 413, description = "File too large - exceeds 200MB limit", body = String),
         (status = 500, description = "Transcription failed due to server error", body = String)
     ),
-
 )]
 pub async fn transcribe_handler(
     State(state): State<AppState>,
-    mut multipart: Multipart,
+    multipart: Multipart,
 ) -> Result<Json<TranscriptionResponse>, VoiceCliError> {
     let start_time = Instant::now();
+    let task_id = format!("task_{}_{}", 
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis(),
+        std::process::id()
+    );
     
+    info!("Starting transcription request {}", task_id);
+    
+    // 1. Extract multipart form data
+    let (audio_data, request) = extract_transcription_request(multipart).await?;
+    
+    // 2. Validate audio file
+    validate_audio_file(&audio_data, &request.filename, state.config.server.max_file_size)?;
+    
+    // 3. Create result channel for receiving worker response
+    let (result_sender, result_receiver) = tokio::sync::oneshot::channel();
+    
+    // 4. Create transcription task
+    let task = crate::models::TranscriptionTask {
+        task_id: task_id.clone(),
+        audio_data,
+        filename: request.filename,
+        model: request.model,
+        response_format: request.response_format,
+        result_sender,
+    };
+    
+    // 5. Submit task to worker pool
+    state.transcription_worker_pool.submit_task(task).await?;
+    
+    // 6. Wait for result from worker
+    let worker_result = result_receiver
+        .await
+        .map_err(|_| VoiceCliError::WorkerPoolError("Worker result channel closed".to_string()))?;
+    
+    // 7. Handle worker result
+    match worker_result {
+        crate::models::TranscriptionResult { success: true, response: Some(mut response), .. } => {
+            response.processing_time = start_time.elapsed().as_secs_f32();
+            
+            info!(
+                "Transcription {} completed successfully in {:.2}s, text length: {} chars",
+                task_id,
+                response.processing_time,
+                response.text.len()
+            );
+            
+            Ok(Json(response))
+        }
+        crate::models::TranscriptionResult { success: false, error: Some(error), .. } => {
+            error!(
+                "Transcription {} failed: {}",
+                task_id,
+                error
+            );
+            Err(error)
+        }
+        _ => {
+            error!("Invalid worker result for task {}", task_id);
+            Err(VoiceCliError::TranscriptionFailed("Invalid worker result".to_string()))
+        }
+    }
+}
+
+/// Helper function to extract transcription request from multipart data
+async fn extract_transcription_request(
+    mut multipart: Multipart,
+) -> Result<(Bytes, WorkerTranscriptionRequest), VoiceCliError> {
     let mut audio_data: Option<Bytes> = None;
     let mut filename: Option<String> = None;
     let mut model: Option<String> = None;
-    let mut language: Option<String> = None;
     let mut response_format: Option<String> = None;
-
+    
     // Extract multipart fields
     while let Some(field) = multipart.next_field().await.map_err(|e| {
-        VoiceCliError::AudioProcessing(format!("Multipart parsing error: {}", e))
+        VoiceCliError::MultipartError(format!("Multipart parsing error: {}", e))
     })? {
         let field_name = field.name().unwrap_or("unknown");
         
@@ -165,16 +245,8 @@ pub async fn transcribe_handler(
                 
                 // Read audio data
                 let data = field.bytes().await.map_err(|e| {
-                    VoiceCliError::AudioProcessing(format!("Failed to read audio field: {}", e))
+                    VoiceCliError::MultipartError(format!("Failed to read audio field: {}", e))
                 })?;
-                
-                // Check file size (additional check beyond middleware)
-                if data.len() > state.config.server.max_file_size {
-                    return Err(VoiceCliError::FileTooLarge {
-                        size: data.len(),
-                        max: state.config.server.max_file_size,
-                    });
-                }
                 
                 audio_data = Some(data);
                 info!("Received audio file: {} bytes, filename: {:?}", 
@@ -182,17 +254,12 @@ pub async fn transcribe_handler(
             }
             "model" => {
                 model = Some(field.text().await.map_err(|e| {
-                    VoiceCliError::AudioProcessing(format!("Invalid model field: {}", e))
-                })?);
-            }
-            "language" => {
-                language = Some(field.text().await.map_err(|e| {
-                    VoiceCliError::AudioProcessing(format!("Invalid language field: {}", e))
+                    VoiceCliError::MultipartError(format!("Invalid model field: {}", e))
                 })?);
             }
             "response_format" => {
                 response_format = Some(field.text().await.map_err(|e| {
-                    VoiceCliError::AudioProcessing(format!("Invalid response_format field: {}", e))
+                    VoiceCliError::MultipartError(format!("Invalid response_format field: {}", e))
                 })?);
             }
             _ => {
@@ -201,53 +268,48 @@ pub async fn transcribe_handler(
             }
         }
     }
-
+    
     // Validate required fields
     let audio_data = audio_data.ok_or_else(|| {
-        VoiceCliError::AudioProcessing("Missing required 'audio' field in multipart data".to_string())
+        VoiceCliError::MissingField("audio".to_string())
     })?;
-
-    // Validate audio format if filename is available
-    if let Some(ref filename) = filename {
-        let format = AudioFormat::from_filename(filename);
-        if !format.is_supported() {
-
-            // audio::ensure_whisper_compatible()
-            return Err(VoiceCliError::UnsupportedFormat(
-                format!("Unsupported audio format: {} (from filename: {})", format.to_string(), filename)
-            ));
-        }
-    }
-
-    // Validate model name if provided
-    if let Some(ref model_name) = model {
-        if !state.config.whisper.supported_models.contains(model_name) {
-            return Err(VoiceCliError::InvalidModelName(
-                format!("Unsupported model: {}", model_name)
-            ));
-        }
-    }
-
-    // Create transcription request
-    let request = TranscriptionRequest {
-        audio_data,
+    
+    let filename = filename.ok_or_else(|| {
+        VoiceCliError::MissingField("filename".to_string())
+    })?;
+    
+    let request = WorkerTranscriptionRequest {
         filename,
         model,
-        language,
         response_format,
     };
-
-    // Process transcription
-    info!("Starting transcription with model: {:?}", request.model);
-    let mut response = state.transcription_service.transcribe(request).await?;
     
-    // Add processing time
-    response.processing_time = start_time.elapsed().as_secs_f32();
-    
-    info!("Transcription completed in {:.2}s, text length: {} chars", 
-         response.processing_time, response.text.len());
+    Ok((audio_data, request))
+}
 
-    Ok(Json(response))
+/// Helper function to validate audio file
+fn validate_audio_file(
+    audio_data: &Bytes,
+    filename: &str,
+    max_file_size: usize,
+) -> Result<(), VoiceCliError> {
+    // Check file size
+    if audio_data.len() > max_file_size {
+        return Err(VoiceCliError::FileTooLarge {
+            size: audio_data.len(),
+            max: max_file_size,
+        });
+    }
+    
+    // Validate audio format
+    let format = AudioFormat::from_filename(filename);
+    if !format.is_supported() {
+        return Err(VoiceCliError::UnsupportedFormat(
+            format!("Unsupported audio format: {} (from filename: {})", format.to_string(), filename)
+        ));
+    }
+    
+    Ok(())
 }
 
 #[cfg(test)]

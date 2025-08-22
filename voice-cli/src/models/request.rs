@@ -9,7 +9,6 @@ pub struct TranscriptionRequest {
     pub audio_data: Bytes,
     pub filename: Option<String>,
     pub model: Option<String>,
-    pub language: Option<String>,
     pub response_format: Option<String>,
 }
 
@@ -18,8 +17,8 @@ pub struct TranscriptionRequest {
 pub struct TranscriptionResponse {
     #[schema(example = "Hello, this is a test transcription.")]
     pub text: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub segments: Option<Vec<Segment>>,
+    #[schema(example = json!([{"start": 0.0, "end": 2.5, "text": "Hello world", "confidence": 0.95}]))]
+    pub segments: Vec<Segment>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(example = "en")]
     pub language: Option<String>,
@@ -42,10 +41,9 @@ pub struct Segment {
     /// Text content of this segment
     #[schema(example = "Hello, this is a test transcription.")]
     pub text: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     /// Confidence score for this segment (0.0-1.0)
     #[schema(example = 0.95)]
-    pub confidence: Option<f32>,
+    pub confidence: f32,
 }
 
 /// Health check response

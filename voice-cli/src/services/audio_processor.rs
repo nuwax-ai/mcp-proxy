@@ -1,4 +1,5 @@
-use crate::models::{AudioFormat, ProcessedAudio};
+use crate::models::{AudioFormat};
+use crate::models::request::ProcessedAudio;
 use crate::VoiceCliError;
 use bytes::Bytes;
 use std::path::PathBuf;

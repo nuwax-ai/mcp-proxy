@@ -23,6 +23,24 @@ pub struct WhisperConfig {
     pub models_dir: String,
     pub auto_download: bool,
     pub supported_models: Vec<String>,
+    pub audio_processing: AudioProcessingConfig,
+    pub workers: WorkersConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AudioProcessingConfig {
+    pub supported_formats: Vec<String>,
+    pub auto_convert: bool,
+    pub conversion_timeout: u32,
+    pub temp_file_cleanup: bool,
+    pub temp_file_retention: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkersConfig {
+    pub transcription_workers: usize,
+    pub channel_buffer_size: usize,
+    pub worker_timeout: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,6 +99,36 @@ impl Default for WhisperConfig {
                 "large-v2".to_string(),
                 "large-v3".to_string(),
             ],
+            audio_processing: AudioProcessingConfig::default(),
+            workers: WorkersConfig::default(),
+        }
+    }
+}
+
+impl Default for AudioProcessingConfig {
+    fn default() -> Self {
+        Self {
+            supported_formats: vec![
+                "mp3".to_string(),
+                "wav".to_string(),
+                "flac".to_string(),
+                "m4a".to_string(),
+                "ogg".to_string(),
+            ],
+            auto_convert: true,
+            conversion_timeout: 60,
+            temp_file_cleanup: true,
+            temp_file_retention: 300,
+        }
+    }
+}
+
+impl Default for WorkersConfig {
+    fn default() -> Self {
+        Self {
+            transcription_workers: 3,
+            channel_buffer_size: 100,
+            worker_timeout: 3600,
         }
     }
 }
