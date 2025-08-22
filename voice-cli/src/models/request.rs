@@ -107,6 +107,7 @@ pub enum AudioFormat {
     M4a,
     Aac,
     Ogg,
+    Webm,
     Unknown,
 }
 
@@ -125,6 +126,7 @@ impl AudioFormat {
             "m4a" => AudioFormat::M4a,
             "aac" => AudioFormat::Aac,
             "ogg" => AudioFormat::Ogg,
+            "webm" => AudioFormat::Webm,
             _ => AudioFormat::Unknown,
         }
     }
@@ -145,6 +147,7 @@ impl AudioFormat {
             AudioFormat::M4a => "m4a",
             AudioFormat::Aac => "aac",
             AudioFormat::Ogg => "ogg",
+            AudioFormat::Webm => "webm",
             AudioFormat::Unknown => "unknown",
         }
     }

@@ -281,9 +281,7 @@ async fn extract_transcription_request(
         // Detect format from magic bytes and generate random filename
         let detected_format = detect_audio_format_from_magic_bytes(&audio_data)?;
         let uid = uuid::Uuid::new_v4();
-        // format!("{}.{}", uid, detected_format.to_string())
-        //TODO: 需要根据实际的音频格式生成文件名
-        format!("{}.{}", uid, "mp3")
+        format!("{}.{}", uid, detected_format.to_string())
     };
     
     let request = WorkerTranscriptionRequest {
@@ -366,6 +364,14 @@ fn detect_audio_format_from_magic_bytes(audio_data: &Bytes) -> Result<AudioForma
         let adts_header = &audio_data[0..2];
         if (adts_header[0] & 0xFF) == 0xFF && (adts_header[1] & 0xF0) == 0xF0 {
             return Ok(AudioFormat::Aac);
+        }
+    }
+    
+    // Check for WebM format (EBML header)
+    if audio_data.len() >= 4 {
+        // WebM files start with EBML header: 0x1A 0x45 0xDF 0xA3
+        if header[0] == 0x1A && header[1] == 0x45 && header[2] == 0xDF && header[3] == 0xA3 {
+            return Ok(AudioFormat::Webm);
         }
     }
     
@@ -506,5 +512,18 @@ mod tests {
         // Test short data
         let short_data = Bytes::from(vec![0xFF]);
         assert!(!detect_mp3_format(&short_data));
+    }
+    
+    #[test]
+    fn test_webm_format_detection() {
+        // Test WebM EBML header
+        let webm_data = Bytes::from(vec![0x1A, 0x45, 0xDF, 0xA3]);
+        let format = detect_audio_format_from_magic_bytes(&webm_data);
+        assert!(matches!(format, Ok(AudioFormat::Webm)));
+        
+        // Test WAV format
+        let wav_data = Bytes::from(b"RIFF\x00\x00\x00\x00WAVE".to_vec());
+        let format = detect_audio_format_from_magic_bytes(&wav_data);
+        assert!(matches!(format, Ok(AudioFormat::Wav)));
     }
 }
