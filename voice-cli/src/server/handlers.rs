@@ -274,9 +274,15 @@ async fn extract_transcription_request(
         VoiceCliError::MissingField("audio".to_string())
     })?;
     
-    let filename = filename.ok_or_else(|| {
-        VoiceCliError::MissingField("filename".to_string())
-    })?;
+    // Generate filename based on audio data if not provided
+    let filename = if let Some(provided_filename) = filename {
+        provided_filename
+    } else {
+        // Detect format from magic bytes and generate random filename
+        let detected_format = detect_audio_format_from_magic_bytes(&audio_data)?;
+        let uid = uuid::Uuid::new_v4();
+        format!("{}.{}", uid, detected_format.to_string())
+    };
     
     let request = WorkerTranscriptionRequest {
         filename,
@@ -310,6 +316,61 @@ fn validate_audio_file(
     }
     
     Ok(())
+}
+
+/// Helper function to detect audio format from magic bytes
+fn detect_audio_format_from_magic_bytes(audio_data: &Bytes) -> Result<AudioFormat, VoiceCliError> {
+    if audio_data.len() < 4 {
+        return Err(VoiceCliError::UnsupportedFormat(
+            "Audio data too short to detect format".to_string()
+        ));
+    }
+    
+    let header = &audio_data[0..4];
+    
+    // WAV file signature
+    if header == b"RIFF" && audio_data.len() >= 12 {
+        let wave_header = &audio_data[8..12];
+        if wave_header == b"WAVE" {
+            return Ok(AudioFormat::Wav);
+        }
+    }
+    
+    // MP3 file signatures
+    if header[0..3] == [0xFF, 0xFB, 0x90] || // MP3 frame header
+       header[0..3] == [0x49, 0x44, 0x33] {  // ID3 tag
+        return Ok(AudioFormat::Mp3);
+    }
+    
+    // FLAC file signature
+    if header == b"fLaC" {
+        return Ok(AudioFormat::Flac);
+    }
+    
+    // OGG file signature
+    if header == b"OggS" {
+        return Ok(AudioFormat::Ogg);
+    }
+    
+    // Check for M4A/AAC (more complex detection)
+    if audio_data.len() >= 8 {
+        let ftyp_check = &audio_data[4..8];
+        if ftyp_check == b"ftyp" {
+            return Ok(AudioFormat::M4a);
+        }
+    }
+    
+    // Try to detect AAC by checking for ADTS header
+    if audio_data.len() >= 2 {
+        let adts_header = &audio_data[0..2];
+        if (adts_header[0] & 0xFF) == 0xFF && (adts_header[1] & 0xF0) == 0xF0 {
+            return Ok(AudioFormat::Aac);
+        }
+    }
+    
+    Err(VoiceCliError::UnsupportedFormat(
+        "Unable to detect audio format from magic bytes".to_string()
+    ))
 }
 
 #[cfg(test)]
