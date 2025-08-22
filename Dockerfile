@@ -24,7 +24,7 @@ RUN apt-get update && apt-get install -y \
 RUN echo "=== Verifying build environment ===" && \
     gcc --version && \
     cmake --version && \
-    echo "=== Build environment verified ===
+    echo "=== Build environment verified ==="
 
 # 设置工作目录
 WORKDIR /app
