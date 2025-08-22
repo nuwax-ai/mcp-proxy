@@ -247,6 +247,7 @@ async fn extract_transcription_request(
 ) -> Result<(Bytes, WorkerTranscriptionRequest), VoiceCliError> {
     let mut audio_data: Option<Bytes> = None;
     let mut filename: Option<String> = None;
+    let mut content_type: Option<String> = None;
     let mut model: Option<String> = None;
     let mut response_format: Option<String> = None;
 
@@ -260,19 +261,41 @@ async fn extract_transcription_request(
 
         match field_name {
             "audio" => {
-                // Get filename if available
+                // Get filename and content-type from formdata
                 filename = field.file_name().map(|s| s.to_string());
+                content_type = field.content_type().map(|ct| ct.to_string());
+                
+                info!("Form data - filename: {:?}, content-type: {:?}", filename, content_type);
 
                 // Read audio data
                 let data = field.bytes().await.map_err(|e| {
                     VoiceCliError::MultipartError(format!("Failed to read audio field: {}", e))
                 })?;
 
-                audio_data = Some(data);
+                // Check if the data is Base64 encoded
+                let original_data_len = data.len();
+                let decoded_data = if is_base64_encoded(&data) {
+                    match base64::decode(&data) {
+                        Ok(decoded) => {
+                            info!("Decoded Base64 audio data: {} bytes -> {} bytes", data.len(), decoded.len());
+                            Bytes::from(decoded)
+                        }
+                        Err(e) => {
+                            warn!("Failed to decode Base64 data: {}, using original data", e);
+                            data
+                        }
+                    }
+                } else {
+                    data
+                };
+
+                audio_data = Some(decoded_data);
                 info!(
-                    "Received audio file: {} bytes, filename: {:?}",
+                    "Received audio file: {} bytes (original: {} bytes), form_filename: {:?}, content_type: {:?}",
                     audio_data.as_ref().unwrap().len(),
-                    filename
+                    original_data_len,
+                    filename,
+                    content_type
                 );
             }
             "model" => {
@@ -295,10 +318,38 @@ async fn extract_transcription_request(
     // Validate required fields
     let audio_data = audio_data.ok_or_else(|| VoiceCliError::MissingField("audio".to_string()))?;
 
-    // Detect format from magic bytes and generate random filename
-    let detected_format = detect_audio_format_from_magic_bytes(&audio_data)?;
+    // Generate filename based on frontend information
     let uid = uuid::Uuid::new_v4();
-    let filename = format!("{}.{}", uid, detected_format.to_string());
+    
+    // Generate filename: use form filename if available, otherwise generate with common audio extension
+    let filename = if let Some(form_filename) = filename {
+        // If form filename has extension, use it; otherwise append common audio extension
+        if form_filename.contains('.') {
+            form_filename
+        } else {
+            // Use common audio extension based on content-type or default to .webm
+            let extension = if let Some(content_type) = &content_type {
+                match content_type.as_str() {
+                    "audio/mpeg" => "mp3",
+                    "audio/wav" => "wav",
+                    "audio/flac" => "flac",
+                    "audio/ogg" => "ogg",
+                    "audio/mp4" => "m4a",
+                    "audio/aac" => "aac",
+                    "audio/webm" => "webm",
+                    _ => "webm" // Default to webm for unknown types
+                }
+            } else {
+                "webm" // Default extension
+            };
+            format!("{}.{}", form_filename, extension)
+        }
+    } else {
+        // No form filename, generate UUID with common audio extension
+        format!("{}.webm", uid)
+    };
+    
+    info!("Generated filename: {} (content-type: {:?})", filename, content_type);
 
     let request = WorkerTranscriptionRequest {
         filename,
@@ -535,6 +586,27 @@ fn detect_mp3_format(audio_data: &Bytes) -> bool {
     false
 }
 
+/// Helper function to detect if data is Base64 encoded
+fn is_base64_encoded(data: &Bytes) -> bool {
+    // Base64 encoded data should only contain valid Base64 characters
+    // and should have a length that's a multiple of 4 (with padding)
+    if data.len() == 0 {
+        return false;
+    }
+    
+    // Check if all characters are valid Base64 characters
+    let valid_chars = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
+    let is_valid = data.iter().all(|&byte| valid_chars.contains(&byte));
+    
+    if !is_valid {
+        return false;
+    }
+    
+    // Check if length is reasonable for Base64 (should be multiple of 4)
+    // But allow some flexibility for padding
+    data.len() % 4 <= 2
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -609,5 +681,20 @@ mod tests {
         ]);
         let format = detect_audio_format_from_magic_bytes(&webm_string_data);
         assert!(matches!(format, Ok(AudioFormat::Webm)));
+    }
+
+    #[test]
+    fn test_base64_detection() {
+        // Test Base64 encoded data
+        let base64_data = Bytes::from(b"SGVsbG8gV29ybGQ=".to_vec()); // "Hello World" in Base64
+        assert!(is_base64_encoded(&base64_data));
+        
+        // Test non-Base64 data
+        let binary_data = Bytes::from(vec![0x1A, 0x45, 0xDF, 0xA3]);
+        assert!(!is_base64_encoded(&binary_data));
+        
+        // Test empty data
+        let empty_data = Bytes::from(vec![]);
+        assert!(!is_base64_encoded(&empty_data));
     }
 }
