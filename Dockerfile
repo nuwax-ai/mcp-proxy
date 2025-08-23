@@ -46,9 +46,21 @@ RUN echo "=== Starting build process ===" && \
     echo "Target architecture: $TARGETARCH" && \
     if [ "$TARGETARCH" = "arm64" ]; then \
         echo "Building for ARM64 architecture..." && \
-        apt-get update && apt-get install -y gcc-aarch64-linux-gnu && \
+        apt-get update && apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu && \
         export CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc && \
+        export CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++ && \
+        export AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar && \
         export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc && \
+        export CMAKE_SYSTEM_NAME=Linux && \
+        export CMAKE_SYSTEM_PROCESSOR=aarch64 && \
+        export CMAKE_C_COMPILER=aarch64-linux-gnu-gcc && \
+        export CMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ && \
+        export CMAKE_FIND_ROOT_PATH=/usr/aarch64-linux-gnu && \
+        export CMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER && \
+        export CMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY && \
+        export CMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY && \
+        export CMAKE_C_FLAGS="-march=armv8-a" && \
+        export CMAKE_CXX_FLAGS="-march=armv8-a" && \
         cargo build --release --target aarch64-unknown-linux-gnu; \
     else \
         echo "Building for x86_64 architecture..." && \
