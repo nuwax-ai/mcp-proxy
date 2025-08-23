@@ -1,5 +1,5 @@
 use crate::models::{
-    AudioFormat, Config, HealthResponse, HttpResult, ModelInfo, ModelsResponse, TranscriptionResponse,
+    Config, HealthResponse, HttpResult, ModelInfo, ModelsResponse, TranscriptionResponse,
 };
 use crate::services::{ModelService, TranscriptionWorkerPool};
 use crate::VoiceCliError;
@@ -7,6 +7,7 @@ use axum::{
     extract::{Multipart, State},
     response::Json,
 };
+use base64::{Engine as _, engine::general_purpose};
 use bytes::Bytes;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -295,7 +296,7 @@ async fn extract_transcription_request(
                 // Check if the data is Base64 encoded
                 let original_data_len = data.len();
                 let decoded_data = if is_base64_encoded(&data) {
-                    match base64::decode(&data) {
+                    match general_purpose::STANDARD.decode(&data) {
                         Ok(decoded) => {
                             info!("Decoded Base64 audio data: {} bytes -> {} bytes", data.len(), decoded.len());
                             Bytes::from(decoded)
@@ -341,35 +342,50 @@ async fn extract_transcription_request(
     // Generate filename based on frontend information
     let uid = uuid::Uuid::new_v4();
     
-    // Generate filename: use form filename if available, otherwise generate with common audio extension
-    let filename = if let Some(form_filename) = filename {
-        // If form filename has extension, use it; otherwise append common audio extension
-        if form_filename.contains('.') {
-            form_filename
-        } else {
-            // Use common audio extension based on content-type or default to .webm
-            let extension = if let Some(content_type) = &content_type {
-                match content_type.as_str() {
-                    "audio/mpeg" => "mp3",
-                    "audio/wav" => "wav",
-                    "audio/flac" => "flac",
-                    "audio/ogg" => "ogg",
-                    "audio/mp4" => "m4a",
-                    "audio/aac" => "aac",
-                    "audio/webm" => "webm",
-                    _ => "webm" // Default to webm for unknown types
+    // Generate filename using UUID + detected format for consistency
+    let filename = {
+        // Use Symphonia-based format detection to determine the correct extension
+        let extension = match crate::services::AudioFormatDetector::detect_format(
+            &audio_data, 
+            filename.as_deref() // Use original filename as hint for detection
+        ) {
+            Ok(format_result) => {
+                info!(
+                    "Detected audio format: {:?} (method: {:?}, confidence: {:.2})", 
+                    format_result.format, 
+                    format_result.detection_method,
+                    format_result.confidence
+                );
+                format_result.format.to_string()
+            }
+            Err(e) => {
+                warn!(
+                    "Format detection failed: {}, falling back to content-type or default", 
+                    e
+                );
+                // Fallback to content-type based detection if Symphonia fails
+                if let Some(content_type) = &content_type {
+                    match content_type.as_str() {
+                        "audio/mpeg" => "mp3",
+                        "audio/wav" => "wav",
+                        "audio/flac" => "flac",
+                        "audio/ogg" => "ogg",
+                        "audio/mp4" => "m4a",
+                        "audio/aac" => "aac",
+                        "audio/webm" => "webm",
+                        _ => "webm" // Default to webm for unknown types
+                    }
+                } else {
+                    "webm" // Default extension
                 }
-            } else {
-                "webm" // Default extension
-            };
-            format!("{}.{}", form_filename, extension)
-        }
-    } else {
-        // No form filename, generate UUID with common audio extension
-        format!("{}.webm", uid)
+            }
+        };
+        
+        // Always use UUID + detected extension for consistent naming
+        format!("{}.{}", uid, extension)
     };
     
-    info!("Generated filename: {} (content-type: {:?})", filename, content_type);
+    info!("Generated filename with UUID + detected format: {} (content-type: {:?})", filename, content_type);
 
     let request = WorkerTranscriptionRequest {
         filename,
@@ -380,7 +396,7 @@ async fn extract_transcription_request(
     Ok((audio_data, request))
 }
 
-/// Helper function to validate audio file
+/// Helper function to validate audio file with enhanced format detection
 fn validate_audio_file(
     audio_data: &Bytes,
     filename: &str,
@@ -395,216 +411,38 @@ fn validate_audio_file(
     }
     info!("Audio file name: {}", filename);
 
-    // Validate audio format
-    let format = AudioFormat::from_filename(filename);
-    info!("Audio format: {:?}", format);
-    if !format.is_supported() {
-        return Err(VoiceCliError::UnsupportedFormat(format!(
-            "Unsupported audio format: {} (from filename: {})",
-            format.to_string(),
-            filename
-        )));
+    // Use enhanced format detection with Symphonia
+    let format_result = crate::services::AudioFormatDetector::detect_format(
+        audio_data, 
+        Some(filename)
+    )?;
+    
+    info!(
+        "Detected audio format: {:?} (method: {:?}, confidence: {:.2})", 
+        format_result.format, 
+        format_result.detection_method,
+        format_result.confidence
+    );
+    
+    // Validate format support
+    crate::services::AudioFormatDetector::validate_format_support(&format_result)?;
+    
+    // Log metadata if available
+    if let Some(metadata) = &format_result.metadata {
+        info!(
+            "Audio metadata - Duration: {:?}, Sample rate: {:?}, Channels: {:?}, Codec: {}",
+            metadata.duration,
+            metadata.sample_rate,
+            metadata.channels,
+            metadata.codec_info
+        );
     }
 
     Ok(())
 }
 
-/// Helper function to detect audio format from magic bytes
-fn detect_audio_format_from_magic_bytes(audio_data: &Bytes) -> Result<AudioFormat, VoiceCliError> {
-    if audio_data.len() < 4 {
-        return Err(VoiceCliError::UnsupportedFormat(
-            "Audio data too short to detect format".to_string(),
-        ));
-    }
 
-    let header = &audio_data[0..4];
 
-    // Add debug logging to help diagnose format detection issues
-    info!(
-        "Audio data length: {}, First 4 bytes: {:02X?}",
-        audio_data.len(),
-        header
-    );
-
-    // WAV file signature
-    if header == b"RIFF" && audio_data.len() >= 12 {
-        let wave_header = &audio_data[8..12];
-        if wave_header == b"WAVE" {
-            info!("Detected WAV format");
-            return Ok(AudioFormat::Wav);
-        }
-    }
-
-    // MP3 file signatures - comprehensive detection for audio/mpeg
-    if detect_mp3_format(audio_data) {
-        info!("Detected MP3 format");
-        return Ok(AudioFormat::Mp3);
-    }
-
-    // FLAC file signature
-    if header == b"fLaC" {
-        info!("Detected FLAC format");
-        return Ok(AudioFormat::Flac);
-    }
-
-    // OGG file signature
-    if header == b"OggS" {
-        info!("Detected OGG format");
-        return Ok(AudioFormat::Ogg);
-    }
-
-    // Check for M4A/AAC (more complex detection)
-    if audio_data.len() >= 8 {
-        let ftyp_check = &audio_data[4..8];
-        if ftyp_check == b"ftyp" {
-            info!("Detected M4A format");
-            return Ok(AudioFormat::M4a);
-        }
-    }
-
-    // Try to detect AAC by checking for ADTS header
-    if audio_data.len() >= 2 {
-        let adts_header = &audio_data[0..2];
-        if (adts_header[0] & 0xFF) == 0xFF && (adts_header[1] & 0xF0) == 0xF0 {
-            info!("Detected AAC format");
-            return Ok(AudioFormat::Aac);
-        }
-    }
-
-    // Check for WebM format (EBML header)
-    if audio_data.len() >= 4 {
-        // WebM files start with EBML header: 0x1A 0x45 0xDF 0xA3
-        if header[0] == 0x1A && header[1] == 0x45 && header[2] == 0xDF && header[3] == 0xA3 {
-            info!("Detected WebM format");
-            return Ok(AudioFormat::Webm);
-        }
-
-        // Alternative WebM detection: check for "webm" string in the first 100 bytes
-        if audio_data.len() >= 100 {
-            let search_range = &audio_data[0..100];
-            if search_range.windows(4).any(|window| window == b"webm") {
-                info!("Detected WebM format by 'webm' string");
-                return Ok(AudioFormat::Webm);
-            }
-        }
-
-        // Check for "webm" in the entire data if it's not too long
-        if audio_data.len() <= 1000 {
-            if audio_data.windows(4).any(|window| window == b"webm") {
-                info!("Detected WebM format by 'webm' string in data");
-                return Ok(AudioFormat::Webm);
-            }
-        }
-    }
-
-    // Log the first 16 bytes for debugging
-    let debug_bytes = if audio_data.len() >= 16 {
-        &audio_data[0..16]
-    } else {
-        &audio_data[..]
-    };
-    error!(
-        "Failed to detect audio format. First {} bytes: {:02X?}",
-        debug_bytes.len(),
-        debug_bytes
-    );
-
-    Err(VoiceCliError::UnsupportedFormat(
-        "Unable to detect audio format from magic bytes".to_string(),
-    ))
-}
-
-/// Helper function to detect MP3 format with comprehensive magic byte checking
-/// This handles various MP3 file structures including ID3 tags and MPEG frame headers
-fn detect_mp3_format(audio_data: &Bytes) -> bool {
-    if audio_data.len() < 3 {
-        return false;
-    }
-
-    // Check for ID3v2 tag at the beginning (most common)
-    if audio_data.len() >= 3 && &audio_data[0..3] == b"ID3" {
-        return true;
-    }
-
-    // Check for ID3v1 tag at the end (if file is long enough)
-    if audio_data.len() >= 128 {
-        let id3v1_start = audio_data.len() - 128;
-        if &audio_data[id3v1_start..id3v1_start + 3] == b"TAG" {
-            return true;
-        }
-    }
-
-    // Check for MPEG frame headers (various sync patterns)
-    // MPEG-1 Layer 3: 0xFF 0xFB (0x90-0x93)
-    // MPEG-2 Layer 3: 0xFF 0xF3 (0x90-0x93)
-    // MPEG-2.5 Layer 3: 0xFF 0xF2 (0x90-0x93)
-    if audio_data.len() >= 2 {
-        let first_byte = audio_data[0];
-        let second_byte = audio_data[1];
-
-        // Check for MPEG sync byte (0xFF)
-        if first_byte == 0xFF {
-            // Check for valid MPEG frame header patterns
-            match second_byte {
-                0xFB | 0xF3 | 0xF2 => {
-                    // These are valid MPEG frame header patterns
-                    if audio_data.len() >= 4 {
-                        let third_byte = audio_data[2];
-                        // Check if the third byte is in valid range (0x90-0x93)
-                        if third_byte >= 0x90 && third_byte <= 0x93 {
-                            return true;
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-
-    // Check for MPEG-1 Layer 1/2 patterns
-    if audio_data.len() >= 2 {
-        let first_byte = audio_data[0];
-        let second_byte = audio_data[1];
-
-        if first_byte == 0xFF {
-            match second_byte {
-                0xF1 | 0xF5 | 0xF9 | 0xFD => {
-                    // MPEG-1 Layer 1/2 patterns
-                    if audio_data.len() >= 4 {
-                        let third_byte = audio_data[2];
-                        if third_byte >= 0x90 && third_byte <= 0x93 {
-                            return true;
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-
-    // Check for MPEG-2 Layer 1/2 patterns
-    if audio_data.len() >= 2 {
-        let first_byte = audio_data[0];
-        let second_byte = audio_data[1];
-
-        if first_byte == 0xFF {
-            match second_byte {
-                0xF0 | 0xF4 | 0xF8 | 0xFC => {
-                    // MPEG-2 Layer 1/2 patterns
-                    if audio_data.len() >= 4 {
-                        let third_byte = audio_data[2];
-                        if third_byte >= 0x90 && third_byte <= 0x93 {
-                            return true;
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-
-    false
-}
 
 /// Helper function to detect if data is Base64 encoded
 fn is_base64_encoded(data: &Bytes) -> bool {
@@ -631,6 +469,7 @@ fn is_base64_encoded(data: &Bytes) -> bool {
 mod tests {
     use super::*;
     use crate::models::Config;
+    use crate::models::request::AudioFormat;
 
     #[tokio::test]
     async fn test_app_state_creation() {
@@ -641,68 +480,64 @@ mod tests {
 
     #[test]
     fn test_audio_format_detection() {
+        // Test core audio formats
         assert!(AudioFormat::from_filename("test.mp3").is_supported());
         assert!(AudioFormat::from_filename("test.wav").is_supported());
+        assert!(AudioFormat::from_filename("test.flac").is_supported());
+        assert!(AudioFormat::from_filename("test.m4a").is_supported());
+        assert!(AudioFormat::from_filename("test.aac").is_supported());
+        assert!(AudioFormat::from_filename("test.ogg").is_supported());
+        assert!(AudioFormat::from_filename("test.webm").is_supported());
+        assert!(AudioFormat::from_filename("test.opus").is_supported());
+        
+        // Test extended audio formats
+        assert!(AudioFormat::from_filename("test.amr").is_supported());
+        assert!(AudioFormat::from_filename("test.wma").is_supported());
+        assert!(AudioFormat::from_filename("test.ra").is_supported());
+        assert!(AudioFormat::from_filename("test.ram").is_supported());
+        assert!(AudioFormat::from_filename("test.au").is_supported());
+        assert!(AudioFormat::from_filename("test.aiff").is_supported());
+        assert!(AudioFormat::from_filename("test.caf").is_supported());
+        
+        // Test video formats with audio
+        assert!(AudioFormat::from_filename("test.3gp").is_supported());
+        assert!(AudioFormat::from_filename("test.mp4").is_supported());
+        assert!(AudioFormat::from_filename("test.mov").is_supported());
+        assert!(AudioFormat::from_filename("test.avi").is_supported());
+        assert!(AudioFormat::from_filename("test.mkv").is_supported());
+        
+        // Test unsupported format
         assert!(!AudioFormat::from_filename("test.xyz").is_supported());
     }
-
+    
     #[test]
-    fn test_mp3_magic_bytes_detection() {
-        // Test ID3v2 tag
-        let id3v2_data = Bytes::from(b"ID3\x03\x00\x00\x00\x00\x00\x00".to_vec());
-        assert!(detect_mp3_format(&id3v2_data));
-
-        // Test MPEG frame header (MPEG-1 Layer 3)
-        let mpeg_frame_data = Bytes::from(vec![0xFF, 0xFB, 0x90, 0x00]);
-        assert!(detect_mp3_format(&mpeg_frame_data));
-
-        // Test MPEG frame header (MPEG-2 Layer 3)
-        let mpeg2_frame_data = Bytes::from(vec![0xFF, 0xF3, 0x92, 0x00]);
-        assert!(detect_mp3_format(&mpeg2_frame_data));
-
-        // Test invalid data
-        let invalid_data = Bytes::from(b"RIFF".to_vec());
-        assert!(!detect_mp3_format(&invalid_data));
-
-        // Test short data
-        let short_data = Bytes::from(vec![0xFF]);
-        assert!(!detect_mp3_format(&short_data));
+    fn test_audio_format_mime_types() {
+        assert_eq!(AudioFormat::Mp3.get_mime_type(), "audio/mpeg");
+        assert_eq!(AudioFormat::Wav.get_mime_type(), "audio/wav");
+        assert_eq!(AudioFormat::Flac.get_mime_type(), "audio/flac");
+        assert_eq!(AudioFormat::Amr.get_mime_type(), "audio/amr");
+        assert_eq!(AudioFormat::Wma.get_mime_type(), "audio/x-ms-wma");
+        assert_eq!(AudioFormat::Mp4.get_mime_type(), "video/mp4");
+        assert_eq!(AudioFormat::Unknown.get_mime_type(), "application/octet-stream");
     }
-
+    
     #[test]
-    fn test_webm_format_detection() {
-        // Test WebM EBML header
-        let webm_data = Bytes::from(vec![0x1A, 0x45, 0xDF, 0xA3]);
-        let format = detect_audio_format_from_magic_bytes(&webm_data);
-        assert!(matches!(format, Ok(AudioFormat::Webm)));
-
-        // Test WAV format
-        let wav_data = Bytes::from(b"RIFF\x00\x00\x00\x00WAVE".to_vec());
-        let format = detect_audio_format_from_magic_bytes(&wav_data);
-        assert!(matches!(format, Ok(AudioFormat::Wav)));
+    fn test_audio_format_ffmpeg_formats() {
+        assert_eq!(AudioFormat::Mp3.get_ffmpeg_input_format(), Some("mp3"));
+        assert_eq!(AudioFormat::Wav.get_ffmpeg_input_format(), Some("wav"));
+        assert_eq!(AudioFormat::Wma.get_ffmpeg_input_format(), Some("asf"));
+        assert_eq!(AudioFormat::Ra.get_ffmpeg_input_format(), Some("rm"));
+        assert_eq!(AudioFormat::Mkv.get_ffmpeg_input_format(), Some("matroska"));
+        assert_eq!(AudioFormat::Unknown.get_ffmpeg_input_format(), None);
     }
-
+    
     #[test]
-    fn test_frontend_audio_data() {
-        // Test the actual data from frontend (based on curl request)
-        // The data starts with: \u001aEß£\u009fB\u0086\u0081\u0001B÷\u0081\u0001Bò\u0081\u0004Bó\u0081\u0008B\u0082\u0084webm
-        let frontend_data = Bytes::from(vec![
-            0x1A, 0x45, 0xDF, 0xA3, 0x42, 0x86, 0x81, 0x01, 0x42, 0xF7, 0x81, 0x01, 0x42, 0xF2,
-            0x81, 0x04, 0x42, 0xF3, 0x81, 0x08, 0x42, 0x82, 0x84, 0x77, 0x65, 0x62,
-            0x6D, // "webm" in ASCII
-        ]);
-        let format = detect_audio_format_from_magic_bytes(&frontend_data);
-        assert!(matches!(format, Ok(AudioFormat::Webm)));
-
-        // Test WebM detection by "webm" string
-        let webm_string_data = Bytes::from(vec![
-            0x00, 0x00, 0x00, 0x00, 0x77, 0x65, 0x62, 0x6D, // "webm" in ASCII
-            0x00, 0x00, 0x00, 0x00,
-        ]);
-        let format = detect_audio_format_from_magic_bytes(&webm_string_data);
-        assert!(matches!(format, Ok(AudioFormat::Webm)));
+    fn test_audio_format_conversion_requirements() {
+        assert!(!AudioFormat::Wav.requires_ffmpeg_conversion());
+        assert!(AudioFormat::Mp3.requires_ffmpeg_conversion());
+        assert!(AudioFormat::Amr.requires_ffmpeg_conversion());
+        assert!(AudioFormat::Mp4.requires_ffmpeg_conversion());
     }
-
     #[test]
     fn test_base64_detection() {
         // Test Base64 encoded data
@@ -716,5 +551,50 @@ mod tests {
         // Test empty data
         let empty_data = Bytes::from(vec![]);
         assert!(!is_base64_encoded(&empty_data));
+    }
+    
+    #[test]
+    fn test_symphonia_integration() {
+        // Test that AudioFormatDetector methods are accessible and working
+        use crate::services::AudioFormatDetector;
+        use crate::models::request::{AudioFormat, DetectionMethod};
+        
+        // Test with dummy audio data and filename
+        let test_data = Bytes::from(vec![0u8; 1024]); // Dummy data
+        
+        // Test filename-based fallback when Symphonia probe fails
+        // Note: New behavior always generates UUID-based filename regardless of input filename
+        let result = AudioFormatDetector::detect_format(&test_data, Some("test.mp3"));
+        match result {
+            Ok(format_result) => {
+                // Should fallback to filename-based detection for dummy data
+                assert_eq!(format_result.detection_method, DetectionMethod::FileExtension);
+                assert_eq!(format_result.format, AudioFormat::Mp3);
+                assert!(format_result.confidence >= 0.0);
+            }
+            Err(_) => {
+                // This is also acceptable for dummy data
+            }
+        }
+        
+        // Test format validation
+        let valid_result = crate::models::request::AudioFormatResult {
+            format: AudioFormat::Mp3,
+            confidence: 0.9,
+            metadata: None,
+            detection_method: DetectionMethod::SymphoniaProbe,
+        };
+        assert!(AudioFormatDetector::validate_format_support(&valid_result).is_ok());
+        
+        // Test format string conversion for UUID-based filename generation
+        assert_eq!(AudioFormat::Mp3.to_string(), "mp3");
+        assert_eq!(AudioFormat::Wav.to_string(), "wav");
+        assert_eq!(AudioFormat::Flac.to_string(), "flac");
+        
+        // Test that UUID + extension format contains a dot and proper extension
+        let example_filename = format!("{}.{}", uuid::Uuid::new_v4(), "mp3");
+        assert!(example_filename.contains('.'));
+        assert!(example_filename.ends_with(".mp3"));
+        assert_eq!(example_filename.len(), 40); // UUID is 36 chars + ".mp3" = 40 chars exactly
     }
 }

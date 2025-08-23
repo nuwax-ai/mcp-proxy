@@ -99,8 +99,9 @@ pub struct ProcessedAudio {
 }
 
 /// Audio format detection result
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AudioFormat {
+    // Core audio formats (commonly supported by Symphonia)
     Wav,
     Mp3,
     Flac,
@@ -108,10 +109,56 @@ pub enum AudioFormat {
     Aac,
     Ogg,
     Webm,
+    Opus,
+    
+    // Extended audio formats (FFmpeg supported)
+    Amr,        // Adaptive Multi-Rate (mobile)
+    Wma,        // Windows Media Audio
+    Ra,         // RealAudio
+    Au,         // Sun/Unix audio
+    Aiff,       // Apple's uncompressed format
+    Caf,        // Core Audio Format
+    
+    // Video formats (audio extraction via FFmpeg)
+    ThreeGp,    // 3GP mobile format
+    Mp4,        // MPEG-4 container
+    Mov,        // QuickTime format
+    Avi,        // Audio Video Interleave
+    Mkv,        // Matroska container
+    
     Unknown,
 }
 
+/// Audio metadata extracted during format detection
+#[derive(Debug, Clone)]
+pub struct AudioMetadata {
+    pub duration: Option<std::time::Duration>,
+    pub sample_rate: Option<u32>,
+    pub channels: Option<u8>,
+    pub bit_depth: Option<u8>,
+    pub bitrate: Option<u32>,
+    pub codec_info: String,
+}
+
+/// Enhanced audio format detection result with metadata
+#[derive(Debug, Clone)]
+pub struct AudioFormatResult {
+    pub format: AudioFormat,
+    pub confidence: f32,
+    pub metadata: Option<AudioMetadata>,
+    pub detection_method: DetectionMethod,
+}
+
+/// Method used for format detection
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DetectionMethod {
+    SymphoniaProbe,
+    FileExtension,
+    ContentType,
+}
+
 impl AudioFormat {
+    /// Enhanced filename-based format detection with support for extended formats
     pub fn from_filename(filename: &str) -> Self {
         let extension = std::path::Path::new(filename)
             .extension()
@@ -120,6 +167,7 @@ impl AudioFormat {
             .to_lowercase();
 
         match extension.as_str() {
+            // Core audio formats
             "wav" => AudioFormat::Wav,
             "mp3" => AudioFormat::Mp3,
             "flac" => AudioFormat::Flac,
@@ -127,18 +175,38 @@ impl AudioFormat {
             "aac" => AudioFormat::Aac,
             "ogg" => AudioFormat::Ogg,
             "webm" => AudioFormat::Webm,
+            "opus" => AudioFormat::Opus,
+            
+            // Extended audio formats
+            "amr" => AudioFormat::Amr,
+            "wma" => AudioFormat::Wma,
+            "ra" | "ram" => AudioFormat::Ra,
+            "au" | "snd" => AudioFormat::Au,
+            "aiff" | "aif" => AudioFormat::Aiff,
+            "caf" => AudioFormat::Caf,
+            
+            // Video formats (audio extraction)
+            "3gp" | "3g2" => AudioFormat::ThreeGp,
+            "mp4" => AudioFormat::Mp4,
+            "mov" => AudioFormat::Mov,
+            "avi" => AudioFormat::Avi,
+            "mkv" | "mka" => AudioFormat::Mkv,
+            
             _ => AudioFormat::Unknown,
         }
     }
 
+    /// Check if format is supported for transcription
     pub fn is_supported(&self) -> bool {
         !matches!(self, AudioFormat::Unknown)
     }
 
+    /// Check if format requires FFmpeg conversion to WAV
     pub fn needs_conversion(&self) -> bool {
         !matches!(self, AudioFormat::Wav)
     }
 
+    /// Get string representation of the format
     pub fn to_string(&self) -> &'static str {
         match self {
             AudioFormat::Wav => "wav",
@@ -148,7 +216,99 @@ impl AudioFormat {
             AudioFormat::Aac => "aac",
             AudioFormat::Ogg => "ogg",
             AudioFormat::Webm => "webm",
+            AudioFormat::Opus => "opus",
+            AudioFormat::Amr => "amr",
+            AudioFormat::Wma => "wma",
+            AudioFormat::Ra => "ra",
+            AudioFormat::Au => "au",
+            AudioFormat::Aiff => "aiff",
+            AudioFormat::Caf => "caf",
+            AudioFormat::ThreeGp => "3gp",
+            AudioFormat::Mp4 => "mp4",
+            AudioFormat::Mov => "mov",
+            AudioFormat::Avi => "avi",
+            AudioFormat::Mkv => "mkv",
             AudioFormat::Unknown => "unknown",
+        }
+    }
+
+    /// Get MIME type for the format
+    pub fn get_mime_type(&self) -> &'static str {
+        match self {
+            AudioFormat::Mp3 => "audio/mpeg",
+            AudioFormat::Wav => "audio/wav",
+            AudioFormat::Flac => "audio/flac",
+            AudioFormat::Aac => "audio/aac",
+            AudioFormat::Ogg => "audio/ogg",
+            AudioFormat::M4a => "audio/mp4",
+            AudioFormat::Webm => "audio/webm",
+            AudioFormat::Opus => "audio/opus",
+            AudioFormat::Amr => "audio/amr",
+            AudioFormat::Wma => "audio/x-ms-wma",
+            AudioFormat::Ra => "audio/vnd.rn-realaudio",
+            AudioFormat::Au => "audio/basic",
+            AudioFormat::Aiff => "audio/aiff",
+            AudioFormat::Caf => "audio/x-caf",
+            AudioFormat::ThreeGp => "audio/3gpp",
+            AudioFormat::Mp4 => "video/mp4",
+            AudioFormat::Mov => "video/quicktime",
+            AudioFormat::Avi => "video/x-msvideo",
+            AudioFormat::Mkv => "video/x-matroska",
+            AudioFormat::Unknown => "application/octet-stream",
+        }
+    }
+
+    /// Get FFmpeg input format specifier
+    pub fn get_ffmpeg_input_format(&self) -> Option<&'static str> {
+        match self {
+            AudioFormat::Mp3 => Some("mp3"),
+            AudioFormat::Wav => Some("wav"),
+            AudioFormat::Flac => Some("flac"),
+            AudioFormat::Aac => Some("aac"),
+            AudioFormat::M4a => Some("m4a"),
+            AudioFormat::Ogg => Some("ogg"),
+            AudioFormat::Webm => Some("webm"),
+            AudioFormat::Opus => Some("opus"),
+            AudioFormat::Amr => Some("amr"),
+            AudioFormat::Wma => Some("asf"),
+            AudioFormat::Ra => Some("rm"),
+            AudioFormat::Au => Some("au"),
+            AudioFormat::Aiff => Some("aiff"),
+            AudioFormat::Caf => Some("caf"),
+            AudioFormat::ThreeGp => Some("3gp"),
+            AudioFormat::Mp4 => Some("mp4"),
+            AudioFormat::Mov => Some("mov"),
+            AudioFormat::Avi => Some("avi"),
+            AudioFormat::Mkv => Some("matroska"),
+            AudioFormat::Unknown => None,
+        }
+    }
+
+    /// Check if format requires FFmpeg conversion
+    pub fn requires_ffmpeg_conversion(&self) -> bool {
+        !matches!(self, AudioFormat::Wav)
+    }
+
+    /// Convert from Symphonia codec type
+    pub fn from_symphonia_codec(codec_type: symphonia::core::codecs::CodecType) -> Self {
+        // For now, use codec type as u32 for comparison
+        // This is a simplified approach - in real implementation, you'd match specific codec constants
+        if codec_type == symphonia::core::codecs::CODEC_TYPE_NULL {
+            AudioFormat::Unknown
+        } else {
+            // For MVP, default to MP3 for non-null codecs
+            // This should be expanded based on actual codec detection needs
+            AudioFormat::Mp3
+        }
+    }
+
+    /// Get corresponding Symphonia codec type
+    pub fn to_symphonia_codec(&self) -> Option<symphonia::core::codecs::CodecType> {
+        // For MVP, return None for all formats since codec constant mapping is complex
+        // In a full implementation, this would map to appropriate Symphonia codec constants
+        match self {
+            AudioFormat::Unknown => None,
+            _ => Some(symphonia::core::codecs::CODEC_TYPE_NULL), // Placeholder
         }
     }
 }

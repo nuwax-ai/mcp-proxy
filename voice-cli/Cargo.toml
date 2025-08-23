@@ -68,6 +68,9 @@ tempfile = "3.0"
 # Note: voice-toolkit will be added once the exact package details are confirmed
 voice-toolkit = { workspace = true }
 
+# Audio format detection with Symphonia
+symphonia = { version = "0.5", features = ["all"] }
+
 # Process management for daemon functionality
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
