@@ -1,5 +1,5 @@
 use crate::models::{
-    AudioFormat, Config, HealthResponse, ModelInfo, ModelsResponse, TranscriptionResponse,
+    AudioFormat, Config, HealthResponse, HttpResult, ModelInfo, ModelsResponse, TranscriptionResponse,
 };
 use crate::services::{ModelService, TranscriptionWorkerPool};
 use crate::VoiceCliError;
@@ -93,16 +93,24 @@ pub async fn health_handler(
     summary = "List available Whisper models",
     description = "Returns information about all available Whisper models, currently loaded models, and detailed model information including file sizes and memory usage.",
     responses(
-        (status = 200, description = "Models information retrieved successfully", body = ModelsResponse),
-        (status = 500, description = "Failed to retrieve models information", body = String)
+        (status = 200, description = "Models information retrieved successfully", body = HttpResult<ModelsResponse>),
+        (status = 500, description = "Failed to retrieve models information", body = HttpResult<String>)
     )
 )]
 pub async fn models_list_handler(
     State(state): State<AppState>,
-) -> Result<Json<ModelsResponse>, VoiceCliError> {
+) -> HttpResult<ModelsResponse> {
     let available_models = state.config.whisper.supported_models.clone();
-    let loaded_models = state.model_service.list_loaded_models().await?;
-    let downloaded_models = state.model_service.list_downloaded_models().await?;
+    
+    let loaded_models = match state.model_service.list_loaded_models().await {
+        Ok(models) => models,
+        Err(e) => return HttpResult::from(e),
+    };
+    
+    let downloaded_models = match state.model_service.list_downloaded_models().await {
+        Ok(models) => models,
+        Err(e) => return HttpResult::from(e),
+    };
 
     let mut model_info = HashMap::new();
 
@@ -131,7 +139,7 @@ pub async fn models_list_handler(
         model_info,
     };
 
-    Ok(Json(response))
+    HttpResult::success(response)
 }
 
 /// Main transcription endpoint with multipart file handling
@@ -153,16 +161,16 @@ pub async fn models_list_handler(
         content_type = "multipart/form-data"
     ),
     responses(
-        (status = 200, description = "Transcription completed successfully", body = TranscriptionResponse),
-        (status = 400, description = "Invalid request - missing audio file, unsupported format, or invalid parameters", body = String),
-        (status = 413, description = "File too large - exceeds 200MB limit", body = String),
-        (status = 500, description = "Transcription failed due to server error", body = String)
+        (status = 200, description = "Transcription completed successfully", body = HttpResult<TranscriptionResponse>),
+        (status = 400, description = "Invalid request - missing audio file, unsupported format, or invalid parameters", body = HttpResult<String>),
+        (status = 413, description = "File too large - exceeds 200MB limit", body = HttpResult<String>),
+        (status = 500, description = "Transcription failed due to server error", body = HttpResult<String>)
     ),
 )]
 pub async fn transcribe_handler(
     State(state): State<AppState>,
     multipart: Multipart,
-) -> Result<Json<TranscriptionResponse>, VoiceCliError> {
+) -> HttpResult<TranscriptionResponse> {
     let start_time = Instant::now();
     let task_id = format!(
         "task_{}_{}",
@@ -176,14 +184,19 @@ pub async fn transcribe_handler(
     info!("Starting transcription request {}", task_id);
 
     // 1. Extract multipart form data
-    let (audio_data, request) = extract_transcription_request(multipart).await?;
+    let (audio_data, request) = match extract_transcription_request(multipart).await {
+        Ok(result) => result,
+        Err(e) => return HttpResult::from(e),
+    };
 
     // 2. Validate audio file
-    validate_audio_file(
+    if let Err(e) = validate_audio_file(
         &audio_data,
         &request.filename,
         state.config.server.max_file_size,
-    )?;
+    ) {
+        return HttpResult::from(e);
+    }
 
     // 3. Create result channel for receiving worker response
     let (result_sender, result_receiver) = tokio::sync::oneshot::channel();
@@ -199,12 +212,19 @@ pub async fn transcribe_handler(
     };
 
     // 5. Submit task to worker pool
-    state.transcription_worker_pool.submit_task(task).await?;
+    if let Err(e) = state.transcription_worker_pool.submit_task(task).await {
+        return HttpResult::from(e);
+    }
 
     // 6. Wait for result from worker
-    let worker_result = result_receiver
-        .await
-        .map_err(|_| VoiceCliError::WorkerPoolError("Worker result channel closed".to_string()))?;
+    let worker_result = match result_receiver.await {
+        Ok(result) => result,
+        Err(_) => {
+            return HttpResult::from(VoiceCliError::WorkerPoolError(
+                "Worker result channel closed".to_string(),
+            ));
+        }
+    };
 
     // 7. Handle worker result
     match worker_result {
@@ -222,7 +242,7 @@ pub async fn transcribe_handler(
                 response.text.len()
             );
 
-            Ok(Json(response))
+            HttpResult::success(response)
         }
         crate::models::TranscriptionResult {
             success: false,
@@ -230,11 +250,11 @@ pub async fn transcribe_handler(
             ..
         } => {
             error!("Transcription {} failed: {}", task_id, error);
-            Err(error)
+            HttpResult::from(error)
         }
         _ => {
             error!("Invalid worker result for task {}", task_id);
-            Err(VoiceCliError::TranscriptionFailed(
+            HttpResult::from(VoiceCliError::TranscriptionFailed(
                 "Invalid worker result".to_string(),
             ))
         }
