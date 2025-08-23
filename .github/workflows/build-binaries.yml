@@ -2,10 +2,10 @@ name: Build Cross-Platform Binaries
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main, feat-voice]
     tags: ["v*"]
   pull_request:
-    branches: [main, dev]
+    branches: [main, feat-voice]
   workflow_dispatch:
 
 env:
