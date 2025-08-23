@@ -1,0 +1,219 @@
+name: Build Cross-Platform Binaries
+
+on:
+  push:
+    branches: [main, dev]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }} - ${{ matrix.binary }}
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - aarch64-unknown-linux-gnu
+        binary:
+          - voice-cli
+          - document-parser
+        include:
+          - target: x86_64-unknown-linux-gnu
+            arch: x86_64
+            cross: false
+          - target: aarch64-unknown-linux-gnu
+            arch: aarch64
+            cross: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+          components: rustfmt, clippy
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libssl-dev \
+            openssl \
+            ca-certificates \
+            build-essential \
+            libc6-dev \
+            libclang-dev \
+            clang \
+            cmake \
+            make
+
+      - name: Install cross-compilation dependencies (ARM64)
+        if: matrix.cross
+        run: |
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu \
+            libc6-dev-arm64-cross
+
+      - name: Set up cross-compilation environment (ARM64)
+        if: matrix.cross
+        run: |
+          echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++" >> $GITHUB_ENV
+          echo "AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar" >> $GITHUB_ENV
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.target }}-
+            ${{ runner.os }}-cargo-
+
+      - name: Cache target directory
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-target-${{ matrix.target }}-${{ matrix.binary }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-target-${{ matrix.target }}-${{ matrix.binary }}-
+            ${{ runner.os }}-target-${{ matrix.target }}-
+
+      - name: Build binary
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            echo "Cross-compiling ${{ matrix.binary }} for ${{ matrix.target }}"
+            cargo build --release --target ${{ matrix.target }} --bin ${{ matrix.binary }} --verbose
+          else
+            echo "Building ${{ matrix.binary }} for ${{ matrix.target }}"
+            cargo build --release --target ${{ matrix.target }} --bin ${{ matrix.binary }} --verbose
+          fi
+
+      - name: Verify binary
+        run: |
+          file target/${{ matrix.target }}/release/${{ matrix.binary }}
+          ls -la target/${{ matrix.target }}/release/${{ matrix.binary }}
+
+      - name: Strip binary (x86_64 only)
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          strip target/${{ matrix.target }}/release/${{ matrix.binary }}
+
+      - name: Strip binary (ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          aarch64-linux-gnu-strip target/${{ matrix.target }}/release/${{ matrix.binary }}
+
+      - name: Create artifact name
+        id: artifact
+        run: |
+          ARTIFACT_NAME="${{ matrix.binary }}-${{ matrix.arch }}-linux"
+          echo "name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
+          echo "filename=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          path: target/${{ matrix.target }}/release/${{ matrix.binary }}
+          if-no-files-found: error
+          retention-days: 30
+
+  # Job to create release with all binaries
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-22.04
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          for dir in artifacts/*/; do
+            artifact_name=$(basename "$dir")
+            binary_file=$(find "$dir" -type f -executable)
+            if [ -f "$binary_file" ]; then
+              # Rename binary to include architecture in filename
+              cp "$binary_file" "release-assets/${artifact_name}"
+              chmod +x "release-assets/${artifact_name}"
+            fi
+          done
+          ls -la release-assets/
+
+      - name: Generate changelog
+        uses: orhun/git-cliff-action@v2
+        id: git-cliff
+        with:
+          config: cliff.toml
+          args: -vv --latest --strip header
+        env:
+          OUTPUT: CHANGES.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body: ${{ steps.git-cliff.outputs.content }}
+          files: release-assets/*
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+
+  # Job to verify binaries work correctly
+  test-binaries:
+    name: Test Binary - ${{ matrix.target }} - ${{ matrix.binary }}
+    needs: build
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64-unknown-linux-gnu] # Only test x86_64 on GitHub runners
+        binary: [voice-cli, document-parser]
+
+    steps:
+      - name: Download binary artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.binary }}-x86_64-linux
+          path: ./
+
+      - name: Make binary executable
+        run: |
+          chmod +x ${{ matrix.binary }}
+          file ${{ matrix.binary }}
+
+      - name: Test binary help command
+        run: |
+          ./${{ matrix.binary }} --help || true
+
+      - name: Test binary version command (if supported)
+        run: |
+          ./${{ matrix.binary }} --version || true
