@@ -99,43 +99,6 @@ sudo ./voice-cli service status
 sudo ./voice-cli service logs
 ```
 
-## CLI Commands
-
-### Server Management
-
-```bash
-# Run server in foreground
-voice-cli server run
-
-# Start server in background (daemon)
-voice-cli server start
-
-# Stop background server
-voice-cli server stop
-
-# Restart background server
-voice-cli server restart
-
-# Check server status
-voice-cli server status
-```
-
-### Model Management
-
-```bash
-# Download a specific model
-voice-cli model download base
-
-# List available and downloaded models
-voice-cli model list
-
-# Validate downloaded models
-voice-cli model validate
-
-# Remove a downloaded model
-voice-cli model remove base
-```
-
 ## 🏢 集群部署 (生产推荐)
 
 ### 架构概览
@@ -173,13 +136,27 @@ cp /path/to/voice-cli ./
 
 # 1. 初始化集群环境
 ./voice-cli cluster init
+# 自动创建:
+# - cluster-config.yml (集群配置)
+# - ./data/ (集群元数据)
+# - ./models/ (Whisper模型)
+# - ./logs/ (日志文件)
 
 # 2. 启动集群节点
 ./voice-cli cluster start
 # 输出: ✅ Cluster node started as Leader
+#       Node ID: node-abc123
+#       HTTP API: http://192.168.1.100:8080
+#       gRPC Port: 9090
 
 # 3. 验证节点状态
 ./voice-cli cluster status
+# 输出: 
+# 集群状态: 健康
+# 角色: 领导节点
+# 节点数量: 1
+# HTTP端口: 8080
+# gRPC端口: 9090
 
 # 4. 测试直接访问
 curl -X POST http://192.168.1.100:8080/transcribe \
@@ -192,35 +169,79 @@ curl -X POST http://192.168.1.100:8080/transcribe \
 ```bash
 # 服务器 2 (192.168.1.101)
 cd /opt/voice-cluster
+cp /path/to/voice-cli ./
 
 # 1. 初始化节点环境
 ./voice-cli cluster init --http-port 8081 --grpc-port 9091
 
-# 2. 加入现有集群 (使用 gRPC 端口)
+# 2. 加入现有集群
+# ⚠️ 重要：使用领导节点的 gRPC 端口 (9090)，不是 HTTP 端口
 ./voice-cli cluster join 192.168.1.100:9090 \
   --http-port 8081 --grpc-port 9091
+# 输出: ✅ Successfully joined cluster
+#       Role: Follower
+#       Leader: node-abc123
 
 # 3. 验证加入成功
 ./voice-cli cluster status
+# 输出:
+# 集群状态: 健康
+# 角色: 工作节点
+# 领导节点: node-abc123
+# 节点数量: 2
+```
+
+```bash
+# 服务器 3 (192.168.1.102) - 第三个节点
+cd /opt/voice-cluster
+./voice-cli cluster init --http-port 8082 --grpc-port 9092
+./voice-cli cluster join 192.168.1.100:9090 \
+  --http-port 8082 --grpc-port 9092
 ```
 
 ### 第三步：部署负载均衡器
 
+#### 方式一：内置负载均衡器（推荐）
+
 ```bash
 # 在任一服务器或独立服务器上
+cd /opt/voice-lb
+
+# 1. 初始化负载均衡器
 ./voice-cli lb init --port 80
 
-# 前台运行（开发测试）
+# 2. 前台运行（开发测试）
 ./voice-cli lb run --port 80
+# 显示实时日志，Ctrl+C 停止
 
-# 后台运行（生产部署）
+# 3. 后台运行（生产部署）
 ./voice-cli lb start --port 80
+# 输出: ✅ Load balancer started (PID: 12345)
 
-# 检查状态
+# 4. 检查负载均衡器状态
 ./voice-cli lb status
+# 输出:
+# 负载均衡器状态: 运行中 (后台进程)
+# 端口: 80
+# 运行时间: 2小时34分钟
+# 健康节点: 3
+# 总请求数: 1,234
+# 失败请求: 0
 
-# 停止
+# 5. 停止负载均衡器
 ./voice-cli lb stop
+```
+
+#### 方式二：系统服务部署
+
+```bash
+# 安装负载均衡器为系统服务
+./voice-cli lb service install --name voice-lb
+sudo systemctl enable voice-lb
+sudo systemctl start voice-lb
+
+# 查看服务状态
+sudo systemctl status voice-lb
 ```
 
 ### 第四步：验证集群部署
@@ -228,9 +249,20 @@ cd /opt/voice-cluster
 ```bash
 # 1. 检查集群整体状态
 ./voice-cli cluster status
+# 输出:
+# 集群健康状态: 正常
+# 领导节点: 192.168.1.100:8080
+# 工作节点: 
+#   - 192.168.1.101:8081 (健康)
+#   - 192.168.1.102:8082 (健康)
+# 集群大小: 3
 
 # 2. 查看所有节点端点
 ./voice-cli cluster endpoints
+# 输出:
+# 节点 1: HTTP=192.168.1.100:8080, gRPC=192.168.1.100:9090 (领导节点)
+# 节点 2: HTTP=192.168.1.101:8081, gRPC=192.168.1.101:9091 (工作节点)
+# 节点 3: HTTP=192.168.1.102:8082, gRPC=192.168.1.102:9092 (工作节点)
 
 # 3. 测试负载均衡
 for i in {1..5}; do
@@ -238,6 +270,15 @@ for i in {1..5}; do
     -F "audio=@test.mp3" \
     -F "model=base"
 done
+# 请求会自动分发到不同节点
+
+# 4. 测试故障转移
+# 停止一个节点
+./voice-cli cluster stop  # 在某个节点上执行
+
+# 再次测试，流量会自动转移到健康节点
+curl -X POST http://localhost:80/transcribe \
+  -F "audio=@test.mp3"
 ```
 
 ## ⚙️ 配置详解
@@ -245,24 +286,28 @@ done
 ### 基础配置文件 (config.yml)
 
 ```yaml
+# 服务器配置
 server:
   host: "0.0.0.0"
   port: 8080
   max_file_size: 209715200  # 200MB
   cors_enabled: true
 
+# Whisper 配置
 whisper:
   default_model: "base"
   models_dir: "./models"
   auto_download: true
   supported_models: ["tiny", "base", "small", "medium", "large-v3"]
 
+# 日志配置
 logging:
   level: "info"
   log_dir: "./logs"
   max_file_size: "10MB"
   max_files: 5
 
+# 守护进程配置
 daemon:
   pid_file: "./voice-cli.pid"
   log_file: "./logs/daemon.log"
@@ -272,8 +317,9 @@ daemon:
 ### 集群配置 (cluster-config.yml)
 
 ```yaml
+# 集群配置
 cluster:
-  node_id: "auto"  # 自动生成
+  node_id: "auto"  # 自动生成或手动指定
   bind_address: "0.0.0.0"
   http_port: 8080      # HTTP API 端口
   grpc_port: 9090      # 集群通信端口
@@ -283,12 +329,13 @@ cluster:
   metadata_db_path: "./data"
   enabled: true
 
+# 负载均衡配置
 load_balancer:
   enabled: true
   bind_address: "0.0.0.0"
   port: 80
-  health_check_interval: 30
-  health_check_timeout: 5
+  health_check_interval: 30    # 健康检查间隔(秒)
+  health_check_timeout: 5      # 健康检查超时(秒)
   pid_file: "./voice-cli-lb.pid"
   log_file: "./logs/lb.log"
 ```
@@ -339,6 +386,7 @@ voice-cli cluster check-ports --http-port 8080 --grpc-port 9090
 
 # 示例：自定义端口启动
 voice-cli cluster init --http-port 8081 --grpc-port 9091
+voice-cli cluster start --http-port 8081 --grpc-port 9091
 voice-cli cluster join 192.168.1.100:9090 --http-port 8082 --grpc-port 9092
 ```
 
@@ -510,35 +558,6 @@ sudo systemctl start voice-cli
 # 客户端访问负载均衡器端口
 curl http://server:80/transcribe -F "audio=@test.mp3"
 ```
-
-## 音频格式支持
-
-服务自动检测和转换音频格式：
-
-- **输入格式**: MP3, WAV, FLAC, M4A, AAC, OGG
-- **Whisper 格式**: 16kHz, 单声道, 16位 PCM WAV (自动转换)
-- **最大文件大小**: 200MB (可配置)
-
-## 模型信息
-
-Whisper 模型自动从官方仓库下载：
-
-| 模型 | 大小 | 语言 | 描述 |
-|------|------|------|------|
-| tiny | ~39 MB | 英语/多语言 | 最快，准确度最低 |
-| base | ~142 MB | 英语/多语言 | 速度和准确度平衡 |
-| small | ~244 MB | 英语/多语言 | 更好的准确度 |
-| medium | ~769 MB | 英语/多语言 | 高准确度 |
-| large | ~1.5 GB | 仅多语言 | 最佳准确度 |
-
-## 依赖组件
-
-- **rs-voice-toolkit**: 音频处理和 STT 能力
-- **whisper.cpp**: 底层语音识别引擎
-- **Axum**: HTTP 服务器框架
-- **Tokio**: 异步运行时
-- **Raft**: 集群共识算法
-- **Sled**: 嵌入式数据库
 
 ## 🔍 故障排除
 
