@@ -118,6 +118,11 @@ async fn handle_model_command(action: ModelAction, config: &voice_cli::Config) -
             model::handle_model_remove(config, &model_name).await
                 .context("Failed to remove model")
         }
+        ModelAction::Diagnose { model_name } => {
+            info!("Diagnosing model: {}", model_name);
+            model::handle_model_diagnose(config, &model_name).await
+                .context("Failed to diagnose model")
+        }
     }
 }
 

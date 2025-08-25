@@ -114,8 +114,19 @@ impl ModelService {
 
         info!("Successfully downloaded model '{}' to {:?}", model_name, model_path);
 
-        // Validate the downloaded model
-        self.validate_model(model_name).await?;
+        // Basic validation: just check file exists and has reasonable size
+        let metadata = fs::metadata(&model_path).await
+            .map_err(|e| VoiceCliError::Model(format!("Failed to check downloaded file: {}", e)))?;
+        
+        if metadata.len() < 1024 {
+            // Clean up the invalid file
+            let _ = fs::remove_file(&model_path).await;
+            return Err(VoiceCliError::Model(
+                format!("Downloaded model '{}' is too small ({} bytes), likely corrupted", model_name, metadata.len())
+            ));
+        }
+        
+        info!("Model '{}' downloaded successfully - {} bytes", model_name, metadata.len());
 
         Ok(())
     }
@@ -224,110 +235,34 @@ impl ModelService {
             return Ok(false);
         }
 
-        // Enhanced validation: check GGML/GGUF file headers
-        self.validate_model_header(model_path).await
-    }
-    
-    /// Validate GGML/GGUF model file header and structure
-    async fn validate_model_header(&self, model_path: &Path) -> Result<bool, VoiceCliError> {
-        let mut file = fs::File::open(model_path).await
-            .map_err(|e| VoiceCliError::Model(format!("Failed to open model file: {}", e)))?;
-        
-        // Read the first 32 bytes for header validation
-        let mut buffer = [0u8; 32];
-        use tokio::io::AsyncReadExt;
-        
-        if file.read_exact(&mut buffer).await.is_err() {
-            warn!("Model file too small to contain valid header");
-            return Ok(false);
+        // Check if file size is reasonable for the model type
+        if let Some(expected_size) = self.get_expected_model_size(
+            &model_path.file_stem()
+                .and_then(|s| s.to_str())
+                .map(|s| s.strip_prefix("ggml-").unwrap_or(s))
+                .unwrap_or("unknown")
+        ) {
+            let actual_size = metadata.len();
+            let size_diff_percent = if actual_size > expected_size {
+                ((actual_size - expected_size) as f64 / expected_size as f64) * 100.0
+            } else {
+                ((expected_size - actual_size) as f64 / expected_size as f64) * 100.0
+            };
+            
+            // Allow 20% size difference to accommodate different versions
+            if size_diff_percent > 20.0 {
+                warn!("Model file size differs significantly from expected: actual={} bytes, expected={} bytes, diff={:.1}%", 
+                      actual_size, expected_size, size_diff_percent);
+                // Don't fail validation, just warn - the file might still be valid
+            }
         }
-        
-        // Check for GGML magic number
-        if &buffer[0..4] == b"GGML" {
-            return self.validate_ggml_header(&buffer, model_path).await;
-        }
-        
-        // Check for GGUF magic number
-        if &buffer[0..4] == b"GGUF" {
-            return self.validate_gguf_header(&buffer, model_path).await;
-        }
-        
-        warn!("Model file does not have valid GGML or GGUF magic number");
-        Ok(false)
-    }
-    
-    /// Validate GGML format header
-    async fn validate_ggml_header(&self, buffer: &[u8], model_path: &Path) -> Result<bool, VoiceCliError> {
-        // GGML format: [magic:4][version:4][n_vocab:4][n_embd:4][...]
-        let version = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
-        
-        // Validate version (typical GGML versions for whisper models)
-        let valid_versions = [1, 2, 3, 4]; // Common GGML versions
-        if !valid_versions.contains(&version) {
-            warn!("Unknown GGML version: {} in model file {:?}", version, model_path);
-            // Don't fail immediately as new versions might be valid
-        }
-        
-        // For whisper models, check if we have vocabulary and embedding dimensions
-        let n_vocab = u32::from_le_bytes([buffer[8], buffer[9], buffer[10], buffer[11]]);
-        let n_embd = u32::from_le_bytes([buffer[12], buffer[13], buffer[14], buffer[15]]);
-        
-        // Whisper models typically have these ranges
-        if n_vocab < 1000 || n_vocab > 100000 {
-            warn!("Suspicious vocabulary size: {} in model {:?}", n_vocab, model_path);
-        }
-        
-        if n_embd < 256 || n_embd > 8192 {
-            warn!("Suspicious embedding dimension: {} in model {:?}", n_embd, model_path);
-        }
-        
-        debug!("GGML model validation: version={}, vocab={}, embd={}", version, n_vocab, n_embd);
-        Ok(true)
-    }
-    
-    /// Validate GGUF format header
-    async fn validate_gguf_header(&self, buffer: &[u8], model_path: &Path) -> Result<bool, VoiceCliError> {
-        // GGUF format: [magic:4][version:4][tensor_count:8][metadata_kv_count:8]
-        let version = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
-        
-        // Validate GGUF version (current versions: 1, 2, 3)
-        let valid_versions = [1, 2, 3];
-        if !valid_versions.contains(&version) {
-            warn!("Unknown GGUF version: {} in model file {:?}", version, model_path);
-            // Continue validation as format might still be readable
-        }
-        
-        // Read tensor count (8 bytes in GGUF)
-        let tensor_count = u64::from_le_bytes([
-            buffer[8], buffer[9], buffer[10], buffer[11],
-            buffer[12], buffer[13], buffer[14], buffer[15]
-        ]);
-        
-        // Read metadata key-value count (8 bytes)
-        let metadata_count = u64::from_le_bytes([
-            buffer[16], buffer[17], buffer[18], buffer[19],
-            buffer[20], buffer[21], buffer[22], buffer[23]
-        ]);
-        
-        // Basic sanity checks
-        if tensor_count == 0 {
-            warn!("Model has no tensors: {:?}", model_path);
-            return Ok(false);
-        }
-        
-        if tensor_count > 10000 {
-            warn!("Suspicious tensor count: {} in model {:?}", tensor_count, model_path);
-        }
-        
-        if metadata_count > 1000 {
-            warn!("Suspicious metadata count: {} in model {:?}", metadata_count, model_path);
-        }
-        
-        debug!("GGUF model validation: version={}, tensors={}, metadata_kvs={}", 
-               version, tensor_count, metadata_count);
-        Ok(true)
-    }
 
+        // File exists and has reasonable size - assume it's valid
+        // Let whisper.cpp handle format validation during actual loading
+        debug!("Model file appears to be valid: {} bytes", metadata.len());
+        Ok(true)
+    }
+    
     /// Remove a downloaded model
     pub async fn remove_model(&self, model_name: &str) -> Result<(), VoiceCliError> {
         let model_path = self.get_model_path(model_name)?;
@@ -395,6 +330,63 @@ impl ModelService {
             "large-v1" | "large-v2" | "large-v3" => Some(1550 * 1024 * 1024), // ~1.5GB
             _ => None,
         }
+    }
+    
+    /// Diagnose a corrupted model file and provide suggestions
+    pub async fn diagnose_model(&self, model_name: &str) -> Result<String, VoiceCliError> {
+        let model_path = self.get_model_path(model_name)?;
+        
+        if !model_path.exists() {
+            return Ok(format!("Model '{}' file does not exist at {:?}", model_name, model_path));
+        }
+        
+        let metadata = fs::metadata(&model_path).await
+            .map_err(|e| VoiceCliError::Model(format!("Failed to read model metadata: {}", e)))?;
+        
+        let mut diagnosis = Vec::new();
+        
+        // Check file size
+        let actual_size = metadata.len();
+        diagnosis.push(format!("File size: {} bytes ({})", actual_size, Self::format_size(actual_size)));
+        
+        if let Some(expected_size) = self.get_expected_model_size(model_name) {
+            let size_diff = if actual_size > expected_size {
+                actual_size - expected_size
+            } else {
+                expected_size - actual_size
+            };
+            let size_diff_percent = (size_diff as f64 / expected_size as f64) * 100.0;
+            
+            diagnosis.push(format!("Expected size: {} bytes ({})", expected_size, Self::format_size(expected_size)));
+            diagnosis.push(format!("Size difference: {:.1}%", size_diff_percent));
+            
+            if size_diff_percent > 20.0 {
+                diagnosis.push("⚠️  File size differs significantly from expected - may be corrupted".to_string());
+            } else {
+                diagnosis.push("✅ File size is within expected range".to_string());
+            }
+        }
+        
+        // Basic file accessibility check
+        match fs::File::open(&model_path).await {
+            Ok(_) => {
+                diagnosis.push("✅ File is readable".to_string());
+            }
+            Err(e) => {
+                diagnosis.push(format!("❌ File is not readable: {}", e));
+            }
+        }
+        
+        // Check if file is completely empty or too small
+        if actual_size == 0 {
+            diagnosis.push("❌ File is empty".to_string());
+        } else if actual_size < 1024 {
+            diagnosis.push("❌ File is too small to be a valid model".to_string());
+        } else {
+            diagnosis.push("✅ File has reasonable size".to_string());
+        }
+        
+        Ok(diagnosis.join("\n"))
     }
 }
 

@@ -81,6 +81,11 @@ pub enum ModelAction {
         /// Model name to remove
         model_name: String,
     },
+    /// Diagnose issues with a downloaded model
+    Diagnose {
+        /// Model name to diagnose
+        model_name: String,
+    },
 }
 
 #[derive(Subcommand)]

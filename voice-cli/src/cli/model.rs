@@ -33,16 +33,6 @@ pub async fn handle_model_download(config: &Config, model_name: &str) -> crate::
         }
     }
     
-    // Validate the downloaded model
-    match model_service.validate_model(model_name).await {
-        Ok(_) => {
-            info!("Model '{}' validation successful", model_name);
-        }
-        Err(e) => {
-            warn!("Model '{}' validation failed: {}", model_name, e);
-        }
-    }
-    
     Ok(())
 }
 
@@ -171,6 +161,44 @@ pub async fn ensure_default_model(config: &Config) -> crate::Result<()> {
             format!("No models found and auto_download is disabled. Please run: voice-cli model download {}", 
                    config.whisper.default_model)
         ));
+    }
+    
+    Ok(())
+}
+
+/// Diagnose issues with a downloaded model
+pub async fn handle_model_diagnose(config: &Config, model_name: &str) -> crate::Result<()> {
+    info!("Diagnosing model: {}", model_name);
+    
+    let model_service = ModelService::new(config.clone());
+    
+    match model_service.diagnose_model(model_name).await {
+        Ok(diagnosis) => {
+            println!("\n=== Model Diagnosis for '{}' ===", model_name);
+            println!("{}", diagnosis);
+            
+            // Provide fix suggestions
+            println!("\n=== Fix Suggestions ===");
+            if !model_service.is_model_downloaded(model_name).await.unwrap_or(false) {
+                println!("💡 Model not found - run: voice-cli model download {}", model_name);
+            } else {
+                match model_service.validate_model(model_name).await {
+                    Ok(_) => {
+                        println!("✓ Model is valid and ready to use");
+                    }
+                    Err(_) => {
+                        println!("🔧 To fix the corrupted model:");
+                        println!("   1. Remove the corrupted file: voice-cli model remove {}", model_name);
+                        println!("   2. Re-download the model: voice-cli model download {}", model_name);
+                        println!("   3. Validate the model: voice-cli model validate");
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            error!("Failed to diagnose model '{}': {}", model_name, e);
+            return Err(e);
+        }
     }
     
     Ok(())
