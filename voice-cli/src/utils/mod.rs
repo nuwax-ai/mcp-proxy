@@ -1,9 +1,16 @@
+pub mod structured_logging;
+
 use crate::models::Config;
 use crate::VoiceCliError;
 use std::path::PathBuf;
 use tracing::Level;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{prelude::*, EnvFilter};
+
+// Re-export structured logging components
+pub use structured_logging::{
+    ClusterLoggingContext, init_structured_logging,
+};
 
 /// Initialize logging based on configuration
 pub fn init_logging(config: &Config) -> crate::Result<()> {

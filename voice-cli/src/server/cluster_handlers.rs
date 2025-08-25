@@ -1,9 +1,9 @@
 use crate::models::{
-    Config, HealthResponse, HttpResult, ModelInfo, ModelsResponse, TranscriptionResponse,
+    Config, HttpResult, ModelsResponse, TranscriptionResponse,
     ClusterNode, TaskMetadata, NodeRole, NodeStatus,
 };
 use crate::services::{ModelService, TranscriptionWorkerPool};
-use crate::grpc::{AudioClusterClient, ClusterTaskManager, TaskManagerStats, TaskManagerConfig};
+use crate::grpc::{ClusterTaskManager, TaskManagerStats, TaskManagerConfig};
 use crate::cluster::{SimpleTaskScheduler, SimpleTranscriptionWorker};
 use crate::models::MetadataStore;
 use crate::VoiceCliError;
@@ -11,10 +11,9 @@ use axum::{
     extract::{Multipart, State},
     response::Json,
 };
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
-use tracing::{error, info, warn, debug};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
@@ -545,7 +544,7 @@ async fn process_task_locally_cluster(
     }
     
     // Use cluster transcription worker if available
-    if let Some(ref cluster_worker) = state.transcription_worker {
+    if let Some(ref _cluster_worker) = state.transcription_worker {
         info!("Using cluster transcription worker for task {}", task_id);
         
         // For now, fall back to the single-node processing until cluster worker integration is complete

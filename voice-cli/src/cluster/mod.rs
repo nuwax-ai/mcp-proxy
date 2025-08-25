@@ -5,6 +5,9 @@ pub mod heartbeat;
 pub mod task_scheduler;
 pub mod transcription_worker;
 pub mod file_share;
+pub mod state;
+pub mod service_manager;
+pub mod service_discovery;
 
 // pub use raft_node::*;
 pub use node_discovery::*;
@@ -12,3 +15,6 @@ pub use heartbeat::*;
 pub use task_scheduler::*;
 pub use transcription_worker::*;
 pub use file_share::*;
+pub use state::*;
+pub use service_manager::*;
+pub use service_discovery::*;

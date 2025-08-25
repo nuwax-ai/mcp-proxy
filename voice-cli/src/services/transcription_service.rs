@@ -1,8 +1,7 @@
-use crate::models::{Config, TranscriptionResponse};
+use crate::models::Config;
 use crate::models::worker::TranscriptionRequest;
 use crate::VoiceCliError;
 use std::sync::Arc;
-use tracing::info;
 
 /// Simple transcription service that handles validation and delegates to worker pool
 pub struct TranscriptionService {

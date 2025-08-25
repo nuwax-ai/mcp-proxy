@@ -180,6 +180,48 @@ pub enum ClusterAction {
         #[arg(long, default_value = "default")]
         template: String,
     },
+    /// Install systemd service for cluster node
+    InstallService {
+        /// Service name (defaults to voice-cli-cluster)
+        #[arg(long, default_value = "voice-cli-cluster")]
+        service_name: String,
+        /// Node ID for this cluster node
+        #[arg(long)]
+        node_id: Option<String>,
+        /// HTTP port for this node
+        #[arg(long, default_value = "8080")]
+        http_port: u16,
+        /// gRPC port for this node
+        #[arg(long, default_value = "50051")]
+        grpc_port: u16,
+        /// Whether this node can process tasks
+        #[arg(long, default_value = "true")]
+        can_process_tasks: bool,
+        /// Memory limit for the service (e.g., 1G, 512M)
+        #[arg(long)]
+        memory_limit: Option<String>,
+        /// CPU limit for the service (e.g., 2, 0.5)
+        #[arg(long)]
+        cpu_limit: Option<String>,
+        /// User to run the service as (defaults to current user)
+        #[arg(long)]
+        user: Option<String>,
+        /// Group to run the service as (defaults to current user's group)
+        #[arg(long)]
+        group: Option<String>,
+    },
+    /// Uninstall systemd service
+    UninstallService {
+        /// Service name to uninstall
+        #[arg(long, default_value = "voice-cli-cluster")]
+        service_name: String,
+    },
+    /// Check systemd service status
+    ServiceStatus {
+        /// Service name to check
+        #[arg(long, default_value = "voice-cli-cluster")]
+        service_name: String,
+    },
 }
 
 #[derive(Subcommand)]

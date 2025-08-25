@@ -20,3 +20,7 @@ pub use config::ConfigManager;
 
 // Re-export services
 pub use services::{AudioProcessor, TranscriptionService, ModelService};
+
+// Tests module
+#[cfg(test)]
+mod tests;

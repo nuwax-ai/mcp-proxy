@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{RwLock, mpsc};
 use tokio::time::interval;
-use tracing::{debug, info, warn, error};
+use tracing::{debug, info, warn};
 use chrono::Utc;
 
 /// Heartbeat service for cluster health monitoring
@@ -312,11 +312,83 @@ impl HeartbeatService {
 
         debug!("Sending heartbeat from node {}", self.local_node.node_id);
 
-        // In a real implementation, this would send heartbeat messages to all peers
-        // For now, we'll just update our local timestamp
-        // TODO: Implement actual network heartbeat sending via gRPC
+        // Get all known peers from metadata store
+        let all_nodes = self.metadata_store.get_all_nodes().await
+            .map_err(|e| ClusterError::Database(sled::Error::Unsupported(e.to_string())))?;
+        
+        // Send heartbeat to all peers (exclude self)
+        for node in all_nodes {
+            if node.node_id != self.local_node.node_id {
+                // Spawn concurrent heartbeat sending to avoid blocking
+                let node_clone = node.clone();
+                let local_node_clone = self.local_node.clone();
+                
+                tokio::spawn(async move {
+                    if let Err(e) = Self::send_heartbeat_to_peer(&local_node_clone, &node_clone).await {
+                        debug!("Failed to send heartbeat to {}: {}", node_clone.node_id, e);
+                    }
+                });
+            }
+        }
 
         Ok(())
+    }
+    
+    /// Send heartbeat to a specific peer via gRPC
+    async fn send_heartbeat_to_peer(
+        local_node: &ClusterNode,
+        peer_node: &ClusterNode,
+    ) -> Result<(), ClusterError> {
+        use crate::grpc::client::AudioClusterClient;
+        
+        let peer_address = format!("http://{}:{}", peer_node.address, peer_node.grpc_port);
+        
+        // Create gRPC client with timeout
+        let mut client = match tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            AudioClusterClient::connect(&peer_address)
+        ).await {
+            Ok(Ok(client)) => client,
+            Ok(Err(e)) => {
+                debug!("Failed to connect to peer {}: {}", peer_node.node_id, e);
+                return Err(ClusterError::Network(format!("Connection failed: {}", e)));
+            }
+            Err(_) => {
+                debug!("Connection timeout to peer {}", peer_node.node_id);
+                return Err(ClusterError::Network("Connection timeout".to_string()));
+            }
+        };
+        
+        // Send heartbeat request
+        // TODO: Fix type conversion between models::NodeStatus and proto::NodeStatus
+        // For now, convert to proto type for gRPC call
+        let proto_status = match local_node.status {
+            NodeStatus::Healthy => crate::grpc::proto::NodeStatus::Healthy,
+            NodeStatus::Unhealthy => crate::grpc::proto::NodeStatus::Unhealthy,
+            NodeStatus::Leaving => crate::grpc::proto::NodeStatus::Leaving,
+            NodeStatus::Joining => crate::grpc::proto::NodeStatus::Joining,
+        };
+        
+        let result = client.send_heartbeat(
+            &local_node.node_id,
+            proto_status,
+            chrono::Utc::now().timestamp(),
+        ).await;
+        
+        match result {
+            Ok(response) => {
+                if response.success {
+                    debug!("Heartbeat sent successfully to {}", peer_node.node_id);
+                } else {
+                    debug!("Heartbeat rejected by {}: {}", peer_node.node_id, response.message);
+                }
+                Ok(())
+            }
+            Err(e) => {
+                debug!("gRPC heartbeat failed to {}: {}", peer_node.node_id, e);
+                Err(e)
+            }
+        }
     }
 
     /// Check health of all peers

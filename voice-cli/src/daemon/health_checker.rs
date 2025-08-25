@@ -1,5 +1,6 @@
 use crate::models::{Config, HealthResponse};
 use crate::VoiceCliError;
+use crate::log_health_event;
 use std::time::Duration;
 use tracing::debug;
 
@@ -28,15 +29,34 @@ impl HealthChecker {
 
     /// Perform a health check
     pub async fn check_health(&self) -> crate::Result<HealthResponse> {
+        let start_time = std::time::Instant::now();
         debug!("Performing health check at: {}", self.health_url);
 
         let response = self.client
             .get(&self.health_url)
             .send()
             .await
-            .map_err(|e| VoiceCliError::Daemon(format!("Health check request failed: {}", e)))?;
+            .map_err(|e| {
+                log_health_event!(
+                    "failed",
+                    "daemon",
+                    "health_checker",
+                    "http_request",
+                    error = %e,
+                    url = %self.health_url
+                );
+                VoiceCliError::Daemon(format!("Health check request failed: {}", e))
+            })?;
 
         if !response.status().is_success() {
+            log_health_event!(
+                "failed",
+                "daemon", 
+                "health_checker",
+                "http_response",
+                status_code = %response.status(),
+                url = %self.health_url
+            );
             return Err(VoiceCliError::Daemon(
                 format!("Health check returned status: {}", response.status())
             ));
@@ -45,7 +65,28 @@ impl HealthChecker {
         let health: HealthResponse = response
             .json()
             .await
-            .map_err(|e| VoiceCliError::Daemon(format!("Health check response parse error: {}", e)))?;
+            .map_err(|e| {
+                log_health_event!(
+                    "failed",
+                    "daemon",
+                    "health_checker", 
+                    "json_parse",
+                    error = %e,
+                    url = %self.health_url
+                );
+                VoiceCliError::Daemon(format!("Health check response parse error: {}", e))
+            })?;
+
+        let duration = start_time.elapsed();
+        log_health_event!(
+            "healthy",
+            "daemon",
+            "health_checker",
+            "complete",
+            duration_ms = duration.as_millis() as u64,
+            status = %health.status,
+            url = %self.health_url
+        );
 
         debug!("Health check successful: {:?}", health);
         Ok(health)

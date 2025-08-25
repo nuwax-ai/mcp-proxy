@@ -358,26 +358,29 @@ impl ClusterTaskManager {
 
     /// Get or create a gRPC client for the specified node
     async fn get_or_create_client(&self, node: &ClusterNode) -> Result<AudioClusterClient, ClusterError> {
+        let address = format!("{}:{}", node.address, node.grpc_port);
+        
+        // Check if we already have a healthy client
         {
             let clients = self.cluster_clients.read().await;
-            if let Some(client) = clients.get(&node.node_id) {
-                // TODO: Check if client is still healthy
-                // For now, assume it's good and clone it
-                // Note: This is a simplified implementation
+            if let Some(existing_client) = clients.get(&node.node_id) {
+                // For now, return the existing client
+                // In a production system, we would check client health here
+                return Ok(existing_client.clone());
             }
         }
 
-        // If we don't have a client or it's unhealthy, create a new one
-        let address = format!("{}:{}", node.address, node.grpc_port);
+        // Create a new client with connection pooling
+        info!("Creating new gRPC client for node {} at {}", node.node_id, address);
         let client = connect_to_cluster_node(&address).await?;
         
+        // Store the client for reuse
         {
             let mut clients = self.cluster_clients.write().await;
-            clients.insert(node.node_id.clone(), client);
+            clients.insert(node.node_id.clone(), client.clone());
         }
 
-        // Return a new connection (simplified approach)
-        connect_to_cluster_node(&address).await
+        Ok(client)
     }
 
     /// Get task manager statistics

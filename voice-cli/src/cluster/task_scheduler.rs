@@ -1,21 +1,24 @@
 use crate::models::{
-    ClusterError, MetadataStore, ClusterNode, TaskMetadata, NodeRole, NodeStatus, TaskState
+    ClusterError, MetadataStore, ClusterNode, TaskMetadata, NodeRole, NodeStatus
 };
+use crate::cluster::ClusterState;
+use crate::error::ClusterResultExt;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, RwLock};
 use tokio::sync::oneshot;
-use tokio::time::{interval, timeout};
+use tokio::time::interval;
 use tracing::{debug, info, warn, error};
 use uuid::Uuid;
-use chrono::Utc;
 
 /// Simple round-robin scheduler with configurable leader processing
 pub struct SimpleTaskScheduler {
-    /// Metadata store for cluster information
-    metadata_store: Arc<MetadataStore>,
+    /// Cluster state for atomic operations
+    cluster_state: Arc<ClusterState>,
+    /// Metadata store for persistence (optional, for backwards compatibility)
+    metadata_store: Option<Arc<MetadataStore>>,
     /// Current node index for round-robin selection
     current_node_index: AtomicUsize,
     /// Whether leader can process tasks
@@ -28,8 +31,6 @@ pub struct SimpleTaskScheduler {
     event_rx: mpsc::UnboundedReceiver<SchedulerEvent>,
     /// Channel sender for scheduling events (cloneable)
     event_tx: mpsc::UnboundedSender<SchedulerEvent>,
-    /// Cache of available nodes for performance
-    available_nodes_cache: Arc<RwLock<Vec<ClusterNode>>>,
     /// Statistics for scheduler performance
     stats: Arc<RwLock<SchedulerStats>>,
 }
@@ -133,7 +134,29 @@ pub struct NodeTaskStats {
 }
 
 impl SimpleTaskScheduler {
-    /// Create a new SimpleTaskScheduler
+    /// Create a new SimpleTaskScheduler with ClusterState
+    pub fn new_with_cluster_state(
+        cluster_state: Arc<ClusterState>,
+        leader_can_process: bool,
+        leader_node_id: String,
+        config: SchedulerConfig,
+    ) -> Self {
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
+
+        Self {
+            cluster_state,
+            metadata_store: None,
+            current_node_index: AtomicUsize::new(0),
+            leader_can_process,
+            leader_node_id,
+            config,
+            event_rx,
+            event_tx,
+            stats: Arc::new(RwLock::new(SchedulerStats::default())),
+        }
+    }
+
+    /// Create a new SimpleTaskScheduler (backwards compatibility)
     pub fn new(
         metadata_store: Arc<MetadataStore>,
         leader_can_process: bool,
@@ -143,14 +166,14 @@ impl SimpleTaskScheduler {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
 
         Self {
-            metadata_store,
+            cluster_state: Arc::new(ClusterState::new()),
+            metadata_store: Some(metadata_store),
             current_node_index: AtomicUsize::new(0),
             leader_can_process,
             leader_node_id,
             config,
             event_rx,
             event_tx,
-            available_nodes_cache: Arc::new(RwLock::new(Vec::new())),
             stats: Arc::new(RwLock::new(SchedulerStats::default())),
         }
     }
@@ -164,14 +187,16 @@ impl SimpleTaskScheduler {
     pub async fn start(&mut self) -> Result<(), ClusterError> {
         info!("Starting task scheduler (leader_can_process: {})", self.leader_can_process);
 
-        // Initial cache refresh
-        self.refresh_available_nodes().await?;
+        // Initial sync with metadata store if available
+        if let Some(ref metadata_store) = self.metadata_store {
+            self.sync_with_metadata_store(metadata_store).await?;
+        }
 
         // Clone necessary data for async tasks
         let event_tx = self.event_tx.clone();
         let config = self.config.clone();
 
-        // Start cache refresh timer
+        // Start cache refresh timer (less frequent since ClusterState is more efficient)
         let cache_refresh_handle = {
             let event_tx = event_tx.clone();
             let cache_refresh_interval = config.cache_refresh_interval;
@@ -253,7 +278,7 @@ impl SimpleTaskScheduler {
         task_id: String,
         client_id: String,
         filename: String,
-        audio_file_path: String,
+        _audio_file_path: String,
         model: Option<String>,
         response_format: Option<String>,
     ) -> Result<(), ClusterError> {
@@ -264,8 +289,15 @@ impl SimpleTaskScheduler {
         task.model = model;
         task.response_format = response_format;
 
-        // Store task in metadata store
-        self.metadata_store.create_task(&task).await?;
+        // Store task in cluster state
+        self.cluster_state.upsert_task(task.clone());
+
+        // Also store in metadata store if available for persistence
+        if let Some(ref metadata_store) = self.metadata_store {
+            metadata_store.create_task(&task).await
+                .with_task_context(&task_id)
+                .map_err(|e| ClusterError::Database(sled::Error::Unsupported(e.to_string())))?;
+        }
 
         // Update statistics
         {
@@ -292,8 +324,15 @@ impl SimpleTaskScheduler {
             Err(e) => {
                 error!("Failed to assign task {}: {}", task_id, e);
                 
-                // Mark task as failed
-                self.metadata_store.fail_task(&task_id, &e.to_string()).await?;
+                // Mark task as failed in cluster state
+                self.cluster_state.fail_task(&task_id, &e.to_string())?;
+                
+                // Also update metadata store if available
+                if let Some(ref metadata_store) = self.metadata_store {
+                    metadata_store.fail_task(&task_id, &e.to_string()).await
+                        .with_task_context(&task_id)
+                        .map_err(|e| ClusterError::Database(sled::Error::Unsupported(e.to_string())))?;
+                }
                 
                 // Update statistics
                 {
@@ -319,22 +358,25 @@ impl SimpleTaskScheduler {
         let index = self.current_node_index.fetch_add(1, Ordering::Relaxed) % available_nodes.len();
         let selected_node = &available_nodes[index];
 
-        // Assign task to selected node
-        self.metadata_store
-            .assign_task(&task_id, &selected_node.node_id)
-            .await?;
+        // Assign task to selected node in cluster state
+        self.cluster_state.assign_task(&task_id, &selected_node.node_id)?;
+
+        // Also assign in metadata store if available
+        if let Some(ref metadata_store) = self.metadata_store {
+            metadata_store.assign_task(&task_id, &selected_node.node_id).await
+                .with_task_context(&task_id)
+                .map_err(|e| ClusterError::Database(sled::Error::Unsupported(e.to_string())))?;
+        }
 
         Ok(selected_node.node_id.clone())
     }
 
     /// Get available nodes for task processing based on configuration
     async fn get_available_nodes_for_tasks(&self) -> Result<Vec<ClusterNode>, ClusterError> {
-        let all_nodes = self.available_nodes_cache.read().await.clone();
+        // Get healthy nodes from cluster state
+        let healthy_nodes = self.cluster_state.get_nodes_by_status(&NodeStatus::Healthy);
         
-        let mut available_nodes: Vec<ClusterNode> = all_nodes
-            .into_iter()
-            .filter(|node| node.status == NodeStatus::Healthy)
-            .collect();
+        let mut available_nodes: Vec<ClusterNode> = healthy_nodes;
 
         // Filter nodes based on leader processing configuration
         if self.leader_can_process {
@@ -347,10 +389,10 @@ impl SimpleTaskScheduler {
             available_nodes.retain(|node| node.role == NodeRole::Follower);
         }
 
-        // Filter out overloaded nodes
+        // Filter out overloaded nodes using cluster state
         let mut filtered_nodes = Vec::new();
         for node in available_nodes {
-            let current_tasks = self.get_node_current_tasks(&node.node_id).await?;
+            let current_tasks = self.cluster_state.get_node_active_task_count(&node.node_id);
             if current_tasks < self.config.max_tasks_per_node {
                 filtered_nodes.push(node);
             }
@@ -359,17 +401,7 @@ impl SimpleTaskScheduler {
         Ok(filtered_nodes)
     }
 
-    /// Get current number of tasks assigned to a node
-    async fn get_node_current_tasks(&self, node_id: &str) -> Result<usize, ClusterError> {
-        let tasks = self.metadata_store.get_tasks_by_node(node_id).await?;
-        
-        // Count only active tasks (assigned or processing)
-        let active_count = tasks.iter()
-            .filter(|task| matches!(task.state, TaskState::Assigned | TaskState::Processing))
-            .count();
 
-        Ok(active_count)
-    }
 
     /// Check if current node (leader) should process this task
     pub fn should_leader_process(&self, assigned_node_id: &str) -> bool {
@@ -385,8 +417,15 @@ impl SimpleTaskScheduler {
     ) -> Result<(), ClusterError> {
         info!("Task {} completed by node {} in {:.2}s", task_id, node_id, processing_duration);
 
-        // Update task in metadata store
-        self.metadata_store.complete_task(&task_id, processing_duration).await?;
+        // Update task in cluster state
+        self.cluster_state.complete_task(&task_id, processing_duration)?;
+
+        // Also update metadata store if available
+        if let Some(ref metadata_store) = self.metadata_store {
+            metadata_store.complete_task(&task_id, processing_duration).await
+                .with_task_context(&task_id)
+                .map_err(|e| ClusterError::Database(sled::Error::Unsupported(e.to_string())))?;
+        }
 
         // Update statistics
         {
@@ -419,8 +458,15 @@ impl SimpleTaskScheduler {
     ) -> Result<(), ClusterError> {
         warn!("Task {} failed on node {}: {}", task_id, node_id, error_message);
 
-        // Update task in metadata store
-        self.metadata_store.fail_task(&task_id, &error_message).await?;
+        // Update task in cluster state
+        self.cluster_state.fail_task(&task_id, &error_message)?;
+
+        // Also update metadata store if available
+        if let Some(ref metadata_store) = self.metadata_store {
+            metadata_store.fail_task(&task_id, &error_message).await
+                .with_task_context(&task_id)
+                .map_err(|e| ClusterError::Database(sled::Error::Unsupported(e.to_string())))?;
+        }
 
         // Update statistics
         {
@@ -436,26 +482,157 @@ impl SimpleTaskScheduler {
         Ok(())
     }
 
-    /// Refresh available nodes cache
-    async fn refresh_available_nodes(&self) -> Result<(), ClusterError> {
-        let nodes = self.metadata_store.get_all_nodes().await?;
-        
-        {
-            let mut cache = self.available_nodes_cache.write().await;
-            *cache = nodes;
+    /// Sync with metadata store (if available)
+    async fn sync_with_metadata_store(&self, metadata_store: &MetadataStore) -> Result<(), ClusterError> {
+        // Load nodes from metadata store into cluster state
+        let nodes = metadata_store.get_all_nodes().await
+            .with_cluster_context("sync nodes from metadata store")
+            .map_err(|e| ClusterError::Database(sled::Error::Unsupported(e.to_string())))?;
+        for node in nodes {
+            self.cluster_state.upsert_node(node);
         }
 
-        debug!("Refreshed available nodes cache with {} nodes", 
-               self.available_nodes_cache.read().await.len());
+        // Load tasks from metadata store into cluster state
+        let all_tasks = metadata_store.get_all_tasks().await
+            .with_cluster_context("sync tasks from metadata store")
+            .map_err(|e| ClusterError::Database(sled::Error::Unsupported(e.to_string())))?;
+        for task in all_tasks {
+            self.cluster_state.upsert_task(task);
+        }
+
+        debug!("Synced cluster state with metadata store: {} nodes, {} tasks", 
+               self.cluster_state.get_all_nodes().len(),
+               self.cluster_state.get_all_tasks().len());
 
         Ok(())
     }
 
-    /// Rebalance tasks across nodes (future implementation)
+    /// Refresh nodes from metadata store (backwards compatibility)
+    async fn refresh_available_nodes(&self) -> Result<(), ClusterError> {
+        if let Some(ref metadata_store) = self.metadata_store {
+            self.sync_with_metadata_store(metadata_store).await?;
+        }
+        Ok(())
+    }
+
+    /// Rebalance tasks across nodes (intelligent load balancing)
     async fn rebalance_tasks(&self) -> Result<(), ClusterError> {
-        // TODO: Implement task rebalancing logic
-        // This would move tasks from overloaded nodes to underloaded ones
-        debug!("Task rebalancing not yet implemented");
+        debug!("Starting task rebalancing across cluster nodes");
+        
+        // Get all healthy nodes
+        let healthy_nodes = self.cluster_state.get_nodes_by_status(&NodeStatus::Healthy);
+        if healthy_nodes.len() < 2 {
+            debug!("Not enough healthy nodes for rebalancing (need >= 2, have {})", healthy_nodes.len());
+            return Ok(());
+        }
+        
+        // Calculate load distribution
+        let mut node_loads = Vec::new();
+        let mut total_tasks = 0;
+        
+        for node in &healthy_nodes {
+            let active_tasks = self.cluster_state.get_node_active_task_count(&node.node_id);
+            node_loads.push((node.clone(), active_tasks));
+            total_tasks += active_tasks;
+        }
+        
+        if total_tasks == 0 {
+            debug!("No active tasks to rebalance");
+            return Ok(());
+        }
+        
+        // Sort nodes by current load (ascending)
+        node_loads.sort_by_key(|(_, load)| *load);
+        
+        let ideal_load_per_node = total_tasks / healthy_nodes.len();
+        let remainder = total_tasks % healthy_nodes.len();
+        
+        debug!("Rebalancing {} tasks across {} nodes (ideal: {} per node, remainder: {})", 
+               total_tasks, healthy_nodes.len(), ideal_load_per_node, remainder);
+        
+        // Find overloaded and underloaded nodes
+        let mut overloaded_nodes = Vec::new();
+        let mut underloaded_nodes = Vec::new();
+        
+        for (i, (node, current_load)) in node_loads.iter().enumerate() {
+            let target_load = ideal_load_per_node + if i < remainder { 1 } else { 0 };
+            
+            if *current_load > target_load {
+                let excess = *current_load - target_load;
+                overloaded_nodes.push((node.clone(), excess));
+            } else if *current_load < target_load {
+                let deficit = target_load - *current_load;
+                underloaded_nodes.push((node.clone(), deficit));
+            }
+        }
+        
+        if overloaded_nodes.is_empty() || underloaded_nodes.is_empty() {
+            debug!("No rebalancing needed - load is already well distributed");
+            return Ok(());
+        }
+        
+        // Perform task redistribution
+        let mut rebalanced_count = 0;
+        
+        for (overloaded_node, mut excess) in overloaded_nodes {
+            if excess == 0 {
+                continue;
+            }
+            
+            // Get tasks from this overloaded node (prefer pending/assigned tasks)
+            let tasks = self.cluster_state.get_tasks_by_node(&overloaded_node.node_id);
+            let mut reassignable_tasks: Vec<_> = tasks.into_iter()
+                .filter(|task| matches!(task.state, crate::models::TaskState::Pending | crate::models::TaskState::Assigned))
+                .collect();
+            
+            // Sort by creation time (newest first for better load distribution)
+            reassignable_tasks.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+            
+            for task in reassignable_tasks {
+                if excess == 0 {
+                    break;
+                }
+                
+                // Find an underloaded node to move this task to
+                for (underloaded_node, deficit) in &mut underloaded_nodes {
+                    if *deficit > 0 {
+                        // Move task from overloaded to underloaded node
+                        match self.cluster_state.assign_task(&task.task_id, &underloaded_node.node_id) {
+                            Ok(()) => {
+                                info!("Rebalanced task {} from {} to {}", 
+                                      task.task_id, overloaded_node.node_id, underloaded_node.node_id);
+                                
+                                // Update metadata store if available
+                                if let Some(ref metadata_store) = self.metadata_store {
+                                    if let Err(e) = metadata_store.assign_task(&task.task_id, &underloaded_node.node_id).await {
+                                        warn!("Failed to update metadata store during rebalancing: {}", e);
+                                    }
+                                }
+                                
+                                excess -= 1;
+                                *deficit -= 1;
+                                rebalanced_count += 1;
+                                break;
+                            }
+                            Err(e) => {
+                                warn!("Failed to reassign task {} during rebalancing: {}", task.task_id, e);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        if rebalanced_count > 0 {
+            info!("Task rebalancing completed: {} tasks redistributed", rebalanced_count);
+            
+            // Update scheduler statistics
+            let mut stats = self.stats.write().await;
+            // We could add rebalancing stats here if needed
+        } else {
+            debug!("No tasks were rebalanced - all eligible tasks may be in processing state");
+        }
+        
         Ok(())
     }
 
@@ -523,6 +700,14 @@ impl SimpleTaskScheduler {
         Ok(())
     }
 
+    /// Trigger manual task rebalancing (external API)
+    pub async fn trigger_rebalancing(&self) -> Result<(), ClusterError> {
+        let event = SchedulerEvent::RebalanceTasks;
+        self.event_tx.send(event)
+            .map_err(|_| ClusterError::InvalidOperation("Scheduler channel closed".to_string()))?;
+        Ok(())
+    }
+
     /// Get scheduler statistics (external API)
     pub async fn get_stats(&self) -> Result<SchedulerStats, ClusterError> {
         let (response_tx, response_rx) = oneshot::channel();
@@ -541,6 +726,26 @@ impl SimpleTaskScheduler {
     /// Use only for testing purposes when the background event loop is not running
     pub async fn get_stats_direct(&self) -> SchedulerStats {
         self.stats.read().await.clone()
+    }
+
+    /// Get cluster state (for external access)
+    pub fn cluster_state(&self) -> Arc<ClusterState> {
+        Arc::clone(&self.cluster_state)
+    }
+
+    /// Add a node to the cluster
+    pub fn add_node(&self, node: ClusterNode) {
+        self.cluster_state.upsert_node(node);
+    }
+
+    /// Remove a node from the cluster
+    pub fn remove_node(&self, node_id: &str) -> Option<ClusterNode> {
+        self.cluster_state.remove_node(node_id)
+    }
+
+    /// Update node status
+    pub fn update_node_status(&self, node_id: &str, status: NodeStatus) -> Result<(), ClusterError> {
+        self.cluster_state.update_node_status(node_id, status)
     }
 
     /// Shutdown the scheduler gracefully

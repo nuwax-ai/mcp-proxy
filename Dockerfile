@@ -47,11 +47,11 @@ RUN echo "Target architecture: $TARGETARCH"
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
         echo "Building for ARM64 architecture..." && \
         apt-get update && apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu && \
-        cargo build --release --target aarch64-unknown-linux-gnu; \
     else \
         echo "Building for x86_64 architecture..." && \
-        cargo build --release --target x86_64-unknown-linux-gnu; \
     fi
+
+RUN  cargo build --release
 
 # 复制编译好的二进制文件到指定位置
 RUN mkdir -p /output && \

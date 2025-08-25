@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 
 /// Node roles in the cluster
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

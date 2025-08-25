@@ -309,15 +309,122 @@ impl AudioClusterRaft {
 
     /// Send messages to peer nodes
     async fn send_messages(&self, messages: Vec<Message>) {
-        let peers = self.peers.read().await;
-        
         for message in messages {
-            if let Some(peer_addr) = peers.get(&message.to) {
-                debug!("Sending message to peer {} at {}: {:?}", message.to, peer_addr, message.msg_type());
+            let peer_id = message.to;
+            let peers = self.peers.read().await;
+            
+            if let Some(peer_addr) = peers.get(&peer_id) {
+                debug!("Sending Raft message to peer {} at {}: {:?}", peer_id, peer_addr, message.msg_type());
                 
-                // TODO: Implement actual network communication to peers
-                // For now, we'll just log the messages
-                // In a real implementation, this would send the message via gRPC
+                // Clone necessary data for async task
+                let peer_addr = peer_addr.clone();
+                let message_clone = message.clone();
+                let node_id_clone = self.node_id.clone();
+                
+                // Send message asynchronously to avoid blocking
+                tokio::spawn(async move {
+                    if let Err(e) = Self::send_raft_message_to_peer(
+                        &node_id_clone,
+                        &peer_addr,
+                        message_clone
+                    ).await {
+                        debug!("Failed to send Raft message to peer {}: {}", peer_id, e);
+                    }
+                });
+            } else {
+                debug!("No address found for peer {}", peer_id);
+            }
+        }
+    }
+    
+    /// Send a single Raft message to a peer via gRPC
+    async fn send_raft_message_to_peer(
+        local_node_id: &str,
+        peer_address: &str,
+        message: Message,
+    ) -> Result<(), ClusterError> {
+        use crate::grpc::client::AudioClusterClient;
+        use tonic::Request;
+        
+        // Construct full gRPC address
+        let grpc_address = if peer_address.starts_with("http://") {
+            peer_address.to_string()
+        } else {
+            format!("http://{}", peer_address)
+        };
+        
+        // Create gRPC client with timeout
+        let mut client = match tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            AudioClusterClient::connect(grpc_address.clone())
+        ).await {
+            Ok(Ok(client)) => client,
+            Ok(Err(e)) => {
+                debug!("Failed to connect to peer at {}: {}", grpc_address, e);
+                return Err(ClusterError::Network(format!("Connection failed: {}", e)));
+            }
+            Err(_) => {
+                debug!("Connection timeout to peer at {}", grpc_address);
+                return Err(ClusterError::Network("Connection timeout".to_string()));
+            }
+        };
+        
+        // Convert Raft message to gRPC format
+        let raft_request = crate::grpc::audio_cluster_service::RaftMessageRequest {
+            from: message.from,
+            to: message.to,
+            msg_type: message.msg_type() as i32,
+            term: message.term,
+            log_term: message.log_term,
+            index: message.index,
+            entries: message.entries.iter().map(|entry| {
+                crate::grpc::audio_cluster_service::RaftEntry {
+                    index: entry.index,
+                    term: entry.term,
+                    data: entry.data.clone(),
+                    entry_type: entry.entry_type() as i32,
+                }
+            }).collect(),
+            commit: message.commit,
+            commit_term: message.commit_term,
+            snapshot: message.snapshot.as_ref().map(|snap| {
+                crate::grpc::audio_cluster_service::RaftSnapshot {
+                    data: snap.data.clone(),
+                    metadata: Some(crate::grpc::audio_cluster_service::SnapshotMetadata {
+                        conf_state: snap.metadata.conf_state.as_ref().map(|cs| {
+                            crate::grpc::audio_cluster_service::ConfState {
+                                voters: cs.voters.clone(),
+                                learners: cs.learners.clone(),
+                                voters_outgoing: cs.voters_outgoing.clone(),
+                                learners_next: cs.learners_next.clone(),
+                                auto_leave: cs.auto_leave,
+                            }
+                        }),
+                        index: snap.metadata.index,
+                        term: snap.metadata.term,
+                    }),
+                }
+            }),
+            request_snapshot: message.request_snapshot,
+            reject: message.reject,
+            reject_hint: message.reject_hint,
+            context: message.context.clone(),
+        };
+        
+        // Send Raft message via gRPC
+        match client.send_raft_message(Request::new(raft_request)).await {
+            Ok(response) => {
+                let resp = response.into_inner();
+                if resp.success {
+                    debug!("Raft message sent successfully to {}", grpc_address);
+                } else {
+                    debug!("Raft message rejected by {}: {}", grpc_address, resp.message);
+                }
+                Ok(())
+            }
+            Err(e) => {
+                debug!("gRPC Raft message failed to {}: {}", grpc_address, e);
+                Err(ClusterError::Network(format!("gRPC call failed: {}", e)))
             }
         }
     }
@@ -326,18 +433,97 @@ impl AudioClusterRaft {
     async fn apply_entries(&self, entries: Vec<Entry>) -> Result<(), ClusterError> {
         for entry in entries {
             if entry.data.is_empty() {
-                // Empty entry (heartbeat)
+                // Empty entry (heartbeat or configuration entry)
+                debug!("Skipping empty entry: index={}, term={}", entry.index, entry.term);
                 continue;
             }
 
             debug!("Applying entry: index={}, term={}, data_len={}", 
                 entry.index, entry.term, entry.data.len());
 
-            // TODO: Implement actual state machine application
-            // This would handle cluster metadata updates, task assignments, etc.
+            // Parse and apply cluster operation
+            match self.apply_cluster_operation(&entry.data).await {
+                Ok(operation) => {
+                    info!("Successfully applied cluster operation: {:?}", operation);
+                }
+                Err(e) => {
+                    warn!("Failed to apply cluster operation from entry {}: {}", entry.index, e);
+                    // Continue processing other entries even if one fails
+                }
+            }
         }
 
         Ok(())
+    }
+    
+    /// Apply a single cluster operation from entry data
+    async fn apply_cluster_operation(&self, data: &[u8]) -> Result<ClusterOperation, ClusterError> {
+        // Deserialize the operation
+        let operation: ClusterOperation = serde_json::from_slice(data)
+            .map_err(|e| ClusterError::Serialization(e))?;
+        
+        // Apply the operation to cluster state
+        match &operation {
+            ClusterOperation::AddNode { node_id, address, grpc_port, http_port } => {
+                let new_node = ClusterNode {
+                    node_id: node_id.clone(),
+                    address: address.clone(),
+                    grpc_port: *grpc_port,
+                    http_port: *http_port,
+                    role: NodeRole::Follower, // New nodes start as followers
+                    status: NodeStatus::Joining,
+                    last_heartbeat: chrono::Utc::now().timestamp(),
+                };
+                
+                // Add to metadata store
+                self.metadata_store.add_node(&new_node).await
+                    .map_err(|e| ClusterError::Database(sled::Error::Unsupported(e.to_string())))?;
+                    
+                info!("Added node {} to cluster", node_id);
+            }
+            
+            ClusterOperation::RemoveNode { node_id } => {
+                // Remove from metadata store
+                self.metadata_store.remove_node(node_id).await
+                    .map_err(|e| ClusterError::Database(sled::Error::Unsupported(e.to_string())))?;
+                    
+                info!("Removed node {} from cluster", node_id);
+            }
+            
+            ClusterOperation::UpdateNodeStatus { node_id, status } => {
+                // Update node status in metadata store
+                self.metadata_store.update_node_status(node_id, *status).await
+                    .map_err(|e| ClusterError::Database(sled::Error::Unsupported(e.to_string())))?;
+                    
+                debug!("Updated node {} status to {:?}", node_id, status);
+            }
+            
+            ClusterOperation::AssignTask { task_id, node_id } => {
+                // Assign task to node in metadata store
+                self.metadata_store.assign_task(task_id, node_id).await
+                    .map_err(|e| ClusterError::Database(sled::Error::Unsupported(e.to_string())))?;
+                    
+                debug!("Assigned task {} to node {}", task_id, node_id);
+            }
+            
+            ClusterOperation::CompleteTask { task_id, processing_duration } => {
+                // Mark task as completed
+                self.metadata_store.complete_task(task_id).await
+                    .map_err(|e| ClusterError::Database(sled::Error::Unsupported(e.to_string())))?;
+                    
+                debug!("Completed task {} in {:.2}s", task_id, processing_duration);
+            }
+            
+            ClusterOperation::FailTask { task_id, error_message } => {
+                // Mark task as failed
+                self.metadata_store.fail_task(task_id, error_message).await
+                    .map_err(|e| ClusterError::Database(sled::Error::Unsupported(e.to_string())))?;
+                    
+                debug!("Failed task {} with error: {}", task_id, error_message);
+            }
+        }
+        
+        Ok(operation)
     }
 
     /// Add a new peer to the cluster

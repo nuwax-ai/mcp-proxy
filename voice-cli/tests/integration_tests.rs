@@ -10,7 +10,7 @@ async fn test_config_manager_creation() {
     assert!(config_manager.is_ok());
     
     let manager = config_manager.unwrap();
-    let config = manager.config();
+    let config = manager.config().await;
     
     // Validate default configuration
     assert_eq!(config.server.port, 8080);

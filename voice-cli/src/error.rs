@@ -108,22 +108,111 @@ impl IntoResponse for VoiceCliError {
     }
 }
 
-// Conversion from ClusterError to VoiceCliError
-impl From<crate::models::ClusterError> for VoiceCliError {
-    fn from(error: crate::models::ClusterError) -> Self {
+// Conversion from ClusterError to VoiceCliError (for HTTP responses)
+impl From<crate::models::metadata_store::ClusterError> for VoiceCliError {
+    fn from(error: crate::models::metadata_store::ClusterError) -> Self {
         match error {
-            crate::models::ClusterError::Config(msg) => VoiceCliError::Config(msg),
-            crate::models::ClusterError::Network(msg) => VoiceCliError::Config(format!("Network error: {}", msg)),
-            crate::models::ClusterError::Timeout(msg) => VoiceCliError::Config(format!("Timeout: {}", msg)),
-            crate::models::ClusterError::NodeNotFound(msg) => VoiceCliError::Config(format!("Node not found: {}", msg)),
-            crate::models::ClusterError::TaskNotFound(msg) => VoiceCliError::Config(format!("Task not found: {}", msg)),
-            crate::models::ClusterError::NoAvailableNodes => VoiceCliError::Config("No available nodes".to_string()),
-            crate::models::ClusterError::TranscriptionFailed(msg) => VoiceCliError::TranscriptionFailed(msg),
-            crate::models::ClusterError::InvalidOperation(msg) => VoiceCliError::Config(format!("Invalid operation: {}", msg)),
-            crate::models::ClusterError::Database(err) => VoiceCliError::Config(format!("Database error: {}", err)),
-            crate::models::ClusterError::Serialization(err) => VoiceCliError::Json(err),
+            crate::models::metadata_store::ClusterError::Config(msg) => VoiceCliError::Config(msg),
+            crate::models::metadata_store::ClusterError::Network(msg) => VoiceCliError::Config(format!("Network error: {}", msg)),
+            crate::models::metadata_store::ClusterError::Timeout(msg) => VoiceCliError::Config(format!("Timeout: {}", msg)),
+            crate::models::metadata_store::ClusterError::NodeNotFound(msg) => VoiceCliError::Config(format!("Node not found: {}", msg)),
+            crate::models::metadata_store::ClusterError::TaskNotFound(msg) => VoiceCliError::Config(format!("Task not found: {}", msg)),
+            crate::models::metadata_store::ClusterError::NoAvailableNodes => VoiceCliError::Config("No available nodes".to_string()),
+            crate::models::metadata_store::ClusterError::TranscriptionFailed(msg) => VoiceCliError::TranscriptionFailed(msg),
+            crate::models::metadata_store::ClusterError::InvalidOperation(msg) => VoiceCliError::Config(format!("Invalid operation: {}", msg)),
+            crate::models::metadata_store::ClusterError::Database(err) => VoiceCliError::Config(format!("Database error: {}", err)),
+            crate::models::metadata_store::ClusterError::Serialization(err) => VoiceCliError::Json(err),
         }
     }
 }
 
+// Note: ClusterError automatically converts to anyhow::Error via the blanket impl
+// since ClusterError implements std::error::Error through thiserror
+
+/// Extension trait for adding context to cluster operation results
+pub trait ClusterResultExt<T> {
+    /// Add node context to the error
+    fn with_node_context(self, node_id: &str) -> anyhow::Result<T>;
+    
+    /// Add task context to the error
+    fn with_task_context(self, task_id: &str) -> anyhow::Result<T>;
+    
+    /// Add cluster operation context to the error
+    fn with_cluster_context(self, operation: &str) -> anyhow::Result<T>;
+}
+
+impl<T> ClusterResultExt<T> for std::result::Result<T, crate::models::metadata_store::ClusterError> {
+    fn with_node_context(self, node_id: &str) -> anyhow::Result<T> {
+        self.map_err(|e| anyhow::Error::new(e).context(format!("Node operation failed for node '{}'", node_id)))
+    }
+    
+    fn with_task_context(self, task_id: &str) -> anyhow::Result<T> {
+        self.map_err(|e| anyhow::Error::new(e).context(format!("Task operation failed for task '{}'", task_id)))
+    }
+    
+    fn with_cluster_context(self, operation: &str) -> anyhow::Result<T> {
+        self.map_err(|e| anyhow::Error::new(e).context(format!("Cluster operation '{}' failed", operation)))
+    }
+}
+
 pub type Result<T> = std::result::Result<T, VoiceCliError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::metadata_store::ClusterError;
+
+    #[test]
+    fn test_cluster_result_ext_node_context() {
+        let error: std::result::Result<(), ClusterError> = Err(ClusterError::NodeNotFound("test-node".to_string()));
+        let result = error.with_node_context("test-node");
+        
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        let error_msg = error.to_string();
+        println!("Error message: {}", error_msg);
+        assert!(error_msg.contains("Node operation failed for node 'test-node'"));
+        // The original error message is in the chain, not necessarily in the main message
+        let error_chain = format!("{:?}", error);
+        assert!(error_chain.contains("Node not found: test-node"));
+    }
+
+    #[test]
+    fn test_cluster_result_ext_task_context() {
+        let error: std::result::Result<(), ClusterError> = Err(ClusterError::TaskNotFound("task-123".to_string()));
+        let result = error.with_task_context("task-123");
+        
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        let error_msg = error.to_string();
+        println!("Error message: {}", error_msg);
+        assert!(error_msg.contains("Task operation failed for task 'task-123'"));
+        // The original error message is in the chain, not necessarily in the main message
+        let error_chain = format!("{:?}", error);
+        assert!(error_chain.contains("Task not found: task-123"));
+    }
+
+    #[test]
+    fn test_cluster_result_ext_cluster_context() {
+        let error: std::result::Result<(), ClusterError> = Err(ClusterError::NoAvailableNodes);
+        let result = error.with_cluster_context("task assignment");
+        
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        let error_msg = error.to_string();
+        println!("Error message: {}", error_msg);
+        assert!(error_msg.contains("Cluster operation 'task assignment' failed"));
+        // The original error message is in the chain, not necessarily in the main message
+        let error_chain = format!("{:?}", error);
+        assert!(error_chain.contains("No available nodes"));
+    }
+
+    #[test]
+    fn test_cluster_result_ext_success() {
+        let success: std::result::Result<String, ClusterError> = Ok("success".to_string());
+        let result = success.with_node_context("test-node");
+        
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "success");
+    }
+}

@@ -1,7 +1,6 @@
 use crate::models::{AudioFormat};
 use crate::models::request::ProcessedAudio;
 use crate::VoiceCliError;
-use axum::Error;
 use bytes::Bytes;
 use std::path::PathBuf;
 use std::io::Write;

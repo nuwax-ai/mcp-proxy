@@ -1,4 +1,4 @@
-use crate::models::{ClusterError, MetadataStore, ClusterNode, NodeStatus, NodeRole};
+use crate::models::{ClusterError, MetadataStore, ClusterNode, NodeStatus};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -48,13 +48,7 @@ impl Default for DiscoveryConfig {
     }
 }
 
-/// Peer connection information
-#[derive(Debug, Clone)]
-struct PeerConnection {
-    node: ClusterNode,
-    failed_health_checks: u32,
-    last_successful_check: Option<std::time::Instant>,
-}
+
 
 impl NodeDiscovery {
     /// Create a new NodeDiscovery instance

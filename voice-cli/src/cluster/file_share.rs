@@ -1,11 +1,10 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 use tokio::fs;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::RwLock;
-use tracing::{debug, info, warn, error};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 use bytes::Bytes;
 use serde::{Serialize, Deserialize};
@@ -473,6 +472,7 @@ pub struct TaskDistributor {
     /// File share manager
     file_share: Arc<ClusterFileShare>,
     /// Node ID
+    #[allow(dead_code)]
     node_id: String,
 }
 

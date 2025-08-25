@@ -1,7 +1,7 @@
 use crate::models::Config;
 use crate::{Result, VoiceCliError};
-use crate::load_balancer::LoadBalancerService;
-use crate::models::{MetadataStore, LoadBalancerConfig};
+use crate::load_balancer::VoiceCliLoadBalancer;
+use crate::models::MetadataStore;
 use std::time::Duration;
 use std::process::{Command, Stdio};
 use tracing::{info, warn, error};
@@ -32,7 +32,7 @@ pub async fn handle_lb_run(
     lb_config.health_check_interval = health_check_interval;
     lb_config.enabled = true;
 
-    let lb_service = LoadBalancerService::new(lb_config, metadata_store)
+    let mut lb_service = VoiceCliLoadBalancer::new(lb_config, metadata_store).await
         .map_err(|e| VoiceCliError::Config(format!("Failed to create load balancer: {}", e)))?;
 
     // Set up graceful shutdown
@@ -250,7 +250,7 @@ async fn is_lb_running(port: u16) -> Result<bool> {
 fn check_process_running(pid: u32) -> bool {
     #[cfg(unix)]
     {
-        use nix::sys::signal::{self, Signal};
+        use nix::sys::signal;
         use nix::unistd::Pid;
         
         let pid = Pid::from_raw(pid as i32);

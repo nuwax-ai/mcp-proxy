@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use bytes::Bytes;
 use utoipa::ToSchema;
-use serde_json::json;
+
 
 /// Request structure for transcription (internal use after extracting from multipart)
 #[derive(Debug)]

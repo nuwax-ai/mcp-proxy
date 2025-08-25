@@ -180,7 +180,9 @@ impl ModelService {
         let size = Self::format_size(metadata.len());
         
         // TODO: Get actual memory usage if model is loaded
-        let memory_usage = "Unknown".to_string();
+        // This is a placeholder implementation - real memory tracking would require
+        // integration with the transcription service to monitor loaded models
+        let memory_usage = "Not tracked".to_string();
         
         let status = if self.is_model_valid(&model_path).await? {
             "Valid"
@@ -222,9 +224,107 @@ impl ModelService {
             return Ok(false);
         }
 
-        // TODO: Add more sophisticated validation (file headers, etc.)
-        // For now, we'll just check basic file properties
+        // Enhanced validation: check GGML/GGUF file headers
+        self.validate_model_header(model_path).await
+    }
+    
+    /// Validate GGML/GGUF model file header and structure
+    async fn validate_model_header(&self, model_path: &Path) -> Result<bool, VoiceCliError> {
+        let mut file = fs::File::open(model_path).await
+            .map_err(|e| VoiceCliError::Model(format!("Failed to open model file: {}", e)))?;
         
+        // Read the first 32 bytes for header validation
+        let mut buffer = [0u8; 32];
+        use tokio::io::AsyncReadExt;
+        
+        if file.read_exact(&mut buffer).await.is_err() {
+            warn!("Model file too small to contain valid header");
+            return Ok(false);
+        }
+        
+        // Check for GGML magic number
+        if &buffer[0..4] == b"GGML" {
+            return self.validate_ggml_header(&buffer, model_path).await;
+        }
+        
+        // Check for GGUF magic number
+        if &buffer[0..4] == b"GGUF" {
+            return self.validate_gguf_header(&buffer, model_path).await;
+        }
+        
+        warn!("Model file does not have valid GGML or GGUF magic number");
+        Ok(false)
+    }
+    
+    /// Validate GGML format header
+    async fn validate_ggml_header(&self, buffer: &[u8], model_path: &Path) -> Result<bool, VoiceCliError> {
+        // GGML format: [magic:4][version:4][n_vocab:4][n_embd:4][...]
+        let version = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
+        
+        // Validate version (typical GGML versions for whisper models)
+        let valid_versions = [1, 2, 3, 4]; // Common GGML versions
+        if !valid_versions.contains(&version) {
+            warn!("Unknown GGML version: {} in model file {:?}", version, model_path);
+            // Don't fail immediately as new versions might be valid
+        }
+        
+        // For whisper models, check if we have vocabulary and embedding dimensions
+        let n_vocab = u32::from_le_bytes([buffer[8], buffer[9], buffer[10], buffer[11]]);
+        let n_embd = u32::from_le_bytes([buffer[12], buffer[13], buffer[14], buffer[15]]);
+        
+        // Whisper models typically have these ranges
+        if n_vocab < 1000 || n_vocab > 100000 {
+            warn!("Suspicious vocabulary size: {} in model {:?}", n_vocab, model_path);
+        }
+        
+        if n_embd < 256 || n_embd > 8192 {
+            warn!("Suspicious embedding dimension: {} in model {:?}", n_embd, model_path);
+        }
+        
+        debug!("GGML model validation: version={}, vocab={}, embd={}", version, n_vocab, n_embd);
+        Ok(true)
+    }
+    
+    /// Validate GGUF format header
+    async fn validate_gguf_header(&self, buffer: &[u8], model_path: &Path) -> Result<bool, VoiceCliError> {
+        // GGUF format: [magic:4][version:4][tensor_count:8][metadata_kv_count:8]
+        let version = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
+        
+        // Validate GGUF version (current versions: 1, 2, 3)
+        let valid_versions = [1, 2, 3];
+        if !valid_versions.contains(&version) {
+            warn!("Unknown GGUF version: {} in model file {:?}", version, model_path);
+            // Continue validation as format might still be readable
+        }
+        
+        // Read tensor count (8 bytes in GGUF)
+        let tensor_count = u64::from_le_bytes([
+            buffer[8], buffer[9], buffer[10], buffer[11],
+            buffer[12], buffer[13], buffer[14], buffer[15]
+        ]);
+        
+        // Read metadata key-value count (8 bytes)
+        let metadata_count = u64::from_le_bytes([
+            buffer[16], buffer[17], buffer[18], buffer[19],
+            buffer[20], buffer[21], buffer[22], buffer[23]
+        ]);
+        
+        // Basic sanity checks
+        if tensor_count == 0 {
+            warn!("Model has no tensors: {:?}", model_path);
+            return Ok(false);
+        }
+        
+        if tensor_count > 10000 {
+            warn!("Suspicious tensor count: {} in model {:?}", tensor_count, model_path);
+        }
+        
+        if metadata_count > 1000 {
+            warn!("Suspicious metadata count: {} in model {:?}", metadata_count, model_path);
+        }
+        
+        debug!("GGUF model validation: version={}, tensors={}, metadata_kvs={}", 
+               version, tensor_count, metadata_count);
         Ok(true)
     }
 
@@ -262,7 +362,11 @@ impl ModelService {
     /// List models that are currently loaded in memory
     pub async fn list_loaded_models(&self) -> Result<Vec<String>, VoiceCliError> {
         // TODO: This should track actually loaded models in transcription service
-        // For now, return empty list as placeholder
+        // For now, return empty list as this is not a core business feature
+        // Real implementation would require:
+        // 1. Integration with voice-toolkit to track loaded models
+        // 2. Memory usage monitoring of loaded model instances
+        // 3. Reference counting for multiple concurrent uses
         Ok(Vec::new())
     }
 

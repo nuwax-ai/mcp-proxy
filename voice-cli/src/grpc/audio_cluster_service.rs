@@ -8,12 +8,11 @@ use crate::grpc::proto::{
 use crate::models::{
     MetadataStore, ClusterNode, TaskMetadata, ClusterError,
 };
-use crate::cluster::{SimpleTaskScheduler, SimpleTranscriptionWorker, HeartbeatService, HeartbeatEvent};
+use crate::cluster::{SimpleTaskScheduler, HeartbeatEvent};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status, Code};
 use tracing::{debug, info, warn, error};
-use uuid::Uuid;
 
 /// gRPC service implementation for AudioClusterService
 #[derive(Clone)]
@@ -24,8 +23,6 @@ pub struct AudioClusterServiceImpl {
     metadata_store: Arc<MetadataStore>,
     /// Task scheduler for leader nodes
     task_scheduler: Option<Arc<SimpleTaskScheduler>>,
-    /// Transcription worker for processing tasks
-    transcription_worker: Option<Arc<SimpleTranscriptionWorker>>,
     /// Heartbeat service for health monitoring
     heartbeat_service: Option<mpsc::UnboundedSender<HeartbeatEvent>>,
 }
@@ -36,14 +33,12 @@ impl AudioClusterServiceImpl {
         node_info: ClusterNode,
         metadata_store: Arc<MetadataStore>,
         task_scheduler: Option<Arc<SimpleTaskScheduler>>,
-        transcription_worker: Option<Arc<SimpleTranscriptionWorker>>,
         heartbeat_service: Option<mpsc::UnboundedSender<HeartbeatEvent>>,
     ) -> Self {
         Self {
             node_info,
             metadata_store,
             task_scheduler,
-            transcription_worker,
             heartbeat_service,
         }
     }
@@ -130,8 +125,25 @@ impl AudioClusterService for AudioClusterServiceImpl {
 
         // Validate request
         let node_info = req.node_info.ok_or_else(|| {
+            warn!("Join request missing node info");
             Status::new(Code::InvalidArgument, "Missing node info")
         })?;
+
+        // Validate node info fields
+        if node_info.node_id.is_empty() {
+            warn!("Join request has empty node_id");
+            return Err(Status::new(Code::InvalidArgument, "Node ID cannot be empty"));
+        }
+        
+        if node_info.address.is_empty() {
+            warn!("Join request has empty address");
+            return Err(Status::new(Code::InvalidArgument, "Node address cannot be empty"));
+        }
+        
+        if node_info.grpc_port == 0 || node_info.http_port == 0 {
+            warn!("Join request has invalid ports: grpc={}, http={}", node_info.grpc_port, node_info.http_port);
+            return Err(Status::new(Code::InvalidArgument, "Invalid port numbers"));
+        }
 
         // Convert to ClusterNode
         let joining_node = self.proto_to_cluster_node(&node_info)
@@ -322,11 +334,33 @@ impl AudioClusterService for AudioClusterServiceImpl {
     ) -> Result<Response<TaskAssignmentResponse>, Status> {
         let req = request.into_inner();
         
-        info!("Received task assignment request: task_id={}, client_id={}", 
-              req.task_id, req.client_id);
+        info!("Received task assignment request: task_id={}, client_id={}, filename={}", 
+              req.task_id, req.client_id, req.filename);
+
+        // Validate request fields
+        if req.task_id.is_empty() {
+            warn!("Task assignment request has empty task_id");
+            return Err(Status::new(Code::InvalidArgument, "Task ID cannot be empty"));
+        }
+        
+        if req.client_id.is_empty() {
+            warn!("Task assignment request has empty client_id");
+            return Err(Status::new(Code::InvalidArgument, "Client ID cannot be empty"));
+        }
+        
+        if req.filename.is_empty() {
+            warn!("Task assignment request has empty filename");
+            return Err(Status::new(Code::InvalidArgument, "Filename cannot be empty"));
+        }
+        
+        if req.audio_file_path.is_empty() {
+            warn!("Task assignment request has empty audio_file_path");
+            return Err(Status::new(Code::InvalidArgument, "Audio file path cannot be empty"));
+        }
 
         // Only leaders can assign tasks
         if self.node_info.role != crate::models::NodeRole::Leader {
+            warn!("Non-leader node {} attempted to assign task", self.node_info.node_id);
             return Err(Status::new(Code::PermissionDenied, "Only leader can assign tasks"));
         }
 
@@ -404,11 +438,25 @@ impl AudioClusterService for AudioClusterServiceImpl {
         // Update task in metadata store
         let result = match final_state {
             crate::models::TaskState::Completed => {
-                // Calculate processing duration (simplified - would need start time)
-                let processing_duration = 0.0; // TODO: Calculate actual duration
+                // Calculate processing duration from task creation to completion
+                let task_opt = self.metadata_store.get_task(&req.task_id).await
+                    .map_err(|e| self.cluster_error_to_status(e))?;
+                
+                let processing_duration = if let Some(task) = task_opt {
+                    if task.created_at > 0 && req.completed_at > task.created_at {
+                        ((req.completed_at - task.created_at) as f64) as f32
+                    } else {
+                        0.0
+                    }
+                } else {
+                    0.0
+                };
+                
+                info!("Task {} completed in {:.2} seconds", req.task_id, processing_duration);
                 self.metadata_store.complete_task(&req.task_id, processing_duration).await
             }
             crate::models::TaskState::Failed => {
+                error!("Task {} failed: {}", req.task_id, req.error_message);
                 self.metadata_store.fail_task(&req.task_id, &req.error_message).await
             }
             _ => {

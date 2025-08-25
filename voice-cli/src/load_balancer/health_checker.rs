@@ -1,14 +1,14 @@
 use reqwest::Client;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::{RwLock, mpsc};
 use tokio::time::{interval, timeout};
 use tracing::{debug, info, warn, error};
 use uuid::Uuid;
 
 use crate::models::{
-    ClusterNode, MetadataStore, ClusterError, NodeStatus, NodeRole
+    ClusterNode, MetadataStore, ClusterError, NodeStatus
 };
 
 /// Health check result for a single node

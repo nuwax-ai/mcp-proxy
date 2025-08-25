@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tempfile::NamedTempFile;
 use tokio::sync::mpsc;
-use tracing::{info, warn, debug, error};
+use tracing::{info, warn, debug};
 
 /// Worker pool for handling transcription tasks with SPMC architecture
 pub struct TranscriptionWorkerPool {
@@ -15,6 +15,7 @@ pub struct TranscriptionWorkerPool {
     /// Worker handles for cleanup
     worker_handles: Vec<tokio::task::JoinHandle<()>>,
     /// Configuration
+    #[allow(dead_code)] // False positive: field is used in transcribe_audio method
     config: Arc<Config>,
 }
 

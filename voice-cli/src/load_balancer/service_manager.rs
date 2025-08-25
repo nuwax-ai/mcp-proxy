@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 use tokio::sync::{RwLock, mpsc, Mutex};
 use tokio::time::{interval, timeout};
 use tracing::{debug, info, warn, error};
@@ -8,7 +8,7 @@ use uuid::Uuid;
 use serde::{Serialize, Deserialize};
 
 use crate::models::{
-    ClusterNode, MetadataStore, ClusterError, NodeStatus, NodeRole
+    ClusterNode, MetadataStore, ClusterError, NodeStatus
 };
 use crate::load_balancer::HealthChecker;
 
@@ -115,6 +115,7 @@ pub struct ServiceManager {
     /// Active cluster nodes
     cluster_nodes: Arc<RwLock<HashMap<String, ClusterNode>>>,
     /// Health checker for services and nodes
+    #[allow(dead_code)]
     health_checker: Option<Arc<HealthChecker>>,
     /// Event sender for service events
     event_sender: mpsc::UnboundedSender<ServiceEvent>,
@@ -416,7 +417,7 @@ impl ServiceManager {
             interval.tick().await;
             
             let services = services_ref.read().await.clone();
-            for (service_id, mut service) in services {
+            for (service_id, service) in services {
                 // Perform health check
                 let health_result = Self::check_service_health(&service, config.health_check_timeout).await;
                 

@@ -12,19 +12,13 @@ use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tokio::time::{interval, timeout};
 use tower::ServiceBuilder;
-use tower_http::{
-    cors::CorsLayer,
-    trace::TraceLayer,
-    compression::CompressionLayer,
-};
-use tracing::{debug, info, warn, error};
+use tower_http::{compression::CompressionLayer, cors::CorsLayer, trace::TraceLayer};
+use tracing::{debug, error, info, warn};
 
 // Import necessary types
 use crate::models::{
-    LoadBalancerConfig, ClusterNode, MetadataStore, ClusterError, NodeRole, NodeStatus
+    ClusterError, ClusterNode, LoadBalancerConfig, MetadataStore, NodeRole, NodeStatus,
 };
-
-
 
 /// Built-in HTTP proxy load balancer service
 pub struct LoadBalancerService {
@@ -92,14 +86,19 @@ impl LoadBalancerService {
 
     /// Start the load balancer service
     pub async fn start(&self) -> Result<(), ClusterError> {
-        info!("Starting load balancer on {}:{}", self.config.bind_address, self.config.port);
+        info!(
+            "Starting load balancer on {}:{}",
+            self.config.bind_address, self.config.port
+        );
 
         // Initialize nodes from metadata store
         if let Err(e) = Self::refresh_cluster_nodes(
             &self.metadata_store,
             &self.cluster_nodes,
             &self.leader_node,
-        ).await {
+        )
+        .await
+        {
             warn!("Failed to initialize cluster nodes: {}", e);
         }
 
@@ -111,11 +110,17 @@ impl LoadBalancerService {
         let app = self.create_app();
 
         // Start the HTTP server
-        let listener = tokio::net::TcpListener::bind(format!("{}:{}", self.config.bind_address, self.config.port))
-            .await
-            .map_err(|e| ClusterError::Network(format!("Failed to bind to address: {}", e)))?;
+        let listener = tokio::net::TcpListener::bind(format!(
+            "{}:{}",
+            self.config.bind_address, self.config.port
+        ))
+        .await
+        .map_err(|e| ClusterError::Network(format!("Failed to bind to address: {}", e)))?;
 
-        info!("Load balancer listening on {}:{}", self.config.bind_address, self.config.port);
+        info!(
+            "Load balancer listening on {}:{}",
+            self.config.bind_address, self.config.port
+        );
 
         // Run the server along with background tasks
         tokio::select! {
@@ -126,12 +131,12 @@ impl LoadBalancerService {
             }
             result = health_check_handle => {
                 if let Err(e) = result {
-                    error!("Health checker failed: {}", e);
+                    error!("Health checker task failed: {}", e);
                 }
             }
             result = node_refresh_handle => {
                 if let Err(e) = result {
-                    error!("Node refresher failed: {}", e);
+                    error!("Node refresher task failed: {}", e);
                 }
             }
         }
@@ -155,12 +160,12 @@ impl LoadBalancerService {
                 ServiceBuilder::new()
                     .layer(TraceLayer::new_for_http())
                     .layer(CompressionLayer::new())
-                    .layer(CorsLayer::permissive())
+                    .layer(CorsLayer::permissive()),
             )
     }
 
     /// Start the health checker background task
-    async fn start_health_checker(&self) -> Result<(), ClusterError> {
+    fn start_health_checker(&self) -> tokio::task::JoinHandle<()> {
         let mut interval = interval(Duration::from_secs(self.config.health_check_interval));
         let metadata_store = Arc::clone(&self.metadata_store);
         let cluster_nodes = Arc::clone(&self.cluster_nodes);
@@ -168,39 +173,43 @@ impl LoadBalancerService {
         let client = self.client.clone();
         let health_timeout = Duration::from_secs(self.config.health_check_timeout);
 
-        loop {
-            interval.tick().await;
-            
-            if let Err(e) = Self::check_cluster_health(
-                &metadata_store,
-                &cluster_nodes,
-                &leader_node,
-                &client,
-                health_timeout,
-            ).await {
-                warn!("Health check failed: {}", e);
+        tokio::spawn(async move {
+            loop {
+                interval.tick().await;
+
+                if let Err(e) = Self::check_cluster_health(
+                    &metadata_store,
+                    &cluster_nodes,
+                    &leader_node,
+                    &client,
+                    health_timeout,
+                )
+                .await
+                {
+                    warn!("Health check failed: {}", e);
+                }
             }
-        }
+        })
     }
 
     /// Start the node refresher background task
-    async fn start_node_refresher(&self) -> Result<(), ClusterError> {
+    fn start_node_refresher(&self) -> tokio::task::JoinHandle<()> {
         let mut interval = interval(Duration::from_secs(10)); // Refresh every 10 seconds
         let metadata_store = Arc::clone(&self.metadata_store);
         let cluster_nodes = Arc::clone(&self.cluster_nodes);
         let leader_node = Arc::clone(&self.leader_node);
 
-        loop {
-            interval.tick().await;
-            
-            if let Err(e) = Self::refresh_cluster_nodes(
-                &metadata_store,
-                &cluster_nodes,
-                &leader_node,
-            ).await {
-                warn!("Node refresh failed: {}", e);
+        tokio::spawn(async move {
+            loop {
+                interval.tick().await;
+
+                if let Err(e) =
+                    Self::refresh_cluster_nodes(&metadata_store, &cluster_nodes, &leader_node).await
+                {
+                    warn!("Node refresh failed: {}", e);
+                }
             }
-        }
+        })
     }
 
     /// Check health of all cluster nodes
@@ -217,7 +226,7 @@ impl LoadBalancerService {
 
         for node in nodes {
             let health_url = format!("http://{}:{}/health", node.address, node.http_port);
-            
+
             let is_healthy = match timeout(health_timeout, client.get(&health_url).send()).await {
                 Ok(Ok(response)) => response.status().is_success(),
                 Ok(Err(_)) | Err(_) => false,
@@ -225,22 +234,34 @@ impl LoadBalancerService {
 
             if is_healthy {
                 // Update node status to healthy
-                if let Err(e) = metadata_store.update_node_status(&node.node_id, NodeStatus::Healthy).await {
-                    warn!("Failed to update node {} status to healthy: {}", node.node_id, e);
+                if let Err(e) = metadata_store
+                    .update_node_status(&node.node_id, NodeStatus::Healthy)
+                    .await
+                {
+                    warn!(
+                        "Failed to update node {} status to healthy: {}",
+                        node.node_id, e
+                    );
                 }
-                
+
                 let mut healthy_node = node.clone();
                 healthy_node.status = NodeStatus::Healthy;
                 healthy_nodes.push(healthy_node.clone());
-                
+
                 // Track leader
                 if healthy_node.role == NodeRole::Leader {
                     current_leader = Some(healthy_node);
                 }
             } else {
                 // Update node status to unhealthy
-                if let Err(e) = metadata_store.update_node_status(&node.node_id, NodeStatus::Unhealthy).await {
-                    warn!("Failed to update node {} status to unhealthy: {}", node.node_id, e);
+                if let Err(e) = metadata_store
+                    .update_node_status(&node.node_id, NodeStatus::Unhealthy)
+                    .await
+                {
+                    warn!(
+                        "Failed to update node {} status to unhealthy: {}",
+                        node.node_id, e
+                    );
                 }
             }
         }
@@ -300,7 +321,7 @@ impl LoadBalancerService {
     /// Update load balancer statistics
     async fn update_stats(&self, backend_id: &str, response_time: f32, success: bool) {
         let mut stats = self.stats.write().await;
-        
+
         stats.total_requests += 1;
         if success {
             stats.successful_requests += 1;
@@ -309,7 +330,10 @@ impl LoadBalancerService {
         }
 
         // Update per-backend stats
-        *stats.requests_per_backend.entry(backend_id.to_string()).or_insert(0) += 1;
+        *stats
+            .requests_per_backend
+            .entry(backend_id.to_string())
+            .or_insert(0) += 1;
 
         // Update average response time
         stats.total_response_time += response_time;
@@ -325,10 +349,13 @@ impl LoadBalancerService {
     pub async fn get_cluster_status(&self) -> ClusterStatus {
         let nodes = self.cluster_nodes.read().await.clone();
         let leader = self.leader_node.read().await.clone();
-        
+
         ClusterStatus {
             total_nodes: nodes.len(),
-            healthy_nodes: nodes.iter().filter(|n| n.status == NodeStatus::Healthy).count(),
+            healthy_nodes: nodes
+                .iter()
+                .filter(|n| n.status == NodeStatus::Healthy)
+                .count(),
             leader_node: leader.map(|n| n.node_id),
             nodes,
         }
@@ -374,12 +401,14 @@ async fn proxy_handler(
     };
 
     let backend_url = format!("http://{}:{}", backend.address, backend.http_port);
-    
+
     // Build the target URL
-    let path_and_query = req.uri().path_and_query()
+    let path_and_query = req
+        .uri()
+        .path_and_query()
         .map(|x| x.as_str())
         .unwrap_or("/");
-    
+
     let target_url = format!("{}{}", backend_url, path_and_query);
 
     debug!("Proxying request to: {}", target_url);
@@ -396,7 +425,9 @@ async fn proxy_handler(
     };
 
     // Create proxy request
-    let mut proxy_req = state.service.client
+    let mut proxy_req = state
+        .service
+        .client
         .request(method, &target_url)
         .body(body_bytes);
 
@@ -413,7 +444,10 @@ async fn proxy_handler(
         Err(e) => {
             error!("Failed to proxy request: {}", e);
             let processing_time = start_time.elapsed().as_secs_f32();
-            state.service.update_stats(&backend.node_id, processing_time, false).await;
+            state
+                .service
+                .update_stats(&backend.node_id, processing_time, false)
+                .await;
             return Err(StatusCode::BAD_GATEWAY);
         }
     };
@@ -422,7 +456,10 @@ async fn proxy_handler(
     let success = response.status().is_success();
 
     // Update statistics
-    state.service.update_stats(&backend.node_id, processing_time, success).await;
+    state
+        .service
+        .update_stats(&backend.node_id, processing_time, success)
+        .await;
 
     // Convert response
     let status = response.status();
@@ -437,7 +474,7 @@ async fn proxy_handler(
 
     // Build response
     let mut response_builder = Response::builder().status(status);
-    
+
     // Copy response headers (excluding hop-by-hop headers)
     for (name, value) in headers.iter() {
         if !is_hop_by_hop_header(name.as_str()) {
@@ -468,7 +505,7 @@ async fn lb_status_handler(State(state): State<LoadBalancerState>) -> impl IntoR
 async fn lb_stats_handler(State(state): State<LoadBalancerState>) -> impl IntoResponse {
     let stats = state.service.get_stats().await;
     let cluster_status = state.service.get_cluster_status().await;
-    
+
     // Create enriched stats response
     let enriched_stats = serde_json::json!({
         "total_requests": stats.total_requests,
@@ -482,7 +519,7 @@ async fn lb_stats_handler(State(state): State<LoadBalancerState>) -> impl IntoRe
         "healthy_nodes": cluster_status.healthy_nodes,
         "total_nodes": cluster_status.total_nodes
     });
-    
+
     axum::Json(enriched_stats)
 }
 
@@ -490,7 +527,14 @@ async fn lb_stats_handler(State(state): State<LoadBalancerState>) -> impl IntoRe
 fn is_hop_by_hop_header(name: &str) -> bool {
     matches!(
         name.to_lowercase().as_str(),
-        "connection" | "keep-alive" | "proxy-authenticate" | "proxy-authorization" |
-        "te" | "trailers" | "transfer-encoding" | "upgrade" | "host"
+        "connection"
+            | "keep-alive"
+            | "proxy-authenticate"
+            | "proxy-authorization"
+            | "te"
+            | "trailers"
+            | "transfer-encoding"
+            | "upgrade"
+            | "host"
     )
 }

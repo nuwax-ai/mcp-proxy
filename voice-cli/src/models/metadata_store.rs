@@ -1,6 +1,5 @@
 use crate::models::cluster::{ClusterNode, TaskMetadata, NodeRole, NodeStatus, TaskState, ClusterStats, NodeStats};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use crate::cluster::ClusterState;
 use std::path::Path;
 use std::sync::Arc;
 use chrono::Utc;
@@ -46,9 +45,11 @@ const CLIENT_TASKS_PREFIX: &str = "client_tasks:";
 const NODE_TASKS_PREFIX: &str = "node_tasks:";
 const CLUSTER_META_PREFIX: &str = "cluster_meta:";
 
-/// Metadata store using Sled embedded database
+/// Metadata store using Sled embedded database with ClusterState integration
 pub struct MetadataStore {
     db: Arc<sled::Db>,
+    /// Optional cluster state for atomic operations
+    cluster_state: Option<Arc<ClusterState>>,
 }
 
 impl MetadataStore {
@@ -57,6 +58,19 @@ impl MetadataStore {
         let db = sled::open(db_path)?;
         Ok(Self {
             db: Arc::new(db),
+            cluster_state: None,
+        })
+    }
+
+    /// Create a new MetadataStore with ClusterState integration
+    pub fn new_with_cluster_state<P: AsRef<Path>>(
+        db_path: P, 
+        cluster_state: Arc<ClusterState>
+    ) -> Result<Self, ClusterError> {
+        let db = sled::open(db_path)?;
+        Ok(Self {
+            db: Arc::new(db),
+            cluster_state: Some(cluster_state),
         })
     }
 
@@ -65,13 +79,39 @@ impl MetadataStore {
         let db = sled::Config::new().temporary(true).open()?;
         Ok(Self {
             db: Arc::new(db),
+            cluster_state: None,
         })
+    }
+
+    /// Create an in-memory MetadataStore with ClusterState for testing
+    pub fn new_temp_with_cluster_state(cluster_state: Arc<ClusterState>) -> Result<Self, ClusterError> {
+        let db = sled::Config::new().temporary(true).open()?;
+        Ok(Self {
+            db: Arc::new(db),
+            cluster_state: Some(cluster_state),
+        })
+    }
+
+    /// Set cluster state for atomic operations (can be called after creation)
+    pub fn set_cluster_state(&mut self, cluster_state: Arc<ClusterState>) {
+        self.cluster_state = Some(cluster_state);
+    }
+
+    /// Get cluster state reference
+    pub fn cluster_state(&self) -> Option<&Arc<ClusterState>> {
+        self.cluster_state.as_ref()
     }
 
     // === Node Operations ===
 
     /// Add a new node to the cluster
     pub async fn add_node(&self, node: &ClusterNode) -> Result<(), ClusterError> {
+        // Update cluster state first if available (atomic operation)
+        if let Some(ref cluster_state) = self.cluster_state {
+            cluster_state.upsert_node(node.clone());
+        }
+
+        // Persist to database
         let key = format!("{}{}", NODES_PREFIX, node.node_id);
         let value = serde_json::to_vec(node)?;
         self.db.insert(key, value)?;
@@ -80,6 +120,11 @@ impl MetadataStore {
 
     /// Remove a node from the cluster
     pub async fn remove_node(&self, node_id: &str) -> Result<(), ClusterError> {
+        // Remove from cluster state first if available (atomic operation)
+        if let Some(ref cluster_state) = self.cluster_state {
+            cluster_state.remove_node(node_id);
+        }
+
         let key = format!("{}{}", NODES_PREFIX, node_id);
         
         if self.db.remove(&key)?.is_none() {
@@ -120,6 +165,11 @@ impl MetadataStore {
 
     /// Update node status
     pub async fn update_node_status(&self, node_id: &str, status: NodeStatus) -> Result<(), ClusterError> {
+        // Update cluster state first if available (atomic operation)
+        if let Some(ref cluster_state) = self.cluster_state {
+            cluster_state.update_node_status(node_id, status)?;
+        }
+
         let key = format!("{}{}", NODES_PREFIX, node_id);
         
         if let Some(value) = self.db.get(&key)? {
@@ -150,6 +200,14 @@ impl MetadataStore {
 
     /// Update node heartbeat timestamp
     pub async fn update_heartbeat(&self, node_id: &str) -> Result<(), ClusterError> {
+        // Update cluster state first if available (atomic operation)
+        if let Some(ref cluster_state) = self.cluster_state {
+            if let Some(mut node) = cluster_state.get_node(node_id) {
+                node.update_heartbeat();
+                cluster_state.upsert_node(node);
+            }
+        }
+
         let key = format!("{}{}", NODES_PREFIX, node_id);
         
         if let Some(value) = self.db.get(&key)? {
@@ -167,6 +225,11 @@ impl MetadataStore {
 
     /// Create a new task
     pub async fn create_task(&self, task: &TaskMetadata) -> Result<(), ClusterError> {
+        // Update cluster state first if available (atomic operation)
+        if let Some(ref cluster_state) = self.cluster_state {
+            cluster_state.upsert_task(task.clone());
+        }
+
         let task_key = format!("{}{}", TASKS_PREFIX, task.task_id);
         let task_value = serde_json::to_vec(task)?;
         self.db.insert(task_key, task_value)?;
@@ -190,6 +253,11 @@ impl MetadataStore {
 
     /// Assign a task to a node
     pub async fn assign_task(&self, task_id: &str, node_id: &str) -> Result<(), ClusterError> {
+        // Update cluster state first if available (atomic operation)
+        if let Some(ref cluster_state) = self.cluster_state {
+            cluster_state.assign_task(task_id, node_id)?;
+        }
+
         let task_key = format!("{}{}", TASKS_PREFIX, task_id);
         
         if let Some(value) = self.db.get(&task_key)? {
@@ -235,6 +303,11 @@ impl MetadataStore {
 
     /// Mark task as completed
     pub async fn complete_task(&self, task_id: &str, processing_duration: f32) -> Result<(), ClusterError> {
+        // Update cluster state first if available (atomic operation)
+        if let Some(ref cluster_state) = self.cluster_state {
+            cluster_state.complete_task(task_id, processing_duration)?;
+        }
+
         let key = format!("{}{}", TASKS_PREFIX, task_id);
         
         if let Some(value) = self.db.get(&key)? {
@@ -250,6 +323,11 @@ impl MetadataStore {
 
     /// Mark task as failed with error message
     pub async fn fail_task(&self, task_id: &str, error_message: &str) -> Result<(), ClusterError> {
+        // Update cluster state first if available (atomic operation)
+        if let Some(ref cluster_state) = self.cluster_state {
+            cluster_state.fail_task(task_id, error_message)?;
+        }
+
         let key = format!("{}{}", TASKS_PREFIX, task_id);
         
         if let Some(value) = self.db.get(&key)? {
@@ -381,8 +459,8 @@ impl MetadataStore {
         Ok(stats)
     }
 
-    /// Get all tasks (internal helper)
-    async fn get_all_tasks(&self) -> Result<Vec<TaskMetadata>, ClusterError> {
+    /// Get all tasks (public method)
+    pub async fn get_all_tasks(&self) -> Result<Vec<TaskMetadata>, ClusterError> {
         let mut tasks = Vec::new();
         
         for result in self.db.scan_prefix(TASKS_PREFIX.as_bytes()) {
@@ -452,6 +530,85 @@ impl MetadataStore {
         Ok(cleaned_count)
     }
 
+    /// Sync data from database to cluster state (for initialization)
+    pub async fn sync_to_cluster_state(&self) -> Result<(), ClusterError> {
+        if let Some(ref cluster_state) = self.cluster_state {
+            // Load all nodes from database into cluster state
+            let nodes = self.get_all_nodes().await?;
+            for node in nodes {
+                cluster_state.upsert_node(node);
+            }
+
+            // Load all tasks from database into cluster state
+            let tasks = self.get_all_tasks().await?;
+            for task in tasks {
+                cluster_state.upsert_task(task);
+            }
+
+            tracing::info!(
+                "Synced {} nodes and {} tasks from database to cluster state",
+                cluster_state.get_all_nodes().len(),
+                cluster_state.get_all_tasks().len()
+            );
+        }
+        Ok(())
+    }
+
+    /// Perform atomic node health monitoring update
+    pub async fn update_node_health_atomic(&self, node_id: &str, is_healthy: bool) -> Result<(), ClusterError> {
+        let new_status = if is_healthy {
+            NodeStatus::Healthy
+        } else {
+            NodeStatus::Unhealthy
+        };
+
+        // Update both cluster state and database atomically
+        if let Some(ref cluster_state) = self.cluster_state {
+            // First update cluster state (atomic)
+            cluster_state.update_node_status(node_id, new_status)?;
+            
+            // Then persist to database
+            self.update_node_status(node_id, new_status).await?;
+        } else {
+            // Fallback to database-only update
+            self.update_node_status(node_id, new_status).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Get node health status from cluster state (atomic read)
+    pub fn get_node_health_atomic(&self, node_id: &str) -> Option<NodeStatus> {
+        if let Some(ref cluster_state) = self.cluster_state {
+            cluster_state.get_node(node_id).map(|node| node.status)
+        } else {
+            None
+        }
+    }
+
+    /// Get all healthy nodes atomically
+    pub fn get_healthy_nodes_atomic(&self) -> Vec<ClusterNode> {
+        if let Some(ref cluster_state) = self.cluster_state {
+            cluster_state.get_nodes_by_status(&NodeStatus::Healthy)
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Get cluster statistics from cluster state (atomic read)
+    pub fn get_cluster_stats_atomic(&self) -> Option<crate::cluster::state::ClusterStats> {
+        if let Some(ref cluster_state) = self.cluster_state {
+            Some(cluster_state.get_stats())
+        } else {
+            None
+        }
+    }
+
+    /// Check if cluster state is available
+    pub fn has_cluster_state(&self) -> bool {
+        self.cluster_state.is_some()
+    }
+
     /// Flush all data to disk
     pub async fn flush(&self) -> Result<(), ClusterError> {
         self.db.flush()?;
@@ -463,6 +620,7 @@ impl Clone for MetadataStore {
     fn clone(&self) -> Self {
         Self {
             db: Arc::clone(&self.db),
+            cluster_state: self.cluster_state.clone(),
         }
     }
 }

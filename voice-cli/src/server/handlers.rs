@@ -95,6 +95,37 @@ pub async fn test_handler(
     Ok(format!("backend-{}", port))
 }
 
+/// Shutdown endpoint for graceful cluster node shutdown
+/// POST /cluster/shutdown
+#[utoipa::path(
+    post,
+    path = "/cluster/shutdown",
+    tag = "Cluster",
+    summary = "Shutdown cluster node gracefully",
+    description = "Initiates graceful shutdown of the cluster node. This endpoint is used by the cluster management system to stop nodes cleanly.",
+    responses(
+        (status = 200, description = "Shutdown initiated successfully", body = String),
+        (status = 500, description = "Failed to initiate shutdown", body = String)
+    )
+)]
+pub async fn cluster_shutdown_handler() -> Result<String, VoiceCliError> {
+    info!("Received cluster shutdown request via HTTP API");
+    
+    // In a real implementation, this would trigger the shutdown signal
+    // For now, we'll just return success - the actual shutdown coordination
+    // happens in the ClusterServiceManager
+    tokio::spawn(async {
+        // Give time for the response to be sent
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        
+        // Exit the process gracefully
+        info!("Initiating process shutdown");
+        std::process::exit(0);
+    });
+    
+    Ok("Shutdown initiated".to_string())
+}
+
 /// List available and loaded models
 /// GET /models
 #[utoipa::path(
