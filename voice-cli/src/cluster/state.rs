@@ -1,9 +1,9 @@
-use crate::models::{ClusterNode, TaskMetadata, ClusterError};
+use crate::models::{ClusterError, ClusterNode, TaskMetadata};
+use chrono;
 use dashmap::DashMap;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
-use chrono;
 
 /// Cluster state management using DashMap for atomic operations
 #[derive(Debug, Clone)]
@@ -29,11 +29,13 @@ impl ClusterState {
     /// Add or update a cluster node atomically
     pub fn upsert_node(&self, node: ClusterNode) {
         let node_id = node.node_id.clone();
-        info!("Upserting node: {} (role: {:?}, status: {:?})", 
-              node_id, node.role, node.status);
-        
+        info!(
+            "Upserting node: {} (role: {:?}, status: {:?})",
+            node_id, node.role, node.status
+        );
+
         self.nodes.insert(node_id.clone(), node);
-        
+
         // Initialize empty task list for new nodes if not exists
         self.node_tasks.entry(node_id).or_insert_with(Vec::new);
     }
@@ -41,18 +43,20 @@ impl ClusterState {
     /// Remove a cluster node atomically
     pub fn remove_node(&self, node_id: &str) -> Option<ClusterNode> {
         info!("Removing node: {}", node_id);
-        
+
         // Remove all tasks assigned to this node
         if let Some((_, task_ids)) = self.node_tasks.remove(node_id) {
             for task_id in task_ids {
                 if let Some(mut task) = self.tasks.get_mut(&task_id) {
                     task.assigned_node = None;
-                    warn!("Task {} was assigned to removed node {}, clearing assignment", 
-                          task_id, node_id);
+                    warn!(
+                        "Task {} was assigned to removed node {}, clearing assignment",
+                        task_id, node_id
+                    );
                 }
             }
         }
-        
+
         self.nodes.remove(node_id).map(|(_, node)| node)
     }
 
@@ -63,7 +67,10 @@ impl ClusterState {
 
     /// Get all cluster nodes
     pub fn get_all_nodes(&self) -> Vec<ClusterNode> {
-        self.nodes.iter().map(|entry| entry.value().clone()).collect()
+        self.nodes
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
     }
 
     /// Get nodes by role
@@ -85,11 +92,17 @@ impl ClusterState {
     }
 
     /// Update node status atomically
-    pub fn update_node_status(&self, node_id: &str, status: crate::models::NodeStatus) -> Result<(), ClusterError> {
+    pub fn update_node_status(
+        &self,
+        node_id: &str,
+        status: crate::models::NodeStatus,
+    ) -> Result<(), ClusterError> {
         match self.nodes.get_mut(node_id) {
             Some(mut node) => {
-                debug!("Updating node {} status from {:?} to {:?}", 
-                       node_id, node.status, status);
+                debug!(
+                    "Updating node {} status from {:?} to {:?}",
+                    node_id, node.status, status
+                );
                 node.status = status;
                 Ok(())
             }
@@ -101,14 +114,14 @@ impl ClusterState {
     pub fn upsert_task(&self, task: TaskMetadata) {
         let task_id = task.task_id.clone();
         debug!("Upserting task: {} (state: {:?})", task_id, task.state);
-        
+
         self.tasks.insert(task_id, task);
     }
 
     /// Remove a task atomically
     pub fn remove_task(&self, task_id: &str) -> Option<TaskMetadata> {
         debug!("Removing task: {}", task_id);
-        
+
         if let Some((_, task)) = self.tasks.remove(task_id) {
             // Remove from node_tasks mapping if assigned
             if let Some(node_id) = &task.assigned_node {
@@ -129,7 +142,10 @@ impl ClusterState {
 
     /// Get all tasks
     pub fn get_all_tasks(&self) -> Vec<TaskMetadata> {
-        self.tasks.iter().map(|entry| entry.value().clone()).collect()
+        self.tasks
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
     }
 
     /// Get tasks by state
@@ -173,7 +189,7 @@ impl ClusterState {
                 // Assign to new node
                 task.assigned_node = Some(node_id.to_string());
                 task.state = crate::models::TaskState::Assigned;
-                
+
                 info!("Assigned task {} to node {}", task_id, node_id);
 
                 // Add to new node's task list
@@ -189,11 +205,17 @@ impl ClusterState {
     }
 
     /// Update task state atomically
-    pub fn update_task_state(&self, task_id: &str, state: crate::models::TaskState) -> Result<(), ClusterError> {
+    pub fn update_task_state(
+        &self,
+        task_id: &str,
+        state: crate::models::TaskState,
+    ) -> Result<(), ClusterError> {
         match self.tasks.get_mut(task_id) {
             Some(mut task) => {
-                debug!("Updating task {} state from {:?} to {:?}", 
-                       task_id, task.state, state);
+                debug!(
+                    "Updating task {} state from {:?} to {:?}",
+                    task_id, task.state, state
+                );
                 task.state = state;
                 Ok(())
             }
@@ -202,13 +224,17 @@ impl ClusterState {
     }
 
     /// Complete a task atomically
-    pub fn complete_task(&self, task_id: &str, processing_duration: f32) -> Result<(), ClusterError> {
+    pub fn complete_task(
+        &self,
+        task_id: &str,
+        processing_duration: f32,
+    ) -> Result<(), ClusterError> {
         match self.tasks.get_mut(task_id) {
             Some(mut task) => {
                 task.state = crate::models::TaskState::Completed;
                 task.completed_at = Some(chrono::Utc::now().timestamp());
                 task.processing_duration = Some(processing_duration);
-                
+
                 info!("Completed task {} in {:.2}s", task_id, processing_duration);
 
                 // Remove from node_tasks mapping
@@ -231,7 +257,7 @@ impl ClusterState {
                 task.state = crate::models::TaskState::Failed;
                 task.completed_at = Some(chrono::Utc::now().timestamp());
                 task.error_message = Some(error_message.to_string());
-                
+
                 warn!("Failed task {}: {}", task_id, error_message);
 
                 // Remove from node_tasks mapping
@@ -250,14 +276,26 @@ impl ClusterState {
     /// Get cluster statistics
     pub fn get_stats(&self) -> ClusterStats {
         let total_nodes = self.nodes.len();
-        let healthy_nodes = self.get_nodes_by_status(&crate::models::NodeStatus::Healthy).len();
+        let healthy_nodes = self
+            .get_nodes_by_status(&crate::models::NodeStatus::Healthy)
+            .len();
         let total_tasks = self.tasks.len();
-        
-        let pending_tasks = self.get_tasks_by_state(&crate::models::TaskState::Pending).len();
-        let assigned_tasks = self.get_tasks_by_state(&crate::models::TaskState::Assigned).len();
-        let processing_tasks = self.get_tasks_by_state(&crate::models::TaskState::Processing).len();
-        let completed_tasks = self.get_tasks_by_state(&crate::models::TaskState::Completed).len();
-        let failed_tasks = self.get_tasks_by_state(&crate::models::TaskState::Failed).len();
+
+        let pending_tasks = self
+            .get_tasks_by_state(&crate::models::TaskState::Pending)
+            .len();
+        let assigned_tasks = self
+            .get_tasks_by_state(&crate::models::TaskState::Assigned)
+            .len();
+        let processing_tasks = self
+            .get_tasks_by_state(&crate::models::TaskState::Processing)
+            .len();
+        let completed_tasks = self
+            .get_tasks_by_state(&crate::models::TaskState::Completed)
+            .len();
+        let failed_tasks = self
+            .get_tasks_by_state(&crate::models::TaskState::Failed)
+            .len();
 
         ClusterStats {
             total_nodes,
@@ -283,7 +321,7 @@ impl ClusterState {
         let mut task = TaskMetadata::new(task_id.clone(), client_id, filename);
         task.model = model;
         task.response_format = response_format;
-        
+
         self.upsert_task(task);
         task_id
     }
@@ -294,9 +332,12 @@ impl ClusterState {
             task_ids
                 .iter()
                 .filter_map(|task_id| self.get_task(task_id))
-                .filter(|task| matches!(task.state, 
-                    crate::models::TaskState::Assigned | 
-                    crate::models::TaskState::Processing))
+                .filter(|task| {
+                    matches!(
+                        task.state,
+                        crate::models::TaskState::Assigned | crate::models::TaskState::Processing
+                    )
+                })
                 .count()
         } else {
             0
@@ -341,7 +382,7 @@ mod tests {
     #[test]
     fn test_cluster_state_node_operations() {
         let state = ClusterState::new();
-        
+
         // Create test node
         let node = ClusterNode {
             node_id: "node1".to_string(),
@@ -356,14 +397,16 @@ mod tests {
         // Test upsert
         state.upsert_node(node.clone());
         assert!(state.node_exists("node1"));
-        
+
         // Test get
         let retrieved = state.get_node("node1").unwrap();
         assert_eq!(retrieved.node_id, "node1");
         assert_eq!(retrieved.role, NodeRole::Leader);
 
         // Test update status
-        state.update_node_status("node1", NodeStatus::Unhealthy).unwrap();
+        state
+            .update_node_status("node1", NodeStatus::Unhealthy)
+            .unwrap();
         let updated = state.get_node("node1").unwrap();
         assert_eq!(updated.status, NodeStatus::Unhealthy);
 
@@ -376,7 +419,7 @@ mod tests {
     #[test]
     fn test_cluster_state_task_operations() {
         let state = ClusterState::new();
-        
+
         // Create test task
         let task_id = state.create_task(
             "client1".to_string(),
@@ -386,7 +429,7 @@ mod tests {
         );
 
         assert!(state.task_exists(&task_id));
-        
+
         // Test get task
         let task = state.get_task(&task_id).unwrap();
         assert_eq!(task.client_id, "client1");
@@ -394,7 +437,9 @@ mod tests {
         assert_eq!(task.state, TaskState::Pending);
 
         // Test update state
-        state.update_task_state(&task_id, TaskState::Processing).unwrap();
+        state
+            .update_task_state(&task_id, TaskState::Processing)
+            .unwrap();
         let updated = state.get_task(&task_id).unwrap();
         assert_eq!(updated.state, TaskState::Processing);
 
@@ -408,7 +453,7 @@ mod tests {
     #[test]
     fn test_cluster_state_task_assignment() {
         let state = ClusterState::new();
-        
+
         // Create node and task
         let node = ClusterNode {
             node_id: "node1".to_string(),
@@ -421,16 +466,11 @@ mod tests {
         };
         state.upsert_node(node);
 
-        let task_id = state.create_task(
-            "client1".to_string(),
-            "test.wav".to_string(),
-            None,
-            None,
-        );
+        let task_id = state.create_task("client1".to_string(), "test.wav".to_string(), None, None);
 
         // Test assignment
         state.assign_task(&task_id, "node1").unwrap();
-        
+
         let task = state.get_task(&task_id).unwrap();
         assert_eq!(task.assigned_node, Some("node1".to_string()));
         assert_eq!(task.state, TaskState::Assigned);

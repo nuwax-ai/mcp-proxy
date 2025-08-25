@@ -1,13 +1,13 @@
-use crate::grpc::{AudioClusterClient, connect_to_cluster_node};
-use crate::grpc::proto::{TaskState, NodeStatus};
-use crate::models::{ClusterError, MetadataStore, TaskMetadata, ClusterNode, NodeRole};
 use crate::cluster::{SimpleTaskScheduler, SimpleTranscriptionWorker};
-use std::sync::Arc;
+use crate::grpc::proto::{NodeStatus, TaskState};
+use crate::grpc::{connect_to_cluster_node, AudioClusterClient};
+use crate::models::{ClusterError, ClusterNode, MetadataStore, NodeRole, TaskMetadata};
+use chrono::Utc;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{interval, Duration};
-use tracing::{debug, info, warn, error};
-use chrono::Utc;
+use tracing::{debug, error, info, warn};
 
 /// Manages task assignment and completion reporting across the cluster via gRPC
 pub struct ClusterTaskManager {
@@ -69,11 +69,14 @@ impl ClusterTaskManager {
 
     /// Start the task manager background processes
     pub async fn start(&self) -> Result<(), ClusterError> {
-        info!("Starting cluster task manager for node {}", self.node_info.node_id);
+        info!(
+            "Starting cluster task manager for node {}",
+            self.node_info.node_id
+        );
 
         // Start task processing loop
         let task_processor_handle = self.start_task_processor();
-        
+
         // Start heartbeat sender (if not a leader)
         let heartbeat_handle = if self.node_info.role != NodeRole::Leader {
             Some(self.start_heartbeat_sender())
@@ -102,9 +105,9 @@ impl ClusterTaskManager {
     /// Connect to a cluster node
     pub async fn connect_to_node(&self, node: &ClusterNode) -> Result<(), ClusterError> {
         let address = format!("{}:{}", node.address, node.grpc_port);
-        
+
         info!("Connecting to cluster node {} at {}", node.node_id, address);
-        
+
         match connect_to_cluster_node(&address).await {
             Ok(client) => {
                 let mut clients = self.cluster_clients.write().await;
@@ -135,28 +138,33 @@ impl ClusterTaskManager {
     ) -> Result<String, ClusterError> {
         // Find the leader node
         let leader_node = self.find_leader_node().await?;
-        
+
         // Get or create connection to leader
         let mut client = self.get_or_create_client(&leader_node).await?;
-        
+
         // Submit task assignment request
-        let response = client.assign_task(
-            &task.task_id,
-            &task.client_id,
-            &task.filename,
-            audio_file_path,
-            task.model.clone(),
-            task.response_format.clone(),
-            task.created_at,
-        ).await?;
+        let response = client
+            .assign_task(
+                &task.task_id,
+                &task.client_id,
+                &task.filename,
+                audio_file_path,
+                task.model.clone(),
+                task.response_format.clone(),
+                task.created_at,
+            )
+            .await?;
 
         if response.success {
-            info!("Task {} submitted successfully, assigned to node {}", 
-                  task.task_id, response.assigned_node_id);
+            info!(
+                "Task {} submitted successfully, assigned to node {}",
+                task.task_id, response.assigned_node_id
+            );
             Ok(response.assigned_node_id)
         } else {
             Err(ClusterError::InvalidOperation(format!(
-                "Failed to submit task: {}", response.message
+                "Failed to submit task: {}",
+                response.message
             )))
         }
     }
@@ -171,27 +179,30 @@ impl ClusterTaskManager {
     ) -> Result<(), ClusterError> {
         let leader_node = self.find_leader_node().await?;
         let mut client = self.get_or_create_client(&leader_node).await?;
-        
+
         let final_state = if success {
             TaskState::Completed
         } else {
             TaskState::Failed
         };
 
-        let response = client.report_task_completion(
-            task_id,
-            final_state,
-            error_message,
-            result_data,
-            Utc::now().timestamp(),
-        ).await?;
+        let response = client
+            .report_task_completion(
+                task_id,
+                final_state,
+                error_message,
+                result_data,
+                Utc::now().timestamp(),
+            )
+            .await?;
 
         if response.success {
             info!("Task {} completion reported successfully", task_id);
             Ok(())
         } else {
             Err(ClusterError::InvalidOperation(format!(
-                "Failed to report completion: {}", response.message
+                "Failed to report completion: {}",
+                response.message
             )))
         }
     }
@@ -199,10 +210,10 @@ impl ClusterTaskManager {
     /// Process assigned tasks (for worker nodes)
     async fn start_task_processor(&self) -> Result<(), ClusterError> {
         let mut interval = interval(self.config.task_check_interval);
-        
+
         loop {
             interval.tick().await;
-            
+
             if let Err(e) = self.process_assigned_tasks().await {
                 error!("Error processing assigned tasks: {}", e);
             }
@@ -218,37 +229,34 @@ impl ClusterTaskManager {
         };
 
         // Get tasks assigned to this node
-        let assigned_tasks = self.metadata_store
+        let assigned_tasks = self
+            .metadata_store
             .get_tasks_by_node(&self.node_info.node_id)
             .await?;
 
         for task in assigned_tasks {
             if task.state == crate::models::TaskState::Assigned {
                 debug!("Processing assigned task: {}", task.task_id);
-                
+
                 // Process the task
                 match self.process_single_task(&task, worker).await {
                     Ok(result) => {
                         // Report successful completion
-                        if let Err(e) = self.report_completion(
-                            &task.task_id,
-                            true,
-                            Some(result),
-                            None,
-                        ).await {
+                        if let Err(e) = self
+                            .report_completion(&task.task_id, true, Some(result), None)
+                            .await
+                        {
                             error!("Failed to report task completion: {}", e);
                         }
                     }
                     Err(e) => {
                         error!("Task {} failed: {}", task.task_id, e);
-                        
+
                         // Report failure
-                        if let Err(e) = self.report_completion(
-                            &task.task_id,
-                            false,
-                            None,
-                            Some(e.to_string()),
-                        ).await {
+                        if let Err(e) = self
+                            .report_completion(&task.task_id, false, None, Some(e.to_string()))
+                            .await
+                        {
                             error!("Failed to report task failure: {}", e);
                         }
                     }
@@ -267,7 +275,7 @@ impl ClusterTaskManager {
     ) -> Result<String, ClusterError> {
         use crate::cluster::transcription_worker::{TaskAssignmentRequest, WorkerEvent};
         use tokio::sync::oneshot;
-        
+
         // Create task assignment request from task metadata
         let task_request = TaskAssignmentRequest {
             task_id: task.task_id.clone(),
@@ -281,25 +289,30 @@ impl ClusterTaskManager {
             response_format: task.response_format.clone(),
             created_at: task.created_at,
         };
-        
+
         // Create a oneshot channel for the response
         let (response_tx, response_rx) = oneshot::channel();
-        
+
         // Send the task to the transcription worker
         let event_sender = worker.event_sender();
-        event_sender.send(WorkerEvent::ProcessTask {
-            task_request,
-            response_tx,
-        }).map_err(|_| ClusterError::InvalidOperation(
-            "Failed to send task to transcription worker".to_string()
-        ))?;
-        
+        event_sender
+            .send(WorkerEvent::ProcessTask {
+                task_request,
+                response_tx,
+            })
+            .map_err(|_| {
+                ClusterError::InvalidOperation(
+                    "Failed to send task to transcription worker".to_string(),
+                )
+            })?;
+
         // Wait for the transcription result
-        let transcription_result = response_rx.await
-            .map_err(|_| ClusterError::InvalidOperation(
-                "Failed to receive response from transcription worker".to_string()
-            ))??;
-        
+        let transcription_result = response_rx.await.map_err(|_| {
+            ClusterError::InvalidOperation(
+                "Failed to receive response from transcription worker".to_string(),
+            )
+        })??;
+
         // Convert the result to JSON format expected by the cluster
         let result_json = serde_json::json!({
             "text": transcription_result.text,
@@ -310,17 +323,17 @@ impl ClusterTaskManager {
             "filename": transcription_result.filename,
             "task_id": transcription_result.task_id
         });
-        
+
         Ok(result_json.to_string())
     }
 
     /// Send periodic heartbeats to the leader
     async fn start_heartbeat_sender(&self) -> Result<(), ClusterError> {
         let mut interval = interval(self.config.heartbeat_interval);
-        
+
         loop {
             interval.tick().await;
-            
+
             if let Err(e) = self.send_heartbeat().await {
                 warn!("Failed to send heartbeat: {}", e);
             }
@@ -331,12 +344,14 @@ impl ClusterTaskManager {
     async fn send_heartbeat(&self) -> Result<(), ClusterError> {
         let leader_node = self.find_leader_node().await?;
         let mut client = self.get_or_create_client(&leader_node).await?;
-        
-        let response = client.send_heartbeat(
-            &self.node_info.node_id,
-            NodeStatus::Healthy,
-            Utc::now().timestamp(),
-        ).await?;
+
+        let response = client
+            .send_heartbeat(
+                &self.node_info.node_id,
+                NodeStatus::Healthy,
+                Utc::now().timestamp(),
+            )
+            .await?;
 
         if response.success {
             debug!("Heartbeat sent successfully to leader");
@@ -350,16 +365,20 @@ impl ClusterTaskManager {
     /// Find the current leader node
     async fn find_leader_node(&self) -> Result<ClusterNode, ClusterError> {
         let nodes = self.metadata_store.get_all_nodes().await?;
-        
-        nodes.into_iter()
+
+        nodes
+            .into_iter()
             .find(|node| node.role == NodeRole::Leader)
             .ok_or_else(|| ClusterError::NoAvailableNodes)
     }
 
     /// Get or create a gRPC client for the specified node
-    async fn get_or_create_client(&self, node: &ClusterNode) -> Result<AudioClusterClient, ClusterError> {
+    async fn get_or_create_client(
+        &self,
+        node: &ClusterNode,
+    ) -> Result<AudioClusterClient, ClusterError> {
         let address = format!("{}:{}", node.address, node.grpc_port);
-        
+
         // Check if we already have a healthy client
         {
             let clients = self.cluster_clients.read().await;
@@ -371,9 +390,12 @@ impl ClusterTaskManager {
         }
 
         // Create a new client with connection pooling
-        info!("Creating new gRPC client for node {} at {}", node.node_id, address);
+        info!(
+            "Creating new gRPC client for node {} at {}",
+            node.node_id, address
+        );
         let client = connect_to_cluster_node(&address).await?;
-        
+
         // Store the client for reuse
         {
             let mut clients = self.cluster_clients.write().await;
@@ -386,7 +408,7 @@ impl ClusterTaskManager {
     /// Get task manager statistics
     pub async fn get_stats(&self) -> TaskManagerStats {
         let total_connections = self.cluster_clients.read().await.len();
-        
+
         TaskManagerStats {
             node_id: self.node_info.node_id.clone(),
             total_connections,

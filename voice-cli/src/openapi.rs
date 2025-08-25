@@ -1,9 +1,7 @@
+use crate::models::{HealthResponse, ModelInfo, ModelsResponse, Segment, TranscriptionResponse};
+use crate::server::handlers;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
-use crate::models::{
-    TranscriptionResponse, Segment, HealthResponse, ModelsResponse, ModelInfo
-};
-use crate::server::handlers;
 
 /// OpenAPI specification for Voice CLI API
 #[derive(OpenApi)]
@@ -52,9 +50,9 @@ pub struct ApiDoc;
 
 /// Create Swagger UI service
 pub fn create_swagger_ui() -> SwaggerUi {
-    SwaggerUi::new("/swagger-ui")
-        .url("/api-docs/openapi.json", ApiDoc::openapi())
-        .config(utoipa_swagger_ui::Config::new(["/api-docs/openapi.json"]))
+    SwaggerUi::new("/api/docs")
+        .url("/api/docs/openapi.json", ApiDoc::openapi())
+        .config(utoipa_swagger_ui::Config::new(["/api/docs/openapi.json"]))
 }
 
 /// Get OpenAPI JSON specification

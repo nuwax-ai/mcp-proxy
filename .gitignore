@@ -28,3 +28,6 @@ voice-cli/temp/*
 voice-cli/cluster_metadata/*
 voice-cli/shared-voice-cli/*
 voice-cli/:memory:/*
+
+cluster_metadata
+*.pid

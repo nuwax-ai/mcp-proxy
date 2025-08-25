@@ -1,7 +1,10 @@
 use crate::models::Config;
-use crate::server::handlers;
 use crate::openapi;
-use axum::{routing::{get, post}, Router};
+use crate::server::handlers;
+use axum::{
+    routing::{get, post},
+    Router,
+};
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
@@ -9,30 +12,28 @@ use tower_http::trace::TraceLayer;
 
 pub async fn create_routes(config: Config) -> crate::Result<Router> {
     let config = Arc::new(config);
-    
+
     // Create shared state
     let shared_state = handlers::AppState::new(config.clone()).await?;
-    
+
     let mut app = Router::new()
         // Health check endpoint
         .route("/health", get(handlers::health_handler))
-        
         // Models management endpoints
         .route("/models", get(handlers::models_list_handler))
-        
         // Main transcription endpoint
         .route("/transcribe", post(handlers::transcribe_handler))
-        
         // Simple test endpoint for load balancer testing
         .route("/test", get(handlers::test_handler))
-        
         // Cluster management endpoints
-        .route("/cluster/shutdown", post(handlers::cluster_shutdown_handler))
-        
+        .route(
+            "/cluster/shutdown",
+            post(handlers::cluster_shutdown_handler),
+        )
         // Add shared state
         .with_state(shared_state)
-        
-        // Merge Swagger UI routes (includes /api-docs/openapi.json automatically)
+        // Merge Swagger UI routes (accessible at /api/docs/)
+        // OpenAPI JSON specification available at /api/docs/openapi.json
         .merge(openapi::create_swagger_ui());
 
     // Add CORS if enabled

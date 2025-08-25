@@ -1,5 +1,7 @@
-use crate::models::{ClusterNode, ClusterError, NodeRole, NodeStatus};
 use crate::cluster::ClusterState;
+use crate::models::{ClusterError, ClusterNode, NodeRole, NodeStatus};
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
@@ -8,8 +10,6 @@ use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, RwLock};
 use tokio::time::interval;
 use tracing::{debug, info, warn};
-use serde::{Deserialize, Serialize};
-use chrono::Utc;
 
 /// Service discovery configuration
 #[derive(Debug, Clone)]
@@ -63,10 +63,7 @@ pub enum DiscoveryMessage {
         timestamp: i64,
     },
     /// Node leaving notification
-    Leave {
-        node_id: String,
-        timestamp: i64,
-    },
+    Leave { node_id: String, timestamp: i64 },
 }
 
 /// Node information for discovery
@@ -112,7 +109,11 @@ impl TryFrom<DiscoveryNodeInfo> for ClusterNode {
             "leader" => NodeRole::Leader,
             "follower" => NodeRole::Follower,
             "candidate" => NodeRole::Candidate,
-            _ => return Err(ClusterError::InvalidOperation("Invalid node role".to_string())),
+            _ => {
+                return Err(ClusterError::InvalidOperation(
+                    "Invalid node role".to_string(),
+                ))
+            }
         };
 
         let status = match info.status.as_str() {
@@ -120,15 +121,14 @@ impl TryFrom<DiscoveryNodeInfo> for ClusterNode {
             "unhealthy" => NodeStatus::Unhealthy,
             "joining" => NodeStatus::Joining,
             "leaving" => NodeStatus::Leaving,
-            _ => return Err(ClusterError::InvalidOperation("Invalid node status".to_string())),
+            _ => {
+                return Err(ClusterError::InvalidOperation(
+                    "Invalid node status".to_string(),
+                ))
+            }
         };
 
-        let mut node = ClusterNode::new(
-            info.node_id,
-            info.address,
-            info.grpc_port,
-            info.http_port,
-        );
+        let mut node = ClusterNode::new(info.node_id, info.address, info.grpc_port, info.http_port);
         node.role = role;
         node.status = status;
 
@@ -206,7 +206,10 @@ impl ServiceDiscovery {
             return Ok(());
         }
 
-        info!("Starting service discovery for node: {}", self.local_node.node_id);
+        info!(
+            "Starting service discovery for node: {}",
+            self.local_node.node_id
+        );
 
         // Initialize UDP socket
         self.initialize_socket().await?;
@@ -248,11 +251,13 @@ impl ServiceDiscovery {
             self.config.discovery_port,
         );
 
-        let socket = UdpSocket::bind(bind_addr).await
-            .map_err(|e| ClusterError::Network(format!("Failed to bind discovery socket: {}", e)))?;
+        let socket = UdpSocket::bind(bind_addr).await.map_err(|e| {
+            ClusterError::Network(format!("Failed to bind discovery socket: {}", e))
+        })?;
 
         // Enable broadcast
-        socket.set_broadcast(true)
+        socket
+            .set_broadcast(true)
             .map_err(|e| ClusterError::Network(format!("Failed to enable broadcast: {}", e)))?;
 
         self.socket = Some(Arc::new(socket));
@@ -312,7 +317,8 @@ impl ServiceDiscovery {
             }
 
             // Broadcast node announcement
-            if let Err(e) = Self::broadcast_announcement_static(&socket, &local_node, &config).await {
+            if let Err(e) = Self::broadcast_announcement_static(&socket, &local_node, &config).await
+            {
                 warn!("Failed to broadcast announcement: {}", e);
             }
 
@@ -364,7 +370,9 @@ impl ServiceDiscovery {
         loop {
             match socket.recv_from(&mut buffer).await {
                 Ok((len, addr)) => {
-                    if let Err(e) = Self::handle_discovery_message_static(&buffer[..len], addr, &event_tx).await {
+                    if let Err(e) =
+                        Self::handle_discovery_message_static(&buffer[..len], addr, &event_tx).await
+                    {
                         debug!("Failed to handle discovery message from {}: {}", addr, e);
                     }
                 }
@@ -427,7 +435,7 @@ impl ServiceDiscovery {
             // Remove stale nodes
             for node_id in nodes_to_remove {
                 info!("Removing stale discovered node: {}", node_id);
-                
+
                 {
                     let mut discovered_nodes_guard = discovered_nodes.write().await;
                     discovered_nodes_guard.remove(&node_id);
@@ -466,7 +474,7 @@ impl ServiceDiscovery {
             // Remove stale nodes
             for node_id in nodes_to_remove {
                 info!("Removing stale discovered node: {}", node_id);
-                
+
                 {
                     let mut discovered_nodes = self.discovered_nodes.write().await;
                     discovered_nodes.remove(&node_id);
@@ -491,15 +499,13 @@ impl ServiceDiscovery {
             timestamp: Utc::now().timestamp(),
         };
 
-        let data = serde_json::to_vec(&message)
-            .map_err(|e| ClusterError::Serialization(e))?;
+        let data = serde_json::to_vec(&message).map_err(|e| ClusterError::Serialization(e))?;
 
-        let broadcast_addr = SocketAddr::new(
-            config.multicast_addr,
-            config.discovery_port,
-        );
+        let broadcast_addr = SocketAddr::new(config.multicast_addr, config.discovery_port);
 
-        socket.send_to(&data, broadcast_addr).await
+        socket
+            .send_to(&data, broadcast_addr)
+            .await
             .map_err(|e| ClusterError::Network(format!("Failed to send announcement: {}", e)))?;
 
         debug!("Broadcasted node announcement");
@@ -514,15 +520,14 @@ impl ServiceDiscovery {
             timestamp: Utc::now().timestamp(),
         };
 
-        let data = serde_json::to_vec(&message)
-            .map_err(|e| ClusterError::Serialization(e))?;
+        let data = serde_json::to_vec(&message).map_err(|e| ClusterError::Serialization(e))?;
 
-        let broadcast_addr = SocketAddr::new(
-            self.config.multicast_addr,
-            self.config.discovery_port,
-        );
+        let broadcast_addr =
+            SocketAddr::new(self.config.multicast_addr, self.config.discovery_port);
 
-        socket.send_to(&data, broadcast_addr).await
+        socket
+            .send_to(&data, broadcast_addr)
+            .await
             .map_err(|e| ClusterError::Network(format!("Failed to send announcement: {}", e)))?;
 
         debug!("Broadcasted node announcement");
@@ -540,15 +545,13 @@ impl ServiceDiscovery {
             timestamp: Utc::now().timestamp(),
         };
 
-        let data = serde_json::to_vec(&message)
-            .map_err(|e| ClusterError::Serialization(e))?;
+        let data = serde_json::to_vec(&message).map_err(|e| ClusterError::Serialization(e))?;
 
-        let broadcast_addr = SocketAddr::new(
-            config.multicast_addr,
-            config.discovery_port,
-        );
+        let broadcast_addr = SocketAddr::new(config.multicast_addr, config.discovery_port);
 
-        socket.send_to(&data, broadcast_addr).await
+        socket
+            .send_to(&data, broadcast_addr)
+            .await
             .map_err(|e| ClusterError::Network(format!("Failed to send query: {}", e)))?;
 
         debug!("Broadcasted discovery query");
@@ -562,15 +565,14 @@ impl ServiceDiscovery {
             timestamp: Utc::now().timestamp(),
         };
 
-        let data = serde_json::to_vec(&message)
-            .map_err(|e| ClusterError::Serialization(e))?;
+        let data = serde_json::to_vec(&message).map_err(|e| ClusterError::Serialization(e))?;
 
-        let broadcast_addr = SocketAddr::new(
-            self.config.multicast_addr,
-            self.config.discovery_port,
-        );
+        let broadcast_addr =
+            SocketAddr::new(self.config.multicast_addr, self.config.discovery_port);
 
-        socket.send_to(&data, broadcast_addr).await
+        socket
+            .send_to(&data, broadcast_addr)
+            .await
             .map_err(|e| ClusterError::Network(format!("Failed to send query: {}", e)))?;
 
         debug!("Broadcasted discovery query");
@@ -583,11 +585,14 @@ impl ServiceDiscovery {
         _addr: SocketAddr,
         event_tx: &mpsc::UnboundedSender<DiscoveryEvent>,
     ) -> Result<(), ClusterError> {
-        let message: DiscoveryMessage = serde_json::from_slice(data)
-            .map_err(|e| ClusterError::Serialization(e))?;
+        let message: DiscoveryMessage =
+            serde_json::from_slice(data).map_err(|e| ClusterError::Serialization(e))?;
 
         match message {
-            DiscoveryMessage::Announce { node_info, timestamp: _ } => {
+            DiscoveryMessage::Announce {
+                node_info,
+                timestamp: _,
+            } => {
                 let node = ClusterNode::try_from(node_info)?;
                 if let Err(_) = event_tx.send(DiscoveryEvent::NodeDiscovered { node }) {
                     warn!("Failed to send node discovered event");
@@ -598,7 +603,10 @@ impl ServiceDiscovery {
                     warn!("Failed to send query received event");
                 }
             }
-            DiscoveryMessage::Response { node_info, timestamp: _ } => {
+            DiscoveryMessage::Response {
+                node_info,
+                timestamp: _,
+            } => {
                 let node = ClusterNode::try_from(node_info)?;
                 if let Err(_) = event_tx.send(DiscoveryEvent::NodeDiscovered { node }) {
                     warn!("Failed to send node discovered event");
@@ -621,11 +629,14 @@ impl ServiceDiscovery {
         data: &[u8],
         _addr: SocketAddr,
     ) -> Result<(), ClusterError> {
-        let message: DiscoveryMessage = serde_json::from_slice(data)
-            .map_err(|e| ClusterError::Serialization(e))?;
+        let message: DiscoveryMessage =
+            serde_json::from_slice(data).map_err(|e| ClusterError::Serialization(e))?;
 
         match message {
-            DiscoveryMessage::Announce { node_info, timestamp } => {
+            DiscoveryMessage::Announce {
+                node_info,
+                timestamp,
+            } => {
                 if node_info.node_id != self.local_node.node_id {
                     self.handle_node_announcement(node_info, timestamp).await?;
                 }
@@ -635,7 +646,10 @@ impl ServiceDiscovery {
                     self.handle_discovery_query(requester_id).await?;
                 }
             }
-            DiscoveryMessage::Response { node_info, timestamp } => {
+            DiscoveryMessage::Response {
+                node_info,
+                timestamp,
+            } => {
                 if node_info.node_id != self.local_node.node_id {
                     self.handle_node_announcement(node_info, timestamp).await?;
                 }
@@ -658,7 +672,7 @@ impl ServiceDiscovery {
         timestamp: i64,
     ) -> Result<(), ClusterError> {
         let node = ClusterNode::try_from(node_info)?;
-        
+
         // Update discovered nodes cache
         {
             let mut discovered_nodes = self.discovered_nodes.write().await;
@@ -677,7 +691,10 @@ impl ServiceDiscovery {
     #[allow(dead_code)]
     async fn handle_discovery_query(&self, requester_id: String) -> Result<(), ClusterError> {
         // Send query received event
-        if let Err(_) = self.event_tx.send(DiscoveryEvent::QueryReceived { requester_id }) {
+        if let Err(_) = self
+            .event_tx
+            .send(DiscoveryEvent::QueryReceived { requester_id })
+        {
             warn!("Failed to send query received event");
         }
 
@@ -688,13 +705,10 @@ impl ServiceDiscovery {
                 timestamp: Utc::now().timestamp(),
             };
 
-            let data = serde_json::to_vec(&message)
-                .map_err(|e| ClusterError::Serialization(e))?;
+            let data = serde_json::to_vec(&message).map_err(|e| ClusterError::Serialization(e))?;
 
-            let broadcast_addr = SocketAddr::new(
-                self.config.multicast_addr,
-                self.config.discovery_port,
-            );
+            let broadcast_addr =
+                SocketAddr::new(self.config.multicast_addr, self.config.discovery_port);
 
             if let Err(e) = socket.send_to(&data, broadcast_addr).await {
                 warn!("Failed to send discovery response: {}", e);
@@ -723,8 +737,10 @@ impl ServiceDiscovery {
 
     /// Handle node discovered event
     async fn handle_node_discovered(&self, node: ClusterNode) -> Result<(), ClusterError> {
-        info!("Discovered new node: {} at {}:{}", 
-              node.node_id, node.address, node.grpc_port);
+        info!(
+            "Discovered new node: {} at {}:{}",
+            node.node_id, node.address, node.grpc_port
+        );
 
         // Add to cluster state
         self.cluster_state.upsert_node(node);
@@ -785,15 +801,14 @@ impl ServiceDiscovery {
                 timestamp: Utc::now().timestamp(),
             };
 
-            let data = serde_json::to_vec(&message)
-                .map_err(|e| ClusterError::Serialization(e))?;
+            let data = serde_json::to_vec(&message).map_err(|e| ClusterError::Serialization(e))?;
 
-            let broadcast_addr = SocketAddr::new(
-                self.config.multicast_addr,
-                self.config.discovery_port,
-            );
+            let broadcast_addr =
+                SocketAddr::new(self.config.multicast_addr, self.config.discovery_port);
 
-            socket.send_to(&data, broadcast_addr).await
+            socket
+                .send_to(&data, broadcast_addr)
+                .await
                 .map_err(|e| ClusterError::Network(format!("Failed to announce leaving: {}", e)))?;
 
             info!("Announced node leaving");
@@ -805,7 +820,10 @@ impl ServiceDiscovery {
     /// Get discovered nodes
     pub async fn get_discovered_nodes(&self) -> Vec<ClusterNode> {
         let discovered_nodes = self.discovered_nodes.read().await;
-        discovered_nodes.values().map(|(node, _)| node.clone()).collect()
+        discovered_nodes
+            .values()
+            .map(|(node, _)| node.clone())
+            .collect()
     }
 
     /// Check if discovery is active
@@ -819,8 +837,9 @@ impl ServiceDiscovery {
         self.announce_leaving().await?;
 
         // Send shutdown event
-        self.event_tx.send(DiscoveryEvent::Shutdown)
-            .map_err(|_| ClusterError::InvalidOperation("Failed to send shutdown event".to_string()))?;
+        self.event_tx.send(DiscoveryEvent::Shutdown).map_err(|_| {
+            ClusterError::InvalidOperation("Failed to send shutdown event".to_string())
+        })?;
 
         Ok(())
     }
@@ -832,12 +851,7 @@ mod tests {
 
     #[test]
     fn test_discovery_node_info_conversion() {
-        let node = ClusterNode::new(
-            "test-node".to_string(),
-            "127.0.0.1".to_string(),
-            9090,
-            8080,
-        );
+        let node = ClusterNode::new("test-node".to_string(), "127.0.0.1".to_string(), 9090, 8080);
 
         let discovery_info = DiscoveryNodeInfo::from(&node);
         assert_eq!(discovery_info.node_id, "test-node");
@@ -854,12 +868,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_service_discovery_creation() {
-        let node = ClusterNode::new(
-            "test-node".to_string(),
-            "127.0.0.1".to_string(),
-            9090,
-            8080,
-        );
+        let node = ClusterNode::new("test-node".to_string(), "127.0.0.1".to_string(), 9090, 8080);
         let cluster_state = Arc::new(ClusterState::new());
         let config = ServiceDiscoveryConfig::default();
 

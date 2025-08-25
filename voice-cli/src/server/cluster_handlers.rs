@@ -1,21 +1,21 @@
+use crate::cluster::{SimpleTaskScheduler, SimpleTranscriptionWorker};
+use crate::grpc::{ClusterTaskManager, TaskManagerConfig, TaskManagerStats};
+use crate::models::MetadataStore;
 use crate::models::{
-    Config, HttpResult, ModelsResponse, TranscriptionResponse,
-    ClusterNode, TaskMetadata, NodeRole, NodeStatus,
+    ClusterNode, Config, HttpResult, ModelsResponse, NodeRole, NodeStatus, TaskMetadata,
+    TranscriptionResponse,
 };
 use crate::services::{ModelService, TranscriptionWorkerPool};
-use crate::grpc::{ClusterTaskManager, TaskManagerStats, TaskManagerConfig};
-use crate::cluster::{SimpleTaskScheduler, SimpleTranscriptionWorker};
-use crate::models::MetadataStore;
 use crate::VoiceCliError;
 use axum::{
     extract::{Multipart, State},
     response::Json,
 };
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tracing::{error, info, warn};
 use uuid::Uuid;
-use serde::{Deserialize, Serialize};
 
 use utoipa;
 
@@ -26,7 +26,7 @@ pub struct ClusterAppState {
     pub transcription_worker_pool: Arc<TranscriptionWorkerPool>,
     pub model_service: Arc<ModelService>,
     pub start_time: SystemTime,
-    
+
     // Cluster-specific components
     pub cluster_enabled: bool,
     pub cluster_node: Option<ClusterNode>,
@@ -44,59 +44,73 @@ impl ClusterAppState {
         let model_service = Arc::new(ModelService::new((*config).clone()));
 
         // Initialize cluster components if enabled
-        let (cluster_enabled, cluster_node, metadata_store, task_scheduler, transcription_worker, task_manager) = 
-            if config.cluster.enabled {
-                info!("Initializing cluster components");
-                
-                // Create cluster node
-                let cluster_node = ClusterNode::new(
-                    config.cluster.node_id.clone(),
-                    config.cluster.bind_address.clone(),
-                    config.cluster.grpc_port,
-                    config.cluster.http_port,
-                );
+        let (
+            cluster_enabled,
+            cluster_node,
+            metadata_store,
+            task_scheduler,
+            transcription_worker,
+            task_manager,
+        ) = if config.cluster.enabled {
+            info!("Initializing cluster components");
 
-                // Initialize metadata store
-                let metadata_store = Arc::new(
-                    MetadataStore::new(&config.cluster.metadata_db_path)
-                        .map_err(|e| VoiceCliError::Config(format!("Failed to initialize metadata store: {}", e)))?
-                );
+            // Create cluster node
+            let cluster_node = ClusterNode::new(
+                config.cluster.node_id.clone(),
+                config.cluster.bind_address.clone(),
+                config.cluster.grpc_port,
+                config.cluster.http_port,
+            );
 
-                // Create task scheduler (simplified for now)
-                let task_scheduler = Arc::new(
-                    SimpleTaskScheduler::new(
-                        metadata_store.clone(),
-                        config.cluster.leader_can_process_tasks,
-                        cluster_node.node_id.clone(),
-                        crate::cluster::SchedulerConfig::default(),
-                    )
-                );
+            // Initialize metadata store
+            let metadata_store = Arc::new(
+                MetadataStore::new(&config.cluster.metadata_db_path).map_err(|e| {
+                    VoiceCliError::Config(format!("Failed to initialize metadata store: {}", e))
+                })?,
+            );
 
-                // Create transcription worker if enabled
-                let transcription_worker = if config.cluster.leader_can_process_tasks || cluster_node.role != NodeRole::Leader {
-                    Some(Arc::new(SimpleTranscriptionWorker::new(
-                        cluster_node.node_id.clone(),
-                        metadata_store.clone(),
-                        crate::cluster::WorkerConfig::default(),
-                    )))
-                } else {
-                    None
-                };
+            // Create task scheduler (simplified for now)
+            let task_scheduler = Arc::new(SimpleTaskScheduler::new(
+                metadata_store.clone(),
+                config.cluster.leader_can_process_tasks,
+                cluster_node.node_id.clone(),
+                crate::cluster::SchedulerConfig::default(),
+            ));
 
-                // Create task manager
-                let task_manager = Arc::new(ClusterTaskManager::new(
-                    cluster_node.clone(),
+            // Create transcription worker if enabled
+            let transcription_worker = if config.cluster.leader_can_process_tasks
+                || cluster_node.role != NodeRole::Leader
+            {
+                Some(Arc::new(SimpleTranscriptionWorker::new(
+                    cluster_node.node_id.clone(),
                     metadata_store.clone(),
-                    Some(task_scheduler.clone()),
-                    transcription_worker.clone(),
-                    TaskManagerConfig::default(),
-                ));
-
-                (true, Some(cluster_node), Some(metadata_store), Some(task_scheduler), transcription_worker, Some(task_manager))
+                    crate::cluster::WorkerConfig::default(),
+                )))
             } else {
-                info!("Cluster mode disabled, running in single-node mode");
-                (false, None, None, None, None, None)
+                None
             };
+
+            // Create task manager
+            let task_manager = Arc::new(ClusterTaskManager::new(
+                cluster_node.clone(),
+                metadata_store.clone(),
+                Some(task_scheduler.clone()),
+                transcription_worker.clone(),
+                TaskManagerConfig::default(),
+            ));
+
+            (
+                true,
+                Some(cluster_node),
+                Some(metadata_store),
+                Some(task_scheduler),
+                transcription_worker,
+                Some(task_manager),
+            )
+        } else {
+            info!("Cluster mode disabled, running in single-node mode");
+            (false, None, None, None, None, None)
+        };
 
         Ok(Self {
             config,
@@ -149,11 +163,18 @@ impl ClusterAppState {
 
         Some(ClusterStats {
             enabled: true,
-            node_id: self.cluster_node.as_ref().map(|n| n.node_id.clone()).unwrap_or_default(),
+            node_id: self
+                .cluster_node
+                .as_ref()
+                .map(|n| n.node_id.clone())
+                .unwrap_or_default(),
             is_leader: self.is_cluster_leader(),
             can_process_tasks: self.can_process_tasks(),
             total_nodes: cluster_nodes.len(),
-            healthy_nodes: cluster_nodes.iter().filter(|n| n.status == NodeStatus::Healthy).count(),
+            healthy_nodes: cluster_nodes
+                .iter()
+                .filter(|n| n.status == NodeStatus::Healthy)
+                .count(),
             task_manager_stats,
         })
     }
@@ -177,18 +198,16 @@ impl ClusterAppState {
 
         info!("Cluster-aware application state shutdown complete");
     }
-    
+
     /// Get the current cluster leader node
     pub async fn get_cluster_leader(&self) -> Option<ClusterNode> {
         if !self.cluster_enabled {
             return None;
         }
-        
+
         if let Some(ref metadata_store) = self.metadata_store {
             match metadata_store.get_all_nodes().await {
-                Ok(nodes) => {
-                    nodes.into_iter().find(|node| node.role == NodeRole::Leader)
-                }
+                Ok(nodes) => nodes.into_iter().find(|node| node.role == NodeRole::Leader),
                 Err(e) => {
                     warn!("Failed to get cluster nodes: {}", e);
                     None
@@ -198,23 +217,21 @@ impl ClusterAppState {
             None
         }
     }
-    
+
     /// Get healthy worker nodes
     pub async fn get_healthy_workers(&self) -> Vec<ClusterNode> {
         if !self.cluster_enabled {
             return Vec::new();
         }
-        
+
         if let Some(ref metadata_store) = self.metadata_store {
             match metadata_store.get_all_nodes().await {
-                Ok(nodes) => {
-                    nodes.into_iter()
-                        .filter(|node| {
-                            node.role != NodeRole::Leader && 
-                            node.status == NodeStatus::Healthy
-                        })
-                        .collect()
-                }
+                Ok(nodes) => nodes
+                    .into_iter()
+                    .filter(|node| {
+                        node.role != NodeRole::Leader && node.status == NodeStatus::Healthy
+                    })
+                    .collect(),
                 Err(e) => {
                     warn!("Failed to get cluster nodes: {}", e);
                     Vec::new()
@@ -224,16 +241,16 @@ impl ClusterAppState {
             Vec::new()
         }
     }
-    
+
     /// Check if cluster has capacity for new tasks
     pub async fn has_cluster_capacity(&self) -> bool {
         if !self.cluster_enabled {
             return true; // Single-node always has capacity
         }
-        
+
         let healthy_workers = self.get_healthy_workers().await;
         let total_capacity = healthy_workers.len();
-        
+
         // Simple capacity check - can be enhanced with actual load metrics
         total_capacity > 0
     }
@@ -376,7 +393,7 @@ async fn determine_task_processing_strategy(state: &ClusterAppState) -> TaskProc
     if !state.cluster_enabled {
         return TaskProcessingStrategy::ProcessLocallySingle;
     }
-    
+
     // Check if this is a leader that doesn't process tasks directly
     if state.is_cluster_leader() && !state.can_process_tasks() {
         // Check if we have healthy workers to distribute to
@@ -385,20 +402,26 @@ async fn determine_task_processing_strategy(state: &ClusterAppState) -> TaskProc
             warn!("No healthy workers available, leader will process task locally despite configuration");
             return TaskProcessingStrategy::ProcessLocallyCluster;
         }
-        
+
         // Leader should distribute tasks to workers
-        info!("Leader distributing task to {} healthy workers", healthy_workers.len());
+        info!(
+            "Leader distributing task to {} healthy workers",
+            healthy_workers.len()
+        );
         return TaskProcessingStrategy::DistributeToCluster;
     }
-    
+
     // Check cluster capacity and health
     if let Some(cluster_stats) = state.get_cluster_stats().await {
         let healthy_workers = cluster_stats.healthy_nodes.saturating_sub(1); // Exclude leader
-        
+
         // If we're a leader that can process tasks, decide based on cluster load
         if state.is_cluster_leader() && state.can_process_tasks() {
             if healthy_workers > 0 && state.has_cluster_capacity().await {
-                info!("Leader can process tasks, {} workers available, processing locally", healthy_workers);
+                info!(
+                    "Leader can process tasks, {} workers available, processing locally",
+                    healthy_workers
+                );
                 TaskProcessingStrategy::ProcessLocallyCluster
             } else {
                 info!("Limited cluster capacity, leader processing locally");
@@ -433,48 +456,65 @@ async fn distribute_task_to_cluster(
 
     // Submit task via task manager with real file sharing
     if let Some(ref task_manager) = state.task_manager {
-        info!("Distributing task {} to cluster with real file sharing", task_id);
-        
+        info!(
+            "Distributing task {} to cluster with real file sharing",
+            task_id
+        );
+
         // Create file share instance for this task
         use crate::cluster::file_share::{ClusterFileShare, FileShareConfig, TaskDistributor};
         use std::sync::Arc;
-        
+
         // Configure file sharing strategy
         let file_share_config = FileShareConfig {
             storage_base_dir: std::path::PathBuf::from("./cluster-storage"),
             max_file_size: state.config.server.max_file_size as u64,
             ..Default::default()
         };
-        
+
         // Get node ID from cluster configuration
-        let node_id = state.cluster_node
+        let node_id = state
+            .cluster_node
             .as_ref()
             .map(|n| n.node_id.clone())
             .unwrap_or_else(|| "unknown-node".to_string());
-        
+
         // Create file share manager
         match ClusterFileShare::new(file_share_config, node_id.clone()).await {
             Ok(file_share) => {
                 let file_share = Arc::new(file_share);
                 let distributor = TaskDistributor::new(file_share, node_id);
-                
+
                 // Distribute task with real file sharing
-                match distributor.distribute_task_with_file_sharing(&mut task_metadata, audio_data).await {
+                match distributor
+                    .distribute_task_with_file_sharing(&mut task_metadata, audio_data)
+                    .await
+                {
                     Ok(file_id) => {
-                        info!("Task {} audio file stored successfully with ID {}", task_id, file_id);
-                        
+                        info!(
+                            "Task {} audio file stored successfully with ID {}",
+                            task_id, file_id
+                        );
+
                         // Store task metadata in the metadata store
                         if let Some(ref metadata_store) = state.metadata_store {
                             match metadata_store.create_task(&task_metadata).await {
                                 Ok(_) => {
                                     info!("Task {} metadata stored successfully", task_id);
-                                    
+
                                     // Submit task to cluster for processing
-                                    let audio_file_path = task_metadata.audio_file_path.clone().unwrap_or_default();
-                                    match task_manager.submit_task(&task_metadata, &audio_file_path).await {
+                                    let audio_file_path =
+                                        task_metadata.audio_file_path.clone().unwrap_or_default();
+                                    match task_manager
+                                        .submit_task(&task_metadata, &audio_file_path)
+                                        .await
+                                    {
                                         Ok(assigned_node) => {
-                                            info!("Task {} successfully assigned to node {}", task_id, assigned_node);
-                                            
+                                            info!(
+                                                "Task {} successfully assigned to node {}",
+                                                task_id, assigned_node
+                                            );
+
                                             let response = TranscriptionResponse {
                                                 text: format!("Task {} successfully distributed to cluster node {}", task_id, assigned_node),
                                                 language: Some("en".to_string()),
@@ -482,37 +522,59 @@ async fn distribute_task_to_cluster(
                                                 segments: Vec::new(),
                                                 processing_time: start_time.elapsed().as_secs_f32(),
                                             };
-                                            
+
                                             HttpResult::success(response)
                                         }
                                         Err(e) => {
-                                            error!("Failed to assign task {} to cluster: {}", task_id, e);
-                                            HttpResult::from(VoiceCliError::Config(format!("Task assignment failed: {}", e)))
+                                            error!(
+                                                "Failed to assign task {} to cluster: {}",
+                                                task_id, e
+                                            );
+                                            HttpResult::from(VoiceCliError::Config(format!(
+                                                "Task assignment failed: {}",
+                                                e
+                                            )))
                                         }
                                     }
                                 }
                                 Err(e) => {
                                     error!("Failed to store task metadata: {}", e);
-                                    HttpResult::from(VoiceCliError::Config(format!("Failed to store task: {}", e)))
+                                    HttpResult::from(VoiceCliError::Config(format!(
+                                        "Failed to store task: {}",
+                                        e
+                                    )))
                                 }
                             }
                         } else {
-                            HttpResult::from(VoiceCliError::Config("Metadata store not available".to_string()))
+                            HttpResult::from(VoiceCliError::Config(
+                                "Metadata store not available".to_string(),
+                            ))
                         }
                     }
                     Err(e) => {
                         error!("Failed to store audio file for task {}: {}", task_id, e);
-                        HttpResult::from(VoiceCliError::Config(format!("File sharing failed: {}", e)))
+                        HttpResult::from(VoiceCliError::Config(format!(
+                            "File sharing failed: {}",
+                            e
+                        )))
                     }
                 }
             }
             Err(e) => {
-                error!("Failed to initialize file sharing for task {}: {}", task_id, e);
-                HttpResult::from(VoiceCliError::Config(format!("File sharing initialization failed: {}", e)))
+                error!(
+                    "Failed to initialize file sharing for task {}: {}",
+                    task_id, e
+                );
+                HttpResult::from(VoiceCliError::Config(format!(
+                    "File sharing initialization failed: {}",
+                    e
+                )))
             }
         }
     } else {
-        HttpResult::from(VoiceCliError::Config("Task manager not available".to_string()))
+        HttpResult::from(VoiceCliError::Config(
+            "Task manager not available".to_string(),
+        ))
     }
 }
 
@@ -525,7 +587,7 @@ async fn process_task_locally_cluster(
     start_time: Instant,
 ) -> crate::models::HttpResult<TranscriptionResponse> {
     info!("Processing task {} locally in cluster mode", task_id);
-    
+
     // Create task metadata for cluster tracking
     if let Some(ref metadata_store) = state.metadata_store {
         let mut task_metadata = TaskMetadata::new(
@@ -536,22 +598,22 @@ async fn process_task_locally_cluster(
         task_metadata.model = request.model.clone();
         task_metadata.response_format = request.response_format.clone();
         task_metadata.assigned_node = state.cluster_node.as_ref().map(|n| n.node_id.clone());
-        
+
         // Store the task metadata
         if let Err(e) = metadata_store.create_task(&task_metadata).await {
             warn!("Failed to store task metadata in cluster mode: {}", e);
         }
     }
-    
+
     // Use cluster transcription worker if available
     if let Some(ref _cluster_worker) = state.transcription_worker {
         info!("Using cluster transcription worker for task {}", task_id);
-        
+
         // For now, fall back to the single-node processing until cluster worker integration is complete
         // TODO: Implement direct cluster worker processing
         warn!("Cluster worker direct integration not yet implemented - falling back to single-node processing");
     }
-    
+
     // Fall back to single-node processing
     process_task_locally_single(state, task_id, audio_data, request, start_time).await
 }
@@ -650,12 +712,10 @@ pub async fn cluster_models_list_handler(
         model_service: state.model_service.clone(),
         start_time: state.start_time,
     };
-    
+
     // Delegate to the original models handler to ensure identical behavior
     crate::server::handlers::models_list_handler(axum::extract::State(app_state)).await
 }
 
 // Re-export the existing helper functions to ensure API compatibility
-pub use crate::server::handlers::{
-    extract_transcription_request, validate_audio_file
-};
+pub use crate::server::handlers::{extract_transcription_request, validate_audio_file};

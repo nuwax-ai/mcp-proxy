@@ -1,5 +1,5 @@
-use crate::models::Config;
 use crate::models::worker::TranscriptionRequest;
+use crate::models::Config;
 use crate::VoiceCliError;
 use std::sync::Arc;
 
@@ -10,9 +10,7 @@ pub struct TranscriptionService {
 
 impl TranscriptionService {
     pub async fn new(config: Arc<Config>) -> Result<Self, VoiceCliError> {
-        Ok(Self {
-            config,
-        })
+        Ok(Self { config })
     }
 
     /// Validate transcription request parameters
@@ -20,20 +18,22 @@ impl TranscriptionService {
         // Validate model name if provided
         if let Some(ref model_name) = request.model {
             if !self.config.whisper.supported_models.contains(model_name) {
-                return Err(VoiceCliError::InvalidModelName(
-                    format!("Unsupported model: {}", model_name)
-                ));
+                return Err(VoiceCliError::InvalidModelName(format!(
+                    "Unsupported model: {}",
+                    model_name
+                )));
             }
         }
 
         // Validate response format if provided
         if let Some(ref format) = request.response_format {
             match format.as_str() {
-                "json" | "text" | "verbose_json" => {},
+                "json" | "text" | "verbose_json" => {}
                 _ => {
-                    return Err(VoiceCliError::AudioProcessing(
-                        format!("Unsupported response format: {}", format)
-                    ));
+                    return Err(VoiceCliError::AudioProcessing(format!(
+                        "Unsupported response format: {}",
+                        format
+                    )));
                 }
             }
         }
@@ -43,7 +43,8 @@ impl TranscriptionService {
 
     /// Get the model name to use for transcription
     pub fn get_model_name(&self, request: &TranscriptionRequest) -> String {
-        request.model
+        request
+            .model
             .as_ref()
             .unwrap_or(&self.config.whisper.default_model)
             .clone()
@@ -58,7 +59,11 @@ impl TranscriptionService {
 
     /// Get list of supported audio formats
     pub fn get_supported_formats(&self) -> Vec<String> {
-        self.config.whisper.audio_processing.supported_formats.clone()
+        self.config
+            .whisper
+            .audio_processing
+            .supported_formats
+            .clone()
     }
 }
 
@@ -77,16 +82,14 @@ mod tests {
     #[test]
     fn test_request_validation() {
         let config = Arc::new(Config::default());
-        let service = TranscriptionService {
-            config,
-        };
-        
+        let service = TranscriptionService { config };
+
         let request = TranscriptionRequest {
             filename: "test.wav".to_string(),
             model: Some("invalid_model".to_string()),
             response_format: None,
         };
-        
+
         let result = service.validate_request(&request);
         assert!(result.is_err());
     }

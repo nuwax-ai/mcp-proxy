@@ -1,16 +1,12 @@
-use axum::{
-    extract::Request,
-    middleware::Next,
-    response::Response,
-};
+use axum::{extract::Request, middleware::Next, response::Response};
 use tracing::{error, warn};
 
 pub async fn error_handler(request: Request, next: Next) -> Response {
     let uri = request.uri().clone();
     let method = request.method().clone();
-    
+
     let response = next.run(request).await;
-    
+
     // Log errors based on status code
     match response.status().as_u16() {
         200..=299 => {
@@ -23,10 +19,15 @@ pub async fn error_handler(request: Request, next: Next) -> Response {
             error!("Server error {} {} - {}", method, uri, response.status());
         }
         _ => {
-            warn!("Unexpected status {} {} - {}", method, uri, response.status());
+            warn!(
+                "Unexpected status {} {} - {}",
+                method,
+                uri,
+                response.status()
+            );
         }
     }
-    
+
     response
 }
 

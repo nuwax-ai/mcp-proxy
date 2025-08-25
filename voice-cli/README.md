@@ -120,6 +120,34 @@ voice-cli server restart
 voice-cli server status
 ```
 
+### 🔧 服务停止机制
+
+我们采用符合行业标准的服务停止方式：
+
+**标准信号处理**：
+- 使用 `CancellationToken` 进行优雅关闭
+- 支持 `SIGTERM`/`SIGINT` 信号处理
+- 通过 `broadcast` 通道协调多任务停止
+
+**为什么不使用HTTP API停止**：
+- ❌ 需要额外网络端口和路由
+- ❌ 存在安全风险（任何人都可能调用停止API）
+- ❌ 不符合Unix/Linux系统标准
+- ✅ 我们的方案符合Rust/Tokio生态最佳实践
+
+**停止方式对比**：
+```bash
+# ✅ 推荐：使用CLI命令（标准方式）
+voice-cli cluster stop
+
+# ✅ 推荐：发送系统信号
+kill -TERM <pid>
+kill -INT <pid>  # Ctrl+C
+
+# ❌ 不推荐：HTTP API方式（已废弃）
+# curl -X POST http://localhost:8080/cluster/shutdown
+```
+
 ### Model Management
 
 ```bash
@@ -174,7 +202,9 @@ cp /path/to/voice-cli ./
 # 1. 初始化集群环境
 ./voice-cli cluster init
 
-# 2. 启动集群节点
+# 2. 启动集群节点（前台模式用于调试）
+./voice-cli cluster run
+# 或者后台模式（生产环境推荐）
 ./voice-cli cluster start
 # 输出: ✅ Cluster node started as Leader
 
@@ -198,23 +228,27 @@ cd /opt/voice-cluster
 
 # 2. 加入现有集群 (使用 gRPC 端口)
 ./voice-cli cluster join 192.168.1.100:9090 \
+  --advertise-ip 192.168.1.101 \
   --http-port 8081 --grpc-port 9091
 
-# 3. 验证加入成功
+# 3. 启动节点（前台模式用于调试）
+./voice-cli cluster run --http-port 8081 --grpc-port 9091
+
+# 或者后台模式（生产环境推荐）
+./voice-cli cluster start --http-port 8081 --grpc-port 9091
+
+# 4. 验证加入成功
 ./voice-cli cluster status
 ```
 
 ### 第三步：部署负载均衡器
 
 ```bash
-# 在任一服务器或独立服务器上
-./voice-cli lb init --port 80
+# 在任一服务器或独立服务器上启动负载均衡器（后台模式）
+./voice-cli lb start --port 80
 
 # 前台运行（开发测试）
 ./voice-cli lb run --port 80
-
-# 后台运行（生产部署）
-./voice-cli lb start --port 80
 
 # 检查状态
 ./voice-cli lb status
@@ -323,12 +357,13 @@ voice-cli service status      # 查看服务状态
 ```bash
 # 集群生命周期
 voice-cli cluster init [选项]            # 初始化集群环境
-voice-cli cluster start [选项]           # 启动集群节点
-voice-cli cluster stop                   # 停止节点
-voice-cli cluster restart [选项]         # 重启节点
+voice-cli cluster run [选项]             # 前台运行集群节点（开发/调试）
+voice-cli cluster start [选项]           # 后台启动集群节点（生产部署）
+voice-cli cluster stop                   # 停止集群节点
+voice-cli cluster restart [选项]         # 重启集群节点
 
 # 集群操作
-voice-cli cluster join <地址:端口> [选项] # 加入集群
+voice-cli cluster join <peer-address> --advertise-ip <local-ip> [选项] # 加入集群（必须指定本节点IP）
 voice-cli cluster leave                  # 离开集群
 voice-cli cluster status                 # 集群状态
 voice-cli cluster endpoints             # 节点端点列表
@@ -337,16 +372,20 @@ voice-cli cluster health                 # 健康检查
 # 端口检查
 voice-cli cluster check-ports --http-port 8080 --grpc-port 9090
 
-# 示例：自定义端口启动
-voice-cli cluster init --http-port 8081 --grpc-port 9091
-voice-cli cluster join 192.168.1.100:9090 --http-port 8082 --grpc-port 9092
+# 示例：前台运行（开发模式）
+voice-cli cluster run --http-port 8081 --grpc-port 9091
+
+# 示例：后台启动（生产模式）
+voice-cli cluster start --http-port 8081 --grpc-port 9091
+
+# 示例：加入现有集群
+voice-cli cluster join 192.168.1.100:9090 --advertise-ip 192.168.1.102 --http-port 8082 --grpc-port 9092
 ```
 
 ### 负载均衡器管理
 
 ```bash
 # 负载均衡器生命周期
-voice-cli lb init [--port 80]           # 初始化负载均衡器
 voice-cli lb run [--port 80]            # 前台运行
 voice-cli lb start [--port 80]          # 后台启动
 voice-cli lb stop                       # 停止负载均衡器
@@ -354,13 +393,6 @@ voice-cli lb restart [--port 80]        # 重启负载均衡器
 
 # 状态查看
 voice-cli lb status                      # 负载均衡器状态
-voice-cli lb health                      # 健康检查
-voice-cli lb logs                        # 查看日志
-
-# 系统服务
-voice-cli lb service install            # 安装为系统服务
-voice-cli lb service start              # 启动服务
-voice-cli lb service stop               # 停止服务
 ```
 
 ## 🌐 API 接口
@@ -471,7 +503,7 @@ tail -f ./logs/cluster.log
 ### 场景一：开发测试环境
 
 ```bash
-# 单机快速启动
+# 单机快速启动（前台运行）
 cd /tmp/voice-test
 ./voice-cli server run
 # 访问: http://localhost:8080
@@ -480,7 +512,7 @@ cd /tmp/voice-test
 ### 场景二：小型生产环境
 
 ```bash
-# 单节点 + 系统服务
+# 单节点 + 系统服务（后台运行）
 ./voice-cli service install
 sudo systemctl enable voice-cli
 sudo systemctl start voice-cli
@@ -490,11 +522,12 @@ sudo systemctl start voice-cli
 
 ```bash
 # 3节点集群 + 负载均衡器
-# 节点1: 初始化并启动领导节点
+# 节点1: 初始化并启动领导节点（后台模式）
 ./voice-cli cluster init && ./voice-cli cluster start
 
-# 节点2,3: 加入集群
+# 节点2,3: 加入集群（后台模式）
 ./voice-cli cluster join <leader-ip>:9090
+./voice-cli cluster start
 
 # 独立服务器: 部署负载均衡器  
 ./voice-cli lb service install && sudo systemctl start voice-lb
@@ -504,7 +537,7 @@ sudo systemctl start voice-cli
 
 ```bash
 # 服务器上同时运行节点和负载均衡器
-./voice-cli cluster start                    # 端口 8080
+./voice-cli cluster start                    # 端口 8080（后台模式）
 ./voice-cli lb start --port 80               # 端口 80 代理到 8080
 
 # 客户端访问负载均衡器端口
@@ -555,11 +588,14 @@ Whisper 模型自动从官方仓库下载：
 
 **2. 节点加入失败**
 ```bash
-# 确保使用正确的 gRPC 端口
-./voice-cli cluster join 192.168.1.100:9090  # ✅ 正确：gRPC端口
-# 不要使用: 
+# 确保使用正确的 gRPC 端口和明确指定本节点IP
+./voice-cli cluster join 192.168.1.100:9090 \
+  --advertise-ip 192.168.1.101  # ✅ 正确：明确指定本节点IP
+
+# 不要使用： 
 # ./voice-cli cluster join 192.168.1.100:80    # ❌ 错误：负载均衡器端口
 # ./voice-cli cluster join 192.168.1.100:8080  # ❌ 错误：HTTP端口
+# 省略 --advertise-ip 参数              # ❌ 错误：会报错要求明确指定IP
 ```
 
 **3. 模型下载失败**

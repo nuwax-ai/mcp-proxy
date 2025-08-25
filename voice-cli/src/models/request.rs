@@ -1,7 +1,6 @@
-use serde::{Deserialize, Serialize};
 use bytes::Bytes;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-
 
 /// Request structure for transcription (internal use after extracting from multipart)
 #[derive(Debug)]
@@ -110,22 +109,22 @@ pub enum AudioFormat {
     Ogg,
     Webm,
     Opus,
-    
+
     // Extended audio formats (FFmpeg supported)
-    Amr,        // Adaptive Multi-Rate (mobile)
-    Wma,        // Windows Media Audio
-    Ra,         // RealAudio
-    Au,         // Sun/Unix audio
-    Aiff,       // Apple's uncompressed format
-    Caf,        // Core Audio Format
-    
+    Amr,  // Adaptive Multi-Rate (mobile)
+    Wma,  // Windows Media Audio
+    Ra,   // RealAudio
+    Au,   // Sun/Unix audio
+    Aiff, // Apple's uncompressed format
+    Caf,  // Core Audio Format
+
     // Video formats (audio extraction via FFmpeg)
-    ThreeGp,    // 3GP mobile format
-    Mp4,        // MPEG-4 container
-    Mov,        // QuickTime format
-    Avi,        // Audio Video Interleave
-    Mkv,        // Matroska container
-    
+    ThreeGp, // 3GP mobile format
+    Mp4,     // MPEG-4 container
+    Mov,     // QuickTime format
+    Avi,     // Audio Video Interleave
+    Mkv,     // Matroska container
+
     Unknown,
 }
 
@@ -176,7 +175,7 @@ impl AudioFormat {
             "ogg" => AudioFormat::Ogg,
             "webm" => AudioFormat::Webm,
             "opus" => AudioFormat::Opus,
-            
+
             // Extended audio formats
             "amr" => AudioFormat::Amr,
             "wma" => AudioFormat::Wma,
@@ -184,14 +183,14 @@ impl AudioFormat {
             "au" | "snd" => AudioFormat::Au,
             "aiff" | "aif" => AudioFormat::Aiff,
             "caf" => AudioFormat::Caf,
-            
+
             // Video formats (audio extraction)
             "3gp" | "3g2" => AudioFormat::ThreeGp,
             "mp4" => AudioFormat::Mp4,
             "mov" => AudioFormat::Mov,
             "avi" => AudioFormat::Avi,
             "mkv" | "mka" => AudioFormat::Mkv,
-            
+
             _ => AudioFormat::Unknown,
         }
     }
@@ -292,34 +291,32 @@ impl AudioFormat {
     /// Convert from Symphonia codec type
     pub fn from_symphonia_codec(codec_type: symphonia::core::codecs::CodecType) -> Self {
         use symphonia::core::codecs::*;
-        
+
         // Match specific Symphonia codec types to our AudioFormat enum
         match codec_type {
             CODEC_TYPE_NULL => AudioFormat::Unknown,
-            
+
             // PCM codecs (usually WAV)
-            CODEC_TYPE_PCM_S16LE | CODEC_TYPE_PCM_S16BE |
-            CODEC_TYPE_PCM_S24LE | CODEC_TYPE_PCM_S24BE |
-            CODEC_TYPE_PCM_S32LE | CODEC_TYPE_PCM_S32BE |
-            CODEC_TYPE_PCM_F32LE | CODEC_TYPE_PCM_F32BE |
-            CODEC_TYPE_PCM_F64LE | CODEC_TYPE_PCM_F64BE |
-            CODEC_TYPE_PCM_U8 => AudioFormat::Wav,
-            
+            CODEC_TYPE_PCM_S16LE | CODEC_TYPE_PCM_S16BE | CODEC_TYPE_PCM_S24LE
+            | CODEC_TYPE_PCM_S24BE | CODEC_TYPE_PCM_S32LE | CODEC_TYPE_PCM_S32BE
+            | CODEC_TYPE_PCM_F32LE | CODEC_TYPE_PCM_F32BE | CODEC_TYPE_PCM_F64LE
+            | CODEC_TYPE_PCM_F64BE | CODEC_TYPE_PCM_U8 => AudioFormat::Wav,
+
             // MP3 codec
             CODEC_TYPE_MP3 => AudioFormat::Mp3,
-            
+
             // FLAC codec
             CODEC_TYPE_FLAC => AudioFormat::Flac,
-            
+
             // AAC codec
             CODEC_TYPE_AAC => AudioFormat::Aac,
-            
+
             // Vorbis (usually in OGG container)
             CODEC_TYPE_VORBIS => AudioFormat::Ogg,
-            
+
             // Opus codec
             CODEC_TYPE_OPUS => AudioFormat::Opus,
-            
+
             // Default to Unknown for unsupported codecs
             _ => AudioFormat::Unknown,
         }

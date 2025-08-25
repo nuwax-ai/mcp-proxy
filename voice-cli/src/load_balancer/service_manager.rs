@@ -1,16 +1,14 @@
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
-use tokio::sync::{RwLock, mpsc, Mutex};
+use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::time::{interval, timeout};
-use tracing::{debug, info, warn, error};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
-use serde::{Serialize, Deserialize};
 
-use crate::models::{
-    ClusterNode, MetadataStore, ClusterError, NodeStatus
-};
 use crate::load_balancer::HealthChecker;
+use crate::models::{ClusterError, ClusterNode, MetadataStore, NodeStatus};
 
 /// Service registration request
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -137,7 +135,7 @@ impl ServiceManager {
         health_checker: Option<Arc<HealthChecker>>,
     ) -> Self {
         let (event_sender, event_receiver) = mpsc::unbounded_channel();
-        
+
         Self {
             config,
             metadata_store,
@@ -181,15 +179,21 @@ impl ServiceManager {
     }
 
     /// Register a service
-    pub async fn register_service(&self, registration: ServiceRegistration) -> Result<(), ClusterError> {
-        info!("Registering service {} on node {}", 
-              registration.service_name, registration.node_id);
+    pub async fn register_service(
+        &self,
+        registration: ServiceRegistration,
+    ) -> Result<(), ClusterError> {
+        info!(
+            "Registering service {} on node {}",
+            registration.service_name, registration.node_id
+        );
 
         // Validate the node exists
         let nodes = self.cluster_nodes.read().await;
         if !nodes.contains_key(&registration.node_id) {
             return Err(ClusterError::NodeNotFound(format!(
-                "Node {} not found in cluster", registration.node_id
+                "Node {} not found in cluster",
+                registration.node_id
             )));
         }
 
@@ -215,7 +219,12 @@ impl ServiceManager {
         }
 
         // Update indices
-        self.update_service_indices(&registration.service_id, &registration.service_name, &registration.node_id).await;
+        self.update_service_indices(
+            &registration.service_id,
+            &registration.service_name,
+            &registration.node_id,
+        )
+        .await;
 
         // Send registration event
         let _ = self.event_sender.send(ServiceEvent::ServiceRegistered {
@@ -223,9 +232,11 @@ impl ServiceManager {
             node_id: registration.node_id.clone(),
         });
 
-        info!("Successfully registered service {} (ID: {})", 
-              registration.service_name, registration.service_id);
-        
+        info!(
+            "Successfully registered service {} (ID: {})",
+            registration.service_name, registration.service_id
+        );
+
         Ok(())
     }
 
@@ -240,7 +251,8 @@ impl ServiceManager {
 
         if let Some(service) = removed_service {
             // Update indices
-            self.remove_from_service_indices(&service_id, &service.service_name, &service.node_id).await;
+            self.remove_from_service_indices(&service_id, &service.service_name, &service.node_id)
+                .await;
 
             // Send deregistration event
             let _ = self.event_sender.send(ServiceEvent::ServiceDeregistered {
@@ -252,7 +264,8 @@ impl ServiceManager {
             Ok(())
         } else {
             Err(ClusterError::InvalidOperation(format!(
-                "Service {} not found", service_id
+                "Service {} not found",
+                service_id
             )))
         }
     }
@@ -260,8 +273,9 @@ impl ServiceManager {
     /// Discover services based on query
     pub async fn discover_services(&self, query: &ServiceQuery) -> Vec<ServiceInstance> {
         let services = self.services.read().await;
-        
-        services.values()
+
+        services
+            .values()
             .filter(|service| self.matches_query(service, query))
             .cloned()
             .collect()
@@ -270,8 +284,9 @@ impl ServiceManager {
     /// Get all services for a specific node
     pub async fn get_node_services(&self, node_id: &str) -> Vec<ServiceInstance> {
         let services = self.services.read().await;
-        
-        services.values()
+
+        services
+            .values()
             .filter(|service| service.node_id == node_id)
             .cloned()
             .collect()
@@ -279,7 +294,10 @@ impl ServiceManager {
 
     /// Register a new cluster node
     pub async fn register_node(&self, node: ClusterNode) -> Result<(), ClusterError> {
-        info!("Registering cluster node {} at {}", node.node_id, node.address);
+        info!(
+            "Registering cluster node {} at {}",
+            node.node_id, node.address
+        );
 
         // Add to metadata store
         self.metadata_store.add_node(&node).await?;
@@ -318,7 +336,10 @@ impl ServiceManager {
             let node_services = self.get_node_services(node_id).await;
             for service in node_services {
                 if let Err(e) = self.deregister_service(&service.service_id).await {
-                    warn!("Failed to auto-deregister service {}: {}", service.service_id, e);
+                    warn!(
+                        "Failed to auto-deregister service {}: {}",
+                        service.service_id, e
+                    );
                 }
             }
         }
@@ -334,11 +355,17 @@ impl ServiceManager {
     }
 
     /// Update node health status
-    pub async fn update_node_health(&self, node_id: &str, status: NodeStatus) -> Result<(), ClusterError> {
+    pub async fn update_node_health(
+        &self,
+        node_id: &str,
+        status: NodeStatus,
+    ) -> Result<(), ClusterError> {
         debug!("Updating node {} health status to {:?}", node_id, status);
 
         // Update metadata store
-        self.metadata_store.update_node_status(node_id, status).await?;
+        self.metadata_store
+            .update_node_status(node_id, status)
+            .await?;
 
         // Update local cache
         {
@@ -357,7 +384,10 @@ impl ServiceManager {
 
         // Handle unhealthy nodes
         if status == NodeStatus::Unhealthy && self.config.auto_deregister_on_failure {
-            warn!("Node {} became unhealthy, considering auto-deregistration", node_id);
+            warn!(
+                "Node {} became unhealthy, considering auto-deregistration",
+                node_id
+            );
             // Note: In a production system, you might want to wait for a grace period
             // before auto-deregistering to handle temporary network issues
         }
@@ -370,11 +400,13 @@ impl ServiceManager {
         let nodes = self.cluster_nodes.read().await;
         let services = self.services.read().await;
 
-        let healthy_nodes = nodes.values()
+        let healthy_nodes = nodes
+            .values()
             .filter(|n| n.status == NodeStatus::Healthy)
             .count();
 
-        let healthy_services = services.values()
+        let healthy_services = services
+            .values()
             .filter(|s| s.status == ServiceStatus::Healthy)
             .count();
 
@@ -402,7 +434,10 @@ impl ServiceManager {
             }
         }
 
-        info!("Loaded {} cluster nodes", self.cluster_nodes.read().await.len());
+        info!(
+            "Loaded {} cluster nodes",
+            self.cluster_nodes.read().await.len()
+        );
         Ok(())
     }
 
@@ -415,16 +450,17 @@ impl ServiceManager {
 
         loop {
             interval.tick().await;
-            
+
             let services = services_ref.read().await.clone();
             for (service_id, service) in services {
                 // Perform health check
-                let health_result = Self::check_service_health(&service, config.health_check_timeout).await;
-                
+                let health_result =
+                    Self::check_service_health(&service, config.health_check_timeout).await;
+
                 let mut services_write = services_ref.write().await;
                 if let Some(service_mut) = services_write.get_mut(&service_id) {
                     service_mut.last_health_check = Some(SystemTime::now());
-                    
+
                     if health_result {
                         service_mut.status = ServiceStatus::Healthy;
                         service_mut.health_check_failures = 0;
@@ -454,7 +490,7 @@ impl ServiceManager {
 
         loop {
             interval.tick().await;
-            
+
             // Sync cluster nodes from metadata store
             if let Ok(nodes) = metadata_store.get_all_nodes().await {
                 let mut cluster_nodes_write = cluster_nodes.write().await;
@@ -469,7 +505,7 @@ impl ServiceManager {
     /// Start event processor background task
     async fn start_event_processor(&self) -> Result<(), ClusterError> {
         let event_receiver = Arc::clone(&self.event_receiver);
-        
+
         loop {
             if let Some(event) = event_receiver.lock().await.recv().await {
                 self.handle_service_event(event).await;
@@ -480,11 +516,23 @@ impl ServiceManager {
     /// Handle service manager events
     async fn handle_service_event(&self, event: ServiceEvent) {
         match event {
-            ServiceEvent::ServiceRegistered { service_id, node_id } => {
-                debug!("Handled service registration: {} on node {}", service_id, node_id);
+            ServiceEvent::ServiceRegistered {
+                service_id,
+                node_id,
+            } => {
+                debug!(
+                    "Handled service registration: {} on node {}",
+                    service_id, node_id
+                );
             }
-            ServiceEvent::ServiceDeregistered { service_id, node_id } => {
-                debug!("Handled service deregistration: {} from node {}", service_id, node_id);
+            ServiceEvent::ServiceDeregistered {
+                service_id,
+                node_id,
+            } => {
+                debug!(
+                    "Handled service deregistration: {} from node {}",
+                    service_id, node_id
+                );
             }
             ServiceEvent::ServiceHealthy { service_id } => {
                 debug!("Service {} is healthy", service_id);
@@ -534,8 +582,7 @@ impl ServiceManager {
 
         // Filter by tags
         if !query.tags.is_empty() {
-            let has_all_tags = query.tags.iter()
-                .all(|tag| service.tags.contains(tag));
+            let has_all_tags = query.tags.iter().all(|tag| service.tags.contains(tag));
             if !has_all_tags {
                 return false;
             }
@@ -549,7 +596,8 @@ impl ServiceManager {
         // Update service name index
         {
             let mut service_index = self.service_index.write().await;
-            service_index.entry(service_name.to_string())
+            service_index
+                .entry(service_name.to_string())
                 .or_default()
                 .insert(service_id.to_string());
         }
@@ -557,14 +605,20 @@ impl ServiceManager {
         // Update node service index
         {
             let mut node_service_index = self.node_service_index.write().await;
-            node_service_index.entry(node_id.to_string())
+            node_service_index
+                .entry(node_id.to_string())
                 .or_default()
                 .insert(service_id.to_string());
         }
     }
 
     /// Remove from service indices
-    async fn remove_from_service_indices(&self, service_id: &str, service_name: &str, node_id: &str) {
+    async fn remove_from_service_indices(
+        &self,
+        service_id: &str,
+        service_name: &str,
+        node_id: &str,
+    ) {
         // Remove from service name index
         {
             let mut service_index = self.service_index.write().await;
@@ -590,13 +644,13 @@ impl ServiceManager {
 
     /// Perform health check for a service
     async fn check_service_health(service: &ServiceInstance, timeout_duration: Duration) -> bool {
-        let health_url = format!("http://{}:{}{}", 
-                                service.address, 
-                                service.port, 
-                                service.health_check_path);
+        let health_url = format!(
+            "http://{}:{}{}",
+            service.address, service.port, service.health_check_path
+        );
 
         let client = reqwest::Client::new();
-        
+
         match timeout(timeout_duration, client.get(&health_url).send()).await {
             Ok(Ok(response)) => response.status().is_success(),
             _ => false,
@@ -625,10 +679,10 @@ mod tests {
     async fn test_service_manager_creation() {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
-        
+
         let metadata_store = Arc::new(MetadataStore::new(db_path.to_str().unwrap()).unwrap());
         let config = ServiceManagerConfig::default();
-        
+
         let manager = ServiceManager::new(config, metadata_store, None);
         assert!(!manager.manager_id.is_empty());
     }

@@ -5,11 +5,11 @@ use std::time::Duration;
 use tokio::time::timeout;
 use tracing::{info, warn};
 
-pub mod process_manager;
 pub mod health_checker;
+pub mod process_manager;
 
-pub use process_manager::ProcessManager;
 pub use health_checker::HealthChecker;
+pub use process_manager::ProcessManager;
 
 /// Daemon service for managing the voice-cli HTTP server
 pub struct DaemonService {
@@ -22,7 +22,7 @@ impl DaemonService {
     pub fn new(config: Config) -> Self {
         let process_manager = ProcessManager::new(&config);
         let health_checker = HealthChecker::new(&config);
-        
+
         Self {
             config,
             process_manager,
@@ -36,7 +36,9 @@ impl DaemonService {
 
         // Check if already running
         if self.is_running()? {
-            return Err(VoiceCliError::Daemon("Daemon is already running".to_string()));
+            return Err(VoiceCliError::Daemon(
+                "Daemon is already running".to_string(),
+            ));
         }
 
         // Start the daemon process directly (not through CLI)
@@ -45,7 +47,7 @@ impl DaemonService {
 
         // Wait for the service to become healthy
         self.wait_for_healthy_startup().await?;
-        
+
         info!("Daemon started successfully and is responding to health checks");
         Ok(())
     }
@@ -56,10 +58,10 @@ impl DaemonService {
 
         if let Some(pid) = self.process_manager.read_pid()? {
             self.process_manager.terminate_process(pid)?;
-            
+
             // Wait for graceful shutdown
             self.wait_for_shutdown(pid).await?;
-            
+
             self.process_manager.cleanup_pid_file()?;
             info!("Daemon stopped successfully");
         } else {
@@ -84,11 +86,14 @@ impl DaemonService {
     /// Get daemon status
     pub async fn get_status(&self) -> crate::Result<DaemonStatus> {
         let pid = self.process_manager.read_pid()?;
-        
+
         let status = match pid {
             Some(pid) if self.process_manager.is_process_running(pid) => {
                 match self.health_checker.check_health().await {
-                    Ok(health) => DaemonStatus::Running { pid, health: Some(health) },
+                    Ok(health) => DaemonStatus::Running {
+                        pid,
+                        health: Some(health),
+                    },
                     Err(_) => DaemonStatus::Running { pid, health: None },
                 }
             }
@@ -112,7 +117,7 @@ impl DaemonService {
     /// Spawn the actual daemon process that runs the HTTP server
     fn spawn_daemon_process(&self) -> crate::Result<u32> {
         let current_exe = std::env::current_exe()?;
-        
+
         // Create the daemon process that directly runs the server
         // This avoids the recursive CLI call issue
         let mut cmd = Command::new(current_exe);
@@ -129,12 +134,13 @@ impl DaemonService {
             cmd.process_group(0);
         }
 
-        let child = cmd.spawn()
+        let child = cmd
+            .spawn()
             .map_err(|e| VoiceCliError::Daemon(format!("Failed to spawn daemon: {}", e)))?;
-        
+
         let pid = child.id();
         self.process_manager.save_pid(pid)?;
-        
+
         Ok(pid)
     }
 
@@ -142,17 +148,19 @@ impl DaemonService {
     async fn wait_for_healthy_startup(&self) -> crate::Result<()> {
         let max_wait = Duration::from_secs(30);
         let check_interval = Duration::from_millis(500);
-        
-        let result: Result<Result<(), crate::VoiceCliError>, tokio::time::error::Elapsed> = timeout(max_wait, async {
-            loop {
-                match self.health_checker.check_health().await {
-                    Ok(_) => return Ok(()),
-                    Err(_) => {
-                        tokio::time::sleep(check_interval).await;
+
+        let result: Result<Result<(), crate::VoiceCliError>, tokio::time::error::Elapsed> =
+            timeout(max_wait, async {
+                loop {
+                    match self.health_checker.check_health().await {
+                        Ok(_) => return Ok(()),
+                        Err(_) => {
+                            tokio::time::sleep(check_interval).await;
+                        }
                     }
                 }
-            }
-        }).await;
+            })
+            .await;
 
         match result {
             Ok(_) => Ok::<(), crate::VoiceCliError>(()),
@@ -163,7 +171,7 @@ impl DaemonService {
                 }
                 self.process_manager.cleanup_pid_file()?;
                 Err(VoiceCliError::Daemon(
-                    "Daemon failed to become healthy within 30 seconds".to_string()
+                    "Daemon failed to become healthy within 30 seconds".to_string(),
                 ))
             }
         }
@@ -173,12 +181,13 @@ impl DaemonService {
     async fn wait_for_shutdown(&self, pid: u32) -> crate::Result<()> {
         let max_wait = Duration::from_secs(10);
         let check_interval = Duration::from_millis(100);
-        
+
         let result = timeout(max_wait, async {
             while self.process_manager.is_process_running(pid) {
                 tokio::time::sleep(check_interval).await;
             }
-        }).await;
+        })
+        .await;
 
         if result.is_err() {
             warn!("Process {} did not shutdown gracefully, force killing", pid);
@@ -190,7 +199,8 @@ impl DaemonService {
 
     fn get_config_path(&self) -> crate::Result<String> {
         let config_path = std::env::current_dir()?.join("config.yml");
-        config_path.to_str()
+        config_path
+            .to_str()
             .ok_or_else(|| VoiceCliError::Config("Invalid config path".to_string()))
             .map(|s| s.to_string())
     }
@@ -198,9 +208,9 @@ impl DaemonService {
 
 #[derive(Debug)]
 pub enum DaemonStatus {
-    Running { 
-        pid: u32, 
-        health: Option<crate::models::HealthResponse> 
+    Running {
+        pid: u32,
+        health: Option<crate::models::HealthResponse>,
     },
     Stopped,
 }

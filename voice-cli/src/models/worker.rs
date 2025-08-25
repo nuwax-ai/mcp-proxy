@@ -1,7 +1,7 @@
+use crate::VoiceCliError;
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use crate::VoiceCliError;
 
 /// Transcription task for worker processing
 #[derive(Debug)]
@@ -52,15 +52,23 @@ impl Drop for WorkerProcessedAudio {
         for file_path in &self.cleanup_files {
             if file_path.exists() {
                 if let Err(e) = std::fs::remove_file(file_path) {
-                    tracing::warn!("Failed to cleanup temporary file {}: {}", file_path.display(), e);
+                    tracing::warn!(
+                        "Failed to cleanup temporary file {}: {}",
+                        file_path.display(),
+                        e
+                    );
                 }
             }
         }
-        
+
         // Also cleanup the main processed file if it exists
         if self.file_path.exists() {
             if let Err(e) = std::fs::remove_file(&self.file_path) {
-                tracing::warn!("Failed to cleanup processed audio file {}: {}", self.file_path.display(), e);
+                tracing::warn!(
+                    "Failed to cleanup processed audio file {}: {}",
+                    self.file_path.display(),
+                    e
+                );
             }
         }
     }

@@ -1,10 +1,10 @@
-use crate::models::{Config, ModelInfo, ModelDownloadStatus, DownloadStatus};
+use crate::models::{Config, DownloadStatus, ModelDownloadStatus, ModelInfo};
 use crate::VoiceCliError;
 use reqwest::Client;
 use std::path::{Path, PathBuf};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
-use tracing::{info, debug, warn};
+use tracing::{debug, info, warn};
 
 pub struct ModelService {
     config: Config,
@@ -32,9 +32,10 @@ impl ModelService {
             info!("Auto-downloading model: {}", model_name);
             self.download_model(model_name).await?;
         } else {
-            return Err(VoiceCliError::ModelNotFound(
-                format!("Model '{}' not found and auto_download is disabled", model_name)
-            ));
+            return Err(VoiceCliError::ModelNotFound(format!(
+                "Model '{}' not found and auto_download is disabled",
+                model_name
+            )));
         }
 
         Ok(())
@@ -42,40 +43,51 @@ impl ModelService {
 
     /// Download a whisper model from the official repository
     pub async fn download_model(&self, model_name: &str) -> Result<(), VoiceCliError> {
-        if !self.config.whisper.supported_models.contains(&model_name.to_string()) {
-            return Err(VoiceCliError::InvalidModelName(
-                format!("Model '{}' is not supported", model_name)
-            ));
+        if !self
+            .config
+            .whisper
+            .supported_models
+            .contains(&model_name.to_string())
+        {
+            return Err(VoiceCliError::InvalidModelName(format!(
+                "Model '{}' is not supported",
+                model_name
+            )));
         }
 
         // Create models directory if it doesn't exist
         fs::create_dir_all(&self.models_dir).await?;
 
         let model_path = self.get_model_path(model_name)?;
-        
+
         if model_path.exists() {
             info!("Model '{}' already exists at {:?}", model_name, model_path);
             return Ok(());
         }
 
-        info!("Downloading model '{}' from whisper.cpp repository...", model_name);
+        info!(
+            "Downloading model '{}' from whisper.cpp repository...",
+            model_name
+        );
 
         // Download from Hugging Face (official whisper.cpp models)
         let download_url = self.get_model_download_url(model_name)?;
-        
+
         debug!("Download URL: {}", download_url);
 
         // Download with progress tracking
-        let response = self.client
+        let response = self
+            .client
             .get(&download_url)
             .send()
             .await
             .map_err(|e| VoiceCliError::Model(format!("Failed to start download: {}", e)))?;
 
         if !response.status().is_success() {
-            return Err(VoiceCliError::Model(
-                format!("Failed to download model: HTTP {}", response.status())
-            ));
+            return Err(VoiceCliError::Model(format!(
+                "Failed to download model: HTTP {}",
+                response.status()
+            )));
         }
 
         let total_size = response.content_length().unwrap_or(0);
@@ -83,7 +95,8 @@ impl ModelService {
 
         // Create temporary file
         let temp_path = model_path.with_extension("tmp");
-        let mut file = fs::File::create(&temp_path).await
+        let mut file = fs::File::create(&temp_path)
+            .await
             .map_err(|e| VoiceCliError::Model(format!("Failed to create file: {}", e)))?;
 
         let mut downloaded = 0u64;
@@ -91,42 +104,60 @@ impl ModelService {
 
         use futures::StreamExt;
         while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|e| VoiceCliError::Model(format!("Download error: {}", e)))?;
-            file.write_all(&chunk).await
+            let chunk =
+                chunk.map_err(|e| VoiceCliError::Model(format!("Download error: {}", e)))?;
+            file.write_all(&chunk)
+                .await
                 .map_err(|e| VoiceCliError::Model(format!("Failed to write file: {}", e)))?;
-            
+
             downloaded += chunk.len() as u64;
-            
+
             if total_size > 0 {
                 let progress = (downloaded as f32 / total_size as f32) * 100.0;
-                if downloaded % (1024 * 1024) == 0 { // Log every MB
-                    debug!("Downloaded {:.1}% ({} / {} bytes)", progress, downloaded, total_size);
+                if downloaded % (1024 * 1024) == 0 {
+                    // Log every MB
+                    debug!(
+                        "Downloaded {:.1}% ({} / {} bytes)",
+                        progress, downloaded, total_size
+                    );
                 }
             }
         }
 
-        file.flush().await
+        file.flush()
+            .await
             .map_err(|e| VoiceCliError::Model(format!("Failed to flush file: {}", e)))?;
 
         // Move temporary file to final location
-        fs::rename(&temp_path, &model_path).await
+        fs::rename(&temp_path, &model_path)
+            .await
             .map_err(|e| VoiceCliError::Model(format!("Failed to finalize download: {}", e)))?;
 
-        info!("Successfully downloaded model '{}' to {:?}", model_name, model_path);
+        info!(
+            "Successfully downloaded model '{}' to {:?}",
+            model_name, model_path
+        );
 
         // Basic validation: just check file exists and has reasonable size
-        let metadata = fs::metadata(&model_path).await
+        let metadata = fs::metadata(&model_path)
+            .await
             .map_err(|e| VoiceCliError::Model(format!("Failed to check downloaded file: {}", e)))?;
-        
+
         if metadata.len() < 1024 {
             // Clean up the invalid file
             let _ = fs::remove_file(&model_path).await;
-            return Err(VoiceCliError::Model(
-                format!("Downloaded model '{}' is too small ({} bytes), likely corrupted", model_name, metadata.len())
-            ));
+            return Err(VoiceCliError::Model(format!(
+                "Downloaded model '{}' is too small ({} bytes), likely corrupted",
+                model_name,
+                metadata.len()
+            )));
         }
-        
-        info!("Model '{}' downloaded successfully - {} bytes", model_name, metadata.len());
+
+        info!(
+            "Model '{}' downloaded successfully - {} bytes",
+            model_name,
+            metadata.len()
+        );
 
         Ok(())
     }
@@ -165,8 +196,13 @@ impl ModelService {
             if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
                 // Parse model name from filename (ggml-{model_name}.bin)
                 if filename.starts_with("ggml-") && filename.ends_with(".bin") {
-                    let model_name = &filename[5..filename.len()-4]; // Remove "ggml-" and ".bin"
-                    if self.config.whisper.supported_models.contains(&model_name.to_string()) {
+                    let model_name = &filename[5..filename.len() - 4]; // Remove "ggml-" and ".bin"
+                    if self
+                        .config
+                        .whisper
+                        .supported_models
+                        .contains(&model_name.to_string())
+                    {
                         models.push(model_name.to_string());
                     }
                 }
@@ -180,26 +216,31 @@ impl ModelService {
     /// Get information about a downloaded model
     pub async fn get_model_info(&self, model_name: &str) -> Result<ModelInfo, VoiceCliError> {
         let model_path = self.get_model_path(model_name)?;
-        
+
         if !model_path.exists() {
-            return Err(VoiceCliError::ModelNotFound(format!("Model '{}' not found", model_name)));
+            return Err(VoiceCliError::ModelNotFound(format!(
+                "Model '{}' not found",
+                model_name
+            )));
         }
 
-        let metadata = fs::metadata(&model_path).await
+        let metadata = fs::metadata(&model_path)
+            .await
             .map_err(|e| VoiceCliError::Model(format!("Failed to get model info: {}", e)))?;
 
         let size = Self::format_size(metadata.len());
-        
+
         // TODO: Get actual memory usage if model is loaded
         // This is a placeholder implementation - real memory tracking would require
         // integration with the transcription service to monitor loaded models
         let memory_usage = "Not tracked".to_string();
-        
+
         let status = if self.is_model_valid(&model_path).await? {
             "Valid"
         } else {
             "Invalid"
-        }.to_string();
+        }
+        .to_string();
 
         Ok(ModelInfo {
             size,
@@ -211,13 +252,19 @@ impl ModelService {
     /// Validate a downloaded model
     pub async fn validate_model(&self, model_name: &str) -> Result<(), VoiceCliError> {
         let model_path = self.get_model_path(model_name)?;
-        
+
         if !model_path.exists() {
-            return Err(VoiceCliError::ModelNotFound(format!("Model '{}' not found", model_name)));
+            return Err(VoiceCliError::ModelNotFound(format!(
+                "Model '{}' not found",
+                model_name
+            )));
         }
 
         if !self.is_model_valid(&model_path).await? {
-            return Err(VoiceCliError::Model(format!("Model '{}' validation failed", model_name)));
+            return Err(VoiceCliError::Model(format!(
+                "Model '{}' validation failed",
+                model_name
+            )));
         }
 
         debug!("Model '{}' validation passed", model_name);
@@ -226,7 +273,8 @@ impl ModelService {
 
     /// Check if a model file is valid
     async fn is_model_valid(&self, model_path: &Path) -> Result<bool, VoiceCliError> {
-        let metadata = fs::metadata(model_path).await
+        let metadata = fs::metadata(model_path)
+            .await
             .map_err(|e| VoiceCliError::Model(format!("Failed to read model file: {}", e)))?;
 
         // Basic validation: check if file is not empty and has reasonable size
@@ -237,10 +285,11 @@ impl ModelService {
 
         // Check if file size is reasonable for the model type
         if let Some(expected_size) = self.get_expected_model_size(
-            &model_path.file_stem()
+            &model_path
+                .file_stem()
                 .and_then(|s| s.to_str())
                 .map(|s| s.strip_prefix("ggml-").unwrap_or(s))
-                .unwrap_or("unknown")
+                .unwrap_or("unknown"),
         ) {
             let actual_size = metadata.len();
             let size_diff_percent = if actual_size > expected_size {
@@ -248,7 +297,7 @@ impl ModelService {
             } else {
                 ((expected_size - actual_size) as f64 / expected_size as f64) * 100.0
             };
-            
+
             // Allow 20% size difference to accommodate different versions
             if size_diff_percent > 20.0 {
                 warn!("Model file size differs significantly from expected: actual={} bytes, expected={} bytes, diff={:.1}%", 
@@ -262,16 +311,17 @@ impl ModelService {
         debug!("Model file appears to be valid: {} bytes", metadata.len());
         Ok(true)
     }
-    
+
     /// Remove a downloaded model
     pub async fn remove_model(&self, model_name: &str) -> Result<(), VoiceCliError> {
         let model_path = self.get_model_path(model_name)?;
-        
+
         if !model_path.exists() {
             return Ok(()); // Already removed
         }
 
-        fs::remove_file(&model_path).await
+        fs::remove_file(&model_path)
+            .await
             .map_err(|e| VoiceCliError::Model(format!("Failed to remove model: {}", e)))?;
 
         info!("Removed model '{}' from {:?}", model_name, model_path);
@@ -279,7 +329,10 @@ impl ModelService {
     }
 
     /// Get download status for a model
-    pub async fn get_download_status(&self, model_name: &str) -> Result<ModelDownloadStatus, VoiceCliError> {
+    pub async fn get_download_status(
+        &self,
+        model_name: &str,
+    ) -> Result<ModelDownloadStatus, VoiceCliError> {
         let status = if self.is_model_downloaded(model_name).await? {
             DownloadStatus::Exists
         } else {
@@ -323,32 +376,40 @@ impl ModelService {
     pub fn get_expected_model_size(&self, model_name: &str) -> Option<u64> {
         // Approximate sizes for whisper models (in bytes)
         match model_name {
-            "tiny" | "tiny.en" => Some(39 * 1024 * 1024),      // ~39MB
-            "base" | "base.en" => Some(142 * 1024 * 1024),     // ~142MB
-            "small" | "small.en" => Some(244 * 1024 * 1024),   // ~244MB
+            "tiny" | "tiny.en" => Some(39 * 1024 * 1024),  // ~39MB
+            "base" | "base.en" => Some(142 * 1024 * 1024), // ~142MB
+            "small" | "small.en" => Some(244 * 1024 * 1024), // ~244MB
             "medium" | "medium.en" => Some(769 * 1024 * 1024), // ~769MB
             "large-v1" | "large-v2" | "large-v3" => Some(1550 * 1024 * 1024), // ~1.5GB
             _ => None,
         }
     }
-    
+
     /// Diagnose a corrupted model file and provide suggestions
     pub async fn diagnose_model(&self, model_name: &str) -> Result<String, VoiceCliError> {
         let model_path = self.get_model_path(model_name)?;
-        
+
         if !model_path.exists() {
-            return Ok(format!("Model '{}' file does not exist at {:?}", model_name, model_path));
+            return Ok(format!(
+                "Model '{}' file does not exist at {:?}",
+                model_name, model_path
+            ));
         }
-        
-        let metadata = fs::metadata(&model_path).await
+
+        let metadata = fs::metadata(&model_path)
+            .await
             .map_err(|e| VoiceCliError::Model(format!("Failed to read model metadata: {}", e)))?;
-        
+
         let mut diagnosis = Vec::new();
-        
+
         // Check file size
         let actual_size = metadata.len();
-        diagnosis.push(format!("File size: {} bytes ({})", actual_size, Self::format_size(actual_size)));
-        
+        diagnosis.push(format!(
+            "File size: {} bytes ({})",
+            actual_size,
+            Self::format_size(actual_size)
+        ));
+
         if let Some(expected_size) = self.get_expected_model_size(model_name) {
             let size_diff = if actual_size > expected_size {
                 actual_size - expected_size
@@ -356,17 +417,24 @@ impl ModelService {
                 expected_size - actual_size
             };
             let size_diff_percent = (size_diff as f64 / expected_size as f64) * 100.0;
-            
-            diagnosis.push(format!("Expected size: {} bytes ({})", expected_size, Self::format_size(expected_size)));
+
+            diagnosis.push(format!(
+                "Expected size: {} bytes ({})",
+                expected_size,
+                Self::format_size(expected_size)
+            ));
             diagnosis.push(format!("Size difference: {:.1}%", size_diff_percent));
-            
+
             if size_diff_percent > 20.0 {
-                diagnosis.push("⚠️  File size differs significantly from expected - may be corrupted".to_string());
+                diagnosis.push(
+                    "⚠️  File size differs significantly from expected - may be corrupted"
+                        .to_string(),
+                );
             } else {
                 diagnosis.push("✅ File size is within expected range".to_string());
             }
         }
-        
+
         // Basic file accessibility check
         match fs::File::open(&model_path).await {
             Ok(_) => {
@@ -376,7 +444,7 @@ impl ModelService {
                 diagnosis.push(format!("❌ File is not readable: {}", e));
             }
         }
-        
+
         // Check if file is completely empty or too small
         if actual_size == 0 {
             diagnosis.push("❌ File is empty".to_string());
@@ -385,7 +453,7 @@ impl ModelService {
         } else {
             diagnosis.push("✅ File has reasonable size".to_string());
         }
-        
+
         Ok(diagnosis.join("\n"))
     }
 }
@@ -407,10 +475,10 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let mut config = Config::default();
         config.whisper.models_dir = temp_dir.path().to_string_lossy().to_string();
-        
+
         let service = ModelService::new(config);
         let path = service.get_model_path("base").unwrap();
-        
+
         assert!(path.to_string_lossy().contains("ggml-base.bin"));
     }
 
@@ -419,10 +487,10 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let mut config = Config::default();
         config.whisper.models_dir = temp_dir.path().to_string_lossy().to_string();
-        
+
         let service = ModelService::new(config);
         let models = service.list_downloaded_models().await.unwrap();
-        
+
         assert!(models.is_empty());
     }
 
@@ -436,7 +504,7 @@ mod tests {
     #[test]
     fn test_get_expected_model_size() {
         let service = ModelService::new(Config::default());
-        
+
         assert!(service.get_expected_model_size("base").is_some());
         assert!(service.get_expected_model_size("unknown").is_none());
     }

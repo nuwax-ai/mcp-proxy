@@ -1,14 +1,14 @@
-use crate::models::{Config, ClusterNode, MetadataStore, NodeStatus};
-use crate::cluster::{ClusterState, SimpleTaskScheduler, ServiceDiscovery, ServiceDiscoveryConfig};
+use crate::cluster::{ClusterState, ServiceDiscovery, ServiceDiscoveryConfig, SimpleTaskScheduler};
 use crate::grpc::server::{AudioClusterGrpcServer, GrpcServerConfig};
-use crate::{log_cluster_event, log_performance_metric, log_cluster_state_change};
+use crate::models::{ClusterNode, Config, MetadataStore, NodeStatus};
+use crate::{log_cluster_event, log_cluster_state_change, log_performance_metric};
 
 use crate::error::ClusterResultExt;
+use anyhow::{Context, Result};
 use std::sync::Arc;
 use tokio::signal;
 use tokio::sync::broadcast;
-use tracing::{info, warn, error, debug};
-use anyhow::{Context, Result};
+use tracing::{debug, error, info, warn};
 
 /// Service manager for coordinating all cluster services
 pub struct ClusterServiceManager {
@@ -37,7 +37,7 @@ impl ClusterServiceManager {
         metadata_store: Option<Arc<MetadataStore>>,
     ) -> Self {
         let (shutdown_tx, _shutdown_rx) = broadcast::channel(16);
-        
+
         Self {
             config,
             node,
@@ -57,13 +57,13 @@ impl ClusterServiceManager {
         db_path: impl AsRef<std::path::Path>,
     ) -> Result<Self, anyhow::Error> {
         let (shutdown_tx, _shutdown_rx) = broadcast::channel(16);
-        
+
         // Create MetadataStore with ClusterState integration
         let metadata_store = Arc::new(
             MetadataStore::new_with_cluster_state(db_path, cluster_state.clone())
-                .context("Failed to create integrated metadata store")?
+                .context("Failed to create integrated metadata store")?,
         );
-        
+
         Ok(Self {
             config,
             node,
@@ -100,7 +100,7 @@ impl ClusterServiceManager {
     /// Start all cluster services concurrently
     pub async fn start(&mut self) -> Result<()> {
         let start_time = std::time::Instant::now();
-        
+
         log_cluster_event!(
             info,
             &self.node.node_id,
@@ -115,7 +115,9 @@ impl ClusterServiceManager {
         // Initialize cluster state with metadata store if available
         if let Some(ref metadata_store) = self.metadata_store {
             // Sync existing data from database to cluster state
-            metadata_store.sync_to_cluster_state().await
+            metadata_store
+                .sync_to_cluster_state()
+                .await
                 .context("Failed to sync metadata store to cluster state")?;
         }
 
@@ -124,7 +126,9 @@ impl ClusterServiceManager {
 
         // Also register in metadata store if available (will update both cluster state and database)
         if let Some(ref metadata_store) = self.metadata_store {
-            metadata_store.add_node(&self.node).await
+            metadata_store
+                .add_node(&self.node)
+                .await
                 .with_node_context(&self.node.node_id)
                 .context("Failed to register node in metadata store")?;
         }
@@ -136,9 +140,11 @@ impl ClusterServiceManager {
                 Ok(discovered_nodes) => {
                     info!("Initial discovery found {} nodes", discovered_nodes.len());
                     for node in discovered_nodes {
-                        info!("Discovered node: {} at {}:{}", 
-                              node.node_id, node.address, node.grpc_port);
-                        
+                        info!(
+                            "Discovered node: {} at {}:{}",
+                            node.node_id, node.address, node.grpc_port
+                        );
+
                         // Add discovered nodes to metadata store if available
                         if let Some(ref metadata_store) = self.metadata_store {
                             if let Err(e) = metadata_store.add_node(&node).await {
@@ -207,17 +213,26 @@ impl ClusterServiceManager {
 
     /// Start HTTP server
     async fn start_http_server(&self) -> Result<()> {
-        info!("Starting HTTP server on port {}", self.config.cluster.http_port);
+        info!(
+            "Starting HTTP server on port {}",
+            self.config.cluster.http_port
+        );
 
         // Create router using the existing routes function
-        let app = crate::server::routes::create_routes((*self.config).clone()).await
+        let app = crate::server::routes::create_routes((*self.config).clone())
+            .await
             .map_err(|e| anyhow::Error::new(e).context("Failed to create HTTP routes"))?;
 
         // Bind and serve
-        let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", self.config.cluster.http_port)).await
-            .context("Failed to bind HTTP server")?;
+        let listener =
+            tokio::net::TcpListener::bind(format!("0.0.0.0:{}", self.config.cluster.http_port))
+                .await
+                .context("Failed to bind HTTP server")?;
 
-        info!("HTTP server listening on 0.0.0.0:{}", self.config.cluster.http_port);
+        info!(
+            "HTTP server listening on 0.0.0.0:{}",
+            self.config.cluster.http_port
+        );
 
         // Start server with graceful shutdown
         let mut shutdown_rx = self.shutdown_tx.subscribe();
@@ -234,7 +249,10 @@ impl ClusterServiceManager {
 
     /// Start gRPC server
     async fn start_grpc_server(&self) -> Result<()> {
-        info!("Starting gRPC server on port {}", self.config.cluster.grpc_port);
+        info!(
+            "Starting gRPC server on port {}",
+            self.config.cluster.grpc_port
+        );
 
         let grpc_config = GrpcServerConfig {
             bind_address: "0.0.0.0".to_string(),
@@ -254,10 +272,12 @@ impl ClusterServiceManager {
         );
 
         let mut shutdown_rx = self.shutdown_tx.subscribe();
-        grpc_server.start_with_shutdown(async move {
-            let _ = shutdown_rx.recv().await;
-            info!("gRPC server shutting down gracefully");
-        }).await
+        grpc_server
+            .start_with_shutdown(async move {
+                let _ = shutdown_rx.recv().await;
+                info!("gRPC server shutting down gracefully");
+            })
+            .await
             .map_err(|e| anyhow::Error::new(e).context("gRPC server error"))?;
 
         Ok(())
@@ -281,7 +301,7 @@ impl ClusterServiceManager {
             tokio::select! {
                 _ = heartbeat_interval.tick() => {
                     debug!("Sending heartbeat for node: {}", node_id);
-                    
+
                     // Update heartbeat in cluster state (atomic)
                     if let Some(mut node) = cluster_state.get_node(&node_id) {
                         node.update_heartbeat();
@@ -317,23 +337,25 @@ impl ClusterServiceManager {
     ) {
         let heartbeat_timeout = 90; // 90 seconds timeout
         let current_time = chrono::Utc::now().timestamp();
-        
+
         // Get all nodes from cluster state (atomic read)
         let all_nodes = cluster_state.get_all_nodes();
-        
+
         for node in all_nodes {
             if node.node_id == self.node.node_id {
                 continue; // Skip self
             }
-            
+
             let time_since_heartbeat = current_time - node.last_heartbeat;
             let is_healthy = time_since_heartbeat <= heartbeat_timeout;
-            
+
             // Check if status needs to be updated
             let needs_update = match (node.status, is_healthy) {
                 (crate::models::NodeStatus::Healthy, false) => {
-                    warn!("Node {} became unhealthy (last heartbeat: {}s ago)", 
-                          node.node_id, time_since_heartbeat);
+                    warn!(
+                        "Node {} became unhealthy (last heartbeat: {}s ago)",
+                        node.node_id, time_since_heartbeat
+                    );
                     true
                 }
                 (crate::models::NodeStatus::Unhealthy, true) => {
@@ -342,12 +364,18 @@ impl ClusterServiceManager {
                 }
                 _ => false,
             };
-            
+
             if needs_update {
                 // Perform atomic health update
                 if let Some(ref metadata_store) = metadata_store {
-                    if let Err(e) = metadata_store.update_node_health_atomic(&node.node_id, is_healthy).await {
-                        warn!("Failed to update health status for node {}: {:?}", node.node_id, e);
+                    if let Err(e) = metadata_store
+                        .update_node_health_atomic(&node.node_id, is_healthy)
+                        .await
+                    {
+                        warn!(
+                            "Failed to update health status for node {}: {:?}",
+                            node.node_id, e
+                        );
                     }
                 } else {
                     // Fallback to cluster state only
@@ -356,7 +384,7 @@ impl ClusterServiceManager {
                     } else {
                         crate::models::NodeStatus::Unhealthy
                     };
-                    
+
                     if let Err(e) = cluster_state.update_node_status(&node.node_id, new_status) {
                         warn!("Failed to update node status in cluster state: {:?}", e);
                     }
@@ -416,8 +444,8 @@ impl ClusterServiceManager {
     #[cfg(unix)]
     async fn wait_for_sigterm(&self) -> Result<()> {
         use tokio::signal::unix::{signal, SignalKind};
-        let mut sigterm = signal(SignalKind::terminate())
-            .context("Failed to register SIGTERM handler")?;
+        let mut sigterm =
+            signal(SignalKind::terminate()).context("Failed to register SIGTERM handler")?;
         sigterm.recv().await;
         Ok(())
     }
@@ -470,7 +498,10 @@ impl ClusterServiceManager {
 
     /// Perform graceful shutdown
     async fn shutdown(&self) -> Result<()> {
-        info!("Performing graceful shutdown for node: {}", self.node.node_id);
+        info!(
+            "Performing graceful shutdown for node: {}",
+            self.node.node_id
+        );
 
         // Announce leaving via service discovery if available
         if let Some(ref service_discovery) = self.service_discovery {
@@ -487,8 +518,14 @@ impl ClusterServiceManager {
 
         // Update status in metadata store if available
         if let Some(ref metadata_store) = self.metadata_store {
-            if let Err(e) = metadata_store.update_node_status(&self.node.node_id, NodeStatus::Leaving).await {
-                warn!("Failed to update node status in metadata store during shutdown: {:?}", e);
+            if let Err(e) = metadata_store
+                .update_node_status(&self.node.node_id, NodeStatus::Leaving)
+                .await
+            {
+                warn!(
+                    "Failed to update node status in metadata store during shutdown: {:?}",
+                    e
+                );
             }
         }
 
@@ -502,7 +539,10 @@ impl ClusterServiceManager {
         // Give services time to shut down gracefully
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
-        info!("Graceful shutdown completed for node: {}", self.node.node_id);
+        info!(
+            "Graceful shutdown completed for node: {}",
+            self.node.node_id
+        );
         Ok(())
     }
 
@@ -546,7 +586,7 @@ impl ClusterServiceManager {
             "none",
             "active"
         );
-        
+
         log_cluster_event!(
             info,
             &self.node.node_id,
@@ -563,7 +603,9 @@ impl ClusterServiceManager {
 
         // Add to metadata store if available
         if let Some(ref metadata_store) = self.metadata_store {
-            metadata_store.add_node(&node).await
+            metadata_store
+                .add_node(&node)
+                .await
                 .with_node_context(&node.node_id)
                 .context("Failed to add node to metadata store")?;
         }
@@ -581,7 +623,9 @@ impl ClusterServiceManager {
 
         // Remove from metadata store if available
         if let Some(ref metadata_store) = self.metadata_store {
-            metadata_store.remove_node(node_id).await
+            metadata_store
+                .remove_node(node_id)
+                .await
                 .with_node_context(node_id)
                 .context("Failed to remove node from metadata store")?;
         }
@@ -598,7 +642,10 @@ impl ClusterServiceManager {
 
             // Find new nodes to add
             for discovered_node in &discovered_nodes {
-                if !current_nodes.iter().any(|n| n.node_id == discovered_node.node_id) {
+                if !current_nodes
+                    .iter()
+                    .any(|n| n.node_id == discovered_node.node_id)
+                {
                     info!("Adding newly discovered node: {}", discovered_node.node_id);
                     self.add_node_to_cluster(discovered_node.clone()).await?;
                 }
@@ -606,9 +653,15 @@ impl ClusterServiceManager {
 
             // Find nodes that are no longer discovered (but keep self)
             for current_node in &current_nodes {
-                if current_node.node_id != self.node.node_id &&
-                   !discovered_nodes.iter().any(|n| n.node_id == current_node.node_id) {
-                    info!("Removing node that is no longer discovered: {}", current_node.node_id);
+                if current_node.node_id != self.node.node_id
+                    && !discovered_nodes
+                        .iter()
+                        .any(|n| n.node_id == current_node.node_id)
+                {
+                    info!(
+                        "Removing node that is no longer discovered: {}",
+                        current_node.node_id
+                    );
                     self.remove_node_from_cluster(&current_node.node_id).await?;
                 }
             }
@@ -621,7 +674,8 @@ impl ClusterServiceManager {
     pub fn get_cluster_topology(&self) -> ClusterTopology {
         let all_nodes = self.cluster_state.get_all_nodes();
         let healthy_nodes = self.cluster_state.get_nodes_by_status(&NodeStatus::Healthy);
-        let leader_node = all_nodes.iter()
+        let leader_node = all_nodes
+            .iter()
             .find(|n| n.role == crate::models::NodeRole::Leader)
             .cloned();
 
@@ -652,23 +706,13 @@ mod tests {
     #[tokio::test]
     async fn test_service_manager_creation() {
         let config = Arc::new(Config::default());
-        let node = ClusterNode::new(
-            "test-node".to_string(),
-            "127.0.0.1".to_string(),
-            9090,
-            8080,
-        );
+        let node = ClusterNode::new("test-node".to_string(), "127.0.0.1".to_string(), 9090, 8080);
         let cluster_state = Arc::new(ClusterState::new());
 
-        let service_manager = ClusterServiceManager::new(
-            config,
-            node.clone(),
-            cluster_state,
-            None,
-        );
+        let service_manager = ClusterServiceManager::new(config, node.clone(), cluster_state, None);
 
         assert_eq!(service_manager.node().node_id, "test-node");
-        
+
         // Create a receiver to make the service manager "running"
         let _receiver = service_manager.shutdown_handle().subscribe();
         assert!(service_manager.is_running());
@@ -678,23 +722,14 @@ mod tests {
     async fn test_service_manager_with_metadata_store() {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
-        
+
         let config = Arc::new(Config::default());
-        let node = ClusterNode::new(
-            "test-node".to_string(),
-            "127.0.0.1".to_string(),
-            9090,
-            8080,
-        );
+        let node = ClusterNode::new("test-node".to_string(), "127.0.0.1".to_string(), 9090, 8080);
         let cluster_state = Arc::new(ClusterState::new());
         let metadata_store = Arc::new(MetadataStore::new(db_path).unwrap());
 
-        let service_manager = ClusterServiceManager::new(
-            config,
-            node.clone(),
-            cluster_state,
-            Some(metadata_store),
-        );
+        let service_manager =
+            ClusterServiceManager::new(config, node.clone(), cluster_state, Some(metadata_store));
 
         assert!(service_manager.metadata_store().is_some());
         assert!(service_manager.service_discovery().is_none());
@@ -703,20 +738,11 @@ mod tests {
     #[tokio::test]
     async fn test_service_manager_with_service_discovery() {
         let config = Arc::new(Config::default());
-        let node = ClusterNode::new(
-            "test-node".to_string(),
-            "127.0.0.1".to_string(),
-            9090,
-            8080,
-        );
+        let node = ClusterNode::new("test-node".to_string(), "127.0.0.1".to_string(), 9090, 8080);
         let cluster_state = Arc::new(ClusterState::new());
 
-        let service_manager = ClusterServiceManager::new(
-            config,
-            node.clone(),
-            cluster_state.clone(),
-            None,
-        );
+        let service_manager =
+            ClusterServiceManager::new(config, node.clone(), cluster_state.clone(), None);
 
         let service_discovery = service_manager.create_service_discovery();
         let service_manager = service_manager.with_service_discovery(service_discovery);
@@ -727,20 +753,11 @@ mod tests {
     #[tokio::test]
     async fn test_cluster_topology() {
         let config = Arc::new(Config::default());
-        let node = ClusterNode::new(
-            "test-node".to_string(),
-            "127.0.0.1".to_string(),
-            9090,
-            8080,
-        );
+        let node = ClusterNode::new("test-node".to_string(), "127.0.0.1".to_string(), 9090, 8080);
         let cluster_state = Arc::new(ClusterState::new());
 
-        let service_manager = ClusterServiceManager::new(
-            config,
-            node.clone(),
-            cluster_state.clone(),
-            None,
-        );
+        let service_manager =
+            ClusterServiceManager::new(config, node.clone(), cluster_state.clone(), None);
 
         // Add the node to cluster state
         cluster_state.upsert_node(node);
@@ -754,29 +771,19 @@ mod tests {
     #[tokio::test]
     async fn test_shutdown_handle() {
         let config = Arc::new(Config::default());
-        let node = ClusterNode::new(
-            "test-node".to_string(),
-            "127.0.0.1".to_string(),
-            9090,
-            8080,
-        );
+        let node = ClusterNode::new("test-node".to_string(), "127.0.0.1".to_string(), 9090, 8080);
         let cluster_state = Arc::new(ClusterState::new());
 
-        let service_manager = ClusterServiceManager::new(
-            config,
-            node.clone(),
-            cluster_state,
-            None,
-        );
+        let service_manager = ClusterServiceManager::new(config, node.clone(), cluster_state, None);
 
         let shutdown_handle = service_manager.shutdown_handle();
-        
+
         // Create a receiver to test the channel
         let mut receiver = shutdown_handle.subscribe();
-        
+
         // Test that we can send shutdown signal
         assert!(shutdown_handle.send(()).is_ok());
-        
+
         // Test that we can receive the signal
         assert!(receiver.recv().await.is_ok());
     }

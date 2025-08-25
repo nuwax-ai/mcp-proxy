@@ -7,7 +7,7 @@ use axum::{
     extract::{Multipart, State},
     response::Json,
 };
-use base64::{Engine as _, engine::general_purpose};
+use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -87,9 +87,7 @@ pub async fn health_handler(
 
 /// Simple test endpoint for load balancer testing
 /// GET /test
-pub async fn test_handler(
-    State(state): State<AppState>,
-) -> Result<String, VoiceCliError> {
+pub async fn test_handler(State(state): State<AppState>) -> Result<String, VoiceCliError> {
     // Try to determine the port from the config
     let port = state.config.server.port;
     Ok(format!("backend-{}", port))
@@ -110,19 +108,19 @@ pub async fn test_handler(
 )]
 pub async fn cluster_shutdown_handler() -> Result<String, VoiceCliError> {
     info!("Received cluster shutdown request via HTTP API");
-    
+
     // In a real implementation, this would trigger the shutdown signal
     // For now, we'll just return success - the actual shutdown coordination
     // happens in the ClusterServiceManager
     tokio::spawn(async {
         // Give time for the response to be sent
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        
+
         // Exit the process gracefully
         info!("Initiating process shutdown");
         std::process::exit(0);
     });
-    
+
     Ok("Shutdown initiated".to_string())
 }
 
@@ -139,16 +137,14 @@ pub async fn cluster_shutdown_handler() -> Result<String, VoiceCliError> {
         (status = 500, description = "Failed to retrieve models information", body = HttpResult<String>)
     )
 )]
-pub async fn models_list_handler(
-    State(state): State<AppState>,
-) -> HttpResult<ModelsResponse> {
+pub async fn models_list_handler(State(state): State<AppState>) -> HttpResult<ModelsResponse> {
     let available_models = state.config.whisper.supported_models.clone();
-    
+
     let loaded_models = match state.model_service.list_loaded_models().await {
         Ok(models) => models,
         Err(e) => return HttpResult::from(e),
     };
-    
+
     let downloaded_models = match state.model_service.list_downloaded_models().await {
         Ok(models) => models,
         Err(e) => return HttpResult::from(e),
@@ -326,8 +322,11 @@ pub async fn extract_transcription_request(
                 // Get filename and content-type from formdata
                 filename = field.file_name().map(|s| s.to_string());
                 content_type = field.content_type().map(|ct| ct.to_string());
-                
-                info!("Form data - filename: {:?}, content-type: {:?}", filename, content_type);
+
+                info!(
+                    "Form data - filename: {:?}, content-type: {:?}",
+                    filename, content_type
+                );
 
                 // Read audio data
                 let data = field.bytes().await.map_err(|e| {
@@ -339,7 +338,11 @@ pub async fn extract_transcription_request(
                 let decoded_data = if is_base64_encoded(&data) {
                     match general_purpose::STANDARD.decode(&data) {
                         Ok(decoded) => {
-                            info!("Decoded Base64 audio data: {} bytes -> {} bytes", data.len(), decoded.len());
+                            info!(
+                                "Decoded Base64 audio data: {} bytes -> {} bytes",
+                                data.len(),
+                                decoded.len()
+                            );
                             Bytes::from(decoded)
                         }
                         Err(e) => {
@@ -382,26 +385,24 @@ pub async fn extract_transcription_request(
 
     // Generate filename based on frontend information
     let uid = uuid::Uuid::new_v4();
-    
+
     // Generate filename using UUID + detected format for consistency
     let filename = {
         // Use Symphonia-based format detection to determine the correct extension
         let extension = match crate::services::AudioFormatDetector::detect_format(
-            &audio_data, 
-            filename.as_deref() // Use original filename as hint for detection
+            &audio_data,
+            filename.as_deref(), // Use original filename as hint for detection
         ) {
             Ok(format_result) => {
                 info!(
-                    "Detected audio format: {:?} (method: {:?}, confidence: {:.2})", 
-                    format_result.format, 
-                    format_result.detection_method,
-                    format_result.confidence
+                    "Detected audio format: {:?} (method: {:?}, confidence: {:.2})",
+                    format_result.format, format_result.detection_method, format_result.confidence
                 );
                 format_result.format.to_string()
             }
             Err(e) => {
                 warn!(
-                    "Format detection failed: {}, falling back to content-type or default", 
+                    "Format detection failed: {}, falling back to content-type or default",
                     e
                 );
                 // Fallback to content-type based detection if Symphonia fails
@@ -414,19 +415,22 @@ pub async fn extract_transcription_request(
                         "audio/mp4" => "m4a",
                         "audio/aac" => "aac",
                         "audio/webm" => "webm",
-                        _ => "webm" // Default to webm for unknown types
+                        _ => "webm", // Default to webm for unknown types
                     }
                 } else {
                     "webm" // Default extension
                 }
             }
         };
-        
+
         // Always use UUID + detected extension for consistent naming
         format!("{}.{}", uid, extension)
     };
-    
-    info!("Generated filename with UUID + detected format: {} (content-type: {:?})", filename, content_type);
+
+    info!(
+        "Generated filename with UUID + detected format: {} (content-type: {:?})",
+        filename, content_type
+    );
 
     let request = WorkerTranscriptionRequest {
         filename,
@@ -453,37 +457,27 @@ pub fn validate_audio_file(
     info!("Audio file name: {}", filename);
 
     // Use enhanced format detection with Symphonia
-    let format_result = crate::services::AudioFormatDetector::detect_format(
-        audio_data, 
-        Some(filename)
-    )?;
-    
+    let format_result =
+        crate::services::AudioFormatDetector::detect_format(audio_data, Some(filename))?;
+
     info!(
-        "Detected audio format: {:?} (method: {:?}, confidence: {:.2})", 
-        format_result.format, 
-        format_result.detection_method,
-        format_result.confidence
+        "Detected audio format: {:?} (method: {:?}, confidence: {:.2})",
+        format_result.format, format_result.detection_method, format_result.confidence
     );
-    
+
     // Validate format support
     crate::services::AudioFormatDetector::validate_format_support(&format_result)?;
-    
+
     // Log metadata if available
     if let Some(metadata) = &format_result.metadata {
         info!(
             "Audio metadata - Duration: {:?}, Sample rate: {:?}, Channels: {:?}, Codec: {}",
-            metadata.duration,
-            metadata.sample_rate,
-            metadata.channels,
-            metadata.codec_info
+            metadata.duration, metadata.sample_rate, metadata.channels, metadata.codec_info
         );
     }
 
     Ok(())
 }
-
-
-
 
 /// Helper function to detect if data is Base64 encoded
 fn is_base64_encoded(data: &Bytes) -> bool {
@@ -492,15 +486,15 @@ fn is_base64_encoded(data: &Bytes) -> bool {
     if data.len() == 0 {
         return false;
     }
-    
+
     // Check if all characters are valid Base64 characters
     let valid_chars = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
     let is_valid = data.iter().all(|&byte| valid_chars.contains(&byte));
-    
+
     if !is_valid {
         return false;
     }
-    
+
     // Check if length is reasonable for Base64 (should be multiple of 4)
     // But allow some flexibility for padding
     data.len() % 4 <= 2
@@ -509,8 +503,8 @@ fn is_base64_encoded(data: &Bytes) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::Config;
     use crate::models::request::AudioFormat;
+    use crate::models::Config;
 
     #[tokio::test]
     async fn test_app_state_creation() {
@@ -530,7 +524,7 @@ mod tests {
         assert!(AudioFormat::from_filename("test.ogg").is_supported());
         assert!(AudioFormat::from_filename("test.webm").is_supported());
         assert!(AudioFormat::from_filename("test.opus").is_supported());
-        
+
         // Test extended audio formats
         assert!(AudioFormat::from_filename("test.amr").is_supported());
         assert!(AudioFormat::from_filename("test.wma").is_supported());
@@ -539,18 +533,18 @@ mod tests {
         assert!(AudioFormat::from_filename("test.au").is_supported());
         assert!(AudioFormat::from_filename("test.aiff").is_supported());
         assert!(AudioFormat::from_filename("test.caf").is_supported());
-        
+
         // Test video formats with audio
         assert!(AudioFormat::from_filename("test.3gp").is_supported());
         assert!(AudioFormat::from_filename("test.mp4").is_supported());
         assert!(AudioFormat::from_filename("test.mov").is_supported());
         assert!(AudioFormat::from_filename("test.avi").is_supported());
         assert!(AudioFormat::from_filename("test.mkv").is_supported());
-        
+
         // Test unsupported format
         assert!(!AudioFormat::from_filename("test.xyz").is_supported());
     }
-    
+
     #[test]
     fn test_audio_format_mime_types() {
         assert_eq!(AudioFormat::Mp3.get_mime_type(), "audio/mpeg");
@@ -559,9 +553,12 @@ mod tests {
         assert_eq!(AudioFormat::Amr.get_mime_type(), "audio/amr");
         assert_eq!(AudioFormat::Wma.get_mime_type(), "audio/x-ms-wma");
         assert_eq!(AudioFormat::Mp4.get_mime_type(), "video/mp4");
-        assert_eq!(AudioFormat::Unknown.get_mime_type(), "application/octet-stream");
+        assert_eq!(
+            AudioFormat::Unknown.get_mime_type(),
+            "application/octet-stream"
+        );
     }
-    
+
     #[test]
     fn test_audio_format_ffmpeg_formats() {
         assert_eq!(AudioFormat::Mp3.get_ffmpeg_input_format(), Some("mp3"));
@@ -571,7 +568,7 @@ mod tests {
         assert_eq!(AudioFormat::Mkv.get_ffmpeg_input_format(), Some("matroska"));
         assert_eq!(AudioFormat::Unknown.get_ffmpeg_input_format(), None);
     }
-    
+
     #[test]
     fn test_audio_format_conversion_requirements() {
         assert!(!AudioFormat::Wav.requires_ffmpeg_conversion());
@@ -584,32 +581,35 @@ mod tests {
         // Test Base64 encoded data
         let base64_data = Bytes::from(b"SGVsbG8gV29ybGQ=".to_vec()); // "Hello World" in Base64
         assert!(is_base64_encoded(&base64_data));
-        
+
         // Test non-Base64 data
         let binary_data = Bytes::from(vec![0x1A, 0x45, 0xDF, 0xA3]);
         assert!(!is_base64_encoded(&binary_data));
-        
+
         // Test empty data
         let empty_data = Bytes::from(vec![]);
         assert!(!is_base64_encoded(&empty_data));
     }
-    
+
     #[test]
     fn test_symphonia_integration() {
         // Test that AudioFormatDetector methods are accessible and working
-        use crate::services::AudioFormatDetector;
         use crate::models::request::{AudioFormat, DetectionMethod};
-        
+        use crate::services::AudioFormatDetector;
+
         // Test with dummy audio data and filename
         let test_data = Bytes::from(vec![0u8; 1024]); // Dummy data
-        
+
         // Test filename-based fallback when Symphonia probe fails
         // Note: New behavior always generates UUID-based filename regardless of input filename
         let result = AudioFormatDetector::detect_format(&test_data, Some("test.mp3"));
         match result {
             Ok(format_result) => {
                 // Should fallback to filename-based detection for dummy data
-                assert_eq!(format_result.detection_method, DetectionMethod::FileExtension);
+                assert_eq!(
+                    format_result.detection_method,
+                    DetectionMethod::FileExtension
+                );
                 assert_eq!(format_result.format, AudioFormat::Mp3);
                 assert!(format_result.confidence >= 0.0);
             }
@@ -617,7 +617,7 @@ mod tests {
                 // This is also acceptable for dummy data
             }
         }
-        
+
         // Test format validation
         let valid_result = crate::models::request::AudioFormatResult {
             format: AudioFormat::Mp3,
@@ -626,12 +626,12 @@ mod tests {
             detection_method: DetectionMethod::SymphoniaProbe,
         };
         assert!(AudioFormatDetector::validate_format_support(&valid_result).is_ok());
-        
+
         // Test format string conversion for UUID-based filename generation
         assert_eq!(AudioFormat::Mp3.to_string(), "mp3");
         assert_eq!(AudioFormat::Wav.to_string(), "wav");
         assert_eq!(AudioFormat::Flac.to_string(), "flac");
-        
+
         // Test that UUID + extension format contains a dot and proper extension
         let example_filename = format!("{}.{}", uuid::Uuid::new_v4(), "mp3");
         assert!(example_filename.contains('.'));

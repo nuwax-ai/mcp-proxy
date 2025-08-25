@@ -2,14 +2,12 @@ use reqwest::Client;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::{mpsc, RwLock};
 use tokio::time::{interval, timeout};
-use tracing::{debug, info, warn, error};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use crate::models::{
-    ClusterNode, MetadataStore, ClusterError, NodeStatus
-};
+use crate::models::{ClusterError, ClusterNode, MetadataStore, NodeStatus};
 
 /// Health check result for a single node
 #[derive(Debug, Clone)]
@@ -69,10 +67,21 @@ impl Default for HealthCheckConfig {
 /// Health check events
 #[derive(Debug, Clone)]
 pub enum HealthEvent {
-    NodeHealthy { node_id: String, response_time: Duration },
-    NodeUnhealthy { node_id: String, error: String },
-    NodeRecovered { node_id: String },
-    NodeFailed { node_id: String, consecutive_failures: u32 },
+    NodeHealthy {
+        node_id: String,
+        response_time: Duration,
+    },
+    NodeUnhealthy {
+        node_id: String,
+        error: String,
+    },
+    NodeRecovered {
+        node_id: String,
+    },
+    NodeFailed {
+        node_id: String,
+        consecutive_failures: u32,
+    },
 }
 
 /// Advanced health checker for cluster nodes
@@ -121,14 +130,16 @@ impl HealthChecker {
 
     /// Start the health checking process
     pub async fn start(&self) -> Result<(), ClusterError> {
-        info!("Starting health checker {} with interval: {:?}", 
-              self.checker_id, self.config.check_interval);
+        info!(
+            "Starting health checker {} with interval: {:?}",
+            self.checker_id, self.config.check_interval
+        );
 
         let mut interval = interval(self.config.check_interval);
 
         loop {
             interval.tick().await;
-            
+
             if let Err(e) = self.check_all_nodes().await {
                 error!("Health check cycle failed: {}", e);
             }
@@ -141,7 +152,7 @@ impl HealthChecker {
 
         // Get all cluster nodes
         let nodes = self.metadata_store.get_all_nodes().await?;
-        
+
         if nodes.is_empty() {
             debug!("No nodes to check");
             return Ok(());
@@ -149,21 +160,22 @@ impl HealthChecker {
 
         // Perform health checks concurrently
         let mut tasks = Vec::new();
-        
+
         for node in nodes {
             // Skip circuit-broken nodes if they're still in timeout
             if self.is_circuit_breaker_active(&node.node_id).await {
-                debug!("Skipping health check for {} (circuit breaker active)", node.node_id);
+                debug!(
+                    "Skipping health check for {} (circuit breaker active)",
+                    node.node_id
+                );
                 continue;
             }
 
             let checker = self.clone_for_task();
             let node_clone = node.clone();
-            
-            let task = tokio::spawn(async move {
-                checker.check_single_node(&node_clone).await
-            });
-            
+
+            let task = tokio::spawn(async move { checker.check_single_node(&node_clone).await });
+
             tasks.push(task);
         }
 
@@ -179,25 +191,34 @@ impl HealthChecker {
     }
 
     /// Check health of a single node
-    pub async fn check_single_node(&self, node: &ClusterNode) -> Result<HealthCheckResult, ClusterError> {
+    pub async fn check_single_node(
+        &self,
+        node: &ClusterNode,
+    ) -> Result<HealthCheckResult, ClusterError> {
         let start_time = Instant::now();
-        let health_url = format!("http://{}:{}{}", 
-                                node.address, 
-                                node.http_port, 
-                                self.config.health_endpoint);
+        let health_url = format!(
+            "http://{}:{}{}",
+            node.address, node.http_port, self.config.health_endpoint
+        );
 
         debug!("Checking health of node {} at {}", node.node_id, health_url);
 
         let result = match timeout(
             self.config.request_timeout,
-            self.client.get(&health_url).send()
-        ).await {
+            self.client.get(&health_url).send(),
+        )
+        .await
+        {
             Ok(Ok(response)) => {
                 let response_time = start_time.elapsed();
-                
+
                 if response.status().is_success() {
-                    debug!("Node {} is healthy ({}ms)", node.node_id, response_time.as_millis());
-                    
+                    debug!(
+                        "Node {} is healthy ({}ms)",
+                        node.node_id,
+                        response_time.as_millis()
+                    );
+
                     HealthCheckResult {
                         node_id: node.node_id.clone(),
                         address: health_url,
@@ -209,7 +230,7 @@ impl HealthChecker {
                 } else {
                     let error_msg = format!("HTTP {}", response.status());
                     warn!("Node {} health check failed: {}", node.node_id, error_msg);
-                    
+
                     HealthCheckResult {
                         node_id: node.node_id.clone(),
                         address: health_url,
@@ -223,7 +244,7 @@ impl HealthChecker {
             Ok(Err(e)) => {
                 let error_msg = format!("Request failed: {}", e);
                 warn!("Node {} health check failed: {}", node.node_id, error_msg);
-                
+
                 HealthCheckResult {
                     node_id: node.node_id.clone(),
                     address: health_url,
@@ -236,7 +257,7 @@ impl HealthChecker {
             Err(_) => {
                 let error_msg = "Request timeout".to_string();
                 warn!("Node {} health check timed out", node.node_id);
-                
+
                 HealthCheckResult {
                     node_id: node.node_id.clone(),
                     address: health_url,
@@ -251,7 +272,7 @@ impl HealthChecker {
         // Update statistics and status
         self.update_node_stats(&result).await;
         self.update_node_status(&result).await?;
-        
+
         // Store the result
         {
             let mut recent_results = self.recent_results.write().await;
@@ -264,9 +285,10 @@ impl HealthChecker {
     /// Update health statistics for a node
     async fn update_node_stats(&self, result: &HealthCheckResult) {
         let mut stats_map = self.node_stats.write().await;
-        
-        let stats = stats_map.entry(result.node_id.clone()).or_insert_with(|| {
-            NodeHealthStats {
+
+        let stats = stats_map
+            .entry(result.node_id.clone())
+            .or_insert_with(|| NodeHealthStats {
                 node_id: result.node_id.clone(),
                 total_checks: 0,
                 successful_checks: 0,
@@ -276,8 +298,7 @@ impl HealthChecker {
                 last_failure: None,
                 consecutive_failures: 0,
                 uptime_percentage: 100.0,
-            }
-        });
+            });
 
         stats.total_checks += 1;
 
@@ -285,11 +306,12 @@ impl HealthChecker {
             stats.successful_checks += 1;
             stats.last_success = Some(result.last_checked);
             stats.consecutive_failures = 0;
-            
+
             // Update average response time
             if let Some(response_time) = result.response_time {
                 let total_time = stats.average_response_time * (stats.successful_checks - 1) as f32;
-                stats.average_response_time = (total_time + response_time.as_secs_f32()) / stats.successful_checks as f32;
+                stats.average_response_time =
+                    (total_time + response_time.as_secs_f32()) / stats.successful_checks as f32;
             }
 
             // Send health event
@@ -321,7 +343,8 @@ impl HealthChecker {
         }
 
         // Update uptime percentage
-        stats.uptime_percentage = (stats.successful_checks as f32 / stats.total_checks as f32) * 100.0;
+        stats.uptime_percentage =
+            (stats.successful_checks as f32 / stats.total_checks as f32) * 100.0;
     }
 
     /// Update node status in metadata store
@@ -332,7 +355,11 @@ impl HealthChecker {
             NodeStatus::Unhealthy
         };
 
-        if let Err(e) = self.metadata_store.update_node_status(&result.node_id, current_status).await {
+        if let Err(e) = self
+            .metadata_store
+            .update_node_status(&result.node_id, current_status)
+            .await
+        {
             warn!("Failed to update node {} status: {}", result.node_id, e);
         }
 
@@ -349,7 +376,7 @@ impl HealthChecker {
     /// Check if circuit breaker is active for a node
     async fn is_circuit_breaker_active(&self, node_id: &str) -> bool {
         let circuit_breakers = self.circuit_breakers.read().await;
-        
+
         if let Some(activation_time) = circuit_breakers.get(node_id) {
             activation_time.elapsed() < self.config.circuit_breaker_timeout
         } else {
@@ -376,10 +403,11 @@ impl HealthChecker {
     pub async fn get_cluster_health_summary(&self) -> ClusterHealthSummary {
         let stats = self.node_stats.read().await;
         let total_nodes = stats.len();
-        let healthy_nodes = stats.values()
+        let healthy_nodes = stats
+            .values()
             .filter(|s| s.consecutive_failures == 0)
             .count();
-        
+
         let average_uptime = if total_nodes > 0 {
             stats.values().map(|s| s.uptime_percentage).sum::<f32>() / total_nodes as f32
         } else {
@@ -430,10 +458,10 @@ mod tests {
     async fn test_health_checker_creation() {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
-        
+
         let metadata_store = Arc::new(MetadataStore::new(db_path.to_str().unwrap()).unwrap());
         let config = HealthCheckConfig::default();
-        
+
         let checker = HealthChecker::new(config, metadata_store, None);
         assert!(checker.is_ok());
     }
@@ -441,7 +469,7 @@ mod tests {
     #[tokio::test]
     async fn test_health_check_config_defaults() {
         let config = HealthCheckConfig::default();
-        
+
         assert_eq!(config.check_interval, Duration::from_secs(5));
         assert_eq!(config.request_timeout, Duration::from_secs(3));
         assert_eq!(config.failure_threshold, 3);
@@ -453,13 +481,13 @@ mod tests {
     async fn test_health_stats_initialization() {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
-        
+
         let metadata_store = Arc::new(MetadataStore::new(db_path.to_str().unwrap()).unwrap());
         let config = HealthCheckConfig::default();
-        
+
         let checker = HealthChecker::new(config, metadata_store, None).unwrap();
         let stats = checker.get_all_stats().await;
-        
+
         assert!(stats.is_empty());
     }
 }

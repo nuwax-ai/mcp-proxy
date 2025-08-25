@@ -10,16 +10,16 @@ pub mod utils;
 
 // Cluster functionality (temporarily simplified - raft disabled due to protobuf issues)
 pub mod cluster;
-pub mod load_balancer;
 pub mod grpc;
+pub mod load_balancer;
 
 // Re-export commonly used types
-pub use error::{VoiceCliError, Result};
-pub use models::*;
 pub use config::ConfigManager;
+pub use error::{Result, VoiceCliError};
+pub use models::*;
 
 // Re-export services
-pub use services::{AudioProcessor, TranscriptionService, ModelService};
+pub use services::{AudioProcessor, ModelService, TranscriptionService};
 
 // Tests module
 #[cfg(test)]

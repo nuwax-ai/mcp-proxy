@@ -44,31 +44,31 @@ pub enum VoiceCliError {
 
     #[error("Invalid model name: {0}")]
     InvalidModelName(String),
-    
+
     // Worker pool related errors
     #[error("Worker pool error: {0}")]
     WorkerPoolError(String),
-    
+
     #[error("Transcription timeout after {0} seconds")]
     TranscriptionTimeout(u64),
-    
+
     #[error("Transcription failed: {0}")]
     TranscriptionFailed(String),
-    
+
     // Audio processing specific errors
     #[error("Audio conversion failed: {0}")]
     AudioConversionFailed(String),
-    
+
     #[error("Audio probe error: {0}")]
     AudioProbeError(String),
-    
+
     #[error("Temporary file error: {0}")]
     TempFileError(String),
-    
+
     // Multipart form handling errors
     #[error("Multipart form error: {0}")]
     MultipartError(String),
-    
+
     #[error("Missing required field: {0}")]
     MissingField(String),
 }
@@ -78,23 +78,35 @@ impl IntoResponse for VoiceCliError {
         let (status, error_message) = match self {
             VoiceCliError::Config(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             VoiceCliError::AudioProcessing(_) => (StatusCode::BAD_REQUEST, self.to_string()),
-            VoiceCliError::Transcription(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+            VoiceCliError::Transcription(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
+            }
             VoiceCliError::Model(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             VoiceCliError::FileIo(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             VoiceCliError::Http(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
-            VoiceCliError::Serialization(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+            VoiceCliError::Serialization(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
+            }
             VoiceCliError::Json(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             VoiceCliError::Daemon(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             VoiceCliError::UnsupportedFormat(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             VoiceCliError::FileTooLarge { .. } => (StatusCode::PAYLOAD_TOO_LARGE, self.to_string()),
             VoiceCliError::ModelNotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             VoiceCliError::InvalidModelName(_) => (StatusCode::BAD_REQUEST, self.to_string()),
-            VoiceCliError::WorkerPoolError(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
-            VoiceCliError::TranscriptionTimeout(_) => (StatusCode::REQUEST_TIMEOUT, self.to_string()),
-            VoiceCliError::TranscriptionFailed(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+            VoiceCliError::WorkerPoolError(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
+            }
+            VoiceCliError::TranscriptionTimeout(_) => {
+                (StatusCode::REQUEST_TIMEOUT, self.to_string())
+            }
+            VoiceCliError::TranscriptionFailed(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
+            }
             VoiceCliError::AudioConversionFailed(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             VoiceCliError::AudioProbeError(_) => (StatusCode::BAD_REQUEST, self.to_string()),
-            VoiceCliError::TempFileError(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+            VoiceCliError::TempFileError(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
+            }
             VoiceCliError::MultipartError(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             VoiceCliError::MissingField(_) => (StatusCode::BAD_REQUEST, self.to_string()),
         };
@@ -113,15 +125,33 @@ impl From<crate::models::metadata_store::ClusterError> for VoiceCliError {
     fn from(error: crate::models::metadata_store::ClusterError) -> Self {
         match error {
             crate::models::metadata_store::ClusterError::Config(msg) => VoiceCliError::Config(msg),
-            crate::models::metadata_store::ClusterError::Network(msg) => VoiceCliError::Config(format!("Network error: {}", msg)),
-            crate::models::metadata_store::ClusterError::Timeout(msg) => VoiceCliError::Config(format!("Timeout: {}", msg)),
-            crate::models::metadata_store::ClusterError::NodeNotFound(msg) => VoiceCliError::Config(format!("Node not found: {}", msg)),
-            crate::models::metadata_store::ClusterError::TaskNotFound(msg) => VoiceCliError::Config(format!("Task not found: {}", msg)),
-            crate::models::metadata_store::ClusterError::NoAvailableNodes => VoiceCliError::Config("No available nodes".to_string()),
-            crate::models::metadata_store::ClusterError::TranscriptionFailed(msg) => VoiceCliError::TranscriptionFailed(msg),
-            crate::models::metadata_store::ClusterError::InvalidOperation(msg) => VoiceCliError::Config(format!("Invalid operation: {}", msg)),
-            crate::models::metadata_store::ClusterError::Database(err) => VoiceCliError::Config(format!("Database error: {}", err)),
-            crate::models::metadata_store::ClusterError::Serialization(err) => VoiceCliError::Json(err),
+            crate::models::metadata_store::ClusterError::Network(msg) => {
+                VoiceCliError::Config(format!("Network error: {}", msg))
+            }
+            crate::models::metadata_store::ClusterError::Timeout(msg) => {
+                VoiceCliError::Config(format!("Timeout: {}", msg))
+            }
+            crate::models::metadata_store::ClusterError::NodeNotFound(msg) => {
+                VoiceCliError::Config(format!("Node not found: {}", msg))
+            }
+            crate::models::metadata_store::ClusterError::TaskNotFound(msg) => {
+                VoiceCliError::Config(format!("Task not found: {}", msg))
+            }
+            crate::models::metadata_store::ClusterError::NoAvailableNodes => {
+                VoiceCliError::Config("No available nodes".to_string())
+            }
+            crate::models::metadata_store::ClusterError::TranscriptionFailed(msg) => {
+                VoiceCliError::TranscriptionFailed(msg)
+            }
+            crate::models::metadata_store::ClusterError::InvalidOperation(msg) => {
+                VoiceCliError::Config(format!("Invalid operation: {}", msg))
+            }
+            crate::models::metadata_store::ClusterError::Database(err) => {
+                VoiceCliError::Config(format!("Database error: {}", err))
+            }
+            crate::models::metadata_store::ClusterError::Serialization(err) => {
+                VoiceCliError::Json(err)
+            }
         }
     }
 }
@@ -133,25 +163,33 @@ impl From<crate::models::metadata_store::ClusterError> for VoiceCliError {
 pub trait ClusterResultExt<T> {
     /// Add node context to the error
     fn with_node_context(self, node_id: &str) -> anyhow::Result<T>;
-    
+
     /// Add task context to the error
     fn with_task_context(self, task_id: &str) -> anyhow::Result<T>;
-    
+
     /// Add cluster operation context to the error
     fn with_cluster_context(self, operation: &str) -> anyhow::Result<T>;
 }
 
-impl<T> ClusterResultExt<T> for std::result::Result<T, crate::models::metadata_store::ClusterError> {
+impl<T> ClusterResultExt<T>
+    for std::result::Result<T, crate::models::metadata_store::ClusterError>
+{
     fn with_node_context(self, node_id: &str) -> anyhow::Result<T> {
-        self.map_err(|e| anyhow::Error::new(e).context(format!("Node operation failed for node '{}'", node_id)))
+        self.map_err(|e| {
+            anyhow::Error::new(e).context(format!("Node operation failed for node '{}'", node_id))
+        })
     }
-    
+
     fn with_task_context(self, task_id: &str) -> anyhow::Result<T> {
-        self.map_err(|e| anyhow::Error::new(e).context(format!("Task operation failed for task '{}'", task_id)))
+        self.map_err(|e| {
+            anyhow::Error::new(e).context(format!("Task operation failed for task '{}'", task_id))
+        })
     }
-    
+
     fn with_cluster_context(self, operation: &str) -> anyhow::Result<T> {
-        self.map_err(|e| anyhow::Error::new(e).context(format!("Cluster operation '{}' failed", operation)))
+        self.map_err(|e| {
+            anyhow::Error::new(e).context(format!("Cluster operation '{}' failed", operation))
+        })
     }
 }
 
@@ -164,9 +202,10 @@ mod tests {
 
     #[test]
     fn test_cluster_result_ext_node_context() {
-        let error: std::result::Result<(), ClusterError> = Err(ClusterError::NodeNotFound("test-node".to_string()));
+        let error: std::result::Result<(), ClusterError> =
+            Err(ClusterError::NodeNotFound("test-node".to_string()));
         let result = error.with_node_context("test-node");
-        
+
         assert!(result.is_err());
         let error = result.unwrap_err();
         let error_msg = error.to_string();
@@ -179,9 +218,10 @@ mod tests {
 
     #[test]
     fn test_cluster_result_ext_task_context() {
-        let error: std::result::Result<(), ClusterError> = Err(ClusterError::TaskNotFound("task-123".to_string()));
+        let error: std::result::Result<(), ClusterError> =
+            Err(ClusterError::TaskNotFound("task-123".to_string()));
         let result = error.with_task_context("task-123");
-        
+
         assert!(result.is_err());
         let error = result.unwrap_err();
         let error_msg = error.to_string();
@@ -196,7 +236,7 @@ mod tests {
     fn test_cluster_result_ext_cluster_context() {
         let error: std::result::Result<(), ClusterError> = Err(ClusterError::NoAvailableNodes);
         let result = error.with_cluster_context("task assignment");
-        
+
         assert!(result.is_err());
         let error = result.unwrap_err();
         let error_msg = error.to_string();
@@ -211,7 +251,7 @@ mod tests {
     fn test_cluster_result_ext_success() {
         let success: std::result::Result<String, ClusterError> = Ok("success".to_string());
         let result = success.with_node_context("test-node");
-        
+
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "success");
     }

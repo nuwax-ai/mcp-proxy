@@ -1,6 +1,6 @@
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use chrono::Utc;
 
 /// Node roles in the cluster
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -234,7 +234,7 @@ impl ClusterStats {
         }
 
         let healthy_ratio = self.healthy_nodes as f64 / self.total_nodes as f64;
-        
+
         self.cluster_health = if healthy_ratio >= 0.8 {
             ClusterHealth::Healthy
         } else if healthy_ratio >= 0.5 {

@@ -28,7 +28,9 @@ impl ProcessManager {
     pub fn read_pid(&self) -> crate::Result<Option<u32>> {
         if self.pid_file_path.exists() {
             let pid_str = std::fs::read_to_string(&self.pid_file_path)?;
-            let pid = pid_str.trim().parse::<u32>()
+            let pid = pid_str
+                .trim()
+                .parse::<u32>()
                 .map_err(|_| VoiceCliError::Daemon("Invalid PID in file".to_string()))?;
             Ok(Some(pid))
         } else {
@@ -49,17 +51,15 @@ impl ProcessManager {
         #[cfg(unix)]
         {
             use libc::kill;
-            unsafe {
-                kill(pid as i32, 0) == 0
-            }
+            unsafe { kill(pid as i32, 0) == 0 }
         }
-        
+
         #[cfg(windows)]
         {
+            use winapi::um::handleapi::CloseHandle;
             use winapi::um::processthreadsapi::OpenProcess;
             use winapi::um::winnt::PROCESS_QUERY_INFORMATION;
-            use winapi::um::handleapi::CloseHandle;
-            
+
             unsafe {
                 let handle = OpenProcess(PROCESS_QUERY_INFORMATION, 0, pid);
                 if !handle.is_null() {
@@ -84,19 +84,20 @@ impl ProcessManager {
                     info!("Sent SIGTERM to PID: {}", pid);
                 } else {
                     warn!("Failed to send SIGTERM to PID: {}", pid);
-                    return Err(VoiceCliError::Daemon(
-                        format!("Failed to terminate process {}", pid)
-                    ));
+                    return Err(VoiceCliError::Daemon(format!(
+                        "Failed to terminate process {}",
+                        pid
+                    )));
                 }
             }
         }
-        
+
         #[cfg(windows)]
         {
+            use winapi::um::handleapi::CloseHandle;
             use winapi::um::processthreadsapi::{OpenProcess, TerminateProcess};
             use winapi::um::winnt::PROCESS_TERMINATE;
-            use winapi::um::handleapi::CloseHandle;
-            
+
             unsafe {
                 let handle = OpenProcess(PROCESS_TERMINATE, 0, pid);
                 if !handle.is_null() {
@@ -105,9 +106,10 @@ impl ProcessManager {
                     info!("Terminated process with PID: {}", pid);
                 } else {
                     warn!("Failed to open process with PID: {}", pid);
-                    return Err(VoiceCliError::Daemon(
-                        format!("Failed to open process {}", pid)
-                    ));
+                    return Err(VoiceCliError::Daemon(format!(
+                        "Failed to open process {}",
+                        pid
+                    )));
                 }
             }
         }
@@ -126,13 +128,14 @@ impl ProcessManager {
                 if kill(pid as i32, SIGKILL) == 0 {
                     info!("Sent SIGKILL to PID: {}", pid);
                 } else {
-                    return Err(VoiceCliError::Daemon(
-                        format!("Failed to force kill process {}", pid)
-                    ));
+                    return Err(VoiceCliError::Daemon(format!(
+                        "Failed to force kill process {}",
+                        pid
+                    )));
                 }
             }
         }
-        
+
         #[cfg(windows)]
         {
             // On Windows, TerminateProcess is already forceful

@@ -1,3 +1,5 @@
+use bytes::Bytes;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -6,8 +8,6 @@ use tokio::fs;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
-use bytes::Bytes;
-use serde::{Serialize, Deserialize};
 
 use crate::models::{ClusterError, TaskMetadata};
 
@@ -65,7 +65,7 @@ impl Default for FileShareConfig {
                 mount_path: PathBuf::from("./shared-voice-cli"),
             },
             storage_base_dir: PathBuf::from("./cluster-storage"),
-            max_file_size: 500 * 1024 * 1024, // 500MB
+            max_file_size: 500 * 1024 * 1024,    // 500MB
             file_ttl: Duration::from_secs(3600), // 1 hour
             replication_timeout: Duration::from_secs(30),
             enable_compression: false,
@@ -89,12 +89,16 @@ pub struct ClusterFileShare {
 impl ClusterFileShare {
     /// Create a new cluster file share manager
     pub async fn new(config: FileShareConfig, node_id: String) -> Result<Self, ClusterError> {
-        info!("Initializing cluster file share with strategy: {:?}", config.strategy);
+        info!(
+            "Initializing cluster file share with strategy: {:?}",
+            config.strategy
+        );
 
         // Ensure storage directory exists
         if let Err(e) = fs::create_dir_all(&config.storage_base_dir).await {
             return Err(ClusterError::Config(format!(
-                "Failed to create storage directory: {}", e
+                "Failed to create storage directory: {}",
+                e
             )));
         }
 
@@ -118,28 +122,32 @@ impl ClusterFileShare {
         // Validate file size
         if audio_data.len() as u64 > self.config.max_file_size {
             return Err(ClusterError::InvalidOperation(format!(
-                "File size {} exceeds maximum {}", 
-                audio_data.len(), 
+                "File size {} exceeds maximum {}",
+                audio_data.len(),
                 self.config.max_file_size
             )));
         }
 
         let file_id = format!("{}_{}", task_id, Uuid::new_v4().simple());
         let checksum = self.calculate_checksum(&audio_data);
-        
+
         // Determine storage strategy and store file
         let storage_path = match &self.config.strategy {
             FileShareStrategy::SharedFileSystem { mount_path } => {
-                self.store_to_shared_filesystem(&file_id, &audio_data, mount_path).await?
+                self.store_to_shared_filesystem(&file_id, &audio_data, mount_path)
+                    .await?
             }
             FileShareStrategy::ObjectStorage { bucket, endpoint } => {
-                self.store_to_object_storage(&file_id, &audio_data, bucket, endpoint).await?
+                self.store_to_object_storage(&file_id, &audio_data, bucket, endpoint)
+                    .await?
             }
             FileShareStrategy::DistributedReplication { replication_factor } => {
-                self.store_with_replication(&file_id, &audio_data, *replication_factor).await?
+                self.store_with_replication(&file_id, &audio_data, *replication_factor)
+                    .await?
             }
             FileShareStrategy::HttpTransfer { base_url } => {
-                self.store_for_http_transfer(&file_id, &audio_data, base_url).await?
+                self.store_for_http_transfer(&file_id, &audio_data, base_url)
+                    .await?
             }
         };
 
@@ -168,10 +176,7 @@ impl ClusterFileShare {
     }
 
     /// Retrieve an audio file for task processing
-    pub async fn retrieve_audio_file(
-        &self,
-        file_id: &str,
-    ) -> Result<Bytes, ClusterError> {
+    pub async fn retrieve_audio_file(&self, file_id: &str) -> Result<Bytes, ClusterError> {
         info!("Retrieving audio file {}", file_id);
 
         // Get file info
@@ -180,31 +185,36 @@ impl ClusterFileShare {
             shared_files.get(file_id).cloned()
         };
 
-        let file_info = file_info.ok_or_else(|| {
-            ClusterError::InvalidOperation(format!("File {} not found", file_id))
-        })?;
+        let file_info = file_info
+            .ok_or_else(|| ClusterError::InvalidOperation(format!("File {} not found", file_id)))?;
 
         // Check if file has expired
         if let Some(expires_at) = file_info.expires_at {
             if SystemTime::now() > expires_at {
                 warn!("File {} has expired", file_id);
-                return Err(ClusterError::InvalidOperation(format!("File {} has expired", file_id)));
+                return Err(ClusterError::InvalidOperation(format!(
+                    "File {} has expired",
+                    file_id
+                )));
             }
         }
 
         // Retrieve file based on storage strategy
         let audio_data = match &self.config.strategy {
             FileShareStrategy::SharedFileSystem { .. } => {
-                self.retrieve_from_shared_filesystem(&file_info.storage_path).await?
+                self.retrieve_from_shared_filesystem(&file_info.storage_path)
+                    .await?
             }
             FileShareStrategy::ObjectStorage { bucket, endpoint } => {
-                self.retrieve_from_object_storage(&file_info.storage_path, bucket, endpoint).await?
+                self.retrieve_from_object_storage(&file_info.storage_path, bucket, endpoint)
+                    .await?
             }
             FileShareStrategy::DistributedReplication { .. } => {
                 self.retrieve_from_replicas(&file_info.storage_path).await?
             }
             FileShareStrategy::HttpTransfer { base_url } => {
-                self.retrieve_via_http_transfer(&file_info.storage_path, base_url).await?
+                self.retrieve_via_http_transfer(&file_info.storage_path, base_url)
+                    .await?
             }
         };
 
@@ -220,12 +230,16 @@ impl ClusterFileShare {
         let retrieved_checksum = self.calculate_checksum(&audio_data);
         if retrieved_checksum != file_info.checksum {
             return Err(ClusterError::InvalidOperation(format!(
-                "File {} checksum mismatch: expected {}, got {}", 
+                "File {} checksum mismatch: expected {}, got {}",
                 file_id, file_info.checksum, retrieved_checksum
             )));
         }
 
-        info!("Successfully retrieved file {} ({} bytes)", file_id, audio_data.len());
+        info!(
+            "Successfully retrieved file {} ({} bytes)",
+            file_id,
+            audio_data.len()
+        );
         Ok(audio_data)
     }
 
@@ -247,7 +261,7 @@ impl ClusterFileShare {
         }
 
         let cleanup_count = expired_files.len() as u32;
-        
+
         // Remove expired files
         for (file_id, file_info) in expired_files {
             if let Err(e) = self.remove_file(&file_id, &file_info.storage_path).await {
@@ -270,10 +284,11 @@ impl ClusterFileShare {
     /// Get file sharing statistics
     pub async fn get_statistics(&self) -> FileShareStatistics {
         let shared_files = self.shared_files.read().await;
-        
+
         let total_files = shared_files.len();
         let total_size: u64 = shared_files.values().map(|f| f.file_size).sum();
-        let expired_count = shared_files.values()
+        let expired_count = shared_files
+            .values()
             .filter(|f| f.expires_at.map_or(false, |exp| SystemTime::now() > exp))
             .count();
 
@@ -297,15 +312,17 @@ impl ClusterFileShare {
         mount_path: &Path,
     ) -> Result<String, ClusterError> {
         let file_path = mount_path.join(format!("{}.audio", file_id));
-        
+
         // Ensure parent directory exists
         if let Some(parent) = file_path.parent() {
-            fs::create_dir_all(parent).await
+            fs::create_dir_all(parent)
+                .await
                 .map_err(|e| ClusterError::Network(format!("Failed to create directory: {}", e)))?;
         }
 
         // Write file
-        fs::write(&file_path, audio_data).await
+        fs::write(&file_path, audio_data)
+            .await
             .map_err(|e| ClusterError::Network(format!("Failed to write file: {}", e)))?;
 
         Ok(file_path.to_string_lossy().to_string())
@@ -321,10 +338,14 @@ impl ClusterFileShare {
     ) -> Result<String, ClusterError> {
         // For now, use local storage as fallback
         // In a real implementation, this would use S3/MinIO SDK
-        let local_path = self.config.storage_base_dir.join(format!("{}.audio", file_id));
-        fs::write(&local_path, audio_data).await
-            .map_err(|e| ClusterError::Network(format!("Failed to write to object storage: {}", e)))?;
-        
+        let local_path = self
+            .config
+            .storage_base_dir
+            .join(format!("{}.audio", file_id));
+        fs::write(&local_path, audio_data).await.map_err(|e| {
+            ClusterError::Network(format!("Failed to write to object storage: {}", e))
+        })?;
+
         Ok(format!("object://{}", file_id))
     }
 
@@ -337,10 +358,14 @@ impl ClusterFileShare {
     ) -> Result<String, ClusterError> {
         // For now, use local storage as primary
         // In a real implementation, this would replicate to multiple nodes
-        let local_path = self.config.storage_base_dir.join(format!("{}.audio", file_id));
-        fs::write(&local_path, audio_data).await
-            .map_err(|e| ClusterError::Network(format!("Failed to write for replication: {}", e)))?;
-        
+        let local_path = self
+            .config
+            .storage_base_dir
+            .join(format!("{}.audio", file_id));
+        fs::write(&local_path, audio_data).await.map_err(|e| {
+            ClusterError::Network(format!("Failed to write for replication: {}", e))
+        })?;
+
         Ok(format!("replicated://{}", file_id))
     }
 
@@ -352,19 +377,27 @@ impl ClusterFileShare {
         _base_url: &str,
     ) -> Result<String, ClusterError> {
         // Store locally for HTTP serving
-        let local_path = self.config.storage_base_dir.join(format!("{}.audio", file_id));
-        fs::write(&local_path, audio_data).await
-            .map_err(|e| ClusterError::Network(format!("Failed to write for HTTP transfer: {}", e)))?;
-        
+        let local_path = self
+            .config
+            .storage_base_dir
+            .join(format!("{}.audio", file_id));
+        fs::write(&local_path, audio_data).await.map_err(|e| {
+            ClusterError::Network(format!("Failed to write for HTTP transfer: {}", e))
+        })?;
+
         Ok(format!("http://{}", file_id))
     }
 
     // Retrieval strategy implementations
 
     /// Retrieve file from shared filesystem
-    async fn retrieve_from_shared_filesystem(&self, storage_path: &str) -> Result<Bytes, ClusterError> {
-        let data = fs::read(storage_path).await
-            .map_err(|e| ClusterError::Network(format!("Failed to read from shared filesystem: {}", e)))?;
+    async fn retrieve_from_shared_filesystem(
+        &self,
+        storage_path: &str,
+    ) -> Result<Bytes, ClusterError> {
+        let data = fs::read(storage_path).await.map_err(|e| {
+            ClusterError::Network(format!("Failed to read from shared filesystem: {}", e))
+        })?;
         Ok(Bytes::from(data))
     }
 
@@ -376,36 +409,55 @@ impl ClusterFileShare {
         _endpoint: &str,
     ) -> Result<Bytes, ClusterError> {
         // Extract file ID from storage path
-        let file_id = storage_path.strip_prefix("object://")
-            .ok_or_else(|| ClusterError::InvalidOperation("Invalid object storage path".to_string()))?;
-        
-        let local_path = self.config.storage_base_dir.join(format!("{}.audio", file_id));
-        let data = fs::read(local_path).await
-            .map_err(|e| ClusterError::Network(format!("Failed to read from object storage: {}", e)))?;
+        let file_id = storage_path.strip_prefix("object://").ok_or_else(|| {
+            ClusterError::InvalidOperation("Invalid object storage path".to_string())
+        })?;
+
+        let local_path = self
+            .config
+            .storage_base_dir
+            .join(format!("{}.audio", file_id));
+        let data = fs::read(local_path).await.map_err(|e| {
+            ClusterError::Network(format!("Failed to read from object storage: {}", e))
+        })?;
         Ok(Bytes::from(data))
     }
 
     /// Retrieve file from replicas
     async fn retrieve_from_replicas(&self, storage_path: &str) -> Result<Bytes, ClusterError> {
         // Extract file ID from storage path
-        let file_id = storage_path.strip_prefix("replicated://")
-            .ok_or_else(|| ClusterError::InvalidOperation("Invalid replication path".to_string()))?;
-        
-        let local_path = self.config.storage_base_dir.join(format!("{}.audio", file_id));
-        let data = fs::read(local_path).await
+        let file_id = storage_path.strip_prefix("replicated://").ok_or_else(|| {
+            ClusterError::InvalidOperation("Invalid replication path".to_string())
+        })?;
+
+        let local_path = self
+            .config
+            .storage_base_dir
+            .join(format!("{}.audio", file_id));
+        let data = fs::read(local_path)
+            .await
             .map_err(|e| ClusterError::Network(format!("Failed to read from replicas: {}", e)))?;
         Ok(Bytes::from(data))
     }
 
     /// Retrieve file via HTTP transfer
-    async fn retrieve_via_http_transfer(&self, storage_path: &str, _base_url: &str) -> Result<Bytes, ClusterError> {
+    async fn retrieve_via_http_transfer(
+        &self,
+        storage_path: &str,
+        _base_url: &str,
+    ) -> Result<Bytes, ClusterError> {
         // Extract file ID from storage path
-        let file_id = storage_path.strip_prefix("http://")
+        let file_id = storage_path
+            .strip_prefix("http://")
             .ok_or_else(|| ClusterError::InvalidOperation("Invalid HTTP path".to_string()))?;
-        
-        let local_path = self.config.storage_base_dir.join(format!("{}.audio", file_id));
-        let data = fs::read(local_path).await
-            .map_err(|e| ClusterError::Network(format!("Failed to read for HTTP transfer: {}", e)))?;
+
+        let local_path = self
+            .config
+            .storage_base_dir
+            .join(format!("{}.audio", file_id));
+        let data = fs::read(local_path).await.map_err(|e| {
+            ClusterError::Network(format!("Failed to read for HTTP transfer: {}", e))
+        })?;
         Ok(Bytes::from(data))
     }
 
@@ -413,15 +465,20 @@ impl ClusterFileShare {
     async fn remove_file(&self, file_id: &str, storage_path: &str) -> Result<(), ClusterError> {
         match &self.config.strategy {
             FileShareStrategy::SharedFileSystem { .. } => {
-                fs::remove_file(storage_path).await
+                fs::remove_file(storage_path)
+                    .await
                     .map_err(|e| ClusterError::Network(format!("Failed to remove file: {}", e)))?;
             }
             _ => {
                 // For other strategies, remove local copy
-                let local_path = self.config.storage_base_dir.join(format!("{}.audio", file_id));
+                let local_path = self
+                    .config
+                    .storage_base_dir
+                    .join(format!("{}.audio", file_id));
                 if local_path.exists() {
-                    fs::remove_file(local_path).await
-                        .map_err(|e| ClusterError::Network(format!("Failed to remove local file: {}", e)))?;
+                    fs::remove_file(local_path).await.map_err(|e| {
+                        ClusterError::Network(format!("Failed to remove local file: {}", e))
+                    })?;
                 }
             }
         }
@@ -430,7 +487,7 @@ impl ClusterFileShare {
 
     /// Calculate file checksum
     fn calculate_checksum(&self, data: &Bytes) -> String {
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
         hasher.update(data);
         format!("{:x}", hasher.finalize())
@@ -446,13 +503,14 @@ impl ClusterFileShare {
 
         match extension.as_str() {
             "mp3" => "audio/mpeg",
-            "wav" => "audio/wav", 
+            "wav" => "audio/wav",
             "flac" => "audio/flac",
             "m4a" => "audio/mp4",
             "aac" => "audio/aac",
             "ogg" => "audio/ogg",
             _ => "application/octet-stream",
-        }.to_string()
+        }
+        .to_string()
     }
 }
 
@@ -491,29 +549,30 @@ impl TaskDistributor {
         task_metadata: &mut TaskMetadata,
         audio_data: Bytes,
     ) -> Result<String, ClusterError> {
-        info!("Distributing task {} with real file sharing", task_metadata.task_id);
+        info!(
+            "Distributing task {} with real file sharing",
+            task_metadata.task_id
+        );
 
         // Store the audio file for cluster access
-        let file_info = self.file_share.store_audio_file(
-            &task_metadata.task_id,
-            &task_metadata.filename,
-            audio_data,
-        ).await?;
+        let file_info = self
+            .file_share
+            .store_audio_file(&task_metadata.task_id, &task_metadata.filename, audio_data)
+            .await?;
 
         // Update task metadata with file path
         task_metadata.audio_file_path = Some(file_info.storage_path.clone());
 
-        info!("Task {} file stored successfully at {}", 
-              task_metadata.task_id, file_info.storage_path);
+        info!(
+            "Task {} file stored successfully at {}",
+            task_metadata.task_id, file_info.storage_path
+        );
 
         Ok(file_info.file_id)
     }
 
     /// Retrieve audio data for task processing
-    pub async fn retrieve_task_audio_data(
-        &self,
-        file_id: &str,
-    ) -> Result<Bytes, ClusterError> {
+    pub async fn retrieve_task_audio_data(&self, file_id: &str) -> Result<Bytes, ClusterError> {
         self.file_share.retrieve_audio_file(file_id).await
     }
 }
@@ -543,21 +602,29 @@ mod tests {
             ..Default::default()
         };
 
-        let file_share = ClusterFileShare::new(config, "test-node".to_string()).await.unwrap();
-        
+        let file_share = ClusterFileShare::new(config, "test-node".to_string())
+            .await
+            .unwrap();
+
         // Test data
         let task_id = "test-task-123";
         let filename = "test.wav";
         let audio_data = Bytes::from(vec![1, 2, 3, 4, 5]);
 
         // Store file
-        let file_info = file_share.store_audio_file(task_id, filename, audio_data.clone()).await.unwrap();
+        let file_info = file_share
+            .store_audio_file(task_id, filename, audio_data.clone())
+            .await
+            .unwrap();
         assert!(!file_info.file_id.is_empty());
         assert_eq!(file_info.original_filename, filename);
         assert_eq!(file_info.file_size, 5);
 
         // Retrieve file
-        let retrieved_data = file_share.retrieve_audio_file(&file_info.file_id).await.unwrap();
+        let retrieved_data = file_share
+            .retrieve_audio_file(&file_info.file_id)
+            .await
+            .unwrap();
         assert_eq!(retrieved_data, audio_data);
     }
 
@@ -569,7 +636,11 @@ mod tests {
             ..Default::default()
         };
 
-        let file_share = Arc::new(ClusterFileShare::new(config, "test-node".to_string()).await.unwrap());
+        let file_share = Arc::new(
+            ClusterFileShare::new(config, "test-node".to_string())
+                .await
+                .unwrap(),
+        );
         let distributor = TaskDistributor::new(file_share, "test-node".to_string());
 
         let mut task_metadata = TaskMetadata::new(
@@ -581,12 +652,18 @@ mod tests {
         let audio_data = Bytes::from(vec![1, 2, 3, 4, 5]);
 
         // Distribute task
-        let file_id = distributor.distribute_task_with_file_sharing(&mut task_metadata, audio_data.clone()).await.unwrap();
+        let file_id = distributor
+            .distribute_task_with_file_sharing(&mut task_metadata, audio_data.clone())
+            .await
+            .unwrap();
         assert!(!file_id.is_empty());
         assert!(task_metadata.audio_file_path.is_some());
 
         // Retrieve audio data
-        let retrieved_data = distributor.retrieve_task_audio_data(&file_id).await.unwrap();
+        let retrieved_data = distributor
+            .retrieve_task_audio_data(&file_id)
+            .await
+            .unwrap();
         assert_eq!(retrieved_data, audio_data);
     }
 }

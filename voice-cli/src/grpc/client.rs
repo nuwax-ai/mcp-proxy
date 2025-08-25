@@ -1,14 +1,13 @@
 use crate::grpc::proto::audio_cluster_service_client::AudioClusterServiceClient;
 use crate::grpc::proto::{
-    JoinRequest, JoinResponse, LeaveRequest, LeaveResponse,
-    ClusterStatusRequest, ClusterStatusResponse, HeartbeatRequest, HeartbeatResponse,
-    TaskAssignmentRequest, TaskAssignmentResponse, TaskCompletionRequest, TaskCompletionResponse,
-    NodeInfo, NodeStatus, TaskState,
+    ClusterStatusRequest, ClusterStatusResponse, HeartbeatRequest, HeartbeatResponse, JoinRequest,
+    JoinResponse, LeaveRequest, LeaveResponse, NodeInfo, NodeStatus, TaskAssignmentRequest,
+    TaskAssignmentResponse, TaskCompletionRequest, TaskCompletionResponse, TaskState,
 };
 use crate::models::{ClusterError, ClusterNode, TaskMetadata};
-use std::time::Duration;
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::RwLock;
 use tonic::transport::{Channel, Endpoint};
 use tonic::{Request, Status};
@@ -66,7 +65,7 @@ impl ConnectionPool {
 
         // Create new connection with retry logic
         let channel = self.create_connection_with_retry(address).await?;
-        
+
         // Store the connection
         {
             let mut connections = self.connections.write().await;
@@ -85,24 +84,32 @@ impl ConnectionPool {
             match self.create_single_connection(address).await {
                 Ok(channel) => {
                     if attempt > 0 {
-                        info!("Successfully connected to {} after {} retries", address, attempt);
+                        info!(
+                            "Successfully connected to {} after {} retries",
+                            address, attempt
+                        );
                     }
                     return Ok(channel);
                 }
                 Err(e) => {
                     last_error = Some(e);
-                    
+
                     if attempt < self.retry_config.max_retries {
-                        warn!("Failed to connect to {} (attempt {}), retrying in {:?}", 
-                              address, attempt + 1, delay);
+                        warn!(
+                            "Failed to connect to {} (attempt {}), retrying in {:?}",
+                            address,
+                            attempt + 1,
+                            delay
+                        );
                         tokio::time::sleep(delay).await;
-                        
+
                         // Exponential backoff with jitter
                         delay = std::cmp::min(
                             Duration::from_millis(
-                                (delay.as_millis() as f64 * self.retry_config.backoff_multiplier) as u64
+                                (delay.as_millis() as f64 * self.retry_config.backoff_multiplier)
+                                    as u64,
                             ),
-                            self.retry_config.max_delay
+                            self.retry_config.max_delay,
                         );
                     }
                 }
@@ -125,10 +132,9 @@ impl ConnectionPool {
             .keep_alive_timeout(Duration::from_secs(5))
             .keep_alive_while_idle(true);
 
-        let channel = endpoint
-            .connect()
-            .await
-            .map_err(|e| ClusterError::Network(format!("Failed to connect to {}: {}", address, e)))?;
+        let channel = endpoint.connect().await.map_err(|e| {
+            ClusterError::Network(format!("Failed to connect to {}: {}", address, e))
+        })?;
 
         Ok(channel)
     }
@@ -164,8 +170,8 @@ impl AudioClusterClient {
 
     /// Create a new client with custom connection pool
     pub async fn connect_with_pool(
-        address: &str, 
-        connection_pool: Arc<ConnectionPool>
+        address: &str,
+        connection_pool: Arc<ConnectionPool>,
     ) -> Result<Self, ClusterError> {
         let channel = connection_pool.get_connection(address).await?;
         let client = AudioClusterServiceClient::new(channel);
@@ -181,7 +187,7 @@ impl AudioClusterClient {
     pub fn new(channel: Channel, target_address: String) -> Self {
         let client = AudioClusterServiceClient::new(channel);
         let connection_pool = Arc::new(ConnectionPool::new(RetryConfig::default()));
-        
+
         Self {
             client,
             target_address,
@@ -192,12 +198,17 @@ impl AudioClusterClient {
     /// Reconnect the client (useful when connection becomes unhealthy)
     pub async fn reconnect(&mut self) -> Result<(), ClusterError> {
         // Remove the old connection from pool
-        self.connection_pool.remove_connection(&self.target_address).await;
-        
+        self.connection_pool
+            .remove_connection(&self.target_address)
+            .await;
+
         // Get a new connection
-        let channel = self.connection_pool.get_connection(&self.target_address).await?;
+        let channel = self
+            .connection_pool
+            .get_connection(&self.target_address)
+            .await?;
         self.client = AudioClusterServiceClient::new(channel);
-        
+
         info!("Successfully reconnected to {}", self.target_address);
         Ok(())
     }
@@ -228,15 +239,18 @@ impl AudioClusterClient {
             }
             Err(status) => {
                 error!("gRPC join_cluster failed: {}", status);
-                
+
                 // Try to reconnect on network errors
-                if matches!(status.code(), tonic::Code::Unavailable | tonic::Code::DeadlineExceeded) {
+                if matches!(
+                    status.code(),
+                    tonic::Code::Unavailable | tonic::Code::DeadlineExceeded
+                ) {
                     warn!("Connection issue detected, attempting to reconnect");
                     if let Err(e) = self.reconnect().await {
                         warn!("Failed to reconnect: {:?}", e);
                     }
                 }
-                
+
                 Err(self.status_to_cluster_error(status))
             }
         }
@@ -273,7 +287,10 @@ impl AudioClusterClient {
     }
 
     /// Get cluster status
-    pub async fn get_cluster_status(&mut self, node_id: &str) -> Result<ClusterStatusResponse, ClusterError> {
+    pub async fn get_cluster_status(
+        &mut self,
+        node_id: &str,
+    ) -> Result<ClusterStatusResponse, ClusterError> {
         debug!("Requesting cluster status from {}", self.target_address);
 
         let request = Request::new(ClusterStatusRequest {
@@ -283,7 +300,10 @@ impl AudioClusterClient {
         match self.client.get_cluster_status(request).await {
             Ok(response) => {
                 let status_response = response.into_inner();
-                debug!("Received cluster status with {} nodes", status_response.nodes.len());
+                debug!(
+                    "Received cluster status with {} nodes",
+                    status_response.nodes.len()
+                );
                 Ok(status_response)
             }
             Err(status) => {
@@ -332,7 +352,10 @@ impl AudioClusterClient {
         response_format: Option<String>,
         created_at: i64,
     ) -> Result<TaskAssignmentResponse, ClusterError> {
-        info!("Assigning task {} to cluster via {}", task_id, self.target_address);
+        info!(
+            "Assigning task {} to cluster via {}",
+            task_id, self.target_address
+        );
 
         let request = Request::new(TaskAssignmentRequest {
             task_id: task_id.to_string(),
@@ -348,10 +371,15 @@ impl AudioClusterClient {
             Ok(response) => {
                 let assignment_response = response.into_inner();
                 if assignment_response.success {
-                    info!("Task {} assigned successfully to node {}", 
-                          task_id, assignment_response.assigned_node_id);
+                    info!(
+                        "Task {} assigned successfully to node {}",
+                        task_id, assignment_response.assigned_node_id
+                    );
                 } else {
-                    warn!("Failed to assign task {}: {}", task_id, assignment_response.message);
+                    warn!(
+                        "Failed to assign task {}: {}",
+                        task_id, assignment_response.message
+                    );
                 }
                 Ok(assignment_response)
             }
@@ -371,7 +399,10 @@ impl AudioClusterClient {
         result_data: Option<String>,
         completed_at: i64,
     ) -> Result<TaskCompletionResponse, ClusterError> {
-        info!("Reporting completion of task {} to cluster via {}", task_id, self.target_address);
+        info!(
+            "Reporting completion of task {} to cluster via {}",
+            task_id, self.target_address
+        );
 
         let request = Request::new(TaskCompletionRequest {
             task_id: task_id.to_string(),
@@ -387,7 +418,10 @@ impl AudioClusterClient {
                 if completion_response.success {
                     info!("Task {} completion reported successfully", task_id);
                 } else {
-                    warn!("Failed to report task {} completion: {}", task_id, completion_response.message);
+                    warn!(
+                        "Failed to report task {} completion: {}",
+                        task_id, completion_response.message
+                    );
                 }
                 Ok(completion_response)
             }
@@ -408,7 +442,9 @@ impl AudioClusterClient {
             role: match node.role {
                 crate::models::NodeRole::Leader => crate::grpc::proto::NodeRole::Leader as i32,
                 crate::models::NodeRole::Follower => crate::grpc::proto::NodeRole::Follower as i32,
-                crate::models::NodeRole::Candidate => crate::grpc::proto::NodeRole::Candidate as i32,
+                crate::models::NodeRole::Candidate => {
+                    crate::grpc::proto::NodeRole::Candidate as i32
+                }
             },
             status: match node.status {
                 crate::models::NodeStatus::Healthy => NodeStatus::Healthy as i32,
@@ -424,8 +460,12 @@ impl AudioClusterClient {
     fn status_to_cluster_error(&self, status: Status) -> ClusterError {
         match status.code() {
             tonic::Code::NotFound => ClusterError::NodeNotFound(status.message().to_string()),
-            tonic::Code::InvalidArgument => ClusterError::InvalidOperation(status.message().to_string()),
-            tonic::Code::PermissionDenied => ClusterError::InvalidOperation(status.message().to_string()),
+            tonic::Code::InvalidArgument => {
+                ClusterError::InvalidOperation(status.message().to_string())
+            }
+            tonic::Code::PermissionDenied => {
+                ClusterError::InvalidOperation(status.message().to_string())
+            }
             tonic::Code::Unavailable => ClusterError::Network(status.message().to_string()),
             tonic::Code::DeadlineExceeded => ClusterError::Timeout(status.message().to_string()),
             _ => ClusterError::Network(format!("gRPC error: {}", status.message())),
@@ -471,15 +511,17 @@ pub async fn assign_task_from_metadata(
     task: &TaskMetadata,
     audio_file_path: &str,
 ) -> Result<TaskAssignmentResponse, ClusterError> {
-    client.assign_task(
-        &task.task_id,
-        &task.client_id,
-        &task.filename,
-        audio_file_path,
-        task.model.clone(),
-        task.response_format.clone(),
-        task.created_at,
-    ).await
+    client
+        .assign_task(
+            &task.task_id,
+            &task.client_id,
+            &task.filename,
+            audio_file_path,
+            task.model.clone(),
+            task.response_format.clone(),
+            task.created_at,
+        )
+        .await
 }
 
 /// Helper function to report task completion from TaskMetadata
@@ -491,22 +533,28 @@ pub async fn report_completion_from_metadata(
     let final_state = match task.state {
         crate::models::TaskState::Completed => TaskState::Completed,
         crate::models::TaskState::Failed => TaskState::Failed,
-        _ => return Err(ClusterError::InvalidOperation("Task is not in a final state".to_string())),
+        _ => {
+            return Err(ClusterError::InvalidOperation(
+                "Task is not in a final state".to_string(),
+            ))
+        }
     };
 
-    client.report_task_completion(
-        &task.task_id,
-        final_state,
-        task.error_message.clone(),
-        result_data,
-        task.completed_at.unwrap_or_else(|| chrono::Utc::now().timestamp()),
-    ).await
+    client
+        .report_task_completion(
+            &task.task_id,
+            final_state,
+            task.error_message.clone(),
+            result_data,
+            task.completed_at
+                .unwrap_or_else(|| chrono::Utc::now().timestamp()),
+        )
+        .await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
 
     #[test]
     fn test_cluster_node_to_proto_conversion() {
@@ -521,7 +569,7 @@ mod tests {
         // Create a dummy client to test the conversion method
         // We'll use a mock approach since we can't easily create a real Channel in tests
         let pool = Arc::new(ConnectionPool::new(RetryConfig::default()));
-        
+
         // Test the conversion logic by creating a temporary client structure
         // This tests the business logic without requiring network connections
         let proto = NodeInfo {
@@ -532,7 +580,9 @@ mod tests {
             role: match node.role {
                 crate::models::NodeRole::Leader => crate::grpc::proto::NodeRole::Leader as i32,
                 crate::models::NodeRole::Follower => crate::grpc::proto::NodeRole::Follower as i32,
-                crate::models::NodeRole::Candidate => crate::grpc::proto::NodeRole::Candidate as i32,
+                crate::models::NodeRole::Candidate => {
+                    crate::grpc::proto::NodeRole::Candidate as i32
+                }
             },
             status: match node.status {
                 crate::models::NodeStatus::Healthy => NodeStatus::Healthy as i32,
@@ -553,7 +603,7 @@ mod tests {
     async fn test_connection_pool() {
         let pool = ConnectionPool::new(RetryConfig::default());
         assert_eq!(pool.connection_count().await, 0);
-        
+
         // Test that we can create the pool
         assert!(pool.connections.read().await.is_empty());
     }

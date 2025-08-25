@@ -1,11 +1,11 @@
-use crate::models::{ClusterError, MetadataStore, ClusterNode, NodeStatus, NodeRole};
+use crate::models::{ClusterError, ClusterNode, MetadataStore, NodeRole, NodeStatus};
+use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::{mpsc, RwLock};
 use tokio::time::interval;
 use tracing::{debug, info, warn};
-use chrono::Utc;
 
 /// Heartbeat service for cluster health monitoring
 pub struct HeartbeatService {
@@ -57,8 +57,8 @@ impl Default for HeartbeatConfig {
 #[derive(Debug)]
 pub enum HeartbeatEvent {
     /// Received heartbeat from a peer
-    PeerHeartbeat { 
-        node_id: String, 
+    PeerHeartbeat {
+        node_id: String,
         status: NodeStatus,
         role: NodeRole,
         timestamp: i64,
@@ -142,7 +142,10 @@ impl HeartbeatService {
 
     /// Start the heartbeat service
     pub async fn start(&mut self) -> Result<(), ClusterError> {
-        info!("Starting heartbeat service for node {}", self.local_node.node_id);
+        info!(
+            "Starting heartbeat service for node {}",
+            self.local_node.node_id
+        );
 
         // Initialize peer status from metadata store
         self.initialize_peer_status().await?;
@@ -150,7 +153,7 @@ impl HeartbeatService {
         // Clone necessary data for async tasks
         let event_tx = self.event_tx.clone();
         let config = self.config.clone();
-        
+
         // Start heartbeat timer
         let heartbeat_handle = {
             let event_tx = event_tx.clone();
@@ -166,7 +169,7 @@ impl HeartbeatService {
                 }
             })
         };
-        
+
         // Start health check timer
         let health_check_handle = {
             let event_tx = event_tx.clone();
@@ -182,7 +185,7 @@ impl HeartbeatService {
                 }
             })
         };
-        
+
         // Start cleanup timer if enabled
         let cleanup_handle = if config.enable_cleanup {
             let event_tx = event_tx.clone();
@@ -232,16 +235,15 @@ impl HeartbeatService {
 
         for node in nodes {
             if node.node_id != self.local_node.node_id {
-                let status = PeerHeartbeatStatus::new(
-                    node.status,
-                    node.role,
-                    node.last_heartbeat,
-                );
+                let status = PeerHeartbeatStatus::new(node.status, node.role, node.last_heartbeat);
                 peer_status.insert(node.node_id, status);
             }
         }
 
-        info!("Initialized heartbeat status for {} peers", peer_status.len());
+        info!(
+            "Initialized heartbeat status for {} peers",
+            peer_status.len()
+        );
         Ok(())
     }
 
@@ -249,8 +251,14 @@ impl HeartbeatService {
     async fn run_event_loop(&mut self) -> Result<(), ClusterError> {
         while let Some(event) = self.event_rx.recv().await {
             match event {
-                HeartbeatEvent::PeerHeartbeat { node_id, status, role, timestamp } => {
-                    self.handle_peer_heartbeat(node_id, status, role, timestamp).await?;
+                HeartbeatEvent::PeerHeartbeat {
+                    node_id,
+                    status,
+                    role,
+                    timestamp,
+                } => {
+                    self.handle_peer_heartbeat(node_id, status, role, timestamp)
+                        .await?;
                 }
                 HeartbeatEvent::SendHeartbeat => {
                     self.send_heartbeat().await?;
@@ -299,7 +307,9 @@ impl HeartbeatService {
 
         // Update metadata store
         self.metadata_store.update_heartbeat(&node_id).await?;
-        self.metadata_store.update_node_status(&node_id, status).await?;
+        self.metadata_store
+            .update_node_status(&node_id, status)
+            .await?;
         self.metadata_store.update_node_role(&node_id, role).await?;
 
         Ok(())
@@ -308,23 +318,30 @@ impl HeartbeatService {
     /// Send heartbeat to all peers
     async fn send_heartbeat(&self) -> Result<(), ClusterError> {
         // Update our own heartbeat in metadata store
-        self.metadata_store.update_heartbeat(&self.local_node.node_id).await?;
+        self.metadata_store
+            .update_heartbeat(&self.local_node.node_id)
+            .await?;
 
         debug!("Sending heartbeat from node {}", self.local_node.node_id);
 
         // Get all known peers from metadata store
-        let all_nodes = self.metadata_store.get_all_nodes().await
+        let all_nodes = self
+            .metadata_store
+            .get_all_nodes()
+            .await
             .map_err(|e| ClusterError::Database(sled::Error::Unsupported(e.to_string())))?;
-        
+
         // Send heartbeat to all peers (exclude self)
         for node in all_nodes {
             if node.node_id != self.local_node.node_id {
                 // Spawn concurrent heartbeat sending to avoid blocking
                 let node_clone = node.clone();
                 let local_node_clone = self.local_node.clone();
-                
+
                 tokio::spawn(async move {
-                    if let Err(e) = Self::send_heartbeat_to_peer(&local_node_clone, &node_clone).await {
+                    if let Err(e) =
+                        Self::send_heartbeat_to_peer(&local_node_clone, &node_clone).await
+                    {
                         debug!("Failed to send heartbeat to {}: {}", node_clone.node_id, e);
                     }
                 });
@@ -333,21 +350,23 @@ impl HeartbeatService {
 
         Ok(())
     }
-    
+
     /// Send heartbeat to a specific peer via gRPC
     async fn send_heartbeat_to_peer(
         local_node: &ClusterNode,
         peer_node: &ClusterNode,
     ) -> Result<(), ClusterError> {
         use crate::grpc::client::AudioClusterClient;
-        
+
         let peer_address = format!("http://{}:{}", peer_node.address, peer_node.grpc_port);
-        
+
         // Create gRPC client with timeout
         let mut client = match tokio::time::timeout(
             std::time::Duration::from_secs(5),
-            AudioClusterClient::connect(&peer_address)
-        ).await {
+            AudioClusterClient::connect(&peer_address),
+        )
+        .await
+        {
             Ok(Ok(client)) => client,
             Ok(Err(e)) => {
                 debug!("Failed to connect to peer {}: {}", peer_node.node_id, e);
@@ -358,7 +377,7 @@ impl HeartbeatService {
                 return Err(ClusterError::Network("Connection timeout".to_string()));
             }
         };
-        
+
         // Send heartbeat request
         // TODO: Fix type conversion between models::NodeStatus and proto::NodeStatus
         // For now, convert to proto type for gRPC call
@@ -368,19 +387,24 @@ impl HeartbeatService {
             NodeStatus::Leaving => crate::grpc::proto::NodeStatus::Leaving,
             NodeStatus::Joining => crate::grpc::proto::NodeStatus::Joining,
         };
-        
-        let result = client.send_heartbeat(
-            &local_node.node_id,
-            proto_status,
-            chrono::Utc::now().timestamp(),
-        ).await;
-        
+
+        let result = client
+            .send_heartbeat(
+                &local_node.node_id,
+                proto_status,
+                chrono::Utc::now().timestamp(),
+            )
+            .await;
+
         match result {
             Ok(response) => {
                 if response.success {
                     debug!("Heartbeat sent successfully to {}", peer_node.node_id);
                 } else {
-                    debug!("Heartbeat rejected by {}: {}", peer_node.node_id, response.message);
+                    debug!(
+                        "Heartbeat rejected by {}: {}",
+                        peer_node.node_id, response.message
+                    );
                 }
                 Ok(())
             }
@@ -398,9 +422,12 @@ impl HeartbeatService {
 
         {
             let mut peer_status = self.peer_status.write().await;
-            
+
             for (node_id, status) in peer_status.iter_mut() {
-                if !status.is_healthy(self.config.failure_timeout, self.config.max_missed_heartbeats) {
+                if !status.is_healthy(
+                    self.config.failure_timeout,
+                    self.config.max_missed_heartbeats,
+                ) {
                     if status.status != NodeStatus::Unhealthy {
                         unhealthy_peers.push(node_id.clone());
                         status.status = NodeStatus::Unhealthy;
@@ -416,14 +443,21 @@ impl HeartbeatService {
 
         // Update metadata store for unhealthy peers
         for node_id in unhealthy_peers {
-            warn!("Marking peer {} as unhealthy due to missed heartbeats", node_id);
-            self.metadata_store.update_node_status(&node_id, NodeStatus::Unhealthy).await?;
+            warn!(
+                "Marking peer {} as unhealthy due to missed heartbeats",
+                node_id
+            );
+            self.metadata_store
+                .update_node_status(&node_id, NodeStatus::Unhealthy)
+                .await?;
         }
 
         // Update metadata store for recovered peers
         for node_id in healthy_peers {
             info!("Peer {} recovered and is now healthy", node_id);
-            self.metadata_store.update_node_status(&node_id, NodeStatus::Healthy).await?;
+            self.metadata_store
+                .update_node_status(&node_id, NodeStatus::Healthy)
+                .await?;
         }
 
         Ok(())
@@ -467,7 +501,7 @@ impl HeartbeatService {
         for (node_id, status) in peer_status.iter() {
             result.insert(
                 node_id.clone(),
-                (status.status, status.role, status.last_heartbeat.elapsed())
+                (status.status, status.role, status.last_heartbeat.elapsed()),
             );
         }
 
@@ -477,18 +511,30 @@ impl HeartbeatService {
     /// Check if a specific peer is healthy
     pub async fn is_peer_healthy(&self, node_id: &str) -> bool {
         let peer_status = self.peer_status.read().await;
-        
-        peer_status.get(node_id)
-            .map(|status| status.is_healthy(self.config.failure_timeout, self.config.max_missed_heartbeats))
+
+        peer_status
+            .get(node_id)
+            .map(|status| {
+                status.is_healthy(
+                    self.config.failure_timeout,
+                    self.config.max_missed_heartbeats,
+                )
+            })
             .unwrap_or(false)
     }
 
     /// Get list of healthy peers
     pub async fn get_healthy_peers(&self) -> Vec<String> {
         let peer_status = self.peer_status.read().await;
-        
-        peer_status.iter()
-            .filter(|(_, status)| status.is_healthy(self.config.failure_timeout, self.config.max_missed_heartbeats))
+
+        peer_status
+            .iter()
+            .filter(|(_, status)| {
+                status.is_healthy(
+                    self.config.failure_timeout,
+                    self.config.max_missed_heartbeats,
+                )
+            })
             .map(|(node_id, _)| node_id.clone())
             .collect()
     }
@@ -496,23 +542,34 @@ impl HeartbeatService {
     /// Get the current leader node ID if any
     pub async fn get_leader_node(&self) -> Option<String> {
         let peer_status = self.peer_status.read().await;
-        
+
         // Check if local node is leader
         if self.local_node.role == NodeRole::Leader {
             return Some(self.local_node.node_id.clone());
         }
 
         // Check peers for leader
-        peer_status.iter()
-            .find(|(_, status)| status.role == NodeRole::Leader && 
-                  status.is_healthy(self.config.failure_timeout, self.config.max_missed_heartbeats))
+        peer_status
+            .iter()
+            .find(|(_, status)| {
+                status.role == NodeRole::Leader
+                    && status.is_healthy(
+                        self.config.failure_timeout,
+                        self.config.max_missed_heartbeats,
+                    )
+            })
             .map(|(node_id, _)| node_id.clone())
     }
 
     /// Force update a peer's status (for external integrations)
-    pub async fn update_peer_status(&self, node_id: String, status: NodeStatus, role: NodeRole) -> Result<(), ClusterError> {
+    pub async fn update_peer_status(
+        &self,
+        node_id: String,
+        status: NodeStatus,
+        role: NodeRole,
+    ) -> Result<(), ClusterError> {
         let timestamp = Utc::now().timestamp();
-        
+
         let event = HeartbeatEvent::PeerHeartbeat {
             node_id,
             status,
@@ -520,16 +577,18 @@ impl HeartbeatService {
             timestamp,
         };
 
-        self.event_tx.send(event)
-            .map_err(|_| ClusterError::InvalidOperation("Failed to send heartbeat event".to_string()))?;
+        self.event_tx.send(event).map_err(|_| {
+            ClusterError::InvalidOperation("Failed to send heartbeat event".to_string())
+        })?;
 
         Ok(())
     }
 
     /// Shutdown the heartbeat service gracefully
     pub async fn shutdown(&self) -> Result<(), ClusterError> {
-        self.event_tx.send(HeartbeatEvent::Shutdown)
-            .map_err(|_| ClusterError::InvalidOperation("Failed to send shutdown event".to_string()))?;
+        self.event_tx.send(HeartbeatEvent::Shutdown).map_err(|_| {
+            ClusterError::InvalidOperation("Failed to send shutdown event".to_string())
+        })?;
 
         Ok(())
     }

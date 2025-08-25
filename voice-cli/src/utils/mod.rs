@@ -1,3 +1,4 @@
+pub mod ip_discovery;
 pub mod structured_logging;
 
 use crate::models::Config;
@@ -8,8 +9,12 @@ use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{prelude::*, EnvFilter};
 
 // Re-export structured logging components
-pub use structured_logging::{
-    ClusterLoggingContext, init_structured_logging,
+pub use structured_logging::{init_structured_logging, ClusterLoggingContext};
+
+// Re-export IP discovery components
+pub use ip_discovery::{
+    get_cluster_ip, get_local_ip, get_local_ip_fallback, IpDiscovery, IpDiscoveryConfig, IpType,
+    NetworkInterface,
 };
 
 /// Initialize logging based on configuration
@@ -28,11 +33,7 @@ pub fn init_logging(config: &Config) -> crate::Result<()> {
     let level = parse_log_level(&config.logging.level)?;
 
     // Create file appender with rotation
-    let file_appender = RollingFileAppender::new(
-        Rotation::DAILY,
-        &log_dir,
-        "voice-cli.log"
-    );
+    let file_appender = RollingFileAppender::new(Rotation::DAILY, &log_dir, "voice-cli.log");
 
     // Create console layer
     let console_layer = tracing_subscriber::fmt::layer()
@@ -51,8 +52,7 @@ pub fn init_logging(config: &Config) -> crate::Result<()> {
         .with_line_number(true);
 
     // Combine layers with filtering
-    let console_filter = EnvFilter::from_default_env()
-        .add_directive(level.into());
+    let console_filter = EnvFilter::from_default_env().add_directive(level.into());
     let file_filter = EnvFilter::new(&config.logging.level);
 
     tracing_subscriber::registry()
@@ -61,7 +61,11 @@ pub fn init_logging(config: &Config) -> crate::Result<()> {
         .try_init()
         .map_err(|e| VoiceCliError::Config(format!("Failed to initialize logging: {}", e)))?;
 
-    tracing::info!("Logging initialized - Level: {}, Directory: {:?}", config.logging.level, log_dir);
+    tracing::info!(
+        "Logging initialized - Level: {}, Directory: {:?}",
+        config.logging.level,
+        log_dir
+    );
 
     Ok(())
 }
@@ -74,27 +78,30 @@ fn parse_log_level(level_str: &str) -> crate::Result<Level> {
         "info" => Ok(Level::INFO),
         "warn" | "warning" => Ok(Level::WARN),
         "error" => Ok(Level::ERROR),
-        _ => Err(VoiceCliError::Config(
-            format!("Invalid log level: {}. Valid levels: trace, debug, info, warn, error", level_str)
-        ))
+        _ => Err(VoiceCliError::Config(format!(
+            "Invalid log level: {}. Valid levels: trace, debug, info, warn, error",
+            level_str
+        ))),
     }
 }
 
 /// Clean up old log files based on configuration
 pub fn cleanup_old_logs(config: &Config) -> crate::Result<()> {
     let log_dir = config.log_dir_path();
-    
+
     if !log_dir.exists() {
         return Ok(());
     }
 
     let max_files = config.logging.max_files as usize;
-    
+
     // Get all log files
     let mut log_files: Vec<_> = std::fs::read_dir(&log_dir)?
         .filter_map(|entry| entry.ok())
         .filter(|entry| {
-            entry.path().extension()
+            entry
+                .path()
+                .extension()
                 .and_then(|ext| ext.to_str())
                 .map(|ext| ext == "log")
                 .unwrap_or(false)
@@ -103,7 +110,8 @@ pub fn cleanup_old_logs(config: &Config) -> crate::Result<()> {
 
     // Sort by modification time (newest first)
     log_files.sort_by_key(|entry| {
-        entry.metadata()
+        entry
+            .metadata()
             .and_then(|m| m.modified())
             .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
     });

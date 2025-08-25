@@ -1,8 +1,8 @@
 use std::sync::Arc;
 use tempfile::tempdir;
 use voice_cli::{
-    models::{LoadBalancerConfig, MetadataStore},
     load_balancer::VoiceCliLoadBalancer,
+    models::{LoadBalancerConfig, MetadataStore},
 };
 
 /// Example demonstrating how to use the VoiceCliLoadBalancer
@@ -35,8 +35,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("⚙️  Load balancer configuration:");
     println!("   - Port: {}", config.port);
-    println!("   - Health check interval: {}s", config.health_check_interval);
-    println!("   - Health check timeout: {}s", config.health_check_timeout);
+    println!(
+        "   - Health check interval: {}s",
+        config.health_check_interval
+    );
+    println!(
+        "   - Health check timeout: {}s",
+        config.health_check_timeout
+    );
 
     // Create the load balancer
     let mut load_balancer = VoiceCliLoadBalancer::new(config, metadata_store).await?;
@@ -47,16 +53,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("📊 Initial status:");
     println!("   - Instance ID: {}", status.instance_id);
     println!("   - Total nodes: {}", status.cluster_status.total_nodes);
-    println!("   - Healthy nodes: {}", status.cluster_status.healthy_nodes);
-    println!("   - Total requests: {}", status.routing_stats.total_requests);
+    println!(
+        "   - Healthy nodes: {}",
+        status.cluster_status.healthy_nodes
+    );
+    println!(
+        "   - Total requests: {}",
+        status.routing_stats.total_requests
+    );
 
     // Get routing statistics
     let routing_stats = load_balancer.get_routing_stats().await;
     println!("📈 Routing statistics:");
     println!("   - Total requests: {}", routing_stats.total_requests);
-    println!("   - Successful requests: {}", routing_stats.successful_requests);
+    println!(
+        "   - Successful requests: {}",
+        routing_stats.successful_requests
+    );
     println!("   - Failed requests: {}", routing_stats.failed_requests);
-    println!("   - Circuit breaker activations: {}", routing_stats.circuit_breaker_activations);
+    println!(
+        "   - Circuit breaker activations: {}",
+        routing_stats.circuit_breaker_activations
+    );
 
     // Get circuit breaker status
     let circuit_breakers = load_balancer.get_circuit_breaker_status().await;

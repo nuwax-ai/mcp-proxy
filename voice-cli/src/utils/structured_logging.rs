@@ -60,7 +60,7 @@ where
         event: &tracing::Event<'_>,
     ) -> std::fmt::Result {
         let metadata = event.metadata();
-        
+
         // Create base log entry
         let mut log_entry = json!({
             "timestamp": chrono::Utc::now().to_rfc3339(),
@@ -87,7 +87,7 @@ where
         // Collect event fields
         let mut visitor = JsonVisitor::new();
         event.record(&mut visitor);
-        
+
         // Add message
         if let Some(message) = visitor.message {
             log_entry["message"] = json!(message);
@@ -101,7 +101,7 @@ where
         // Add span context if available
         if let Some(span) = ctx.lookup_current() {
             let mut span_fields = HashMap::new();
-            
+
             // Collect span name
             span_fields.insert("name".to_string(), json!(span.name()));
 
@@ -132,11 +132,12 @@ impl JsonVisitor {
 impl tracing::field::Visit for JsonVisitor {
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
         let value_str = format!("{:?}", value);
-        
+
         if field.name() == "message" {
             self.message = Some(value_str);
         } else {
-            self.fields.insert(field.name().to_string(), json!(value_str));
+            self.fields
+                .insert(field.name().to_string(), json!(value_str));
         }
     }
 
@@ -182,11 +183,7 @@ pub fn init_structured_logging(
     let level = parse_log_level(&config.logging.level)?;
 
     // Create file appender with rotation
-    let file_appender = RollingFileAppender::new(
-        Rotation::DAILY,
-        &log_dir,
-        "voice-cli.log"
-    );
+    let file_appender = RollingFileAppender::new(Rotation::DAILY, &log_dir, "voice-cli.log");
 
     // Determine if we're in production mode (info level or higher)
     let is_production = matches!(level, Level::INFO | Level::WARN | Level::ERROR);
@@ -224,7 +221,9 @@ pub fn init_structured_logging(
         .with(console_layer)
         .with(json_layer)
         .try_init()
-        .map_err(|e| VoiceCliError::Config(format!("Failed to initialize structured logging: {}", e)))?;
+        .map_err(|e| {
+            VoiceCliError::Config(format!("Failed to initialize structured logging: {}", e))
+        })?;
 
     tracing::info!(
         node_id = %context.node_id,
@@ -247,9 +246,10 @@ fn parse_log_level(level_str: &str) -> crate::Result<Level> {
         "info" => Ok(Level::INFO),
         "warn" | "warning" => Ok(Level::WARN),
         "error" => Ok(Level::ERROR),
-        _ => Err(VoiceCliError::Config(
-            format!("Invalid log level: {}. Valid levels: trace, debug, info, warn, error", level_str)
-        ))
+        _ => Err(VoiceCliError::Config(format!(
+            "Invalid log level: {}. Valid levels: trace, debug, info, warn, error",
+            level_str
+        ))),
     }
 }
 
@@ -347,11 +347,9 @@ mod tests {
 
     #[test]
     fn test_cluster_logging_context() {
-        let context = ClusterLoggingContext::new(
-            "node-1".to_string(),
-            "task_scheduler".to_string()
-        );
-        
+        let context =
+            ClusterLoggingContext::new("node-1".to_string(), "task_scheduler".to_string());
+
         assert_eq!(context.node_id, "node-1");
         assert_eq!(context.service_type, "task_scheduler");
         assert!(context.cluster_id.is_none());
@@ -360,11 +358,10 @@ mod tests {
 
     #[test]
     fn test_cluster_logging_context_with_cluster_id() {
-        let context = ClusterLoggingContext::new(
-            "node-1".to_string(),
-            "task_scheduler".to_string()
-        ).with_cluster_id("cluster-123".to_string());
-        
+        let context =
+            ClusterLoggingContext::new("node-1".to_string(), "task_scheduler".to_string())
+                .with_cluster_id("cluster-123".to_string());
+
         assert_eq!(context.cluster_id, Some("cluster-123".to_string()));
     }
 

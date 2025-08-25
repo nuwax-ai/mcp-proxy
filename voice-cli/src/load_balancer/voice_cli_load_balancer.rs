@@ -1,20 +1,18 @@
+use anyhow::{Context, Result};
+use serde;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::{mpsc, RwLock};
 use tokio::time::interval;
-use tracing::{debug, info, warn, error};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
-use anyhow::{Context, Result};
-use serde;
 
-use crate::models::{
-    MetadataStore, LoadBalancerConfig
-};
 use crate::load_balancer::{
-    LoadBalancerService, HealthChecker, HealthCheckConfig, ServiceManager, ServiceManagerConfig,
-    HealthEvent, ServiceEvent
+    HealthCheckConfig, HealthChecker, HealthEvent, LoadBalancerService, ServiceEvent,
+    ServiceManager, ServiceManagerConfig,
 };
+use crate::models::{LoadBalancerConfig, MetadataStore};
 
 /// Main VoiceCliLoadBalancer that coordinates all load balancing functionality
 pub struct VoiceCliLoadBalancer {
@@ -100,11 +98,14 @@ impl VoiceCliLoadBalancer {
         config: LoadBalancerConfig,
         metadata_store: Arc<MetadataStore>,
     ) -> Result<Self> {
-        info!("Initializing VoiceCliLoadBalancer with config: {:?}", config);
+        info!(
+            "Initializing VoiceCliLoadBalancer with config: {:?}",
+            config
+        );
 
         // Create health event channel
         let (health_event_sender, health_event_receiver) = mpsc::unbounded_channel();
-        
+
         // Create health checker configuration
         let health_config = HealthCheckConfig {
             check_interval: Duration::from_secs(config.health_check_interval),
@@ -121,7 +122,8 @@ impl VoiceCliLoadBalancer {
                 health_config,
                 Arc::clone(&metadata_store),
                 Some(health_event_sender),
-            ).context("Failed to create health checker")?
+            )
+            .context("Failed to create health checker")?,
         );
 
         // Create service manager configuration
@@ -135,13 +137,11 @@ impl VoiceCliLoadBalancer {
         };
 
         // Create service manager (it creates its own event channel internally)
-        let service_manager = Arc::new(
-            ServiceManager::new(
-                service_config,
-                Arc::clone(&metadata_store),
-                Some(Arc::clone(&health_checker)),
-            )
-        );
+        let service_manager = Arc::new(ServiceManager::new(
+            service_config,
+            Arc::clone(&metadata_store),
+            Some(Arc::clone(&health_checker)),
+        ));
 
         // Create a dummy service event receiver since ServiceManager handles its own events
         let (_dummy_sender, service_event_receiver) = mpsc::unbounded_channel();
@@ -149,7 +149,7 @@ impl VoiceCliLoadBalancer {
         // Create load balancer service
         let load_balancer_service = Arc::new(
             LoadBalancerService::new(config.clone(), Arc::clone(&metadata_store))
-                .context("Failed to create load balancer service")?
+                .context("Failed to create load balancer service")?,
         );
 
         let instance_id = Uuid::new_v4().to_string();
@@ -170,10 +170,14 @@ impl VoiceCliLoadBalancer {
 
     /// Start the load balancer with all its components
     pub async fn start(&mut self) -> Result<()> {
-        info!("Starting VoiceCliLoadBalancer instance {}", self.instance_id);
+        info!(
+            "Starting VoiceCliLoadBalancer instance {}",
+            self.instance_id
+        );
 
         // Initialize cluster nodes from metadata store
-        self.initialize_cluster_nodes().await
+        self.initialize_cluster_nodes()
+            .await
             .context("Failed to initialize cluster nodes")?;
 
         // Start health checker
@@ -242,14 +246,19 @@ impl VoiceCliLoadBalancer {
     async fn initialize_cluster_nodes(&self) -> Result<()> {
         info!("Initializing cluster nodes from metadata store");
 
-        let nodes = self.metadata_store.get_all_nodes().await
+        let nodes = self
+            .metadata_store
+            .get_all_nodes()
+            .await
             .context("Failed to get cluster nodes from metadata store")?;
 
         info!("Found {} cluster nodes", nodes.len());
 
         for node in &nodes {
-            info!("Discovered node: {} at {}:{} (role: {:?}, status: {:?})", 
-                  node.node_id, node.address, node.http_port, node.role, node.status);
+            info!(
+                "Discovered node: {} at {}:{} (role: {:?}, status: {:?})",
+                node.node_id, node.address, node.http_port, node.role, node.status
+            );
         }
 
         Ok(())
@@ -257,7 +266,9 @@ impl VoiceCliLoadBalancer {
 
     /// Start health event processor
     fn start_health_event_processor(&mut self) -> tokio::task::JoinHandle<()> {
-        let mut receiver = self.health_event_receiver.take()
+        let mut receiver = self
+            .health_event_receiver
+            .take()
             .expect("Health event receiver should be available");
         let circuit_breakers = Arc::clone(&self.circuit_breakers);
         let routing_stats = Arc::clone(&self.routing_stats);
@@ -271,7 +282,9 @@ impl VoiceCliLoadBalancer {
 
     /// Start service event processor
     fn start_service_event_processor(&mut self) -> tokio::task::JoinHandle<()> {
-        let mut receiver = self.service_event_receiver.take()
+        let mut receiver = self
+            .service_event_receiver
+            .take()
             .expect("Service event receiver should be available");
 
         tokio::spawn(async move {
@@ -301,9 +314,15 @@ impl VoiceCliLoadBalancer {
         routing_stats: &Arc<RwLock<RoutingStats>>,
     ) {
         match event {
-            HealthEvent::NodeHealthy { node_id, response_time } => {
-                debug!("Node {} is healthy (response time: {:?})", node_id, response_time);
-                
+            HealthEvent::NodeHealthy {
+                node_id,
+                response_time,
+            } => {
+                debug!(
+                    "Node {} is healthy (response time: {:?})",
+                    node_id, response_time
+                );
+
                 // Remove circuit breaker if it exists
                 {
                     let mut breakers = circuit_breakers.write().await;
@@ -315,21 +334,22 @@ impl VoiceCliLoadBalancer {
                 // Update routing stats
                 {
                     let mut stats = routing_stats.write().await;
-                    let current_avg = stats.avg_response_time_per_node
+                    let current_avg = stats
+                        .avg_response_time_per_node
                         .get(&node_id)
                         .copied()
                         .unwrap_or(0.0);
-                    let request_count = stats.requests_per_node
-                        .get(&node_id)
-                        .copied()
-                        .unwrap_or(0);
-                    
+                    let request_count = stats.requests_per_node.get(&node_id).copied().unwrap_or(0);
+
                     if request_count > 0 {
                         let total_time = current_avg * request_count as f32;
-                        let new_avg = (total_time + response_time.as_secs_f32()) / (request_count + 1) as f32;
+                        let new_avg =
+                            (total_time + response_time.as_secs_f32()) / (request_count + 1) as f32;
                         stats.avg_response_time_per_node.insert(node_id, new_avg);
                     } else {
-                        stats.avg_response_time_per_node.insert(node_id, response_time.as_secs_f32());
+                        stats
+                            .avg_response_time_per_node
+                            .insert(node_id, response_time.as_secs_f32());
                     }
                 }
             }
@@ -339,27 +359,38 @@ impl VoiceCliLoadBalancer {
             HealthEvent::NodeRecovered { node_id } => {
                 info!("Node {} has recovered", node_id);
             }
-            HealthEvent::NodeFailed { node_id, consecutive_failures } => {
-                warn!("Node {} failed (consecutive failures: {})", node_id, consecutive_failures);
-                
+            HealthEvent::NodeFailed {
+                node_id,
+                consecutive_failures,
+            } => {
+                warn!(
+                    "Node {} failed (consecutive failures: {})",
+                    node_id, consecutive_failures
+                );
+
                 // Activate circuit breaker if threshold reached
                 if consecutive_failures >= 3 {
                     let mut breakers = circuit_breakers.write().await;
-                    breakers.insert(node_id.clone(), CircuitBreakerState {
-                        activated_at: Instant::now(),
-                        failure_count: consecutive_failures,
-                        last_failure: Instant::now(),
-                        timeout_duration: Duration::from_secs(30),
-                    });
-                    
+                    breakers.insert(
+                        node_id.clone(),
+                        CircuitBreakerState {
+                            activated_at: Instant::now(),
+                            failure_count: consecutive_failures,
+                            last_failure: Instant::now(),
+                            timeout_duration: Duration::from_secs(30),
+                        },
+                    );
+
                     // Update stats
                     {
                         let mut stats = routing_stats.write().await;
                         stats.circuit_breaker_activations += 1;
                     }
-                    
-                    warn!("Activated circuit breaker for node {} after {} failures", 
-                          node_id, consecutive_failures);
+
+                    warn!(
+                        "Activated circuit breaker for node {} after {} failures",
+                        node_id, consecutive_failures
+                    );
                 }
             }
         }
@@ -368,10 +399,16 @@ impl VoiceCliLoadBalancer {
     /// Handle service events from the service manager
     async fn handle_service_event(event: ServiceEvent) {
         match event {
-            ServiceEvent::ServiceRegistered { service_id, node_id } => {
+            ServiceEvent::ServiceRegistered {
+                service_id,
+                node_id,
+            } => {
                 info!("Service {} registered on node {}", service_id, node_id);
             }
-            ServiceEvent::ServiceDeregistered { service_id, node_id } => {
+            ServiceEvent::ServiceDeregistered {
+                service_id,
+                node_id,
+            } => {
                 info!("Service {} deregistered from node {}", service_id, node_id);
             }
             ServiceEvent::ServiceHealthy { service_id } => {
@@ -401,14 +438,20 @@ impl VoiceCliLoadBalancer {
 
         for (node_id, state) in breakers.iter() {
             if state.activated_at.elapsed() >= state.timeout_duration {
-                debug!("Circuit breaker timeout expired for node {}, allowing retry", node_id);
+                debug!(
+                    "Circuit breaker timeout expired for node {}, allowing retry",
+                    node_id
+                );
                 to_remove.push(node_id.clone());
             }
         }
 
         for node_id in to_remove {
             breakers.remove(&node_id);
-            info!("Circuit breaker removed for node {} (timeout expired)", node_id);
+            info!(
+                "Circuit breaker removed for node {} (timeout expired)",
+                node_id
+            );
         }
     }
 
@@ -443,14 +486,17 @@ impl VoiceCliLoadBalancer {
 
     /// Gracefully shutdown the load balancer
     pub async fn shutdown(&self) -> Result<()> {
-        info!("Shutting down VoiceCliLoadBalancer instance {}", self.instance_id);
-        
+        info!(
+            "Shutting down VoiceCliLoadBalancer instance {}",
+            self.instance_id
+        );
+
         // In a real implementation, you would:
         // 1. Stop accepting new requests
         // 2. Wait for existing requests to complete
         // 3. Shutdown background tasks
         // 4. Clean up resources
-        
+
         info!("VoiceCliLoadBalancer shutdown completed");
         Ok(())
     }
@@ -477,10 +523,10 @@ mod tests {
     async fn test_voice_cli_load_balancer_creation() {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
-        
+
         let metadata_store = Arc::new(MetadataStore::new(db_path.to_str().unwrap()).unwrap());
         let config = LoadBalancerConfig::default();
-        
+
         let load_balancer = VoiceCliLoadBalancer::new(config, metadata_store).await;
         assert!(load_balancer.is_ok());
     }
@@ -489,13 +535,15 @@ mod tests {
     async fn test_routing_stats_initialization() {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
-        
+
         let metadata_store = Arc::new(MetadataStore::new(db_path.to_str().unwrap()).unwrap());
         let config = LoadBalancerConfig::default();
-        
-        let load_balancer = VoiceCliLoadBalancer::new(config, metadata_store).await.unwrap();
+
+        let load_balancer = VoiceCliLoadBalancer::new(config, metadata_store)
+            .await
+            .unwrap();
         let stats = load_balancer.get_routing_stats().await;
-        
+
         assert_eq!(stats.total_requests, 0);
         assert_eq!(stats.successful_requests, 0);
         assert_eq!(stats.failed_requests, 0);
@@ -505,13 +553,15 @@ mod tests {
     async fn test_circuit_breaker_initialization() {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
-        
+
         let metadata_store = Arc::new(MetadataStore::new(db_path.to_str().unwrap()).unwrap());
         let config = LoadBalancerConfig::default();
-        
-        let load_balancer = VoiceCliLoadBalancer::new(config, metadata_store).await.unwrap();
+
+        let load_balancer = VoiceCliLoadBalancer::new(config, metadata_store)
+            .await
+            .unwrap();
         let circuit_breakers = load_balancer.get_circuit_breaker_status().await;
-        
+
         assert!(circuit_breakers.is_empty());
     }
 }

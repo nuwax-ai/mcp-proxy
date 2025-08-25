@@ -1,6 +1,6 @@
+use crate::log_health_event;
 use crate::models::{Config, HealthResponse};
 use crate::VoiceCliError;
-use crate::log_health_event;
 use std::time::Duration;
 use tracing::debug;
 
@@ -12,8 +12,11 @@ pub struct HealthChecker {
 
 impl HealthChecker {
     pub fn new(config: &Config) -> Self {
-        let health_url = format!("http://{}:{}/health", config.server.host, config.server.port);
-        
+        let health_url = format!(
+            "http://{}:{}/health",
+            config.server.host, config.server.port
+        );
+
         // Create HTTP client with reasonable timeouts
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(5))
@@ -21,10 +24,7 @@ impl HealthChecker {
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
 
-        Self {
-            health_url,
-            client,
-        }
+        Self { health_url, client }
     }
 
     /// Perform a health check
@@ -32,7 +32,8 @@ impl HealthChecker {
         let start_time = std::time::Instant::now();
         debug!("Performing health check at: {}", self.health_url);
 
-        let response = self.client
+        let response = self
+            .client
             .get(&self.health_url)
             .send()
             .await
@@ -51,31 +52,29 @@ impl HealthChecker {
         if !response.status().is_success() {
             log_health_event!(
                 "failed",
-                "daemon", 
+                "daemon",
                 "health_checker",
                 "http_response",
                 status_code = %response.status(),
                 url = %self.health_url
             );
-            return Err(VoiceCliError::Daemon(
-                format!("Health check returned status: {}", response.status())
-            ));
+            return Err(VoiceCliError::Daemon(format!(
+                "Health check returned status: {}",
+                response.status()
+            )));
         }
 
-        let health: HealthResponse = response
-            .json()
-            .await
-            .map_err(|e| {
-                log_health_event!(
-                    "failed",
-                    "daemon",
-                    "health_checker", 
-                    "json_parse",
-                    error = %e,
-                    url = %self.health_url
-                );
-                VoiceCliError::Daemon(format!("Health check response parse error: {}", e))
-            })?;
+        let health: HealthResponse = response.json().await.map_err(|e| {
+            log_health_event!(
+                "failed",
+                "daemon",
+                "health_checker",
+                "json_parse",
+                error = %e,
+                url = %self.health_url
+            );
+            VoiceCliError::Daemon(format!("Health check response parse error: {}", e))
+        })?;
 
         let duration = start_time.elapsed();
         log_health_event!(
@@ -95,12 +94,13 @@ impl HealthChecker {
     /// Check if the service is ready (more thorough than basic health check)
     pub async fn check_readiness(&self) -> crate::Result<()> {
         let health = self.check_health().await?;
-        
+
         // Additional readiness checks could be added here
         if health.status != "healthy" {
-            return Err(VoiceCliError::Daemon(
-                format!("Service not ready, status: {}", health.status)
-            ));
+            return Err(VoiceCliError::Daemon(format!(
+                "Service not ready, status: {}",
+                health.status
+            )));
         }
 
         Ok(())
@@ -118,14 +118,17 @@ impl HealthChecker {
                     if attempt == max_attempts {
                         return Err(e);
                     }
-                    debug!("Health check attempt {}/{} failed: {}", attempt, max_attempts, e);
+                    debug!(
+                        "Health check attempt {}/{} failed: {}",
+                        attempt, max_attempts, e
+                    );
                     tokio::time::sleep(interval).await;
                 }
             }
         }
 
         Err(VoiceCliError::Daemon(
-            "Service did not become ready within the specified attempts".to_string()
+            "Service did not become ready within the specified attempts".to_string(),
         ))
     }
 }

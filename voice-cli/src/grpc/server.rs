@@ -1,11 +1,11 @@
+use crate::cluster::{HeartbeatEvent, SimpleTaskScheduler};
 use crate::grpc::proto::audio_cluster_service_server::AudioClusterServiceServer;
 use crate::grpc::AudioClusterServiceImpl;
-use crate::models::{ClusterError, MetadataStore, ClusterNode};
-use crate::cluster::{SimpleTaskScheduler, HeartbeatEvent};
+use crate::models::{ClusterError, ClusterNode, MetadataStore};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tonic::transport::Server;
-use tracing::{info, error};
+use tracing::{error, info};
 
 /// gRPC server configuration
 #[derive(Debug, Clone)]
@@ -70,10 +70,7 @@ impl AudioClusterGrpcServer {
             .max_encoding_message_size(self.config.max_message_size);
 
         // Build and start the server
-        let result = Server::builder()
-            .add_service(service)
-            .serve(addr)
-            .await;
+        let result = Server::builder().add_service(service).serve(addr).await;
 
         if let Err(e) = result {
             error!("gRPC server failed: {}", e);
@@ -92,7 +89,10 @@ impl AudioClusterGrpcServer {
             .parse()
             .map_err(|e| ClusterError::Config(format!("Invalid server address: {}", e)))?;
 
-        info!("Starting gRPC server on {} with graceful shutdown support", addr);
+        info!(
+            "Starting gRPC server on {} with graceful shutdown support",
+            addr
+        );
 
         // Create the service server with configuration
         let service = AudioClusterServiceServer::new(self.service_impl.clone())
@@ -125,8 +125,6 @@ impl AudioClusterGrpcServer {
     }
 }
 
-
-
 /// Helper function to create a configured gRPC server
 pub fn create_grpc_server(
     config: GrpcServerConfig,
@@ -148,18 +146,12 @@ pub fn create_default_grpc_server(
     node_info: ClusterNode,
     metadata_store: Arc<MetadataStore>,
 ) -> AudioClusterGrpcServer {
-    create_grpc_server(
-        GrpcServerConfig::default(),
-        node_info,
-        metadata_store,
-        None,
-    )
+    create_grpc_server(GrpcServerConfig::default(), node_info, metadata_store, None)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
 
     #[tokio::test]
     async fn test_grpc_server_creation() {
