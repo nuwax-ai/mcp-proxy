@@ -108,4 +108,22 @@ impl IntoResponse for VoiceCliError {
     }
 }
 
+// Conversion from ClusterError to VoiceCliError
+impl From<crate::models::ClusterError> for VoiceCliError {
+    fn from(error: crate::models::ClusterError) -> Self {
+        match error {
+            crate::models::ClusterError::Config(msg) => VoiceCliError::Config(msg),
+            crate::models::ClusterError::Network(msg) => VoiceCliError::Config(format!("Network error: {}", msg)),
+            crate::models::ClusterError::Timeout(msg) => VoiceCliError::Config(format!("Timeout: {}", msg)),
+            crate::models::ClusterError::NodeNotFound(msg) => VoiceCliError::Config(format!("Node not found: {}", msg)),
+            crate::models::ClusterError::TaskNotFound(msg) => VoiceCliError::Config(format!("Task not found: {}", msg)),
+            crate::models::ClusterError::NoAvailableNodes => VoiceCliError::Config("No available nodes".to_string()),
+            crate::models::ClusterError::TranscriptionFailed(msg) => VoiceCliError::TranscriptionFailed(msg),
+            crate::models::ClusterError::InvalidOperation(msg) => VoiceCliError::Config(format!("Invalid operation: {}", msg)),
+            crate::models::ClusterError::Database(err) => VoiceCliError::Config(format!("Database error: {}", err)),
+            crate::models::ClusterError::Serialization(err) => VoiceCliError::Json(err),
+        }
+    }
+}
+
 pub type Result<T> = std::result::Result<T, VoiceCliError>;

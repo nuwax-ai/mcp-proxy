@@ -1,6 +1,7 @@
 use crate::models::{AudioFormat};
 use crate::models::request::ProcessedAudio;
 use crate::VoiceCliError;
+use axum::Error;
 use bytes::Bytes;
 use std::path::PathBuf;
 use std::io::Write;
@@ -35,6 +36,11 @@ impl AudioProcessor {
         let format = self.detect_audio_format(&audio_data, filename)?;
         debug!("Detected audio format: {:?}", format);
         
+        // For WAV format, validate the content since it doesn't need conversion
+        if format == AudioFormat::Wav {
+            self.validate_whisper_format(&audio_data)?;
+        }
+        
         // Check if conversion is needed
         if !format.needs_conversion() {
             debug!("Audio format is already compatible, no conversion needed");
@@ -58,53 +64,17 @@ impl AudioProcessor {
 
     /// Detect audio format from data and filename
     fn detect_audio_format(&self, audio_data: &Bytes, filename: Option<&str>) -> Result<AudioFormat, VoiceCliError> {
-        // First try to detect from filename extension
-        if let Some(filename) = filename {
-            let format = AudioFormat::from_filename(filename);
-            if format.is_supported() {
-                return Ok(format);
-            }
-        }
+        // Use AudioFormatDetector for enhanced detection
+        use crate::services::AudioFormatDetector;
         
-        // Try to detect from file headers (magic bytes)
-        if audio_data.len() >= 4 {
-            let header = &audio_data[0..4];
-            
-            // WAV file signature
-            if header == b"RIFF" && audio_data.len() >= 12 {
-                let wave_header = &audio_data[8..12];
-                if wave_header == b"WAVE" {
-                    return Ok(AudioFormat::Wav);
-                }
+        match AudioFormatDetector::detect_format(audio_data, filename) {
+            Ok(format_result) => {
+                // Validate format support
+                AudioFormatDetector::validate_format_support(&format_result)?;
+                Ok(format_result.format)
             }
-            
-            // MP3 file signatures
-            if header[0..3] == [0xFF, 0xFB, 0x90] || // MP3 frame header
-               header[0..3] == [0x49, 0x44, 0x33] {  // ID3 tag
-                return Ok(AudioFormat::Mp3);
-            }
-            
-            // FLAC file signature
-            if header == b"fLaC" {
-                return Ok(AudioFormat::Flac);
-            }
-            
-            // OGG file signature
-            if header == b"OggS" {
-                return Ok(AudioFormat::Ogg);
-            }
+            Err(e) => Err(e),
         }
-        
-        // Check for M4A/AAC (more complex detection)
-        if audio_data.len() >= 8 {
-            let ftyp_check = &audio_data[4..8];
-            if ftyp_check == b"ftyp" {
-                return Ok(AudioFormat::M4a);
-            }
-        }
-        
-        // Default to unknown if we can't detect
-        Err(VoiceCliError::UnsupportedFormat("Unable to detect audio format".to_string()))
     }
 
     /// Convert audio to Whisper-compatible format (16kHz, mono, 16-bit PCM WAV)
@@ -136,90 +106,43 @@ impl AudioProcessor {
             Err(toolkit_error) => {
                 warn!("rs-voice-toolkit conversion failed: {}, trying fallback", toolkit_error);
                 
-                // Fallback to FFmpeg if available
-                self.convert_with_ffmpeg(input_path, output_path).await
-                    .and_then(|_| {
-                        let converted_data = std::fs::read(output_path)
-                            .map_err(|e| VoiceCliError::AudioProcessing(format!("Failed to read converted file: {}", e)))?;
-                        Ok(Bytes::from(converted_data))
-                    })
-                    .map_err(|ffmpeg_error| {
-                        VoiceCliError::AudioProcessing(format!(
-                            "Both rs-voice-toolkit and FFmpeg conversion failed. Toolkit: {}, FFmpeg: {}", 
-                            toolkit_error, ffmpeg_error
-                        ))
-                    })
+                return Err(toolkit_error);
             }
         }
     }
 
     /// Convert using rs-voice-toolkit
     async fn convert_with_rs_voice_toolkit(&self, input_path: &std::path::Path, output_path: &std::path::Path) -> Result<(), VoiceCliError> {
-        // This is a placeholder - actual implementation would use rs-voice-toolkit
-        // We'll use a simplified approach for now since the actual API might differ
+        debug!("Converting audio using voice-toolkit: {:?} -> {:?}", input_path, output_path);
         
-        // For now, we'll create a simple wrapper that calls the expected rs-voice-toolkit functions
-        // This should be replaced with actual rs-voice-toolkit calls once we have the exact API
-        
-        use std::process::Command;
-        
-        // Try to use rs-voice-toolkit's command line interface if available
-        let output = Command::new("rs-voice-toolkit-cli")
-            .args(&[
-                "convert",
-                "--input", input_path.to_str().unwrap(),
-                "--output", output_path.to_str().unwrap(),
-                "--format", "wav",
-                "--sample-rate", "16000",
-                "--channels", "1",
-                "--bit-depth", "16"
-            ])
-            .output();
-        
-        match output {
-            Ok(result) => {
-                if result.status.success() {
-                    Ok(())
-                } else {
-                    let error_msg = String::from_utf8_lossy(&result.stderr);
-                    Err(VoiceCliError::AudioProcessing(format!("rs-voice-toolkit conversion failed: {}", error_msg)))
+        // Use voice_toolkit::audio::ensure_whisper_compatible for real audio conversion
+        match voice_toolkit::audio::ensure_whisper_compatible(input_path, Some(output_path.to_path_buf())) {
+            Ok(compatible_wav) => {
+                debug!("Successfully converted audio to whisper-compatible format: {:?}", compatible_wav.path);
+                
+                // Verify the output file exists and is at the expected location
+                if compatible_wav.path != output_path {
+                    // If the output is in a different location, move it to the expected location
+                    if let Err(e) = std::fs::rename(&compatible_wav.path, output_path) {
+                        warn!("Failed to move converted file to expected location: {}", e);
+                        // Try copying instead
+                        std::fs::copy(&compatible_wav.path, output_path)
+                            .map_err(|e| VoiceCliError::AudioProcessing(format!("Failed to copy converted file: {}", e)))?;
+                        // Clean up the original if copy succeeded
+                        let _ = std::fs::remove_file(&compatible_wav.path);
+                    }
                 }
+                
+                info!("Audio conversion completed successfully");
+                Ok(())
             }
             Err(e) => {
-                Err(VoiceCliError::AudioProcessing(format!("Failed to execute rs-voice-toolkit: {}", e)))
+                warn!("voice-toolkit conversion failed: {}", e);
+                Err(VoiceCliError::AudioProcessing(format!("Audio conversion failed: {}", e)))
             }
         }
     }
 
-    /// Fallback conversion using FFmpeg
-    async fn convert_with_ffmpeg(&self, input_path: &std::path::Path, output_path: &std::path::Path) -> Result<(), VoiceCliError> {
-        use std::process::Command;
-        
-        let output = Command::new("ffmpeg")
-            .args(&[
-                "-i", input_path.to_str().unwrap(),
-                "-ar", "16000",           // Sample rate: 16kHz
-                "-ac", "1",               // Channels: mono
-                "-sample_fmt", "s16",     // Sample format: 16-bit signed
-                "-y",                     // Overwrite output file
-                output_path.to_str().unwrap()
-            ])
-            .output();
-        
-        match output {
-            Ok(result) => {
-                if result.status.success() {
-                    Ok(())
-                } else {
-                    let error_msg = String::from_utf8_lossy(&result.stderr);
-                    Err(VoiceCliError::AudioProcessing(format!("FFmpeg conversion failed: {}", error_msg)))
-                }
-            }
-            Err(e) => {
-                Err(VoiceCliError::AudioProcessing(format!("FFmpeg not available: {}", e)))
-            }
-        }
-    }
 
     /// Create temporary file with audio data
     fn create_temp_file(&self, audio_data: &Bytes, format: &AudioFormat) -> Result<NamedTempFile, VoiceCliError> {

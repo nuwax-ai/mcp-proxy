@@ -291,14 +291,37 @@ impl AudioFormat {
 
     /// Convert from Symphonia codec type
     pub fn from_symphonia_codec(codec_type: symphonia::core::codecs::CodecType) -> Self {
-        // For now, use codec type as u32 for comparison
-        // This is a simplified approach - in real implementation, you'd match specific codec constants
-        if codec_type == symphonia::core::codecs::CODEC_TYPE_NULL {
-            AudioFormat::Unknown
-        } else {
-            // For MVP, default to MP3 for non-null codecs
-            // This should be expanded based on actual codec detection needs
-            AudioFormat::Mp3
+        use symphonia::core::codecs::*;
+        
+        // Match specific Symphonia codec types to our AudioFormat enum
+        match codec_type {
+            CODEC_TYPE_NULL => AudioFormat::Unknown,
+            
+            // PCM codecs (usually WAV)
+            CODEC_TYPE_PCM_S16LE | CODEC_TYPE_PCM_S16BE |
+            CODEC_TYPE_PCM_S24LE | CODEC_TYPE_PCM_S24BE |
+            CODEC_TYPE_PCM_S32LE | CODEC_TYPE_PCM_S32BE |
+            CODEC_TYPE_PCM_F32LE | CODEC_TYPE_PCM_F32BE |
+            CODEC_TYPE_PCM_F64LE | CODEC_TYPE_PCM_F64BE |
+            CODEC_TYPE_PCM_U8 => AudioFormat::Wav,
+            
+            // MP3 codec
+            CODEC_TYPE_MP3 => AudioFormat::Mp3,
+            
+            // FLAC codec
+            CODEC_TYPE_FLAC => AudioFormat::Flac,
+            
+            // AAC codec
+            CODEC_TYPE_AAC => AudioFormat::Aac,
+            
+            // Vorbis (usually in OGG container)
+            CODEC_TYPE_VORBIS => AudioFormat::Ogg,
+            
+            // Opus codec
+            CODEC_TYPE_OPUS => AudioFormat::Opus,
+            
+            // Default to Unknown for unsupported codecs
+            _ => AudioFormat::Unknown,
         }
     }
 

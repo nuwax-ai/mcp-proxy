@@ -7,6 +7,10 @@ pub struct Config {
     pub whisper: WhisperConfig,
     pub logging: LoggingConfig,
     pub daemon: DaemonConfig,
+    #[serde(default)]
+    pub cluster: ClusterConfig,
+    #[serde(default)]
+    pub load_balancer: LoadBalancerConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,6 +62,46 @@ pub struct DaemonConfig {
     pub work_dir: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClusterConfig {
+    /// Unique node identifier
+    pub node_id: String,
+    /// Address to bind gRPC server
+    pub bind_address: String,
+    /// Port for gRPC cluster communication
+    pub grpc_port: u16,
+    /// Port for HTTP API (same as server.port by default)
+    pub http_port: u16,
+    /// Whether this node can process tasks (true=leader can process, false=leader only coordinates)
+    pub leader_can_process_tasks: bool,
+    /// Heartbeat interval in seconds
+    pub heartbeat_interval: u64,
+    /// Election timeout in seconds
+    pub election_timeout: u64,
+    /// Path to store cluster metadata database
+    pub metadata_db_path: String,
+    /// Enable cluster mode (false for single-node operation)
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoadBalancerConfig {
+    /// Enable load balancer service
+    pub enabled: bool,
+    /// Address to bind load balancer
+    pub bind_address: String,
+    /// Port for load balancer service
+    pub port: u16,
+    /// Health check interval in seconds
+    pub health_check_interval: u64,
+    /// Health check timeout in seconds
+    pub health_check_timeout: u64,
+    /// PID file for load balancer daemon
+    pub pid_file: String,
+    /// Log file for load balancer
+    pub log_file: String,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -65,6 +109,8 @@ impl Default for Config {
             whisper: WhisperConfig::default(),
             logging: LoggingConfig::default(),
             daemon: DaemonConfig::default(),
+            cluster: ClusterConfig::default(),
+            load_balancer: LoadBalancerConfig::default(),
         }
     }
 }
@@ -154,6 +200,37 @@ impl Default for DaemonConfig {
     }
 }
 
+impl Default for ClusterConfig {
+    fn default() -> Self {
+        use uuid::Uuid;
+        Self {
+            node_id: format!("node-{}", Uuid::new_v4().simple()),
+            bind_address: "0.0.0.0".to_string(),
+            grpc_port: 50051,
+            http_port: 8080, // Same as server port by default
+            leader_can_process_tasks: true, // Leader can process tasks by default
+            heartbeat_interval: 3,
+            election_timeout: 10,
+            metadata_db_path: "./cluster_metadata".to_string(),
+            enabled: false, // Disabled by default for backward compatibility
+        }
+    }
+}
+
+impl Default for LoadBalancerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false, // Disabled by default
+            bind_address: "0.0.0.0".to_string(),
+            port: 8090, // Different port to avoid conflicts
+            health_check_interval: 5,
+            health_check_timeout: 3,
+            pid_file: "./voice-cli-lb.pid".to_string(),
+            log_file: "./logs/lb.log".to_string(),
+        }
+    }
+}
+
 impl Config {
     pub fn load_or_create(config_path: &PathBuf) -> crate::Result<Self> {
         if config_path.exists() {
@@ -200,6 +277,43 @@ impl Config {
             ));
         }
 
+        // Validate cluster configuration if enabled
+        if self.cluster.enabled {
+            if self.cluster.grpc_port == 0 {
+                return Err(crate::VoiceCliError::Config("Invalid cluster gRPC port".to_string()));
+            }
+            
+            if self.cluster.heartbeat_interval == 0 {
+                return Err(crate::VoiceCliError::Config("Invalid heartbeat interval".to_string()));
+            }
+            
+            if self.cluster.election_timeout == 0 {
+                return Err(crate::VoiceCliError::Config("Invalid election timeout".to_string()));
+            }
+        }
+
+        // Validate load balancer configuration if enabled
+        if self.load_balancer.enabled {
+            if self.load_balancer.port == 0 {
+                return Err(crate::VoiceCliError::Config("Invalid load balancer port".to_string()));
+            }
+        }
+
         Ok(())
+    }
+    
+    /// Get cluster metadata database path
+    pub fn cluster_db_path(&self) -> PathBuf {
+        PathBuf::from(&self.cluster.metadata_db_path)
+    }
+    
+    /// Get load balancer PID file path
+    pub fn lb_pid_file_path(&self) -> PathBuf {
+        PathBuf::from(&self.load_balancer.pid_file)
+    }
+    
+    /// Get load balancer log file path
+    pub fn lb_log_file_path(&self) -> PathBuf {
+        PathBuf::from(&self.load_balancer.log_file)
     }
 }

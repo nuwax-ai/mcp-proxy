@@ -134,6 +134,44 @@ daemon:
   log_file: "./logs/daemon.log"
   # Working directory for daemon
   work_dir: "./"
+
+# Cluster configuration (disabled by default)
+cluster:
+  # Unique node identifier (auto-generated UUID by default)
+  node_id: "node-auto-generated"
+  # Address to bind gRPC server for cluster communication
+  bind_address: "0.0.0.0"
+  # Port for gRPC cluster communication
+  grpc_port: 50051
+  # Port for HTTP API (should match server.port)
+  http_port: 8080
+  # Whether leader can process tasks (true) or only coordinate (false)
+  leader_can_process_tasks: true
+  # Heartbeat interval in seconds
+  heartbeat_interval: 3
+  # Election timeout in seconds
+  election_timeout: 10
+  # Path to store cluster metadata database
+  metadata_db_path: "./cluster_metadata"
+  # Enable cluster mode (set to true to enable clustering)
+  enabled: false
+
+# Load balancer configuration (disabled by default)
+load_balancer:
+  # Enable load balancer service
+  enabled: false
+  # Address to bind load balancer
+  bind_address: "0.0.0.0"
+  # Port for load balancer service (different from server port)
+  port: 8090
+  # Health check interval in seconds
+  health_check_interval: 5
+  # Health check timeout in seconds
+  health_check_timeout: 3
+  # PID file for load balancer daemon
+  pid_file: "./voice-cli-lb.pid"
+  # Log file for load balancer
+  log_file: "./logs/lb.log"
 "#;
 
         if let Some(parent) = config_path.parent() {

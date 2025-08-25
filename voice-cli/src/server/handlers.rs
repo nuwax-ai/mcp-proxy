@@ -85,6 +85,16 @@ pub async fn health_handler(
     Ok(Json(response))
 }
 
+/// Simple test endpoint for load balancer testing
+/// GET /test
+pub async fn test_handler(
+    State(state): State<AppState>,
+) -> Result<String, VoiceCliError> {
+    // Try to determine the port from the config
+    let port = state.config.server.port;
+    Ok(format!("backend-{}", port))
+}
+
 /// List available and loaded models
 /// GET /models
 #[utoipa::path(
@@ -263,7 +273,7 @@ pub async fn transcribe_handler(
 }
 
 /// Helper function to extract transcription request from multipart data
-async fn extract_transcription_request(
+pub async fn extract_transcription_request(
     mut multipart: Multipart,
 ) -> Result<(Bytes, WorkerTranscriptionRequest), VoiceCliError> {
     let mut audio_data: Option<Bytes> = None;
@@ -397,7 +407,7 @@ async fn extract_transcription_request(
 }
 
 /// Helper function to validate audio file with enhanced format detection
-fn validate_audio_file(
+pub fn validate_audio_file(
     audio_data: &Bytes,
     filename: &str,
     max_file_size: usize,

@@ -23,6 +23,9 @@ pub async fn create_routes(config: Config) -> crate::Result<Router> {
         // Main transcription endpoint
         .route("/transcribe", post(handlers::transcribe_handler))
         
+        // Simple test endpoint for load balancer testing
+        .route("/test", get(handlers::test_handler))
+        
         // Add shared state
         .with_state(shared_state)
         

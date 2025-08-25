@@ -1,5 +1,7 @@
 pub mod server;
 pub mod model;
+pub mod cluster;
+pub mod lb;
 
 use clap::{Parser, Subcommand};
 
@@ -31,6 +33,16 @@ pub enum Commands {
     Model {
         #[command(subcommand)]
         action: ModelAction,
+    },
+    /// Cluster management commands
+    Cluster {
+        #[command(subcommand)]
+        action: ClusterAction,
+    },
+    /// Load balancer management commands
+    Lb {
+        #[command(subcommand)]
+        action: LoadBalancerAction,
     },
     /// Internal daemon command (used by daemon service)
     Daemon {
@@ -69,6 +81,134 @@ pub enum ModelAction {
         /// Model name to remove
         model_name: String,
     },
+}
+
+#[derive(Subcommand)]
+pub enum ClusterAction {
+    /// Run cluster node in foreground mode
+    Run {
+        /// Node ID for this cluster node
+        #[arg(long)]
+        node_id: Option<String>,
+        /// HTTP port for this node
+        #[arg(long, default_value = "8080")]
+        http_port: u16,
+        /// gRPC port for this node
+        #[arg(long, default_value = "50051")]
+        grpc_port: u16,
+        /// Whether this node can process tasks
+        #[arg(long, default_value = "true")]
+        can_process_tasks: bool,
+    },
+    /// Start cluster node in background mode
+    Start {
+        /// Node ID for this cluster node
+        #[arg(long)]
+        node_id: Option<String>,
+        /// HTTP port for this node
+        #[arg(long, default_value = "8080")]
+        http_port: u16,
+        /// gRPC port for this node
+        #[arg(long, default_value = "50051")]
+        grpc_port: u16,
+        /// Whether this node can process tasks
+        #[arg(long, default_value = "true")]
+        can_process_tasks: bool,
+    },
+    /// Stop cluster node
+    Stop,
+    /// Restart cluster node
+    Restart {
+        /// Node ID for this cluster node
+        #[arg(long)]
+        node_id: Option<String>,
+        /// HTTP port for this node
+        #[arg(long, default_value = "8080")]
+        http_port: u16,
+        /// gRPC port for this node
+        #[arg(long, default_value = "50051")]
+        grpc_port: u16,
+        /// Whether this node can process tasks
+        #[arg(long, default_value = "true")]
+        can_process_tasks: bool,
+    },
+    /// Initialize a new cluster
+    Init {
+        /// Node ID for this cluster node
+        #[arg(long)]
+        node_id: Option<String>,
+        /// HTTP port for this node
+        #[arg(long, default_value = "8080")]
+        http_port: u16,
+        /// gRPC port for this node
+        #[arg(long, default_value = "50051")]
+        grpc_port: u16,
+        /// Whether this node can process tasks (leader configuration)
+        #[arg(long, default_value = "true")]
+        leader_can_process_tasks: bool,
+    },
+    /// Join an existing cluster
+    Join {
+        /// Address of a node in the target cluster
+        #[arg(long)]
+        peer_address: String,
+        /// Node ID for this cluster node
+        #[arg(long)]
+        node_id: Option<String>,
+        /// HTTP port for this node
+        #[arg(long, default_value = "8080")]
+        http_port: u16,
+        /// gRPC port for this node
+        #[arg(long, default_value = "50051")]
+        grpc_port: u16,
+        /// Cluster token for authentication (optional)
+        #[arg(long)]
+        token: Option<String>,
+    },
+    /// Get cluster status
+    Status {
+        /// Show detailed node information
+        #[arg(long)]
+        detailed: bool,
+    },
+    /// Generate cluster configuration
+    GenerateConfig {
+        /// Output file path (optional, defaults to current directory)
+        #[arg(long, short)]
+        output: Option<String>,
+        /// Configuration template type
+        #[arg(long, default_value = "default")]
+        template: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum LoadBalancerAction {
+    /// Run load balancer in foreground mode
+    Run {
+        /// Load balancer port
+        #[arg(long, default_value = "8090")]
+        port: u16,
+        /// Health check interval in seconds
+        #[arg(long, default_value = "10")]
+        health_check_interval: u64,
+    },
+    /// Start load balancer in background mode
+    Start {
+        /// Load balancer port
+        #[arg(long, default_value = "8090")]
+        port: u16,
+    },
+    /// Stop load balancer
+    Stop,
+    /// Restart load balancer
+    Restart {
+        /// Load balancer port
+        #[arg(long, default_value = "8090")]
+        port: u16,
+    },
+    /// Check load balancer status
+    Status,
 }
 
 #[derive(Subcommand)]

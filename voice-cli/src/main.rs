@@ -2,7 +2,7 @@ use clap::Parser;
 use std::path::PathBuf;
 use tracing::{info, error, warn};
 use voice_cli::{
-    cli::{Cli, Commands, ServerAction, ModelAction, DaemonAction},
+    cli::{Cli, Commands, ServerAction, ModelAction, DaemonAction, ClusterAction, LoadBalancerAction},
     config::ConfigManager,
 };
 
@@ -40,6 +40,8 @@ async fn main() {
     let result = match cli.command {
         Commands::Server { action } => handle_server_command(action, config).await,
         Commands::Model { action } => handle_model_command(action, config).await,
+        Commands::Cluster { action } => handle_cluster_command(action, config).await,
+        Commands::Lb { action } => handle_lb_command(action, config).await,
         Commands::Daemon { action } => handle_daemon_command(action, config).await,
     };
     
@@ -115,6 +117,149 @@ async fn handle_daemon_command(action: DaemonAction, config: &voice_cli::Config)
         DaemonAction::Serve => {
             // This is the internal command called by the daemon process
             server::handle_daemon_serve(config).await
+        }
+    }
+}
+
+/// Handle cluster-related commands
+async fn handle_cluster_command(action: ClusterAction, config: &voice_cli::Config) -> voice_cli::Result<()> {
+    use voice_cli::cli::cluster;
+    
+    match action {
+        ClusterAction::Run {
+            node_id,
+            http_port,
+            grpc_port,
+            can_process_tasks,
+        } => {
+            info!(
+                "Running cluster node: node_id={:?}, http_port={}, grpc_port={}, can_process_tasks={}",
+                node_id, http_port, grpc_port, can_process_tasks
+            );
+            cluster::handle_cluster_run(
+                config,
+                node_id,
+                http_port,
+                grpc_port,
+                can_process_tasks,
+            ).await
+        }
+        ClusterAction::Start {
+            node_id,
+            http_port,
+            grpc_port,
+            can_process_tasks,
+        } => {
+            info!(
+                "Starting cluster node: node_id={:?}, http_port={}, grpc_port={}, can_process_tasks={}",
+                node_id, http_port, grpc_port, can_process_tasks
+            );
+            cluster::handle_cluster_start(
+                config,
+                node_id,
+                http_port,
+                grpc_port,
+                can_process_tasks,
+            ).await
+        }
+        ClusterAction::Stop => {
+            info!("Stopping cluster node");
+            cluster::handle_cluster_stop(config).await
+        }
+        ClusterAction::Restart {
+            node_id,
+            http_port,
+            grpc_port,
+            can_process_tasks,
+        } => {
+            info!(
+                "Restarting cluster node: node_id={:?}, http_port={}, grpc_port={}, can_process_tasks={}",
+                node_id, http_port, grpc_port, can_process_tasks
+            );
+            cluster::handle_cluster_restart(
+                config,
+                node_id,
+                http_port,
+                grpc_port,
+                can_process_tasks,
+            ).await
+        }
+        ClusterAction::Init {
+            node_id,
+            http_port,
+            grpc_port,
+            leader_can_process_tasks,
+        } => {
+            info!(
+                "Initializing cluster: node_id={:?}, http_port={}, grpc_port={}, leader_can_process_tasks={}",
+                node_id, http_port, grpc_port, leader_can_process_tasks
+            );
+            cluster::handle_cluster_init(
+                config,
+                node_id,
+                http_port,
+                grpc_port,
+                leader_can_process_tasks,
+            ).await
+        }
+        ClusterAction::Join {
+            peer_address,
+            node_id,
+            http_port,
+            grpc_port,
+            token,
+        } => {
+            info!(
+                "Joining cluster: peer={}, node_id={:?}, http_port={}, grpc_port={}",
+                peer_address, node_id, http_port, grpc_port
+            );
+            cluster::handle_cluster_join(
+                config,
+                peer_address,
+                node_id,
+                http_port,
+                grpc_port,
+                token,
+            ).await
+        }
+        ClusterAction::Status { detailed } => {
+            info!("Getting cluster status: detailed={}", detailed);
+            cluster::handle_cluster_status(config, detailed).await
+        }
+        ClusterAction::GenerateConfig { output, template } => {
+            info!("Generating cluster config: output={:?}, template={}", output, template);
+            cluster::handle_generate_config(config, output, template).await
+        }
+    }
+}
+
+/// Handle load balancer-related commands
+async fn handle_lb_command(action: LoadBalancerAction, config: &voice_cli::Config) -> voice_cli::Result<()> {
+    use voice_cli::cli::lb;
+    
+    match action {
+        LoadBalancerAction::Run {
+            port,
+            health_check_interval,
+        } => {
+            info!("Running load balancer: port={}, health_check_interval={}s", port, health_check_interval);
+            lb::handle_lb_run(config, port, health_check_interval).await
+        }
+        LoadBalancerAction::Start { port } => {
+            info!("Starting load balancer: port={}", port);
+            lb::handle_lb_start(config, port).await
+        }
+        LoadBalancerAction::Stop => {
+            info!("Stopping load balancer");
+            lb::handle_lb_stop(config).await
+        }
+        LoadBalancerAction::Restart { port } => {
+            info!("Restarting load balancer: port={}", port);
+            lb::handle_lb_restart(config, port).await
+        }
+        LoadBalancerAction::Status => {
+            info!("Checking load balancer status");
+            lb::handle_lb_status(config).await
         }
     }
 }

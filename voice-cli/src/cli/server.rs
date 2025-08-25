@@ -10,10 +10,16 @@ pub async fn handle_server_run(config: &Config) -> crate::Result<()> {
     // Initialize logging
     crate::utils::init_logging(config)?;
     
-    // Start the HTTP server directly
-    let server = crate::server::create_server(config.clone()).await?;
+    // Start the cluster-aware HTTP server
+    let server = crate::server::create_cluster_aware_server_with_shutdown(config.clone()).await?;
     
-    info!("Server running on {}:{}", config.server.host, config.server.port);
+    if config.cluster.enabled {
+        info!("Cluster-aware server running on {}:{}", config.server.host, config.server.port);
+        info!("Cluster node ID: {}", config.cluster.node_id);
+        info!("gRPC port: {}", config.cluster.grpc_port);
+    } else {
+        info!("Single-node server running on {}:{}", config.server.host, config.server.port);
+    }
     info!("Press Ctrl+C to stop the server");
     
     // Run server with graceful shutdown
@@ -72,10 +78,15 @@ pub async fn handle_daemon_serve(config: &Config) -> crate::Result<()> {
     // Initialize logging for daemon
     crate::utils::init_logging(config)?;
     
-    // Start the HTTP server
-    let server = crate::server::create_server(config.clone()).await?;
+    // Start the cluster-aware HTTP server
+    let server = crate::server::create_cluster_aware_server(config.clone()).await?;
     
-    info!("Daemon HTTP server running on {}:{}", config.server.host, config.server.port);
+    if config.cluster.enabled {
+        info!("Daemon cluster-aware server running on {}:{}", config.server.host, config.server.port);
+        info!("Cluster node ID: {}", config.cluster.node_id);
+    } else {
+        info!("Daemon single-node server running on {}:{}", config.server.host, config.server.port);
+    }
     
     // Run server (this will block until shutdown)
     server.await.map_err(|e| VoiceCliError::Config(format!("Daemon server error: {}", e)))?;

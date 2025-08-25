@@ -1,0 +1,136 @@
+syntax = "proto3";
+
+package audio_cluster;
+
+// Core cluster service - minimal required functionality
+service AudioClusterService {
+    // Basic cluster operations
+    rpc JoinCluster(JoinRequest) returns (JoinResponse);
+    rpc LeaveCluster(LeaveRequest) returns (LeaveResponse);
+    rpc GetClusterStatus(ClusterStatusRequest) returns (ClusterStatusResponse);
+    rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+    
+    // Task coordination
+    rpc AssignTask(TaskAssignmentRequest) returns (TaskAssignmentResponse);
+    rpc ReportTaskCompletion(TaskCompletionRequest) returns (TaskCompletionResponse);
+}
+
+// Join cluster operations
+message JoinRequest {
+    NodeInfo node_info = 1;
+    string cluster_token = 2;    // Optional authentication token
+}
+
+message JoinResponse {
+    bool success = 1;
+    string message = 2;
+    repeated NodeInfo cluster_nodes = 3;  // Current cluster topology
+}
+
+// Leave cluster operations
+message LeaveRequest {
+    string node_id = 1;
+    string reason = 2;    // Optional reason for leaving
+}
+
+message LeaveResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+// Cluster status operations
+message ClusterStatusRequest {
+    string node_id = 1;
+}
+
+message ClusterStatusResponse {
+    repeated NodeInfo nodes = 1;
+    string leader_node_id = 2;
+    ClusterHealth cluster_health = 3;
+}
+
+// Heartbeat operations
+message HeartbeatRequest {
+    string node_id = 1;
+    NodeStatus status = 2;
+    int64 timestamp = 3;
+}
+
+message HeartbeatResponse {
+    bool success = 1;
+    string message = 2;
+    NodeRole current_role = 3;    // Updated role from leader
+}
+
+// Simplified node information
+message NodeInfo {
+    string node_id = 1;
+    string address = 2;
+    uint32 grpc_port = 3;
+    uint32 http_port = 4;
+    NodeRole role = 5;
+    NodeStatus status = 6;
+    int64 last_heartbeat = 7;  // Essential for health monitoring
+}
+
+// Node roles in the cluster
+enum NodeRole {
+    LEADER = 0;
+    FOLLOWER = 1;
+    CANDIDATE = 2;
+}
+
+// Node status states
+enum NodeStatus {
+    HEALTHY = 0;
+    UNHEALTHY = 1;
+    JOINING = 2;
+    LEAVING = 3;
+}
+
+// Cluster health status
+enum ClusterHealth {
+    HEALTHY_CLUSTER = 0;
+    DEGRADED = 1;
+    UNHEALTHY_CLUSTER = 2;
+}
+
+// Task assignment (simplified but with essential business info)
+message TaskAssignmentRequest {
+    string task_id = 1;
+    string client_id = 2;           // Track client for business purposes
+    string filename = 3;            // Original filename for context
+    string audio_file_path = 4;     // Local file path instead of bytes
+    string model = 5;
+    string response_format = 6;
+    int64 created_at = 7;           // Task creation timestamp
+}
+
+message TaskAssignmentResponse {
+    bool success = 1;
+    string message = 2;
+    string assigned_node_id = 3;
+}
+
+// Task completion reporting
+message TaskCompletionRequest {
+    string task_id = 1;
+    TaskState final_state = 2;      // COMPLETED or FAILED
+    string error_message = 3;       // Only set if final_state is FAILED
+    string result_data = 4;         // Transcription result if successful
+    int64 completed_at = 5;         // Task completion timestamp
+}
+
+message TaskCompletionResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+// Task state enumeration
+enum TaskState {
+    PENDING = 0;
+    ASSIGNED = 1;
+    PROCESSING = 2;
+    COMPLETED = 3;
+    FAILED = 4;
+}

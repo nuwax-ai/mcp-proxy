@@ -25,3 +25,6 @@ document-parser/temp/*
 models/*
 dist/
 voice-cli/temp/*
+voice-cli/cluster_metadata/*
+voice-cli/shared-voice-cli/*
+voice-cli/:memory:/*
