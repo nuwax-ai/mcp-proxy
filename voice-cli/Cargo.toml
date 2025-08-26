@@ -91,11 +91,8 @@ if-addrs = "0.14"
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["winuser", "processthreadsapi"] }
 
-[target.'cfg(target_os = "macos")'.dependencies]
-voice-toolkit = { workspace = true, features = ["stt", "audio", "metal"] }
-
-[target.'cfg(target_os = "linux")'.dependencies]
-voice-toolkit = { workspace = true, features = ["stt", "audio", "cuda"] }
+[dependencies.voice-toolkit]
+workspace = true
 
 [dev-dependencies]
 tempfile = "3.0"
@@ -104,3 +101,10 @@ tempfile = "3.0"
 # Protocol buffer compilation
 tonic-prost-build = "0.14"
 prost-build = "0.14"
+
+[features]
+default = []
+# 方便通过 `-p voice-cli --features <name>` 启用/切换后端
+cuda = ["voice-toolkit/cuda"]
+metal = ["voice-toolkit/metal"]
+vulkan = ["voice-toolkit/vulkan"]
