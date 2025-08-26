@@ -31,3 +31,5 @@ voice-cli/:memory:/*
 
 cluster_metadata
 *.pid
+
+voice-cli/build/*

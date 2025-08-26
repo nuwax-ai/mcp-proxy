@@ -61,13 +61,6 @@ base64 = "0.22"
 tempfile = "3.0"
 dirs = "6.0"
 
-# Audio processing and STT (commenting out until exact package names are confirmed)
-# rs-voice-toolkit = { git = "https://github.com/soddygo/rs-voice-toolkit" }
-# rs-voice-toolkit-audio = { git = "https://github.com/soddygo/rs-voice-toolkit" }
-# rs-voice-toolkit-stt = { git = "https://github.com/soddygo/rs-voice-toolkit" }
-
-# Note: voice-toolkit will be added once the exact package details are confirmed
-voice-toolkit = { workspace = true }
 
 # Audio format detection with Symphonia
 symphonia = { version = "0.5", features = ["all"] }
@@ -97,6 +90,12 @@ if-addrs = "0.14"
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["winuser", "processthreadsapi"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+voice-toolkit = { workspace = true, features = ["stt", "audio", "metal"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+voice-toolkit = { workspace = true, features = ["stt", "audio", "cuda"] }
 
 [dev-dependencies]
 tempfile = "3.0"
