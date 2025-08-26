@@ -3493,9 +3493,9 @@ dependencies = [
 
 [[package]]
 name = "rs-voice-toolkit-audio"
-version = "0.10.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c04b834c039a0849488d30f20f3067c1f3a9e8b2253d1b9b3fed3b196a9b98e"
+checksum = "9acc8d6b9d077a76109272b93b5187e4beb4d825258b14102d70656108b539a7"
 dependencies = [
  "ffmpeg-sidecar",
  "hound",
@@ -3508,9 +3508,9 @@ dependencies = [
 
 [[package]]
 name = "rs-voice-toolkit-stt"
-version = "0.10.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8a3e11a6ef3a2d4f1073f558bc0b4c0291a8de4e6326674dde88ae785dd8176"
+checksum = "6a8f794b97386ab85b325d0bca95ceb4745d1f0dcde2fb3094d0b2accb7a7765"
 dependencies = [
  "anyhow",
  "ffmpeg-sidecar",
@@ -5208,9 +5208,9 @@ dependencies = [
 
 [[package]]
 name = "voice-toolkit"
-version = "0.10.0"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd88cbe00e48bd30b2f151155314b5d9142a25908d8fcbb944ece9b8f46c08c3"
+checksum = "68125fbe7112d88bd0242ea1d3dbf5b04c59abe365459e421801159b0c19e99b"
 dependencies = [
  "rs-voice-toolkit-audio",
  "rs-voice-toolkit-stt",

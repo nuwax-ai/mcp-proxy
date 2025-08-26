@@ -33,8 +33,12 @@ async fn test_real_stt_engine_with_cluster_worker() {
     let test_audio = create_test_audio_file().await;
 
     // Create transcription worker
-    let mut worker =
-        SimpleTranscriptionWorker::new("test-worker".to_string(), metadata_store, worker_config);
+    let mut worker = SimpleTranscriptionWorker::new(
+        "test-worker".to_string(),
+        metadata_store,
+        worker_config,
+        model_service,
+    );
 
     // Create task assignment request
     let task_request = TaskAssignmentRequest {
@@ -173,12 +177,13 @@ async fn test_stt_engine_error_handling() {
     let temp_dir = TempDir::new().unwrap();
     let db_path = temp_dir.path().join("stt_error_test.db");
     let metadata_store = Arc::new(MetadataStore::new(db_path.to_str().unwrap()).unwrap());
-
+    let model_service = Arc::new(ModelService::new(config.clone()));
     let worker_config = WorkerConfig::default();
     let mut worker = SimpleTranscriptionWorker::new(
         "error-test-worker".to_string(),
         metadata_store,
         worker_config,
+        model_service,
     );
 
     // Test with non-existent audio file

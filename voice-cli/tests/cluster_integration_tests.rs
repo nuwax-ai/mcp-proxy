@@ -99,10 +99,12 @@ async fn test_transcription_worker_integration() {
     let metadata_store = Arc::new(MetadataStore::new(db_path.to_str().unwrap()).unwrap());
 
     // Create transcription worker
+    let model_service = Arc::new(voice_cli::services::ModelService::new(Config::default()));
     let worker = SimpleTranscriptionWorker::new(
         "worker-node-1".to_string(),
         metadata_store.clone(),
         WorkerConfig::default(),
+        model_service.clone(),
     );
 
     // Create a test task
@@ -150,10 +152,12 @@ async fn test_task_manager_coordination() {
         SchedulerConfig::default(),
     ));
 
+    let model_service = Arc::new(voice_cli::services::ModelService::new(Config::default()));
     let transcription_worker = Arc::new(SimpleTranscriptionWorker::new(
         "coordinator-node-1".to_string(),
         metadata_store.clone(),
         WorkerConfig::default(),
+        model_service.clone(),
     ));
 
     // Create task manager
@@ -357,10 +361,12 @@ async fn test_cluster_lifecycle_integration() {
         SchedulerConfig::default(),
     ));
 
+    let model_service = Arc::new(voice_cli::services::ModelService::new(Config::default()));
     let worker = Arc::new(SimpleTranscriptionWorker::new(
         "lifecycle-node-1".to_string(),
         metadata_store.clone(),
         WorkerConfig::default(),
+        model_service.clone(),
     ));
 
     let task_manager = ClusterTaskManager::new(

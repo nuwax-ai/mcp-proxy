@@ -2,7 +2,7 @@ use crate::models::{
     Config, Segment, TranscriptionResponse, TranscriptionResult, TranscriptionTask,
     WorkerProcessedAudio,
 };
-use crate::services::ModelService;
+use crate::services::{ModelService, TranscriptionEngine};
 use crate::VoiceCliError;
 use bytes::Bytes;
 use std::path::{Path, PathBuf};
@@ -94,17 +94,21 @@ pub struct TranscriptionWorker {
     config: Arc<Config>,
     /// Model service for accessing Whisper models
     model_service: Arc<ModelService>,
+    /// Shared transcription engine
+    engine: Arc<TranscriptionEngine>,
 }
 
 impl TranscriptionWorker {
     /// Create a new transcription worker
     pub async fn new(worker_id: usize, config: Arc<Config>) -> Self {
         let model_service = Arc::new(ModelService::new((*config).clone()));
+        let engine = Arc::new(TranscriptionEngine::new(Arc::clone(&model_service)));
 
         Self {
             worker_id,
             config,
             model_service,
+            engine,
         }
     }
 
@@ -277,29 +281,17 @@ impl TranscriptionWorker {
         model: &Option<String>,
         _response_format: &Option<String>,
     ) -> Result<voice_toolkit::stt::TranscriptionResult, VoiceCliError> {
-        // Get model path
         let model_name = model.as_ref().unwrap_or(&self.config.whisper.default_model);
+        let timeout_secs = self.config.whisper.workers.worker_timeout as u64;
 
-        let model_path = self.model_service.get_model_path(model_name)?;
-
-        if !model_path.exists() {
-            return Err(VoiceCliError::ModelNotFound(model_name.clone()));
-        }
-
-        // Perform transcription with automatic language detection and timeout
-        let timeout_duration =
-            std::time::Duration::from_secs(self.config.whisper.workers.worker_timeout as u64);
-
-        let model_path = model_path.clone();
-        let audio_path = processed_audio.file_path.clone();
-
-        let result = tokio::time::timeout(
-            timeout_duration,
-            voice_toolkit::stt::transcribe_file(&model_path, &audio_path),
-        )
-        .await
-        .map_err(|_| VoiceCliError::TranscriptionTimeout(timeout_duration.as_secs()))?
-        .map_err(|e| VoiceCliError::TranscriptionFailed(e.to_string()))?;
+        let result = self
+            .engine
+            .transcribe_compatible_audio(
+                model_name,
+                &processed_audio.file_path,
+                timeout_secs,
+            )
+            .await?;
 
         info!(
             "Worker {} completed transcription, language: {}",

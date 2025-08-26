@@ -293,9 +293,9 @@ impl ModelService {
         ) {
             let actual_size = metadata.len();
             let size_diff_percent = if actual_size > expected_size {
-                ((actual_size - expected_size) as f64 / expected_size as f64) * 100.0
+                ((actual_size as f64 - expected_size as f64) / expected_size as f64) * 100.0
             } else {
-                ((expected_size - actual_size) as f64 / expected_size as f64) * 100.0
+                ((expected_size as f64 - actual_size as f64) / expected_size as f64) * 100.0
             };
 
             // Allow 20% size difference to accommodate different versions

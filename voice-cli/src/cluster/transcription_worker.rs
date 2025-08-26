@@ -6,6 +6,9 @@ use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
+use crate::services::{ModelService, TranscriptionEngine};
+use crate::models::Config;
+use std::path::Path;
 
 /// Task assignment request from scheduler
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +44,8 @@ pub struct SimpleTranscriptionWorker {
     event_tx: mpsc::UnboundedSender<WorkerEvent>,
     /// Current processing statistics
     stats: WorkerStats,
+    /// Shared transcription engine
+    engine: Arc<TranscriptionEngine>,
 }
 
 /// Configuration for transcription worker
@@ -112,8 +117,14 @@ pub struct WorkerStats {
 
 impl SimpleTranscriptionWorker {
     /// Create a new SimpleTranscriptionWorker
-    pub fn new(node_id: String, metadata_store: Arc<MetadataStore>, config: WorkerConfig) -> Self {
+    pub fn new(
+        node_id: String,
+        metadata_store: Arc<MetadataStore>,
+        config: WorkerConfig,
+        model_service: Arc<ModelService>,
+    ) -> Self {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
+        let engine = Arc::new(TranscriptionEngine::new(model_service));
 
         Self {
             node_id,
@@ -122,6 +133,7 @@ impl SimpleTranscriptionWorker {
             event_rx,
             event_tx,
             stats: WorkerStats::default(),
+            engine,
         }
     }
 
@@ -293,7 +305,7 @@ impl SimpleTranscriptionWorker {
             )));
         }
 
-        // Use actual voice-toolkit for transcription
+        // Use shared engine for transcription
         let transcription_result = self.perform_real_transcription(task_request).await?;
 
         // Convert to cluster transcription result
@@ -325,8 +337,6 @@ impl SimpleTranscriptionWorker {
         &self,
         task_request: &TaskAssignmentRequest,
     ) -> Result<String, ClusterError> {
-        use std::path::Path;
-
         let audio_path = Path::new(&task_request.audio_file_path);
 
         // Read audio file
@@ -348,44 +358,23 @@ impl SimpleTranscriptionWorker {
                 ClusterError::InvalidOperation(format!("Failed to write temp file: {}", e))
             })?;
 
-        // Ensure audio is Whisper-compatible
-        let compatible_audio_path =
-            voice_toolkit::audio::ensure_whisper_compatible(temp_file.path(), None).map_err(
-                |e| {
-                    ClusterError::InvalidOperation(format!(
-                        "Failed to convert audio to Whisper format: {}",
-                        e
-                    ))
-                },
-            )?;
-
-        // Get model path
-        let model = task_request
+        // Determine model name and timeout
+        let model_name = task_request
             .model
             .as_ref()
-            .unwrap_or(&self.config.default_model);
+            .unwrap_or(&self.config.default_model)
+            .to_string();
+        let timeout_secs = self.config.processing_timeout.as_secs();
 
-        // Construct model path (assuming models are stored in ~/.cache/whisper)
-        let model_path = dirs::home_dir()
-            .unwrap_or_else(|| std::path::PathBuf::from("."))
-            .join(".cache")
-            .join("whisper")
-            .join(format!("{}.bin", model));
-
-        if !model_path.exists() {
-            return Err(ClusterError::InvalidOperation(format!(
-                "Model file not found: {}. Please download the model first.",
-                model_path.display()
-            )));
-        }
-
-        // Perform transcription
-        let transcription_result = voice_toolkit::stt::transcribe_file(&compatible_audio_path.path, &model_path)
+        // Convert if needed and transcribe via shared engine (also fixes param order)
+        let result = self
+            .engine
+            .transcribe_with_conversion(&model_name, temp_file.path(), timeout_secs as u64)
             .await
-            .map_err(|e| ClusterError::InvalidOperation(format!("Transcription failed: {}", e)))?;
+            .map_err(|e| ClusterError::InvalidOperation(e.to_string()))?;
 
         // Return the transcribed text
-        Ok(transcription_result.text)
+        Ok(result.text)
     }
 
     /// Cleanup temporary files after processing

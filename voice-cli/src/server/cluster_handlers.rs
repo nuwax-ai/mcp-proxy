@@ -85,6 +85,7 @@ impl ClusterAppState {
                     cluster_node.node_id.clone(),
                     metadata_store.clone(),
                     crate::cluster::WorkerConfig::default(),
+                    model_service.clone(),
                 )))
             } else {
                 None

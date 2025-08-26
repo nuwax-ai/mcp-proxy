@@ -180,10 +180,12 @@ async fn test_transcription_worker_creation() {
 
     let metadata_store = Arc::new(MetadataStore::new(db_path.to_str().unwrap()).unwrap());
 
+    let model_service = Arc::new(voice_cli::services::ModelService::new(voice_cli::models::Config::default()));
     let worker = SimpleTranscriptionWorker::new(
         "worker-node-1".to_string(),
         metadata_store,
         WorkerConfig::default(),
+        model_service,
     );
 
     // Test that worker was created successfully and basic stats are available
@@ -219,10 +221,12 @@ async fn test_task_manager_creation() {
     ));
 
     // Create transcription worker
+    let model_service = Arc::new(voice_cli::services::ModelService::new(voice_cli::models::Config::default()));
     let transcription_worker = Arc::new(SimpleTranscriptionWorker::new(
         "manager-node-1".to_string(),
         metadata_store.clone(),
         WorkerConfig::default(),
+        model_service,
     ));
 
     // Create task manager
