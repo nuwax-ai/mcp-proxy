@@ -8,6 +8,10 @@ pub use background_service::{
     BackgroundService, ServiceHealth, ServiceStatus, ServiceManager,
     ClonableService, DefaultServiceManager, ServiceError
 };
+
+// Cross-platform daemon functionality
+pub mod cross_platform;
+pub use cross_platform::CrossPlatformDaemon;
 pub use service_logging::{
     init_service_logging, validate_logging_config, get_logs_directory,
     setup_log_rotation, apply_logging_env_overrides, ServiceLogContext

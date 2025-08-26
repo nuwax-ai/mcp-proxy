@@ -1,9 +1,9 @@
 use crate::config::{ConfigTemplateGenerator, ServiceType};
-use crate::daemon::{HttpServerService, DefaultServiceManager};
+use crate::daemon::{HttpServerService, DefaultServiceManager, CrossPlatformDaemon};
 use crate::models::Config;
 use crate::VoiceCliError;
 use std::path::PathBuf;
-use tracing::{info, warn};
+use tracing::{info, warn, error};
 
 /// Initialize server configuration
 pub async fn handle_server_init(config_path: Option<PathBuf>, force: bool) -> crate::Result<()> {
@@ -34,11 +34,15 @@ pub async fn handle_server_init(config_path: Option<PathBuf>, force: bool) -> cr
 pub async fn handle_server_run(config: &Config) -> crate::Result<()> {
     info!("Starting voice-cli server in foreground mode...");
 
-    // Initialize logging
+    // Initialize logging - keep the guard alive for the duration of the process
+    info!("About to initialize logging...");
     crate::utils::init_logging(config)?;
+    info!("Logging initialized successfully");
 
+    info!("About to create cluster-aware server...");
     // Start the cluster-aware HTTP server
     let server = crate::server::create_cluster_aware_server_with_shutdown(config.clone()).await?;
+    info!("Cluster-aware server created successfully");
 
     if config.cluster.enabled {
         info!(
@@ -66,9 +70,15 @@ pub async fn handle_server_run(config: &Config) -> crate::Result<()> {
 /// Start server as daemon (background process)
 pub async fn handle_server_start(config: &Config) -> crate::Result<()> {
     let service = HttpServerService::new(false); // false = background mode
-    let mut manager = DefaultServiceManager::new(service, config.clone(), false);
-    manager.start().await
-        .map_err(|e| VoiceCliError::Daemon(e.to_string()))?;
+    
+    // Use safe cross-platform daemon implementation
+    let mut daemon = CrossPlatformDaemon::new(service, config.clone(), false);
+    daemon.start().await
+        .map_err(|e| {
+            error!("Failed to start server daemon: {}", e);
+            VoiceCliError::Daemon(e.to_string())
+        })?;
+    
     info!("Server daemon started successfully");
     Ok(())
 }
@@ -76,8 +86,8 @@ pub async fn handle_server_start(config: &Config) -> crate::Result<()> {
 /// Stop daemon server
 pub async fn handle_server_stop(config: &Config) -> crate::Result<()> {
     let service = HttpServerService::new(false); // false = background mode
-    let mut manager = DefaultServiceManager::new(service, config.clone(), false);
-    manager.stop().await
+    let mut daemon = CrossPlatformDaemon::new(service, config.clone(), false);
+    daemon.stop().await
         .map_err(|e| VoiceCliError::Daemon(e.to_string()))?;
     info!("Server daemon stopped successfully");
     Ok(())
@@ -85,16 +95,19 @@ pub async fn handle_server_stop(config: &Config) -> crate::Result<()> {
 
 /// Restart daemon server
 pub async fn handle_server_restart(config: &Config) -> crate::Result<()> {
-    let service = HttpServerService::new(false); // false = background mode
-    let mut manager = DefaultServiceManager::new(service, config.clone(), false);
-    manager.restart().await
-        .map_err(|e| VoiceCliError::Daemon(e.to_string()))?;
-    info!("Server daemon restarted successfully");
-    Ok(())
+    // For restart, we need to stop first, then start
+    handle_server_stop(config).await?;
+    
+    // Small delay to ensure cleanup
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    
+    handle_server_start(config).await
 }
 
 /// Get daemon server status
 pub async fn handle_server_status(config: &Config) -> crate::Result<()> {
+    // For status checking, we can use the simple service manager
+    // since it doesn't require platform-specific daemon functionality
     let service = HttpServerService::new(false); // false = background mode
     let manager = DefaultServiceManager::new(service, config.clone(), false);
     

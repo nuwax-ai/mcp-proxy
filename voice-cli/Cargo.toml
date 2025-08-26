@@ -97,10 +97,11 @@ if-addrs = "0.14"
 # Process management for daemon functionality
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
-nix = { version = "0.30", features = ["signal"] }
+nix = { version = "0.30", features = ["signal", "process"] }
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["winuser", "processthreadsapi"] }
+windows-service = "0.7"
 
 [dev-dependencies]
 tempfile = "3.0"

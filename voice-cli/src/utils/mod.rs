@@ -5,9 +5,13 @@ pub mod signal_handling;
 use crate::models::Config;
 use crate::VoiceCliError;
 use std::path::PathBuf;
-use tracing::Level;
+use std::sync::OnceLock;
+use tracing::{info, Level};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{prelude::*, EnvFilter};
+
+// Global logging guard to ensure logging stays active
+static LOG_GUARD: OnceLock<tracing::subscriber::DefaultGuard> = OnceLock::new();
 
 // Re-export structured logging components
 pub use structured_logging::{init_structured_logging, ClusterLoggingContext};
@@ -22,11 +26,13 @@ pub use signal_handling::{
 pub use ip_discovery::{get_cluster_ip, get_local_ip, IpDiscovery, IpDiscoveryConfig};
 
 /// Initialize logging based on configuration
+/// The guard is stored globally to ensure logging stays active
 pub fn init_logging(config: &Config) -> crate::Result<()> {
     // Check if logging is already initialized
     if tracing::dispatcher::has_been_set() {
-        tracing::debug!("Logging already initialized, skipping");
-        return Ok(());
+        // Reset logging to allow proper file logging setup
+        // Use the proper method to clear the global dispatcher
+        tracing::subscriber::set_global_default(tracing::subscriber::NoSubscriber::default()).ok();
     }
 
     // Create logs directory if it doesn't exist
@@ -38,6 +44,7 @@ pub fn init_logging(config: &Config) -> crate::Result<()> {
 
     // Create file appender with rotation
     let file_appender = RollingFileAppender::new(Rotation::DAILY, &log_dir, "voice-cli.log");
+    
 
     // Create console layer
     let console_layer = tracing_subscriber::fmt::layer()
@@ -59,13 +66,16 @@ pub fn init_logging(config: &Config) -> crate::Result<()> {
     let console_filter = EnvFilter::from_default_env().add_directive(level.into());
     let file_filter = EnvFilter::new(&config.logging.level);
 
-    tracing_subscriber::registry()
+    let subscriber = tracing_subscriber::registry()
         .with(console_layer.with_filter(console_filter))
-        .with(file_layer.with_filter(file_filter))
-        .try_init()
-        .map_err(|e| VoiceCliError::Config(format!("Failed to initialize logging: {}", e)))?;
+        .with(file_layer.with_filter(file_filter));
+    
+    let guard = tracing::subscriber::set_default(subscriber);
 
-    tracing::info!(
+    // Store the guard globally to keep logging active
+    LOG_GUARD.set(guard).ok();
+
+    info!(
         "Logging initialized - Level: {}, Directory: {:?}",
         config.logging.level,
         log_dir

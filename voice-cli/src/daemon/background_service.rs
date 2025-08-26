@@ -73,7 +73,7 @@ pub enum ServiceStatus {
 /// Universal service manager for all background services
 /// 
 /// This manager handles the lifecycle of any service implementing BackgroundService
-pub struct ServiceManager<S: BackgroundService> {
+pub struct ServiceManager<S: BackgroundService + Clone> {
     service: S,
     config: S::Config,
     status: Arc<RwLock<ServiceStatus>>,
@@ -116,11 +116,17 @@ impl<S: BackgroundService + Clone> ServiceManager<S> {
 
         // Validate configuration
         S::validate_config(&self.config)
-            .map_err(|e| ServiceError::ConfigurationError(e.to_string()))?;
+            .map_err(|e| {
+                error!("Configuration validation failed: {}", e);
+                ServiceError::ConfigurationError(e.to_string())
+            })?;
 
         // Initialize service
         self.service.initialize(self.config.clone()).await
-            .map_err(|e| ServiceError::InitializationFailed(e.to_string()))?;
+            .map_err(|e| {
+                error!("Service initialization failed: {}", e);
+                ServiceError::InitializationFailed(e.to_string())
+            })?;
 
         // Create shutdown channel
         let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
@@ -271,6 +277,14 @@ impl<S: BackgroundService + Clone> ServiceManager<S> {
     pub fn is_foreground_mode(&self) -> bool {
         self.foreground_mode
     }
+
+    /// Wait for service to complete (blocks until service stops)
+    /// This is used in background mode to keep the process alive
+    pub async fn wait(&mut self) {
+        if let Some(handle) = self.service_handle.take() {
+            let _ = handle.await;
+        }
+    }
 }
 
 /// Service management errors
@@ -401,6 +415,25 @@ impl<S: ClonableService> ClonableServiceManager<S> {
 
     pub fn is_foreground_mode(&self) -> bool {
         self.inner.is_foreground_mode()
+    }
+
+    /// Wait for service to complete (blocks until service stops)
+    /// This is used in background mode to keep the process alive
+    pub async fn wait(&mut self) {
+        self.inner.wait().await
+    }
+}
+
+impl<S: BackgroundService + Clone> Drop for ServiceManager<S> {
+    fn drop(&mut self) {
+        // Only auto-shutdown in foreground mode
+        // In background mode, the service should continue running until explicitly stopped
+        if self.foreground_mode && self.is_running() {
+            // Send shutdown signal for foreground services
+            if let Some(shutdown_tx) = self.shutdown_tx.take() {
+                let _ = shutdown_tx.send(());
+            }
+        }
     }
 }
 

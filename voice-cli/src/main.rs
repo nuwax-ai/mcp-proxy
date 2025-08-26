@@ -16,8 +16,9 @@ async fn main() {
     // Parse command line arguments
     let cli = Cli::parse();
 
-    // Initialize basic logging for CLI operations
-    init_basic_logging(cli.verbose);
+    // Initialize basic console logging for CLI operations
+    // This is console-only and will be replaced by proper file logging when services start
+    init_console_only_logging(cli.verbose);
 
     // Load configuration based on command type
     let config = match &cli.command {
@@ -178,7 +179,7 @@ async fn handle_server_command(action: ServerAction, config: &voice_cli::Config)
                 .await
                 .context("Failed to start server")
         }
-        ServerAction::Stop => {
+        ServerAction::Stop { config: _ } => {
             info!("Stopping server");
             server::handle_server_stop(config)
                 .await
@@ -190,7 +191,7 @@ async fn handle_server_command(action: ServerAction, config: &voice_cli::Config)
                 .await
                 .context("Failed to restart server")
         }
-        ServerAction::Status => {
+        ServerAction::Status { config: _ } => {
             info!("Checking server status");
             server::handle_server_status(config)
                 .await
@@ -503,25 +504,14 @@ async fn handle_lb_command(action: LoadBalancerAction, config: &voice_cli::Confi
     }
 }
 
-/// Initialize basic logging for CLI operations (before full config is loaded)
-fn init_basic_logging(verbose: bool) {
-    use tracing_subscriber::{filter::LevelFilter, prelude::*};
-
-    let level = if verbose {
-        LevelFilter::DEBUG
-    } else {
-        LevelFilter::INFO
-    };
-
-    let console_layer = tracing_subscriber::fmt::layer()
-        .with_target(false)
-        .with_thread_ids(false)
-        .with_file(false)
-        .with_line_number(false)
-        .compact()
-        .with_filter(level);
-
-    tracing_subscriber::registry().with(console_layer).init();
+/// Initialize console-only logging for CLI operations (before full config is loaded)
+/// This uses a simple println-based approach to avoid interfering with proper logging setup
+fn init_console_only_logging(verbose: bool) {
+    // Don't initialize tracing here - let services handle proper logging setup
+    // This prevents conflicts when services try to initialize file logging
+    if verbose {
+        println!("🔧 Verbose mode enabled - CLI operations will show debug output");
+    }
 }
 
 /// Extract config path from server action
@@ -533,14 +523,8 @@ fn get_config_path_for_server_action(
         ServerAction::Run { config }
         | ServerAction::Start { config }
         | ServerAction::Restart { config } => config.clone(),
-        _ => {
-            // For other actions, check if default config is not the fallback
-            if default_config != "config.yml" {
-                Some(PathBuf::from(default_config))
-            } else {
-                None
-            }
-        }
+        ServerAction::Stop { config } | ServerAction::Status { config } => config.clone(),
+        _ => None,
     }
 }
 

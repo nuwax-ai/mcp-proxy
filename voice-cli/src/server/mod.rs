@@ -6,7 +6,7 @@ pub mod routes;
 
 use crate::models::Config;
 use std::net::SocketAddr;
-use tracing::info;
+use tracing::{info, error};
 
 /// Create server with cluster awareness
 pub async fn create_cluster_aware_server(
@@ -32,7 +32,9 @@ pub async fn create_cluster_aware_server(
 pub async fn create_cluster_aware_server_with_shutdown(
     config: Config,
 ) -> crate::Result<impl std::future::Future<Output = Result<(), std::io::Error>>> {
+    info!("Creating cluster routes...");
     let app = cluster_routes::create_cluster_routes(config.clone()).await?;
+    info!("Cluster routes created successfully");
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
     info!(
@@ -43,12 +45,17 @@ pub async fn create_cluster_aware_server_with_shutdown(
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .map_err(|e| crate::VoiceCliError::Config(format!("Failed to bind to address: {}", e)))?;
+    
+    info!("TCP listener created successfully: {:?}", listener.local_addr());
 
     Ok(async move {
-        axum::serve(listener, app)
-            .with_graceful_shutdown(shutdown_signal())
-            .await
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+        info!("Starting axum server...");
+        let result = axum::serve(listener, app).await;
+        info!("axum server completed with result: {:?}", result);
+        if let Err(e) = &result {
+            error!("Server error: {}", e);
+        }
+        result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
     })
 }
 
@@ -82,12 +89,18 @@ pub async fn create_server_with_graceful_shutdown(
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .map_err(|e| crate::VoiceCliError::Config(format!("Failed to bind to address: {}", e)))?;
+    
+    info!("TCP listener created successfully: {:?}", listener.local_addr());
+    info!("Starting axum server...");
 
     Ok(async move {
-        axum::serve(listener, app)
+        let result = axum::serve(listener, app)
             .with_graceful_shutdown(shutdown_signal())
             .await
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e));
+        
+        info!("Axum server completed with result: {:?}", result);
+        result
     })
 }
 

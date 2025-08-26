@@ -69,7 +69,9 @@ async fn create_cluster_mode_routes(config: Arc<Config>) -> crate::Result<Router
 /// Create routes for single-node mode (existing functionality)
 async fn create_single_node_routes(config: Arc<Config>) -> crate::Result<Router> {
     // Create original shared state
+    info!("Creating AppState for single-node mode...");
     let shared_state = handlers::AppState::new(config.clone()).await?;
+    info!("AppState created successfully");
 
     let mut app = Router::new()
         // Original health check endpoint

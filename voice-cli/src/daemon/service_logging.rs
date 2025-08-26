@@ -6,8 +6,10 @@
 
 use crate::models::Config;
 use crate::utils::init_logging;
-use std::path::PathBuf;
-use tracing::{info, warn, error};
+use std::{path::PathBuf, sync::OnceLock};
+use tracing::{info, warn, error, debug};
+
+
 
 /// Initialize logging for background services using existing voice-cli infrastructure
 /// 
@@ -29,11 +31,12 @@ pub fn init_service_logging(
     service_name: &str, 
     foreground_mode: bool
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // The existing init_logging function already handles both console and file logging
-    // appropriately, so we just need to call it and provide user feedback
+    // For background services, we need to reset logging to ensure file logging is properly configured
+    // The CLI may have already initialized basic console logging, which prevents file logging setup
     
     if foreground_mode {
         // Foreground mode: init_logging will output to both console and file
+        // If logging was already initialized, this will be a no-op due to the check in init_logging
         init_logging(config)?;
         
         // Inform user where logs are also being written
@@ -48,8 +51,11 @@ pub fn init_service_logging(
         println!("📋 Logs are written to: {}", log_file.display());
         println!("📋 Press Ctrl+C to stop the service");
     } else {
-        // Background mode: init_logging already handles file-only logging appropriately
-        // The existing implementation correctly suppresses console output in daemon mode
+        // Background mode: We need to force re-initialization of logging for file output
+        // Reset any existing logging configuration first
+        reset_logging_if_needed();
+        
+        // Now initialize proper file logging
         init_logging(config)?;
         
         let log_dir = get_logs_directory(config);
@@ -62,7 +68,8 @@ pub fn init_service_logging(
         eprintln!("📋 {} service starting in background mode", service_name);
         eprintln!("📋 Logs directory: {}", log_dir.display());
         eprintln!("📋 Log file: {}", log_file.display());
-    }
+    };
+    
     
     Ok(())
 }
@@ -73,6 +80,27 @@ pub fn init_service_logging(
 /// ensuring we respect the user's configured log directory.
 pub fn get_logs_directory(config: &Config) -> PathBuf {
     config.log_dir_path()
+}
+
+/// Reset logging configuration if it was already initialized
+/// This is necessary for background services to ensure proper file logging setup
+fn reset_logging_if_needed() {
+    if tracing::dispatcher::has_been_set() {
+        eprintln!("DEBUG: Resetting logging configuration for background service");
+        // Clear any existing logging configuration
+        // This allows init_logging to properly set up file logging for background services
+        let result = tracing::subscriber::set_global_default(tracing::subscriber::NoSubscriber::default());
+        eprintln!("DEBUG: Logging reset completed - result: {:?}", result);
+        
+        // Double-check that logging was actually reset
+        if !tracing::dispatcher::has_been_set() {
+            eprintln!("DEBUG: Logging successfully reset - no global dispatcher set");
+        } else {
+            eprintln!("DEBUG: WARNING: Logging reset may have failed - global dispatcher still set");
+        }
+    } else {
+        eprintln!("DEBUG: No need to reset logging - not initialized yet");
+    }
 }
 
 /// Validate logging configuration for background services

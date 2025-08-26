@@ -82,7 +82,11 @@ pub enum ServerAction {
         config: Option<std::path::PathBuf>,
     },
     /// Stop background server
-    Stop,
+    Stop {
+        /// Configuration file path
+        #[arg(short, long)]
+        config: Option<std::path::PathBuf>,
+    },
     /// Restart background server
     Restart {
         /// Configuration file path
@@ -90,7 +94,11 @@ pub enum ServerAction {
         config: Option<std::path::PathBuf>,
     },
     /// Check server status
-    Status,
+    Status {
+        /// Configuration file path
+        #[arg(short, long)]
+        config: Option<std::path::PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
