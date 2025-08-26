@@ -5,7 +5,6 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-CONFIG_FILE="${PROJECT_ROOT}/cluster-config.yml"
 PID_FILE="${PROJECT_ROOT}/cluster.pid"
 LOG_FILE="${PROJECT_ROOT}/logs/cluster.log"
 
@@ -25,10 +24,15 @@ start_cluster() {
     fi
 
     echo "Starting voice-cli cluster..."
-    cd "$PROJECT_ROOT"
-    
-    # Start cluster in background and capture PID
-    cargo run --bin voice-cli -- cluster run --config "$CONFIG_FILE" >> "$LOG_FILE" 2>&1 &
+    VOICE_CLI_BIN="${SCRIPT_DIR}/voice-cli"
+    if [ ! -x "$VOICE_CLI_BIN" ]; then
+        echo "voice-cli binary not found in scripts directory: $VOICE_CLI_BIN"
+        echo "Please place the compiled voice-cli binary in the same directory as this script."
+        return 1
+    fi
+
+    # Start cluster in background and capture PID (use nohup to detach)
+    nohup "$VOICE_CLI_BIN" cluster run  >> "$LOG_FILE" 2>&1 &
     CLUSTER_PID=$!
     
     echo $CLUSTER_PID > "$PID_FILE"

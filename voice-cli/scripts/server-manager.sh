@@ -5,7 +5,6 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-CONFIG_FILE="${PROJECT_ROOT}/config.yml"
 PID_FILE="${PROJECT_ROOT}/server.pid"
 LOG_FILE="${PROJECT_ROOT}/logs/server.log"
 
@@ -25,10 +24,15 @@ start_server() {
     fi
 
     echo "Starting voice-cli server..."
-    cd "$PROJECT_ROOT"
-    
-    # Start server in background and capture PID
-    cargo run --bin voice-cli -- server run --config "$CONFIG_FILE" >> "$LOG_FILE" 2>&1 &
+    VOICE_CLI_BIN="${SCRIPT_DIR}/voice-cli"
+    if [ ! -x "$VOICE_CLI_BIN" ]; then
+        echo "voice-cli binary not found in scripts directory: $VOICE_CLI_BIN"
+        echo "Please place the compiled voice-cli binary in the same directory as this script."
+        return 1
+    fi
+
+    # Start server in background and capture PID (use nohup to detach)
+    nohup "$VOICE_CLI_BIN" server run >> "$LOG_FILE" 2>&1 &
     SERVER_PID=$!
     
     echo $SERVER_PID > "$PID_FILE"
