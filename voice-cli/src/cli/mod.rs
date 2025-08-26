@@ -3,6 +3,12 @@ pub mod lb;
 pub mod model;
 pub mod server;
 
+// New unified handlers using the background service abstraction
+pub mod unified_handlers;
+
+// Re-export unified handlers for convenience
+pub use unified_handlers::{server as unified_server, cluster as unified_cluster, load_balancer as unified_lb};
+
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]

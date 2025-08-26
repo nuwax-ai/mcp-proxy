@@ -309,7 +309,7 @@ impl ClusterServiceManager {
                     }
 
                     // Update heartbeat in metadata store if available (will also update cluster state)
-                    if let Some(ref metadata_store) = metadata_store {
+                    if let Some(metadata_store) = metadata_store.as_ref() {
                         if let Err(e) = metadata_store.update_heartbeat(&node_id).await {
                             warn!("Failed to update heartbeat in metadata store: {:?}", e);
                         }
@@ -367,7 +367,7 @@ impl ClusterServiceManager {
 
             if needs_update {
                 // Perform atomic health update
-                if let Some(ref metadata_store) = metadata_store {
+                if let Some(metadata_store) = metadata_store {
                     if let Err(e) = metadata_store
                         .update_node_health_atomic(&node.node_id, is_healthy)
                         .await

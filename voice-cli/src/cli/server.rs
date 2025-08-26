@@ -1,5 +1,5 @@
 use crate::config::{ConfigTemplateGenerator, ServiceType};
-use crate::daemon::{DaemonService, DaemonStatus};
+use crate::daemon::{HttpServerService, DefaultServiceManager};
 use crate::models::Config;
 use crate::VoiceCliError;
 use std::path::PathBuf;
@@ -65,44 +65,61 @@ pub async fn handle_server_run(config: &Config) -> crate::Result<()> {
 
 /// Start server as daemon (background process)
 pub async fn handle_server_start(config: &Config) -> crate::Result<()> {
-    let daemon_service = DaemonService::new(config.clone());
-    daemon_service.start_daemon().await
+    let service = HttpServerService::new(false); // false = background mode
+    let mut manager = DefaultServiceManager::new(service, config.clone(), false);
+    manager.start().await
+        .map_err(|e| VoiceCliError::Daemon(e.to_string()))?;
+    info!("Server daemon started successfully");
+    Ok(())
 }
 
 /// Stop daemon server
 pub async fn handle_server_stop(config: &Config) -> crate::Result<()> {
-    let daemon_service = DaemonService::new(config.clone());
-    daemon_service.stop_daemon().await
+    let service = HttpServerService::new(false); // false = background mode
+    let mut manager = DefaultServiceManager::new(service, config.clone(), false);
+    manager.stop().await
+        .map_err(|e| VoiceCliError::Daemon(e.to_string()))?;
+    info!("Server daemon stopped successfully");
+    Ok(())
 }
 
 /// Restart daemon server
 pub async fn handle_server_restart(config: &Config) -> crate::Result<()> {
-    let daemon_service = DaemonService::new(config.clone());
-    daemon_service.restart_daemon().await
+    let service = HttpServerService::new(false); // false = background mode
+    let mut manager = DefaultServiceManager::new(service, config.clone(), false);
+    manager.restart().await
+        .map_err(|e| VoiceCliError::Daemon(e.to_string()))?;
+    info!("Server daemon restarted successfully");
+    Ok(())
 }
 
 /// Get daemon server status
 pub async fn handle_server_status(config: &Config) -> crate::Result<()> {
-    let daemon_service = DaemonService::new(config.clone());
-
-    match daemon_service.get_status().await? {
-        DaemonStatus::Running { pid, health } => {
-            info!("Server is running with PID: {}", pid);
-
-            if let Some(health_info) = health {
-                info!("Server health: {}", health_info.status);
-                info!("Uptime: {} seconds", health_info.uptime);
-                info!("Models loaded: {:?}", health_info.models_loaded);
-                info!("Version: {}", health_info.version);
-            } else {
-                warn!("Server is running but health check failed");
+    let service = HttpServerService::new(false); // false = background mode
+    let manager = DefaultServiceManager::new(service, config.clone(), false);
+    
+    if manager.is_running() {
+        info!("Server is running");
+        
+        match manager.health().await {
+            crate::daemon::ServiceHealth::Healthy => {
+                info!("Server health: healthy");
+            }
+            crate::daemon::ServiceHealth::Unhealthy { reason } => {
+                warn!("Server health: unhealthy - {}", reason);
+            }
+            crate::daemon::ServiceHealth::Unknown => {
+                warn!("Server health: unknown");
             }
         }
-        DaemonStatus::Stopped => {
-            info!("Server is not running");
+        
+        if let Some(uptime) = manager.uptime() {
+            info!("Uptime: {:?}", uptime);
         }
+    } else {
+        info!("Server is not running");
     }
-
+    
     Ok(())
 }
 

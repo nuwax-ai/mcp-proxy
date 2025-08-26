@@ -3,8 +3,49 @@ mod config_env_tests {
     use crate::models::Config;
     use std::env;
     use tempfile::TempDir;
+    use std::sync::{Mutex, OnceLock};
+    use std::collections::HashMap;
 
-    // Helper function to clear all voice-cli environment variables
+    // Safe environment variable testing using static state
+    static TEST_ENV_LOCK: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
+
+    fn get_test_env_lock() -> &'static Mutex<HashMap<String, Option<String>>> {
+        TEST_ENV_LOCK.get_or_init(|| Mutex::new(HashMap::new()))
+    }
+
+    // Safe helper to set environment variable for testing
+    fn safe_set_env_var(key: &str, value: &str) {
+        let lock = get_test_env_lock();
+        let mut env_state = lock.lock().unwrap();
+        
+        // Store the original value if this is the first time setting this var
+        if !env_state.contains_key(key) {
+            env_state.insert(key.to_string(), env::var(key).ok());
+        }
+        
+        // This is still technically unsafe, but we'll wrap it in unsafe block
+        // and document that tests should run serially to avoid race conditions
+        unsafe {
+            env::set_var(key, value);
+        }
+    }
+
+    // Safe helper to remove environment variable for testing
+    fn safe_remove_env_var(key: &str) {
+        let lock = get_test_env_lock();
+        let mut env_state = lock.lock().unwrap();
+        
+        // Store the original value if this is the first time touching this var
+        if !env_state.contains_key(key) {
+            env_state.insert(key.to_string(), env::var(key).ok());
+        }
+        
+        unsafe {
+            env::remove_var(key);
+        }
+    }
+
+    // Helper function to clear all voice-cli environment variables safely
     fn clear_voice_cli_env_vars() {
         let env_vars = [
             "VOICE_CLI_HOST",
@@ -37,11 +78,24 @@ mod config_env_tests {
         ];
 
         for var in &env_vars {
-            env::remove_var(var);
+            safe_remove_env_var(var);
         }
 
         // Add a small delay to ensure environment changes propagate
         std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+
+    // Cleanup function to restore original environment state
+    fn restore_original_env_vars() {
+        let lock = get_test_env_lock();
+        let env_state = lock.lock().unwrap();
+        
+        for (key, original_value) in env_state.iter() {
+            match original_value {
+                Some(value) => unsafe { env::set_var(key, value); },
+                None => unsafe { env::remove_var(key); },
+            }
+        }
     }
 
     #[test]
@@ -49,9 +103,9 @@ mod config_env_tests {
         clear_voice_cli_env_vars();
 
         // Set environment variable for HTTP port
-        env::set_var("VOICE_CLI_HTTP_PORT", "9090");
+        safe_set_env_var("VOICE_CLI_HTTP_PORT", "9090");
         // Ensure gRPC port is different to avoid conflicts
-        env::set_var("VOICE_CLI_GRPC_PORT", "50051");
+        safe_set_env_var("VOICE_CLI_GRPC_PORT", "50051");
 
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("config.yml");
@@ -67,8 +121,8 @@ mod config_env_tests {
         assert!(!config.cluster.enabled);
 
         // Clean up
-        env::remove_var("VOICE_CLI_HTTP_PORT");
-        env::remove_var("VOICE_CLI_GRPC_PORT");
+        safe_remove_env_var("VOICE_CLI_HTTP_PORT");
+        safe_remove_env_var("VOICE_CLI_GRPC_PORT");
     }
 
     #[test]
@@ -76,9 +130,9 @@ mod config_env_tests {
         clear_voice_cli_env_vars();
 
         // Set environment variable for gRPC port
-        env::set_var("VOICE_CLI_GRPC_PORT", "50052");
+        safe_set_env_var("VOICE_CLI_GRPC_PORT", "50052");
         // Ensure HTTP port is different to avoid conflicts
-        env::set_var("VOICE_CLI_HTTP_PORT", "8080");
+        safe_set_env_var("VOICE_CLI_HTTP_PORT", "8080");
 
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("config.yml");
@@ -93,8 +147,8 @@ mod config_env_tests {
         assert!(!config.cluster.enabled);
 
         // Clean up
-        env::remove_var("VOICE_CLI_GRPC_PORT");
-        env::remove_var("VOICE_CLI_HTTP_PORT");
+        safe_remove_env_var("VOICE_CLI_GRPC_PORT");
+        safe_remove_env_var("VOICE_CLI_HTTP_PORT");
     }
 
     #[test]
@@ -102,7 +156,7 @@ mod config_env_tests {
         clear_voice_cli_env_vars();
 
         // Set invalid environment variable
-        env::set_var("VOICE_CLI_HTTP_PORT", "invalid_port");
+        safe_set_env_var("VOICE_CLI_HTTP_PORT", "invalid_port");
 
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("config.yml");
@@ -115,7 +169,7 @@ mod config_env_tests {
         assert!(error_msg.contains("Invalid VOICE_CLI_HTTP_PORT value 'invalid_port'"));
 
         // Clean up
-        env::remove_var("VOICE_CLI_HTTP_PORT");
+        safe_remove_env_var("VOICE_CLI_HTTP_PORT");
     }
 
     #[test]
@@ -123,12 +177,12 @@ mod config_env_tests {
         clear_voice_cli_env_vars();
 
         // Set environment variables to avoid port conflicts and ensure valid cluster config
-        env::set_var("VOICE_CLI_CLUSTER_ENABLED", "true");
-        env::set_var("VOICE_CLI_HTTP_PORT", "8080");
-        env::set_var("VOICE_CLI_GRPC_PORT", "50051");
+        safe_set_env_var("VOICE_CLI_CLUSTER_ENABLED", "true");
+        safe_set_env_var("VOICE_CLI_HTTP_PORT", "8080");
+        safe_set_env_var("VOICE_CLI_GRPC_PORT", "50051");
         // Set election timeout to satisfy 5x heartbeat interval requirement
-        env::set_var("VOICE_CLI_HEARTBEAT_INTERVAL", "3");
-        env::set_var("VOICE_CLI_ELECTION_TIMEOUT", "15"); // 5 * 3
+        safe_set_env_var("VOICE_CLI_HEARTBEAT_INTERVAL", "3");
+        safe_set_env_var("VOICE_CLI_ELECTION_TIMEOUT", "15"); // 5 * 3
 
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("config.yml");
@@ -143,11 +197,11 @@ mod config_env_tests {
         assert_eq!(config.cluster.election_timeout, 15);
 
         // Clean up
-        env::remove_var("VOICE_CLI_CLUSTER_ENABLED");
-        env::remove_var("VOICE_CLI_HTTP_PORT");
-        env::remove_var("VOICE_CLI_GRPC_PORT");
-        env::remove_var("VOICE_CLI_HEARTBEAT_INTERVAL");
-        env::remove_var("VOICE_CLI_ELECTION_TIMEOUT");
+        safe_remove_env_var("VOICE_CLI_CLUSTER_ENABLED");
+        safe_remove_env_var("VOICE_CLI_HTTP_PORT");
+        safe_remove_env_var("VOICE_CLI_GRPC_PORT");
+        safe_remove_env_var("VOICE_CLI_HEARTBEAT_INTERVAL");
+        safe_remove_env_var("VOICE_CLI_ELECTION_TIMEOUT");
     }
 
     #[test]
@@ -155,10 +209,10 @@ mod config_env_tests {
         clear_voice_cli_env_vars();
 
         // Set environment variable for log level
-        env::set_var("VOICE_CLI_LOG_LEVEL", "DEBUG");
+        safe_set_env_var("VOICE_CLI_LOG_LEVEL", "DEBUG");
         // Ensure different ports to avoid conflicts when validating
-        env::set_var("VOICE_CLI_HTTP_PORT", "8080");
-        env::set_var("VOICE_CLI_GRPC_PORT", "50051");
+        safe_set_env_var("VOICE_CLI_HTTP_PORT", "8080");
+        safe_set_env_var("VOICE_CLI_GRPC_PORT", "50051");
 
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("config.yml");
@@ -172,9 +226,9 @@ mod config_env_tests {
         assert!(!config.cluster.enabled);
 
         // Clean up
-        env::remove_var("VOICE_CLI_LOG_LEVEL");
-        env::remove_var("VOICE_CLI_HTTP_PORT");
-        env::remove_var("VOICE_CLI_GRPC_PORT");
+        safe_remove_env_var("VOICE_CLI_LOG_LEVEL");
+        safe_remove_env_var("VOICE_CLI_HTTP_PORT");
+        safe_remove_env_var("VOICE_CLI_GRPC_PORT");
     }
 
     #[test]
@@ -182,7 +236,7 @@ mod config_env_tests {
         clear_voice_cli_env_vars();
 
         // Set invalid environment variable
-        env::set_var("VOICE_CLI_LOG_LEVEL", "invalid_level");
+        safe_set_env_var("VOICE_CLI_LOG_LEVEL", "invalid_level");
 
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("config.yml");
@@ -196,7 +250,7 @@ mod config_env_tests {
         assert!(error_msg.contains("invalid_level"));
 
         // Clean up
-        env::remove_var("VOICE_CLI_LOG_LEVEL");
+        safe_remove_env_var("VOICE_CLI_LOG_LEVEL");
     }
 
     #[test]
@@ -204,14 +258,14 @@ mod config_env_tests {
         clear_voice_cli_env_vars();
 
         // Set multiple environment variables with non-conflicting ports and valid cluster timing
-        env::set_var("VOICE_CLI_HTTP_PORT", "8081");
-        env::set_var("VOICE_CLI_GRPC_PORT", "50053");
-        env::set_var("VOICE_CLI_CLUSTER_ENABLED", "true");
-        env::set_var("VOICE_CLI_NODE_ID", "test-node-123");
-        env::set_var("VOICE_CLI_LOG_LEVEL", "warn");
+        safe_set_env_var("VOICE_CLI_HTTP_PORT", "8081");
+        safe_set_env_var("VOICE_CLI_GRPC_PORT", "50053");
+        safe_set_env_var("VOICE_CLI_CLUSTER_ENABLED", "true");
+        safe_set_env_var("VOICE_CLI_NODE_ID", "test-node-123");
+        safe_set_env_var("VOICE_CLI_LOG_LEVEL", "warn");
         // Ensure valid cluster timing configuration
-        env::set_var("VOICE_CLI_HEARTBEAT_INTERVAL", "4");
-        env::set_var("VOICE_CLI_ELECTION_TIMEOUT", "20"); // 5 * 4
+        safe_set_env_var("VOICE_CLI_HEARTBEAT_INTERVAL", "4");
+        safe_set_env_var("VOICE_CLI_ELECTION_TIMEOUT", "20"); // 5 * 4
 
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("config.yml");
@@ -232,13 +286,13 @@ mod config_env_tests {
         assert!(config.validate().is_ok());
 
         // Clean up
-        env::remove_var("VOICE_CLI_HTTP_PORT");
-        env::remove_var("VOICE_CLI_GRPC_PORT");
-        env::remove_var("VOICE_CLI_CLUSTER_ENABLED");
-        env::remove_var("VOICE_CLI_NODE_ID");
-        env::remove_var("VOICE_CLI_LOG_LEVEL");
-        env::remove_var("VOICE_CLI_HEARTBEAT_INTERVAL");
-        env::remove_var("VOICE_CLI_ELECTION_TIMEOUT");
+        safe_remove_env_var("VOICE_CLI_HTTP_PORT");
+        safe_remove_env_var("VOICE_CLI_GRPC_PORT");
+        safe_remove_env_var("VOICE_CLI_CLUSTER_ENABLED");
+        safe_remove_env_var("VOICE_CLI_NODE_ID");
+        safe_remove_env_var("VOICE_CLI_LOG_LEVEL");
+        safe_remove_env_var("VOICE_CLI_HEARTBEAT_INTERVAL");
+        safe_remove_env_var("VOICE_CLI_ELECTION_TIMEOUT");
     }
 
     #[test]
@@ -246,12 +300,12 @@ mod config_env_tests {
         clear_voice_cli_env_vars();
 
         // Set conflicting ports and valid cluster timing to test port conflict specifically
-        env::set_var("VOICE_CLI_HTTP_PORT", "8080");
-        env::set_var("VOICE_CLI_GRPC_PORT", "8080");
-        env::set_var("VOICE_CLI_CLUSTER_ENABLED", "true");
+        safe_set_env_var("VOICE_CLI_HTTP_PORT", "8080");
+        safe_set_env_var("VOICE_CLI_GRPC_PORT", "8080");
+        safe_set_env_var("VOICE_CLI_CLUSTER_ENABLED", "true");
         // Set valid cluster timing to ensure port conflict is the only issue
-        env::set_var("VOICE_CLI_HEARTBEAT_INTERVAL", "3");
-        env::set_var("VOICE_CLI_ELECTION_TIMEOUT", "15"); // 5 * 3
+        safe_set_env_var("VOICE_CLI_HEARTBEAT_INTERVAL", "3");
+        safe_set_env_var("VOICE_CLI_ELECTION_TIMEOUT", "15"); // 5 * 3
 
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("config.yml");
@@ -268,11 +322,11 @@ mod config_env_tests {
         );
 
         // Clean up
-        env::remove_var("VOICE_CLI_HTTP_PORT");
-        env::remove_var("VOICE_CLI_GRPC_PORT");
-        env::remove_var("VOICE_CLI_CLUSTER_ENABLED");
-        env::remove_var("VOICE_CLI_HEARTBEAT_INTERVAL");
-        env::remove_var("VOICE_CLI_ELECTION_TIMEOUT");
+        safe_remove_env_var("VOICE_CLI_HTTP_PORT");
+        safe_remove_env_var("VOICE_CLI_GRPC_PORT");
+        safe_remove_env_var("VOICE_CLI_CLUSTER_ENABLED");
+        safe_remove_env_var("VOICE_CLI_HEARTBEAT_INTERVAL");
+        safe_remove_env_var("VOICE_CLI_ELECTION_TIMEOUT");
     }
 
     #[test]
@@ -280,7 +334,7 @@ mod config_env_tests {
         clear_voice_cli_env_vars();
 
         // Set empty environment variable
-        env::set_var("VOICE_CLI_NODE_ID", "   "); // Use spaces instead of empty string
+        safe_set_env_var("VOICE_CLI_NODE_ID", "   "); // Use spaces instead of empty string
 
         let temp_dir = TempDir::new().unwrap();
         let config_path = temp_dir.path().join("config.yml");
@@ -293,7 +347,7 @@ mod config_env_tests {
         assert!(error_msg.contains("VOICE_CLI_NODE_ID environment variable cannot be empty"));
 
         // Clean up
-        env::remove_var("VOICE_CLI_NODE_ID");
+        safe_remove_env_var("VOICE_CLI_NODE_ID");
     }
 }
 

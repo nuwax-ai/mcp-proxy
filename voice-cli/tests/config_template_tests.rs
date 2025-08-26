@@ -39,43 +39,6 @@ mod config_template_tests {
     }
 
     #[test]
-    fn test_generate_config_with_template() {
-        // 测试使用模板生成配置文件的功能
-        let temp_dir = tempdir().expect("创建临时目录失败");
-        let config_path = temp_dir.path().join("test_config.yml");
-
-        // 使用我们修改后的方法生成配置
-        voice_cli::config::ConfigManager::generate_default_config_with_comments(&config_path)
-            .expect("生成配置文件失败");
-
-        // 验证文件已创建
-        assert!(config_path.exists(), "配置文件应该已创建");
-
-        // 读取生成的配置文件内容
-        let generated_content =
-            std::fs::read_to_string(&config_path).expect("读取生成的配置文件失败");
-
-        // 验证生成的内容包含关键配置项
-        assert!(
-            generated_content.contains("cluster:"),
-            "生成的配置应该包含cluster配置"
-        );
-        assert!(
-            generated_content.contains("load_balancer:"),
-            "生成的配置应该包含load_balancer配置"
-        );
-        assert!(
-            generated_content.contains("leader_can_process_tasks: true"),
-            "生成的配置应该包含leader_can_process_tasks配置"
-        );
-
-        println!(
-            "✅ 配置文件生成成功，内容长度: {} 字节",
-            generated_content.len()
-        );
-    }
-
-    #[test]
     fn test_template_yaml_validity() {
         // 测试模板内容是否为有效的YAML格式
         let config_template = include_str!("../templates/config.yml.template");

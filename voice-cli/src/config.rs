@@ -334,20 +334,6 @@ impl ConfigManager {
         Ok(())
     }
 
-    /// Generate a default configuration file with comments
-    pub fn generate_default_config_with_comments(config_path: &PathBuf) -> crate::Result<()> {
-        // Use embedded template from config.yml.template
-        let config_yaml = include_str!("../templates/config.yml.template");
-
-        if let Some(parent) = config_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
-        std::fs::write(config_path, config_yaml)?;
-        info!("Generated default configuration file at {:?}", config_path);
-
-        Ok(())
-    }
 
     /// Validate the current environment and configuration
     pub async fn validate_environment(&self) -> crate::Result<()> {

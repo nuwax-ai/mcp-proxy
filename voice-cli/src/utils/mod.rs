@@ -1,5 +1,6 @@
 pub mod ip_discovery;
 pub mod structured_logging;
+pub mod signal_handling;
 
 use crate::models::Config;
 use crate::VoiceCliError;
@@ -11,11 +12,14 @@ use tracing_subscriber::{prelude::*, EnvFilter};
 // Re-export structured logging components
 pub use structured_logging::{init_structured_logging, ClusterLoggingContext};
 
-// Re-export IP discovery components
-pub use ip_discovery::{
-    get_cluster_ip, get_local_ip, get_local_ip_fallback, IpDiscovery, IpDiscoveryConfig, IpType,
-    NetworkInterface,
+// Re-export signal handling components
+pub use signal_handling::{
+    create_shutdown_signal, handle_system_signals, create_combined_shutdown_signal,
+    create_service_shutdown_signal
 };
+
+// Re-export IP discovery functions
+pub use ip_discovery::{get_cluster_ip, get_local_ip, IpDiscovery, IpDiscoveryConfig};
 
 /// Initialize logging based on configuration
 pub fn init_logging(config: &Config) -> crate::Result<()> {
