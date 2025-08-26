@@ -1,7 +1,8 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use std::path::PathBuf;
+use std::{error::Error, path::PathBuf};
 use tracing::{error, info, warn};
+use tracing_subscriber;
 use voice_cli::{
     cli::{
         Cli, ClusterAction, Commands, LoadBalancerAction, ModelAction, ServerAction,
@@ -146,6 +147,17 @@ async fn main() {
             info!("Command completed successfully");
         }
         Err(e) => {
+            // Print error to stderr to ensure it's always visible
+            eprintln!("❌ Error: {}", e);
+            
+            // Also print the error chain if available
+            let mut current_error = e.source();
+            while let Some(err) = current_error {
+                eprintln!("   Caused by: {}", err);
+                current_error = err.source();
+            }
+            
+            // Also log the error
             error!("Command failed: {}", e);
             std::process::exit(1);
         }
@@ -262,8 +274,8 @@ async fn handle_cluster_command(action: ClusterAction, config: &voice_cli::Confi
             cluster::handle_cluster_run(
                 config,
                 node_id,
-                http_port.unwrap_or(8080),
-                grpc_port.unwrap_or(50051),
+                http_port.unwrap_or(config.cluster.http_port),
+                grpc_port.unwrap_or(config.cluster.grpc_port),
                 can_process_tasks,
                 advertise_ip,
             )
@@ -286,8 +298,8 @@ async fn handle_cluster_command(action: ClusterAction, config: &voice_cli::Confi
                 config,
                 peer_address,
                 node_id,
-                http_port.unwrap_or(8080),
-                grpc_port.unwrap_or(50051),
+                http_port.unwrap_or(config.cluster.http_port),
+                grpc_port.unwrap_or(config.cluster.grpc_port),
                 token,
                 Some(advertise_ip),
             )
@@ -387,10 +399,25 @@ async fn handle_lb_command(action: LoadBalancerAction, config: &voice_cli::Confi
 /// Initialize console-only logging for CLI operations (before full config is loaded)
 /// This uses a simple println-based approach to avoid interfering with proper logging setup
 fn init_console_only_logging(verbose: bool) {
-    // Don't initialize tracing here - let services handle proper logging setup
-    // This prevents conflicts when services try to initialize file logging
+    // Initialize basic console logging for CLI operations
+    // This ensures error messages are always visible
+    let level = if verbose {
+        tracing::Level::DEBUG
+    } else {
+        tracing::Level::INFO
+    };
+    
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_max_level(level)
+        .with_ansi(true)
+        .finish();
+    
+    tracing::subscriber::set_global_default(subscriber)
+        .expect("Failed to set global tracing subscriber");
+    
     if verbose {
-        println!("🔧 Verbose mode enabled - CLI operations will show debug output");
+        info!("🔧 Verbose mode enabled - CLI operations will show debug output");
     }
 }
 

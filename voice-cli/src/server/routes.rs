@@ -23,13 +23,6 @@ pub async fn create_routes(config: Config) -> crate::Result<Router> {
         .route("/models", get(handlers::models_list_handler))
         // Main transcription endpoint
         .route("/transcribe", post(handlers::transcribe_handler))
-        // Simple test endpoint for load balancer testing
-        .route("/test", get(handlers::test_handler))
-        // Cluster management endpoints
-        .route(
-            "/cluster/shutdown",
-            post(handlers::cluster_shutdown_handler),
-        )
         // Add shared state
         .with_state(shared_state)
         // Merge Swagger UI routes (accessible at /api/docs/)

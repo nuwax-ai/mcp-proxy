@@ -152,8 +152,10 @@ impl ServiceConfigLoader {
             ServiceType::Cluster => {
                 config.cluster.enabled = true;
                 config.load_balancer.enabled = false;
-                config.cluster.http_port = config.server.port;
                 config.daemon.pid_file = "./voice-cli-cluster.pid".to_string();
+                
+                // Cluster mode uses only cluster section for server configuration
+                // No need to populate server section for backward compatibility
             }
 
             ServiceType::LoadBalancer => {

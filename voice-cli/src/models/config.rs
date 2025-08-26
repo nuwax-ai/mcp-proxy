@@ -3,7 +3,9 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
+    #[serde(default)]
     pub server: ServerConfig,
+    #[serde(default)]
     pub whisper: WhisperConfig,
     pub logging: LoggingConfig,
     pub daemon: DaemonConfig,
@@ -711,25 +713,27 @@ impl Config {
     }
 
     pub fn validate(&self) -> crate::Result<()> {
-        // Validate server configuration
-        if self.server.host.is_empty() {
-            return Err(crate::VoiceCliError::Config(
-                "Server host cannot be empty".to_string(),
-            ));
-        }
+        // Validate server configuration (only if cluster is not enabled)
+        if !self.cluster.enabled {
+            if self.server.host.is_empty() {
+                return Err(crate::VoiceCliError::Config(
+                    "Server host cannot be empty".to_string(),
+                ));
+            }
 
-        if self.server.port == 0 {
-            return Err(crate::VoiceCliError::Config(
-                "Server port must be between 1 and 65535".to_string(),
-            ));
-        }
+            if self.server.port == 0 {
+                return Err(crate::VoiceCliError::Config(
+                    "Server port must be between 1 and 65535".to_string(),
+                ));
+            }
 
-        // Note: u16 max value is 65535, so no need to check upper bound
+            // Note: u16 max value is 65535, so no need to check upper bound
 
-        if self.server.max_file_size == 0 {
-            return Err(crate::VoiceCliError::Config(
-                "Max file size must be greater than 0".to_string(),
-            ));
+            if self.server.max_file_size == 0 {
+                return Err(crate::VoiceCliError::Config(
+                    "Max file size must be greater than 0".to_string(),
+                ));
+            }
         }
 
         // Validate whisper configuration

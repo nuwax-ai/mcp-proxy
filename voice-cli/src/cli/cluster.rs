@@ -41,21 +41,23 @@ pub async fn handle_cluster_init(
 
     // 如果指定了端口参数，更新配置文件
     if http_port.is_some() || grpc_port.is_some() {
-        let mut config =
-            ServiceConfigLoader::load_service_config(ServiceType::Cluster, Some(&output_path))?;
+        // Read the template content directly and modify it
+        let mut config_content = std::fs::read_to_string(&output_path)
+            .map_err(|e| crate::VoiceCliError::Config(format!("Failed to read config file: {}", e)))?;
 
         if let Some(port) = http_port {
-            config.server.port = port;
-            config.cluster.http_port = port;
+            // Update cluster.http_port in the YAML content
+            config_content = config_content.replace("http_port: 8080", &format!("http_port: {}", port));
         }
 
         if let Some(port) = grpc_port {
-            config.cluster.grpc_port = port;
+            // Update cluster.grpc_port in the YAML content
+            config_content = config_content.replace("grpc_port: 50051", &format!("grpc_port: {}", port));
         }
 
-        config
-            .save(&output_path)
-            .map_err(|e| crate::VoiceCliError::Config(e.to_string()))?;
+        // Write the modified content back
+        std::fs::write(&output_path, config_content)
+            .map_err(|e| crate::VoiceCliError::Config(format!("Failed to write config file: {}", e)))?;
     }
 
     println!("✅ Cluster configuration initialized: {:?}", output_path);
