@@ -175,6 +175,9 @@ impl From<crate::daemon::background_service::ServiceError> for VoiceCliError {
             crate::daemon::background_service::ServiceError::ServiceError(msg) => {
                 VoiceCliError::Daemon(msg)
             }
+            crate::daemon::background_service::ServiceError::DaemonError(msg) => {
+                VoiceCliError::Daemon(format!("Daemonization error: {}", msg))
+            }
         }
     }
 }

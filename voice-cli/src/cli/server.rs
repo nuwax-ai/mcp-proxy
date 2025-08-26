@@ -1,9 +1,8 @@
 use crate::config::{ConfigTemplateGenerator, ServiceType};
-use crate::daemon::{HttpServerService, DefaultServiceManager, CrossPlatformDaemon};
 use crate::models::Config;
 use crate::VoiceCliError;
 use std::path::PathBuf;
-use tracing::{info, warn, error};
+use tracing::info;
 
 /// Initialize server configuration
 pub async fn handle_server_init(config_path: Option<PathBuf>, force: bool) -> crate::Result<()> {
@@ -67,102 +66,6 @@ pub async fn handle_server_run(config: &Config) -> crate::Result<()> {
     Ok(())
 }
 
-/// Start server as daemon (background process)
-pub async fn handle_server_start(config: &Config) -> crate::Result<()> {
-    let service = HttpServerService::new(false); // false = background mode
-    
-    // Use safe cross-platform daemon implementation
-    let mut daemon = CrossPlatformDaemon::new(service, config.clone(), false);
-    daemon.start().await
-        .map_err(|e| {
-            error!("Failed to start server daemon: {}", e);
-            VoiceCliError::Daemon(e.to_string())
-        })?;
-    
-    info!("Server daemon started successfully");
-    Ok(())
-}
+// Background mode is no longer supported.
+// Use foreground mode with shell scripts for background operation.
 
-/// Stop daemon server
-pub async fn handle_server_stop(config: &Config) -> crate::Result<()> {
-    let service = HttpServerService::new(false); // false = background mode
-    let mut daemon = CrossPlatformDaemon::new(service, config.clone(), false);
-    daemon.stop().await
-        .map_err(|e| VoiceCliError::Daemon(e.to_string()))?;
-    info!("Server daemon stopped successfully");
-    Ok(())
-}
-
-/// Restart daemon server
-pub async fn handle_server_restart(config: &Config) -> crate::Result<()> {
-    // For restart, we need to stop first, then start
-    handle_server_stop(config).await?;
-    
-    // Small delay to ensure cleanup
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-    
-    handle_server_start(config).await
-}
-
-/// Get daemon server status
-pub async fn handle_server_status(config: &Config) -> crate::Result<()> {
-    // For status checking, we can use the simple service manager
-    // since it doesn't require platform-specific daemon functionality
-    let service = HttpServerService::new(false); // false = background mode
-    let manager = DefaultServiceManager::new(service, config.clone(), false);
-    
-    if manager.is_running() {
-        info!("Server is running");
-        
-        match manager.health().await {
-            crate::daemon::ServiceHealth::Healthy => {
-                info!("Server health: healthy");
-            }
-            crate::daemon::ServiceHealth::Unhealthy { reason } => {
-                warn!("Server health: unhealthy - {}", reason);
-            }
-            crate::daemon::ServiceHealth::Unknown => {
-                warn!("Server health: unknown");
-            }
-        }
-        
-        if let Some(uptime) = manager.uptime() {
-            info!("Uptime: {:?}", uptime);
-        }
-    } else {
-        info!("Server is not running");
-    }
-    
-    Ok(())
-}
-
-/// Internal daemon serve command (called by daemon process)
-pub async fn handle_daemon_serve(config: &Config) -> crate::Result<()> {
-    info!("Starting daemon HTTP server...");
-
-    // Initialize logging for daemon
-    crate::utils::init_logging(config)?;
-
-    // Start the cluster-aware HTTP server
-    let server = crate::server::create_cluster_aware_server(config.clone()).await?;
-
-    if config.cluster.enabled {
-        info!(
-            "Daemon cluster-aware server running on {}:{}",
-            config.server.host, config.server.port
-        );
-        info!("Cluster node ID: {}", config.cluster.node_id);
-    } else {
-        info!(
-            "Daemon single-node server running on {}:{}",
-            config.server.host, config.server.port
-        );
-    }
-
-    // Run server (this will block until shutdown)
-    server
-        .await
-        .map_err(|e| VoiceCliError::Config(format!("Daemon server error: {}", e)))?;
-
-    Ok(())
-}

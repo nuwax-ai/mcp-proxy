@@ -295,16 +295,10 @@ impl TranscriptionWorker {
 
         let result = tokio::time::timeout(
             timeout_duration,
-            tokio::task::spawn_blocking(move || {
-                // Use voice-toolkit's transcribe_file function for automatic language detection
-                tokio::runtime::Handle::current().block_on(async {
-                    voice_toolkit::stt::transcribe_file(&model_path, &audio_path).await
-                })
-            }),
+            voice_toolkit::stt::transcribe_file(&model_path, &audio_path),
         )
         .await
         .map_err(|_| VoiceCliError::TranscriptionTimeout(timeout_duration.as_secs()))?
-        .map_err(|e| VoiceCliError::TranscriptionFailed(format!("Task join error: {}", e)))?
         .map_err(|e| VoiceCliError::TranscriptionFailed(e.to_string()))?;
 
         info!(

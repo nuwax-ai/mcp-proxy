@@ -104,7 +104,9 @@ impl<S: BackgroundService + Clone> ServiceManager<S> {
 
     /// Start the service
     pub async fn start(&mut self) -> Result<(), ServiceError> {
+        info!("ServiceManager.start() called");
         if self.is_running() {
+            info!("Service is already running, returning error");
             return Err(ServiceError::AlreadyRunning(self.service.service_name().to_string()));
         }
 
@@ -115,25 +117,31 @@ impl<S: BackgroundService + Clone> ServiceManager<S> {
         *self.status.write() = ServiceStatus::Starting;
 
         // Validate configuration
+        info!("Validating configuration for {}", service_name);
         S::validate_config(&self.config)
             .map_err(|e| {
                 error!("Configuration validation failed: {}", e);
                 ServiceError::ConfigurationError(e.to_string())
             })?;
+        info!("Configuration validation passed for {}", service_name);
 
         // Initialize service
+        info!("Initializing service: {}", service_name);
         self.service.initialize(self.config.clone()).await
             .map_err(|e| {
                 error!("Service initialization failed: {}", e);
                 ServiceError::InitializationFailed(e.to_string())
             })?;
+        info!("Service initialization completed for {}", service_name);
 
         // Create shutdown channel
         let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
         self.shutdown_tx = Some(shutdown_tx);
 
         // Start the service task
+        info!("About to start service task for {}", service_name);
         self.start_service_task(shutdown_rx).await?;
+        info!("Service task started successfully for {}", service_name);
 
         self.start_time = Some(Instant::now());
         info!("{} service started successfully in {} mode", service_name, mode);
@@ -154,6 +162,7 @@ impl<S: BackgroundService + Clone> ServiceManager<S> {
             info!("Service task started for {}", service_name);
             *status_clone.write() = ServiceStatus::Running;
             
+            info!("About to run service: {}", service_name);
             // Run the actual service
             let result: Result<(), S::Error> = service_clone.run(shutdown_rx).await;
             
@@ -304,6 +313,9 @@ pub enum ServiceError {
     
     #[error("Service error: {0}")]
     ServiceError(String),
+    
+    #[error("Daemonization error: {0}")]
+    DaemonError(String),
 }
 
 /// Trait for services that can be cloned for background execution

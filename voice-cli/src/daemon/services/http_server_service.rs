@@ -100,13 +100,15 @@ impl BackgroundService for HttpServerService {
         let config = self.config.clone();
         
         async move {
+            info!("HTTP server service run method started");
             let config = match config {
                 Some(config) => config,
                 None => {
+                    error!("HTTP server service not initialized");
                     return Err(VoiceCliError::Config("Service not initialized".to_string()));
                 }
             };
-            info!("Starting HTTP server...");
+            info!("Starting HTTP server on {}:{}...", config.server.host, config.server.port);
 
             // Create combined shutdown signal handler
             let shutdown_signal = async {

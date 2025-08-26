@@ -380,16 +380,9 @@ impl SimpleTranscriptionWorker {
         }
 
         // Perform transcription
-        let transcription_result = tokio::task::spawn_blocking(move || {
-            // Note: voice_toolkit::stt::transcribe_file is async, but spawn_blocking expects sync
-            // We'll need to handle this differently
-            tokio::runtime::Handle::current().block_on(async {
-                voice_toolkit::stt::transcribe_file(&compatible_audio_path.path, &model_path).await
-            })
-        })
-        .await
-        .map_err(|e| ClusterError::InvalidOperation(format!("Transcription task failed: {}", e)))?
-        .map_err(|e| ClusterError::InvalidOperation(format!("Transcription failed: {}", e)))?;
+        let transcription_result = voice_toolkit::stt::transcribe_file(&compatible_audio_path.path, &model_path)
+            .await
+            .map_err(|e| ClusterError::InvalidOperation(format!("Transcription failed: {}", e)))?;
 
         // Return the transcribed text
         Ok(transcription_result.text)

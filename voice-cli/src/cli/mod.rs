@@ -50,11 +50,6 @@ pub enum Commands {
         #[command(subcommand)]
         action: LoadBalancerAction,
     },
-    /// Internal daemon command (used by daemon service)
-    Daemon {
-        #[command(subcommand)]
-        action: DaemonAction,
-    },
 }
 
 #[derive(Subcommand)]
@@ -71,30 +66,6 @@ pub enum ServerAction {
     },
     /// Run server in foreground mode
     Run {
-        /// Configuration file path
-        #[arg(short, long)]
-        config: Option<std::path::PathBuf>,
-    },
-    /// Start server in background mode (daemon)
-    Start {
-        /// Configuration file path
-        #[arg(short, long)]
-        config: Option<std::path::PathBuf>,
-    },
-    /// Stop background server
-    Stop {
-        /// Configuration file path
-        #[arg(short, long)]
-        config: Option<std::path::PathBuf>,
-    },
-    /// Restart background server
-    Restart {
-        /// Configuration file path
-        #[arg(short, long)]
-        config: Option<std::path::PathBuf>,
-    },
-    /// Check server status
-    Status {
         /// Configuration file path
         #[arg(short, long)]
         config: Option<std::path::PathBuf>,
@@ -162,58 +133,6 @@ pub enum ClusterAction {
         /// Whether this node can process tasks
         #[arg(long, default_value = "true")]
         can_process_tasks: bool,
-        /// IP address to advertise to other cluster nodes (auto-detected if not specified)
-        #[arg(long)]
-        advertise_ip: Option<String>,
-    },
-    /// Start cluster node in background mode
-    Start {
-        /// Configuration file path
-        #[arg(short, long)]
-        config: Option<std::path::PathBuf>,
-
-        /// Node ID for this cluster node
-        #[arg(long)]
-        node_id: Option<String>,
-        /// HTTP port for this node
-        #[arg(long)]
-        http_port: Option<u16>,
-        /// gRPC port for this node
-        #[arg(long)]
-        grpc_port: Option<u16>,
-        /// Whether this node can process tasks
-        #[arg(long, default_value = "true")]
-        can_process_tasks: bool,
-        /// Save command line parameters to configuration file
-        #[arg(long)]
-        save_config: bool,
-        /// IP address to advertise to other cluster nodes (auto-detected if not specified)
-        #[arg(long)]
-        advertise_ip: Option<String>,
-    },
-    /// Stop cluster node
-    Stop,
-    /// Restart cluster node
-    Restart {
-        /// Configuration file path
-        #[arg(short, long)]
-        config: Option<std::path::PathBuf>,
-
-        /// Node ID for this cluster node
-        #[arg(long)]
-        node_id: Option<String>,
-        /// HTTP port for this node
-        #[arg(long)]
-        http_port: Option<u16>,
-        /// gRPC port for this node
-        #[arg(long)]
-        grpc_port: Option<u16>,
-        /// Whether this node can process tasks
-        #[arg(long, default_value = "true")]
-        can_process_tasks: bool,
-        /// Save command line parameters to configuration file
-        #[arg(long)]
-        save_config: bool,
         /// IP address to advertise to other cluster nodes (auto-detected if not specified)
         #[arg(long)]
         advertise_ip: Option<String>,
@@ -326,34 +245,7 @@ pub enum LoadBalancerAction {
         #[arg(long)]
         health_check_interval: Option<u64>,
     },
-    /// Start load balancer in background mode
-    Start {
-        /// Configuration file path
-        #[arg(short, long)]
-        config: Option<std::path::PathBuf>,
-
-        /// Load balancer port
-        #[arg(short, long)]
-        port: Option<u16>,
-    },
-    /// Stop load balancer
-    Stop,
-    /// Restart load balancer
-    Restart {
-        /// Configuration file path
-        #[arg(short, long)]
-        config: Option<std::path::PathBuf>,
-
-        /// Load balancer port
-        #[arg(short, long)]
-        port: Option<u16>,
-    },
-    /// Check load balancer status
-    Status,
 }
 
-#[derive(Subcommand)]
-pub enum DaemonAction {
-    /// Serve HTTP requests (internal command used by daemon)
-    Serve,
-}
+// Daemon mode is no longer supported
+// Use foreground mode with shell scripts for background operation

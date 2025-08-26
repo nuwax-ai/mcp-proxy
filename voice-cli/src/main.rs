@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use tracing::{error, info, warn};
 use voice_cli::{
     cli::{
-        Cli, ClusterAction, Commands, DaemonAction, LoadBalancerAction, ModelAction, ServerAction,
+        Cli, ClusterAction, Commands, LoadBalancerAction, ModelAction, ServerAction,
     },
     config::{ConfigManager, ServiceConfigLoader, ServiceType},
     log_cluster_event,
@@ -138,7 +138,6 @@ async fn main() {
         Commands::Model { action } => handle_model_command(action, &config).await,
         Commands::Cluster { action } => handle_cluster_command(action, &config).await,
         Commands::Lb { action } => handle_lb_command(action, &config).await,
-        Commands::Daemon { action } => handle_daemon_command(action, &config).await,
     };
 
     // Handle result
@@ -172,30 +171,6 @@ async fn handle_server_command(action: ServerAction, config: &voice_cli::Config)
             server::handle_server_run(config)
                 .await
                 .context("Failed to run server")
-        }
-        ServerAction::Start { config: _ } => {
-            info!("Starting server in background mode");
-            server::handle_server_start(config)
-                .await
-                .context("Failed to start server")
-        }
-        ServerAction::Stop { config: _ } => {
-            info!("Stopping server");
-            server::handle_server_stop(config)
-                .await
-                .context("Failed to stop server")
-        }
-        ServerAction::Restart { config: _ } => {
-            info!("Restarting server");
-            server::handle_server_restart(config)
-                .await
-                .context("Failed to restart server")
-        }
-        ServerAction::Status { config: _ } => {
-            info!("Checking server status");
-            server::handle_server_status(config)
-                .await
-                .context("Failed to check server status")
         }
     }
 }
@@ -238,19 +213,6 @@ async fn handle_model_command(action: ModelAction, config: &voice_cli::Config) -
     }
 }
 
-/// Handle daemon-related commands (internal use)
-async fn handle_daemon_command(action: DaemonAction, config: &voice_cli::Config) -> Result<()> {
-    use voice_cli::cli::server;
-
-    match action {
-        DaemonAction::Serve => {
-            // This is the internal command called by the daemon process
-            server::handle_daemon_serve(config)
-                .await
-                .context("Failed to serve daemon")
-        }
-    }
-}
 
 /// Handle cluster-related commands
 async fn handle_cluster_command(action: ClusterAction, config: &voice_cli::Config) -> Result<()> {
@@ -307,62 +269,6 @@ async fn handle_cluster_command(action: ClusterAction, config: &voice_cli::Confi
             )
             .await
             .context("Failed to run cluster node")
-        }
-        ClusterAction::Start {
-            config: _,
-            node_id,
-            http_port,
-            grpc_port,
-            can_process_tasks,
-            save_config,
-            advertise_ip,
-        } => {
-            info!(
-                "Starting cluster node: node_id={:?}, http_port={:?}, grpc_port={:?}, can_process_tasks={}, save_config={}, advertise_ip={:?}",
-                node_id, http_port, grpc_port, can_process_tasks, save_config, advertise_ip
-            );
-            cluster::handle_cluster_start(
-                config,
-                node_id,
-                http_port.unwrap_or(8080),
-                grpc_port.unwrap_or(50051),
-                can_process_tasks,
-                save_config,
-                advertise_ip,
-            )
-            .await
-            .context("Failed to start cluster node")
-        }
-        ClusterAction::Stop => {
-            info!("Stopping cluster node");
-            cluster::handle_cluster_stop(config)
-                .await
-                .context("Failed to stop cluster node")
-        }
-        ClusterAction::Restart {
-            config: _,
-            node_id,
-            http_port,
-            grpc_port,
-            can_process_tasks,
-            save_config,
-            advertise_ip,
-        } => {
-            info!(
-                "Restarting cluster node: node_id={:?}, http_port={:?}, grpc_port={:?}, can_process_tasks={}, save_config={}, advertise_ip={:?}",
-                node_id, http_port, grpc_port, can_process_tasks, save_config, advertise_ip
-            );
-            cluster::handle_cluster_restart(
-                config,
-                node_id,
-                http_port.unwrap_or(8080),
-                grpc_port.unwrap_or(50051),
-                can_process_tasks,
-                save_config,
-                advertise_ip,
-            )
-            .await
-            .context("Failed to restart cluster node")
         }
         ClusterAction::Join {
             peer_address,
@@ -475,32 +381,6 @@ async fn handle_lb_command(action: LoadBalancerAction, config: &voice_cli::Confi
                 .await
                 .context("Failed to run load balancer")
         }
-        LoadBalancerAction::Start { config: _, port } => {
-            let port = port.unwrap_or(8090);
-            info!("Starting load balancer: port={}", port);
-            lb::handle_lb_start(config, port)
-                .await
-                .context("Failed to start load balancer")
-        }
-        LoadBalancerAction::Stop => {
-            info!("Stopping load balancer");
-            lb::handle_lb_stop(config)
-                .await
-                .context("Failed to stop load balancer")
-        }
-        LoadBalancerAction::Restart { config: _, port } => {
-            let port = port.unwrap_or(8090);
-            info!("Restarting load balancer: port={}", port);
-            lb::handle_lb_restart(config, port)
-                .await
-                .context("Failed to restart load balancer")
-        }
-        LoadBalancerAction::Status => {
-            info!("Checking load balancer status");
-            lb::handle_lb_status(config)
-                .await
-                .context("Failed to check load balancer status")
-        }
     }
 }
 
@@ -520,10 +400,7 @@ fn get_config_path_for_server_action(
     default_config: &str,
 ) -> Option<PathBuf> {
     match action {
-        ServerAction::Run { config }
-        | ServerAction::Start { config }
-        | ServerAction::Restart { config } => config.clone(),
-        ServerAction::Stop { config } | ServerAction::Status { config } => config.clone(),
+        ServerAction::Run { config } => config.clone(),
         _ => None,
     }
 }
@@ -534,9 +411,7 @@ fn get_config_path_for_cluster_action(
     default_config: &str,
 ) -> Option<PathBuf> {
     match action {
-        ClusterAction::Run { config, .. }
-        | ClusterAction::Start { config, .. }
-        | ClusterAction::Restart { config, .. } => config.clone(),
+        ClusterAction::Run { config, .. } => config.clone(),
         _ => {
             // For other actions, check if default config is not the fallback
             if default_config != "config.yml" {
@@ -554,9 +429,7 @@ fn get_config_path_for_lb_action(
     default_config: &str,
 ) -> Option<PathBuf> {
     match action {
-        LoadBalancerAction::Run { config, .. }
-        | LoadBalancerAction::Start { config, .. }
-        | LoadBalancerAction::Restart { config, .. } => config.clone(),
+        LoadBalancerAction::Run { config, .. } => config.clone(),
         _ => {
             // For other actions, check if default config is not the fallback
             if default_config != "config.yml" {
