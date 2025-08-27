@@ -564,9 +564,38 @@ pub async fn handle_cluster_join(
     advertise_ip: Option<String>,
 ) -> Result<()> {
     info!("Joining cluster via peer: {}", peer_address);
+    println!("➡️ 正在加入集群: peer={}...", peer_address);
 
-    // Generate node ID if not provided
-    let node_id = node_id.unwrap_or_else(|| format!("node-{}", Uuid::new_v4().simple()));
+    // Initialize metadata store early for node-id persistence
+    let metadata_store = Arc::new(
+        MetadataStore::new(&config.cluster.metadata_db_path)
+            .map_err(ClusterError::from)
+            .context("Failed to initialize metadata store")?,
+    );
+
+    // Determine node ID:
+    // 1) If user provided --node-id, use it
+    // 2) Else try to reuse saved local_node_id from sled
+    // 3) Else generate a new one and save it after successful join
+    let node_id = match node_id {
+        Some(explicit_id) => {
+            println!("🆔 使用用户指定的 node-id: {}", explicit_id);
+            explicit_id
+        }
+        None => {
+            match metadata_store.get_cluster_meta("local_node_id").await {
+                Ok(Some(saved_id)) if !saved_id.is_empty() => {
+                    println!("🆔 复用本地已保存的 node-id: {}", saved_id);
+                    saved_id
+                }
+                _ => {
+                    let generated = format!("node-{}", Uuid::new_v4().simple());
+                    println!("🆔 未发现已保存的 node-id，生成新的: {}", generated);
+                    generated
+                }
+            }
+        }
+    };
 
     info!("Cluster join requested:");
     info!("  Peer Address: {}", peer_address);
@@ -583,13 +612,9 @@ pub async fn handle_cluster_join(
         .context("Failed to resolve advertise IP address")?;
 
     info!("Using advertise IP: {}", resolved_advertise_ip);
+    println!("📡 本节点对外IP: {}", resolved_advertise_ip);
 
-    // Initialize metadata store
-    let metadata_store = Arc::new(
-        MetadataStore::new(&config.cluster.metadata_db_path)
-            .map_err(ClusterError::from)
-            .context("Failed to initialize metadata store")?,
-    );
+    // metadata_store already initialized above
 
     // Create cluster node configuration for this joining node
     // Use the resolved advertise IP
@@ -610,12 +635,15 @@ pub async fn handle_cluster_join(
     metadata_store.add_node(&cluster_node).await?;
 
     // Implement actual cluster join protocol with gRPC peer communication
+    println!("🔗 正在连接对端并发送加入请求...");
     let join_result = perform_cluster_join(&peer_address, &cluster_node, token.clone()).await;
 
     match join_result {
         Ok(join_response) => {
             info!("✅ Successfully joined cluster!");
+            println!("✅ 已成功加入集群");
             info!("   Join response: {}", join_response.message);
+            println!("📝 对端响应: {}", join_response.message);
             info!(
                 "   Cluster now has {} nodes",
                 join_response.cluster_nodes.len()
@@ -640,24 +668,51 @@ pub async fn handle_cluster_join(
                     }
                 }
             }
+
+            // Persist the node-id for future reuse on this host
+            if let Err(e) = metadata_store.set_cluster_meta("local_node_id", &node_id).await {
+                warn!("Failed to persist local_node_id: {}", e);
+            }
+
+            // After successful join, start this node's services in foreground mode
+            // so that `voice-cli cluster join` becomes a long-running foreground command.
+            info!("Starting local cluster node services in foreground mode after join");
+            println!("🚀 正在以前台模式启动本节点服务(按 Ctrl+C 退出)...");
+
+            // Important: drop the temporary metadata store used during join to
+            // release any database file locks before starting the server which
+            // will open its own MetadataStore instance.
+            drop(metadata_store);
+
+            let mut cluster_config = config.clone();
+            cluster_config.cluster.node_id = node_id.clone();
+            cluster_config.cluster.http_port = http_port;
+            cluster_config.cluster.grpc_port = grpc_port;
+            // Use the resolved advertise IP as bind address so peers can reach this node
+            cluster_config.cluster.bind_address = resolved_advertise_ip.clone();
+
+            info!("   HTTP Address: {}:{}", cluster_config.cluster.bind_address, http_port);
+            info!("   gRPC Address: {}:{}", cluster_config.cluster.bind_address, grpc_port);
+            println!(
+                "🔈 HTTP: {}:{}\n🔉 gRPC: {}:{}\n🆔 Node ID: {}",
+                cluster_config.cluster.bind_address,
+                http_port,
+                cluster_config.cluster.bind_address,
+                grpc_port,
+                node_id,
+            );
+
+            // Run server in foreground; this will block until shutdown
+            return start_cluster_node_server(Arc::new(cluster_config)).await;
         }
         Err(e) => {
             error!("❌ Failed to join cluster: {}", e);
             anyhow::bail!("Cluster join failed: {}", e);
         }
     }
-
-    info!("✅ Successfully prepared to join cluster");
-    info!("   Peer Address: {}", peer_address);
-    info!("   Node ID: {}", node_id);
-    info!("   Advertise IP: {}", resolved_advertise_ip);
-    info!("   gRPC Address: {}:{}", resolved_advertise_ip, grpc_port);
-    info!("   HTTP Address: {}:{}", resolved_advertise_ip, http_port);
-    if let Some(ref t) = token {
-        info!("   Using authentication token: {} characters", t.len());
-    }
-
-    Ok(())
+    // Unreachable: success path returns after starting server; error path bails.
+    // Kept for completeness.
+    // Ok(())
 }
 
 /// Handle cluster status command
@@ -833,15 +888,80 @@ pub async fn handle_cluster_status(config: &Config, detailed: bool) -> Result<()
             }
         }
         Err(e) => {
-            error!("Failed to access cluster metadata: {}", e);
-            println!("❌ Cluster Status: UNAVAILABLE");
-            println!("Error: {}", e);
-            println!();
-            println!("This might indicate:");
-            println!("- Cluster has not been initialized (run 'voice-cli cluster init')");
-            println!("- Database file is corrupted");
-            println!("- Insufficient permissions");
-            anyhow::bail!("Cluster metadata unavailable: {}", e);
+            // If local sled DB is locked (e.g., another running process holds it),
+            // fall back to querying the running node via gRPC.
+            warn!("Metadata access failed ({}). Falling back to gRPC status query...", e);
+
+            let connect_host = if config.cluster.bind_address == "0.0.0.0" {
+                "127.0.0.1".to_string()
+            } else {
+                config.cluster.bind_address.clone()
+            };
+            let grpc_addr = format!("{}:{}", connect_host, config.cluster.grpc_port);
+
+            println!("ℹ️ 本地数据库不可用，尝试通过 gRPC 查询集群状态: {}", grpc_addr);
+
+            let mut client = match crate::grpc::client::AudioClusterClient::connect(&grpc_addr).await {
+                Ok(c) => c,
+                Err(connect_err) => {
+                    error!("Failed to connect gRPC for status: {}", connect_err);
+                    println!("❌ Cluster Status: UNAVAILABLE");
+                    println!("Error: {}", e);
+                    println!();
+                    println!("This might indicate:");
+                    println!("- Cluster has not been initialized (run 'voice-cli cluster init')");
+                    println!("- Database file is corrupted");
+                    println!("- Insufficient permissions");
+                    println!("- No local node running at {}", grpc_addr);
+                    anyhow::bail!("Cluster metadata unavailable: {}", e);
+                }
+            };
+
+            match client.get_cluster_status(&config.cluster.node_id).await {
+                Ok(status) => {
+                    println!("Cluster Status (via gRPC):");
+                    println!("===========================");
+                    println!("Leader Node ID: {}", status.leader_node_id);
+                    println!("Total Nodes: {}", status.nodes.len());
+                    println!();
+
+                    for (i, node) in status.nodes.iter().enumerate() {
+                        let role = match node.role {
+                            1 => "Leader",
+                            2 => "Candidate",
+                            _ => "Follower",
+                        };
+                        let status_text = match node.status {
+                            0 => "Healthy",
+                            1 => "Unhealthy",
+                            2 => "Joining",
+                            3 => "Leaving",
+                            _ => "Unknown",
+                        };
+
+                        println!("Node {}:", i + 1);
+                        println!("  Node ID: {}", node.node_id);
+                        println!("  Role: {} ({})", role, status_text);
+                        println!("  HTTP API: {}:{}", node.address, node.http_port);
+                        println!("  gRPC: {}:{}", node.address, node.grpc_port);
+                        println!();
+                    }
+
+                    return Ok(());
+                }
+                Err(status_err) => {
+                    error!("Failed to fetch cluster status via gRPC: {}", status_err);
+                    println!("❌ Cluster Status: UNAVAILABLE");
+                    println!("Error: {}", e);
+                    println!();
+                    println!("This might indicate:");
+                    println!("- Cluster has not been initialized (run 'voice-cli cluster init')");
+                    println!("- Database file is corrupted");
+                    println!("- Insufficient permissions");
+                    println!("- gRPC status query failed: {}", status_err);
+                    anyhow::bail!("Cluster metadata unavailable: {}", e);
+                }
+            }
         }
     }
 
