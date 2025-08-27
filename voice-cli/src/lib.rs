@@ -15,7 +15,6 @@ pub mod grpc;
 pub mod load_balancer;
 
 // Re-export commonly used types
-pub use config::ConfigManager;
 pub use error::{Result, VoiceCliError};
 pub use models::*;
 

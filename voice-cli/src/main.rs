@@ -441,15 +441,6 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    #[tokio::test]
-    async fn test_config_loading() {
-        let temp_dir = TempDir::new().unwrap();
-        let config_path = temp_dir.path().join("test_config.yml");
-
-        let config_manager = ConfigManager::new(config_path);
-        assert!(config_manager.is_ok());
-    }
-
     #[test]
     fn test_cli_parsing() {
         use clap::Parser;

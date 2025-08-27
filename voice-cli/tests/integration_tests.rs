@@ -1,22 +1,7 @@
 use tempfile::TempDir;
-use voice_cli::{Config, ConfigManager};
+use voice_cli::{Config};
 
-#[tokio::test]
-async fn test_config_manager_creation() {
-    let temp_dir = TempDir::new().unwrap();
-    let config_path = temp_dir.path().join("test_config.yml");
 
-    let config_manager = ConfigManager::new(config_path);
-    assert!(config_manager.is_ok());
-
-    let manager = config_manager.unwrap();
-    let config = manager.config().await;
-
-    // Validate default configuration
-    assert_eq!(config.server.port, 8080);
-    assert_eq!(config.whisper.default_model, "base");
-    assert!(config.whisper.auto_download);
-}
 
 #[tokio::test]
 async fn test_model_service_creation() {
