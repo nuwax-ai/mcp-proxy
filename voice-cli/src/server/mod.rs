@@ -3,9 +3,12 @@ pub mod cluster_routes;
 pub mod handlers;
 pub mod middleware;
 pub mod routes;
+pub mod http_tracing;
+pub mod middleware_config;
 
 use crate::models::Config;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tracing::{info, error};
 
 /// Create server with cluster awareness
@@ -62,7 +65,7 @@ pub async fn create_cluster_aware_server_with_shutdown(
 pub async fn create_server(
     config: Config,
 ) -> crate::Result<impl std::future::Future<Output = Result<(), std::io::Error>>> {
-    let app = routes::create_routes(config.clone()).await?;
+    let app = routes::create_routes(Arc::new(config.clone())).await?;
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
     info!("Server listening on {}", addr);
@@ -81,7 +84,7 @@ pub async fn create_server(
 pub async fn create_server_with_graceful_shutdown(
     config: Config,
 ) -> crate::Result<impl std::future::Future<Output = Result<(), std::io::Error>>> {
-    let app = routes::create_routes(config.clone()).await?;
+    let app = routes::create_routes(Arc::new(config.clone())).await?;
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
     info!("Server listening on {}", addr);

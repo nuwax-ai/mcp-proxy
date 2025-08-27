@@ -6,12 +6,18 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+/// HttpResult 响应标记（仅用于内部中间件识别）
+#[derive(Clone)]
+pub struct HttpResultMarker;
+
 /// 统一HTTP响应格式
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct HttpResult<T> {
     pub code: String,
     pub message: String,
     pub data: Option<T>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tid: Option<String>,
 }
 
 impl<T> HttpResult<T> {
@@ -21,6 +27,7 @@ impl<T> HttpResult<T> {
             code: "0000".to_string(),
             message: "操作成功".to_string(),
             data: Some(data),
+            tid: None,
         }
     }
 
@@ -30,6 +37,7 @@ impl<T> HttpResult<T> {
             code: "0000".to_string(),
             message,
             data: Some(data),
+            tid: None,
         }
     }
 
@@ -39,7 +47,14 @@ impl<T> HttpResult<T> {
             code,
             message,
             data: None,
+            tid: None,
         }
+    }
+
+    /// 设置追踪ID
+    pub fn with_tid(mut self, tid: String) -> Self {
+        self.tid = Some(tid);
+        self
     }
 
     /// 系统错误
@@ -68,7 +83,10 @@ where
     T: serde::Serialize,
 {
     fn into_response(self) -> Response {
-        Json(self).into_response()
+        let mut res = Json(self).into_response();
+        // 标记该响应为 HttpResult，供中间件识别
+        res.extensions_mut().insert(HttpResultMarker);
+        res
     }
 }
 

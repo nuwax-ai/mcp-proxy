@@ -21,9 +21,15 @@ rmcp = { version = "0.5", features = [
 ] }
 tokio = { version = "1", features = ["macros", "net", "rt", "rt-multi-thread"] }
 tokio-util = "0.7"
+
+# Logging and tracing
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "=0.2.2"
+tracing-opentelemetry = "0.31"
+opentelemetry = { version = "0.30", features = ["trace"] }
+opentelemetry-jaeger = { version = "0.22", features = ["rt-tokio"] }
+opentelemetry-semantic-conventions = "0.30"
 log = "0.4"
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde", "now"] }
@@ -66,6 +72,11 @@ futures = "0.3"
 run_code_rmcp = "0.0.31"
 rand = "0.9"
 derive_builder = "0.20"
+bytes = "1.0"
+base64 = "0.22"
+tempfile = "3.21"
+dirs = "6.0"
+scopeguard = "1.2"
 
 # 自己开发的语音相关工具
-voice-toolkit = { version = "0.12", features = ["stt", "audio"] }
+voice-toolkit = { version = "0.14", features = ["stt", "audio"] }

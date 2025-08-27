@@ -45,6 +45,10 @@ config = { version = "0.15", features = ["yaml", "json", "toml"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tracing-appender = { workspace = true }
+tracing-opentelemetry = { workspace = true }
+opentelemetry = { workspace = true, features = ["trace"] }
+opentelemetry-jaeger = { workspace = true, features = ["rt-tokio"] }
+opentelemetry-semantic-conventions = { workspace = true }
 
 # Error handling
 anyhow = { workspace = true }

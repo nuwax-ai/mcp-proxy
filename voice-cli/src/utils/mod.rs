@@ -1,29 +1,26 @@
 pub mod ip_discovery;
-pub mod structured_logging;
 pub mod signal_handling;
+pub mod structured_logging;
 
-use crate::models::Config;
 use crate::VoiceCliError;
+use crate::models::Config;
 use std::path::PathBuf;
 use std::sync::OnceLock;
-use tracing::{info, Level};
+use tracing::{Level, info};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
-use tracing_subscriber::{prelude::*, EnvFilter};
-
-// Global logging guard to ensure logging stays active
-static LOG_GUARD: OnceLock<tracing::subscriber::DefaultGuard> = OnceLock::new();
+use tracing_subscriber::{EnvFilter, prelude::*};
 
 // Re-export structured logging components
-pub use structured_logging::{init_structured_logging, ClusterLoggingContext};
+pub use structured_logging::{ClusterLoggingContext, init_structured_logging};
 
 // Re-export signal handling components
 pub use signal_handling::{
-    create_shutdown_signal, handle_system_signals, create_combined_shutdown_signal,
-    create_service_shutdown_signal
+    create_combined_shutdown_signal, create_service_shutdown_signal, create_shutdown_signal,
+    handle_system_signals,
 };
 
 // Re-export IP discovery functions
-pub use ip_discovery::{get_cluster_ip, get_local_ip, IpDiscovery, IpDiscoveryConfig};
+pub use ip_discovery::{IpDiscovery, IpDiscoveryConfig, get_cluster_ip, get_local_ip};
 
 /// Initialize logging based on configuration
 /// The guard is stored globally to ensure logging stays active
@@ -44,41 +41,42 @@ pub fn init_logging(config: &Config) -> crate::Result<()> {
 
     // Create file appender with rotation
     let file_appender = RollingFileAppender::new(Rotation::DAILY, &log_dir, "voice-cli.log");
-    
 
-    // Create console layer
+    // Create console layer with proper formatting
     let console_layer = tracing_subscriber::fmt::layer()
-        .with_target(false)
-        .with_thread_ids(false)
-        .with_file(false)
-        .with_line_number(false)
-        .compact();
+        .with_target(true)
+        .with_thread_ids(true)
+        .with_file(true)
+        .with_line_number(true)
+        .with_ansi(true);
 
-    // Create file layer
+    // Create file layer with detailed formatting
     let file_layer = tracing_subscriber::fmt::layer()
         .with_writer(file_appender)
         .with_target(true)
         .with_thread_ids(true)
         .with_file(true)
-        .with_line_number(true);
+        .with_line_number(true)
+        .with_ansi(false);
 
-    // Combine layers with filtering
-    let console_filter = EnvFilter::from_default_env().add_directive(level.into());
-    let file_filter = EnvFilter::new(&config.logging.level);
+    // Create filters based on configured log level
+    let console_filter = EnvFilter::new(&format!("{}", level));
+    let file_filter = EnvFilter::new(&format!("{}", level));
 
+    // Create the subscriber with both layers
     let subscriber = tracing_subscriber::registry()
         .with(console_layer.with_filter(console_filter))
         .with(file_layer.with_filter(file_filter));
-    
-    let guard = tracing::subscriber::set_default(subscriber);
+
+    // Set as global default and get the guard
+    let _ = tracing::subscriber::set_global_default(subscriber)
+        .map_err(|e| VoiceCliError::Config(format!("Failed to set global subscriber: {}", e)))?;
 
     // Store the guard globally to keep logging active
-    LOG_GUARD.set(guard).ok();
 
     info!(
         "Logging initialized - Level: {}, Directory: {:?}",
-        config.logging.level,
-        log_dir
+        config.logging.level, log_dir
     );
 
     Ok(())

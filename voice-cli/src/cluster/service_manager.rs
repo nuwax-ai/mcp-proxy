@@ -219,7 +219,7 @@ impl ClusterServiceManager {
         );
 
         // Create router using the existing routes function
-        let app = crate::server::routes::create_routes((*self.config).clone())
+        let app = crate::server::routes::create_routes(Arc::new((*self.config).clone()))
             .await
             .map_err(|e| anyhow::Error::new(e).context("Failed to create HTTP routes"))?;
 

@@ -18,9 +18,8 @@ async fn main() {
     // Parse command line arguments
     let cli = Cli::parse();
 
-    // Initialize basic console logging for CLI operations
-    // This is console-only and will be replaced by proper file logging when services start
-    init_console_only_logging(cli.verbose);
+    // Don't initialize logging here - let each service initialize its own logging
+    // based on configuration files
 
     // Generate CLI overrides from command line arguments
     let cli_overrides = match ConfigRsLoader::generate_cli_overrides_from_args(&cli) {
@@ -361,31 +360,6 @@ async fn handle_lb_command(action: LoadBalancerAction, config: &voice_cli::Confi
                 .await
                 .context("Failed to run load balancer")
         }
-    }
-}
-
-/// Initialize console-only logging for CLI operations (before full config is loaded)
-/// This uses a simple println-based approach to avoid interfering with proper logging setup
-fn init_console_only_logging(verbose: bool) {
-    // Initialize basic console logging for CLI operations
-    // This ensures error messages are always visible
-    let level = if verbose {
-        tracing::Level::DEBUG
-    } else {
-        tracing::Level::INFO
-    };
-    
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(std::io::stderr)
-        .with_max_level(level)
-        .with_ansi(true)
-        .finish();
-    
-    tracing::subscriber::set_global_default(subscriber)
-        .expect("Failed to set global tracing subscriber");
-    
-    if verbose {
-        info!("🔧 Verbose mode enabled - CLI operations will show debug output");
     }
 }
 

@@ -1,67 +1,62 @@
-use crate::models::Config;
-use crate::openapi;
-use crate::server::{cluster_handlers, handlers};
 use axum::{
     routing::{get, post},
     Router,
 };
 use std::sync::Arc;
-use tower_http::cors::CorsLayer;
-use tower_http::limit::RequestBodyLimitLayer;
-use tower_http::trace::TraceLayer;
+use crate::models::Config;
+use crate::server::{
+    cluster_handlers,
+    handlers,
+    middleware_config::set_layer,
+};
+use crate::openapi;
 use tracing::info;
 
 /// Create routes with cluster awareness
 pub async fn create_cluster_routes(config: Config) -> crate::Result<Router> {
     let config = Arc::new(config);
-
+    
     if config.cluster.enabled {
-        info!("Creating cluster-aware routes");
-        create_cluster_mode_routes(config).await
+        info!("Creating cluster routes for cluster mode");
+        let app = create_cluster_mode_routes(config).await?;
+        Ok(app)
     } else {
         info!("Creating single-node routes");
-        create_single_node_routes(config).await
+        let app = create_single_node_routes(config).await?;
+        Ok(app)
     }
 }
 
-/// Create routes for cluster mode
+/// Create routes for cluster mode (with cluster functionality)
 async fn create_cluster_mode_routes(config: Arc<Config>) -> crate::Result<Router> {
     // Create cluster-aware shared state
     let shared_state = cluster_handlers::ClusterAppState::new(config.clone()).await?;
 
-    let mut app = Router::new()
-        // Enhanced health check endpoint with cluster information
+    let app = Router::new()
+        // Health check endpoint
         .route("/health", get(cluster_handlers::cluster_health_handler))
-        // Cluster status and management endpoints
+        // Models management endpoints
+        .route("/models", get(cluster_handlers::cluster_models_list_handler))
+        // Transcription endpoint
+        .route("/transcribe", post(cluster_handlers::cluster_transcribe_handler))
+        // Cluster-specific endpoints
         .route("/cluster/status", get(cluster_status_handler))
         .route("/cluster/nodes", get(cluster_nodes_handler))
         .route("/cluster/leader", get(cluster_leader_handler))
         .route("/cluster/workers", get(cluster_workers_handler))
         .route("/cluster/capacity", get(cluster_capacity_handler))
-        // Models management endpoints (cluster-aware)
-        .route(
-            "/models",
-            get(cluster_handlers::cluster_models_list_handler),
-        )
-        // Cluster-aware transcription endpoint
-        .route(
-            "/transcribe",
-            post(cluster_handlers::cluster_transcribe_handler),
-        )
         // Add shared state
-        .with_state(shared_state)
+        .with_state(shared_state.clone())
         // Merge Swagger UI routes
         .merge(openapi::create_swagger_ui());
 
-    // Add CORS if enabled
-    if config.server.cors_enabled {
-        app = app.layer(CorsLayer::permissive());
-    }
-
-    // Add other middleware
-    app = app
-        .layer(RequestBodyLimitLayer::new(config.server.max_file_size))
-        .layer(TraceLayer::new_for_http());
+    // 统一挂载中间件
+    let app = set_layer(
+        app,
+        shared_state,
+        config.server.max_file_size,
+        config.server.cors_enabled,
+    );
 
     Ok(app)
 }
@@ -73,7 +68,7 @@ async fn create_single_node_routes(config: Arc<Config>) -> crate::Result<Router>
     let shared_state = handlers::AppState::new(config.clone()).await?;
     info!("AppState created successfully");
 
-    let mut app = Router::new()
+    let app = Router::new()
         // Original health check endpoint
         .route("/health", get(handlers::health_handler))
         // Models management endpoints
@@ -81,19 +76,17 @@ async fn create_single_node_routes(config: Arc<Config>) -> crate::Result<Router>
         // Original transcription endpoint
         .route("/transcribe", post(handlers::transcribe_handler))
         // Add shared state
-        .with_state(shared_state)
+        .with_state(shared_state.clone())
         // Merge Swagger UI routes
         .merge(openapi::create_swagger_ui());
 
-    // Add CORS if enabled
-    if config.server.cors_enabled {
-        app = app.layer(CorsLayer::permissive());
-    }
-
-    // Add other middleware
-    app = app
-        .layer(RequestBodyLimitLayer::new(config.server.max_file_size))
-        .layer(TraceLayer::new_for_http());
+    // 统一挂载中间件
+    let app = set_layer(
+        app,
+        shared_state,
+        config.server.max_file_size,
+        config.server.cors_enabled,
+    );
 
     Ok(app)
 }
