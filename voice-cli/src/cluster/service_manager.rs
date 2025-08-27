@@ -294,8 +294,8 @@ impl ClusterServiceManager {
 
         // Heartbeat interval (30 seconds)
         let mut heartbeat_interval = tokio::time::interval(std::time::Duration::from_secs(30));
-        // Health check interval (10 seconds) - more frequent than heartbeat
-        let mut health_check_interval = tokio::time::interval(std::time::Duration::from_secs(10));
+        // Health check interval (15 seconds) - more frequent than heartbeat but not too aggressive
+        let mut health_check_interval = tokio::time::interval(std::time::Duration::from_secs(15));
 
         loop {
             tokio::select! {
@@ -336,59 +336,167 @@ impl ClusterServiceManager {
         metadata_store: &Option<Arc<MetadataStore>>,
     ) {
         let heartbeat_timeout = 90; // 90 seconds timeout
+        let joining_timeout = 60; // 60 seconds for joining nodes to become healthy
         let current_time = chrono::Utc::now().timestamp();
 
         // Get all nodes from cluster state (atomic read)
         let all_nodes = cluster_state.get_all_nodes();
 
         for node in all_nodes {
-            if node.node_id == self.node.node_id {
-                continue; // Skip self
-            }
-
             let time_since_heartbeat = current_time - node.last_heartbeat;
-            let is_healthy = time_since_heartbeat <= heartbeat_timeout;
+            let is_heartbeat_healthy = time_since_heartbeat <= heartbeat_timeout;
+            
+            // For joining nodes, also check if they've been running long enough
+            let is_joining_ready = if node.status == crate::models::NodeStatus::Joining {
+                time_since_heartbeat <= joining_timeout
+            } else {
+                false
+            };
 
-            // Check if status needs to be updated
-            let needs_update = match (node.status, is_healthy) {
-                (crate::models::NodeStatus::Healthy, false) => {
-                    warn!(
-                        "Node {} became unhealthy (last heartbeat: {}s ago)",
-                        node.node_id, time_since_heartbeat
-                    );
-                    true
+            // Determine new status and if update is needed
+            let (new_status, needs_update) = match node.status {
+                crate::models::NodeStatus::Joining => {
+                    if is_joining_ready && self.check_node_service_availability(&node).await {
+                        info!(
+                            "Node {} successfully joined cluster and is now healthy (last heartbeat: {}s ago)",
+                            node.node_id, time_since_heartbeat
+                        );
+                        (Some(crate::models::NodeStatus::Healthy), true)
+                    } else if time_since_heartbeat > joining_timeout * 2 {
+                        warn!(
+                            "Node {} failed to join cluster within timeout (last heartbeat: {}s ago)",
+                            node.node_id, time_since_heartbeat
+                        );
+                        (Some(crate::models::NodeStatus::Unhealthy), true)
+                    } else {
+                        debug!(
+                            "Node {} still joining (last heartbeat: {}s ago)",
+                            node.node_id, time_since_heartbeat
+                        );
+                        (None, false)
+                    }
                 }
-                (crate::models::NodeStatus::Unhealthy, true) => {
-                    info!("Node {} recovered and is now healthy", node.node_id);
-                    true
+                crate::models::NodeStatus::Healthy => {
+                    if !is_heartbeat_healthy {
+                        warn!(
+                            "Node {} became unhealthy (last heartbeat: {}s ago)",
+                            node.node_id, time_since_heartbeat
+                        );
+                        (Some(crate::models::NodeStatus::Unhealthy), true)
+                    } else {
+                        (None, false)
+                    }
                 }
-                _ => false,
+                crate::models::NodeStatus::Unhealthy => {
+                    if is_heartbeat_healthy && self.check_node_service_availability(&node).await {
+                        info!("Node {} recovered and is now healthy", node.node_id);
+                        (Some(crate::models::NodeStatus::Healthy), true)
+                    } else {
+                        (None, false)
+                    }
+                }
+                crate::models::NodeStatus::Leaving => {
+                    // Don't update leaving nodes
+                    (None, false)
+                }
             };
 
             if needs_update {
-                // Perform atomic health update
-                if let Some(metadata_store) = metadata_store {
-                    if let Err(e) = metadata_store
-                        .update_node_health_atomic(&node.node_id, is_healthy)
-                        .await
-                    {
-                        warn!(
-                            "Failed to update health status for node {}: {:?}",
-                            node.node_id, e
-                        );
-                    }
-                } else {
-                    // Fallback to cluster state only
-                    let new_status = if is_healthy {
-                        crate::models::NodeStatus::Healthy
+                if let Some(target_status) = new_status {
+                    // Perform atomic health update
+                    if let Some(metadata_store) = metadata_store {
+                        if let Err(e) = metadata_store
+                            .update_node_status(&node.node_id, target_status)
+                            .await
+                        {
+                            warn!(
+                                "Failed to update status for node {} to {:?}: {:?}",
+                                node.node_id, target_status, e
+                            );
+                        }
                     } else {
-                        crate::models::NodeStatus::Unhealthy
-                    };
-
-                    if let Err(e) = cluster_state.update_node_status(&node.node_id, new_status) {
-                        warn!("Failed to update node status in cluster state: {:?}", e);
+                        // Fallback to cluster state only
+                        if let Err(e) = cluster_state.update_node_status(&node.node_id, target_status) {
+                            warn!("Failed to update node status in cluster state: {:?}", e);
+                        }
                     }
                 }
+            }
+        }
+        
+        // Also check self node if it's in joining state
+        if let Some(self_node) = cluster_state.get_node(&self.node.node_id) {
+            if self_node.status == crate::models::NodeStatus::Joining {
+                let time_since_heartbeat = current_time - self_node.last_heartbeat;
+                if time_since_heartbeat <= joining_timeout {
+                    info!(
+                        "Self node {} successfully joined cluster and is now healthy",
+                        self.node.node_id
+                    );
+                    
+                    if let Some(metadata_store) = metadata_store {
+                        if let Err(e) = metadata_store
+                            .update_node_status(&self.node.node_id, crate::models::NodeStatus::Healthy)
+                            .await
+                        {
+                            warn!("Failed to update self node status: {:?}", e);
+                        }
+                    } else {
+                        if let Err(e) = cluster_state.update_node_status(&self.node.node_id, crate::models::NodeStatus::Healthy) {
+                            warn!("Failed to update self node status in cluster state: {:?}", e);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    /// Check if a node's services are available (active health check)
+    async fn check_node_service_availability(&self, node: &ClusterNode) -> bool {
+        // Skip self check to avoid circular dependency
+        if node.node_id == self.node.node_id {
+            return true;
+        }
+        
+        // Try to connect to the node's gRPC service
+        match self.ping_node_grpc(node).await {
+            Ok(true) => {
+                debug!("Node {} gRPC service is available", node.node_id);
+                true
+            }
+            Ok(false) => {
+                debug!("Node {} gRPC service responded but not ready", node.node_id);
+                false
+            }
+            Err(e) => {
+                debug!("Node {} gRPC service unavailable: {}", node.node_id, e);
+                false
+            }
+        }
+    }
+    
+    /// Ping a node's gRPC service to check availability
+    async fn ping_node_grpc(&self, node: &ClusterNode) -> Result<bool> {
+        use crate::grpc::client::AudioClusterClient;
+        
+        let address = format!(
+            "http://{}:{}",
+            node.address,
+            node.grpc_port
+        );
+        
+        // Create a quick connection with short timeout
+        match AudioClusterClient::connect(&address, Some(std::time::Duration::from_secs(5))).await {
+            Ok(mut client) => {
+                // Try to send a simple health check ping
+                match client.ping().await {
+                    Ok(_) => Ok(true),
+                    Err(_) => Ok(false)
+                }
+            }
+            Err(e) => {
+                debug!("Failed to connect to node {} at {}: {}", node.node_id, address, e);
+                Err(anyhow::Error::new(e))
             }
         }
     }

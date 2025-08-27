@@ -356,7 +356,7 @@ impl AudioClusterRaft {
         // Create gRPC client with timeout
         let mut client = match tokio::time::timeout(
             std::time::Duration::from_secs(5),
-            AudioClusterClient::connect(grpc_address.clone())
+            AudioClusterClient::connect(&grpc_address, None)
         ).await {
             Ok(Ok(client)) => client,
             Ok(Err(e)) => {

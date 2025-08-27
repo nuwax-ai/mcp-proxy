@@ -363,7 +363,7 @@ impl HeartbeatService {
         // Create gRPC client with timeout
         let mut client = match tokio::time::timeout(
             std::time::Duration::from_secs(5),
-            AudioClusterClient::connect(&peer_address),
+            AudioClusterClient::connect(&peer_address, None),
         )
         .await
         {

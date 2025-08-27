@@ -117,6 +117,7 @@ impl LoadBalancerService {
             health_check_timeout: config.load_balancer.health_check_timeout,
             pid_file: config.load_balancer.pid_file.clone(),
             log_file: config.load_balancer.log_file.clone(),
+            seed_nodes: config.load_balancer.seed_nodes.clone(),
         })
     }
 }
@@ -205,6 +206,7 @@ impl BackgroundService for LoadBalancerService {
                 health_check_timeout: config.load_balancer.health_check_timeout,
                 pid_file: config.load_balancer.pid_file.clone(),
                 log_file: config.load_balancer.log_file.clone(),
+                seed_nodes: config.load_balancer.seed_nodes.clone(),
             };
 
             // For now, simulate load balancer work with a simple loop
@@ -434,6 +436,7 @@ mod tests {
                 health_check_timeout: 3,
                 pid_file: temp_dir.path().join("lb.pid").to_string_lossy().to_string(),
                 log_file: temp_dir.path().join("logs/lb.log").to_string_lossy().to_string(),
+                seed_nodes: Vec::new(),
             },
         }
     }

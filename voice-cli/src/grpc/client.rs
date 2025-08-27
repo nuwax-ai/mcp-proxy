@@ -163,8 +163,12 @@ pub struct AudioClusterClient {
 
 impl AudioClusterClient {
     /// Create a new client connected to the specified address
-    pub async fn connect(address: &str) -> Result<Self, ClusterError> {
-        let connection_pool = Arc::new(ConnectionPool::new(RetryConfig::default()));
+    pub async fn connect(address: &str, timeout: Option<Duration>) -> Result<Self, ClusterError> {
+        let mut retry_config = RetryConfig::default();
+        if let Some(timeout_duration) = timeout {
+            retry_config.max_delay = timeout_duration;
+        }
+        let connection_pool = Arc::new(ConnectionPool::new(retry_config));
         Self::connect_with_pool(address, connection_pool).await
     }
 
@@ -251,6 +255,42 @@ impl AudioClusterClient {
                     }
                 }
 
+                Err(self.status_to_cluster_error(status))
+            }
+        }
+    }
+
+    /// Ping the cluster node to check if it's alive and responsive
+    pub async fn ping(&mut self) -> Result<bool, ClusterError> {
+        debug!("Pinging cluster node at {}", self.target_address);
+        
+        // Use a simple heartbeat with minimal data as ping
+        let request = Request::new(HeartbeatRequest {
+            node_id: "ping".to_string(), // Special ping node ID
+            status: NodeStatus::Healthy as i32,
+            timestamp: chrono::Utc::now().timestamp(),
+        });
+        
+        match self.client.heartbeat(request).await {
+            Ok(response) => {
+                let heartbeat_response = response.into_inner();
+                debug!("Ping successful to {}: {}", self.target_address, heartbeat_response.message);
+                Ok(heartbeat_response.success)
+            }
+            Err(status) => {
+                debug!("Ping failed to {}: {}", self.target_address, status);
+                
+                // Try to reconnect on network errors
+                if matches!(
+                    status.code(),
+                    tonic::Code::Unavailable | tonic::Code::DeadlineExceeded
+                ) {
+                    warn!("Connection issue detected during ping, attempting to reconnect");
+                    if let Err(e) = self.reconnect().await {
+                        warn!("Failed to reconnect: {:?}", e);
+                    }
+                }
+                
                 Err(self.status_to_cluster_error(status))
             }
         }
@@ -492,7 +532,7 @@ impl AudioClusterClient {
 
 /// Convenience function to create a client and connect
 pub async fn connect_to_cluster_node(address: &str) -> Result<AudioClusterClient, ClusterError> {
-    AudioClusterClient::connect(address).await
+    AudioClusterClient::connect(address, None).await
 }
 
 /// Create a shared connection pool for multiple clients

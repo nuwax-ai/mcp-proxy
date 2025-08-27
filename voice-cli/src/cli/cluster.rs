@@ -901,7 +901,7 @@ pub async fn handle_cluster_status(config: &Config, detailed: bool) -> Result<()
 
             println!("ℹ️ 本地数据库不可用，尝试通过 gRPC 查询集群状态: {}", grpc_addr);
 
-            let mut client = match crate::grpc::client::AudioClusterClient::connect(&grpc_addr).await {
+            let mut client = match crate::grpc::client::AudioClusterClient::connect(&grpc_addr, None).await {
                 Ok(c) => c,
                 Err(connect_err) => {
                     error!("Failed to connect gRPC for status: {}", connect_err);
@@ -1115,7 +1115,7 @@ async fn perform_cluster_join(
     let grpc_address = format!("{}:{}", host, grpc_port);
 
     // Create gRPC client connection
-    let mut client = crate::grpc::client::AudioClusterClient::connect(&grpc_address)
+    let mut client = crate::grpc::client::AudioClusterClient::connect(&grpc_address, None)
         .await
         .with_context(|| format!("Failed to connect to peer {}", grpc_address))?;
 

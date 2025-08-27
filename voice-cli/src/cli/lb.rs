@@ -9,6 +9,9 @@ use std::sync::Arc;
 use tokio::signal;
 use tracing::{error, info};
 
+use crate::daemon::service_logging::init_service_logging;
+
+
 /// Initialize load balancer configuration
 pub async fn handle_lb_init(
     config_path: Option<PathBuf>,
@@ -59,6 +62,10 @@ pub async fn handle_lb_init(
 
 /// Handle load balancer run command (foreground mode)
 pub async fn handle_lb_run(config: &Config, port: u16, health_check_interval: u64) -> Result<()> {
+    // Initialize logging for foreground mode
+    init_service_logging(config, "load-balancer", true)
+        .map_err(|e| VoiceCliError::Config(format!("Logging initialization failed: {}", e)))?;
+    
     info!("Starting load balancer in foreground mode on port {}", port);
 
     info!("Load balancer configuration:");

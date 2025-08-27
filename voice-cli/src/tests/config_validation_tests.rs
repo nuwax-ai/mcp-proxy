@@ -58,6 +58,7 @@ mod config_validation_tests {
                 health_check_timeout: 5,
                 pid_file: "./load_balancer.pid".to_string(),
                 log_file: "./logs/load_balancer.log".to_string(),
+                seed_nodes: Vec::new(),
             },
         }
     }

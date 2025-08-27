@@ -102,6 +102,8 @@ pub struct LoadBalancerConfig {
     pub pid_file: String,
     /// Log file for load balancer
     pub log_file: String,
+    /// Seed nodes for cluster discovery (format: host:port)
+    pub seed_nodes: Vec<String>,
 }
 
 impl Default for Config {
@@ -229,6 +231,7 @@ impl Default for LoadBalancerConfig {
             health_check_timeout: 3,
             pid_file: "./voice-cli-lb.pid".to_string(),
             log_file: "./logs/lb.log".to_string(),
+            seed_nodes: Vec::new(), // Empty by default
         }
     }
 }
@@ -540,6 +543,22 @@ impl Config {
                 "Applied environment override: VOICE_CLI_LB_HEALTH_CHECK_TIMEOUT = {}",
                 timeout
             );
+        }
+
+        // Seed nodes override
+        if let Ok(seed_nodes_str) = std::env::var("VOICE_CLI_LB_SEED_NODES") {
+            if !seed_nodes_str.trim().is_empty() {
+                let seed_nodes: Vec<String> = seed_nodes_str
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                self.load_balancer.seed_nodes = seed_nodes;
+                tracing::info!(
+                    "Applied environment override: VOICE_CLI_LB_SEED_NODES = {:?}",
+                    self.load_balancer.seed_nodes
+                );
+            }
         }
 
         // Logging configuration overrides

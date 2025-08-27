@@ -7,12 +7,15 @@ use tokio::sync::{mpsc, RwLock};
 use tokio::time::interval;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
+use tonic::transport::Channel;
 
 use crate::load_balancer::{
-    HealthCheckConfig, HealthChecker, HealthEvent, LoadBalancerService, ServiceEvent,
+    HealthCheckConfig, HealthChecker, HealthEvent, LoadBalancerService,
     ServiceManager, ServiceManagerConfig,
 };
-use crate::models::{LoadBalancerConfig, MetadataStore};
+use crate::models::{LoadBalancerConfig, MetadataStore, ClusterNode, NodeRole, NodeStatus};
+use crate::grpc::proto::audio_cluster_service_client::AudioClusterServiceClient;
+use crate::grpc::proto::{ClusterStatusRequest, NodeInfo};
 
 /// Main VoiceCliLoadBalancer that coordinates all load balancing functionality
 pub struct VoiceCliLoadBalancer {
@@ -31,8 +34,6 @@ pub struct VoiceCliLoadBalancer {
     instance_id: String,
     /// Health event receiver
     health_event_receiver: Option<mpsc::UnboundedReceiver<HealthEvent>>,
-    /// Service event receiver
-    service_event_receiver: Option<mpsc::UnboundedReceiver<ServiceEvent>>,
     /// Circuit breaker state for failed nodes
     circuit_breakers: Arc<RwLock<HashMap<String, CircuitBreakerState>>>,
     /// Request routing statistics
@@ -143,8 +144,7 @@ impl VoiceCliLoadBalancer {
             Some(Arc::clone(&health_checker)),
         ));
 
-        // Create a dummy service event receiver since ServiceManager handles its own events
-        let (_dummy_sender, service_event_receiver) = mpsc::unbounded_channel();
+        // ServiceManager handles its own events internally, no need for event channel
 
         // Create load balancer service
         let load_balancer_service = Arc::new(
@@ -162,7 +162,6 @@ impl VoiceCliLoadBalancer {
             service_manager,
             instance_id,
             health_event_receiver: Some(health_event_receiver),
-            service_event_receiver: Some(service_event_receiver),
             circuit_breakers: Arc::new(RwLock::new(HashMap::new())),
             routing_stats: Arc::new(RwLock::new(RoutingStats::default())),
         })
@@ -202,7 +201,6 @@ impl VoiceCliLoadBalancer {
 
         // Start event processors
         let health_event_handle = self.start_health_event_processor();
-        let service_event_handle = self.start_service_event_processor();
         let circuit_breaker_handle = self.start_circuit_breaker_manager();
 
         // Start the main load balancer service
@@ -228,9 +226,6 @@ impl VoiceCliLoadBalancer {
             result = health_event_handle => {
                 error!("Health event processor stopped: {:?}", result);
             }
-            result = service_event_handle => {
-                error!("Service event processor stopped: {:?}", result);
-            }
             result = circuit_breaker_handle => {
                 error!("Circuit breaker manager stopped: {:?}", result);
             }
@@ -242,26 +237,169 @@ impl VoiceCliLoadBalancer {
         Ok(())
     }
 
-    /// Initialize cluster nodes from metadata store
+    /// Initialize cluster nodes from metadata store and seed nodes
     async fn initialize_cluster_nodes(&self) -> Result<()> {
-        info!("Initializing cluster nodes from metadata store");
+        info!("Initializing cluster nodes from metadata store and seed nodes");
 
-        let nodes = self
+        // First, try to load existing nodes from metadata store
+        let mut nodes = self
             .metadata_store
             .get_all_nodes()
             .await
             .context("Failed to get cluster nodes from metadata store")?;
 
-        info!("Found {} cluster nodes", nodes.len());
+        info!("Found {} existing cluster nodes in metadata store", nodes.len());
+
+        // If no nodes found in metadata store, try to discover from seed nodes
+        if nodes.is_empty() && !self.config.seed_nodes.is_empty() {
+            info!("No nodes in metadata store, attempting cluster discovery from {} seed nodes", self.config.seed_nodes.len());
+            
+            let discovered_nodes = self.discover_cluster_from_seed_nodes().await?;
+            
+            if !discovered_nodes.is_empty() {
+                info!("Discovered {} nodes from seed nodes, adding to metadata store", discovered_nodes.len());
+                
+                // Add discovered nodes to metadata store
+                for node in &discovered_nodes {
+                    if let Err(e) = self.metadata_store.add_node(node).await {
+                        warn!("Failed to add discovered node {} to metadata store: {}", node.node_id, e);
+                    }
+                }
+                
+                nodes = discovered_nodes;
+            } else {
+                warn!("No nodes discovered from seed nodes");
+            }
+        } else if !self.config.seed_nodes.is_empty() {
+            info!("Found existing nodes in metadata store, skipping seed node discovery");
+        }
+
+        info!("Total available cluster nodes: {}", nodes.len());
 
         for node in &nodes {
             info!(
-                "Discovered node: {} at {}:{} (role: {:?}, status: {:?})",
+                "Available node: {} at {}:{} (role: {:?}, status: {:?})",
                 node.node_id, node.address, node.http_port, node.role, node.status
             );
         }
 
         Ok(())
+    }
+
+    /// Discover cluster nodes from configured seed nodes
+    async fn discover_cluster_from_seed_nodes(&self) -> Result<Vec<ClusterNode>> {
+        let mut discovered_nodes = Vec::new();
+        
+        for seed_node in &self.config.seed_nodes {
+            info!("Attempting to discover cluster from seed node: {}", seed_node);
+            
+            match self.query_cluster_status_from_seed(seed_node).await {
+                Ok(nodes) => {
+                    info!("Successfully discovered {} nodes from seed node {}", nodes.len(), seed_node);
+                    
+                    for node in nodes {
+                        // Avoid duplicates
+                        if !discovered_nodes.iter().any(|n: &ClusterNode| n.node_id == node.node_id) {
+                            discovered_nodes.push(node);
+                        }
+                    }
+                    
+                    // If we got nodes from this seed, we can stop trying others
+                    if !discovered_nodes.is_empty() {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to discover cluster from seed node {}: {}", seed_node, e);
+                    continue;
+                }
+            }
+        }
+        
+        Ok(discovered_nodes)
+    }
+
+    /// Query cluster status from a single seed node
+    async fn query_cluster_status_from_seed(&self, seed_node: &str) -> Result<Vec<ClusterNode>> {
+        // Parse seed node address (format: host:port)
+        let parts: Vec<&str> = seed_node.split(':').collect();
+        if parts.len() != 2 {
+            return Err(anyhow::anyhow!("Invalid seed node format '{}', expected 'host:port'", seed_node));
+        }
+        
+        let host = parts[0];
+        let port: u16 = parts[1].parse()
+            .with_context(|| format!("Invalid port in seed node '{}'", seed_node))?;
+        
+        // Build gRPC endpoint
+        let endpoint = format!("http://{}:{}", host, port);
+        
+        // Create gRPC client with timeout
+        let channel = Channel::from_shared(endpoint.clone())
+            .context("Failed to create gRPC channel")?
+            .timeout(Duration::from_secs(5))
+            .connect()
+            .await
+            .with_context(|| format!("Failed to connect to seed node {}", endpoint))?;
+        
+        let mut client = AudioClusterServiceClient::new(channel);
+        
+        // Create cluster status request
+        let request = tonic::Request::new(ClusterStatusRequest {
+            node_id: self.instance_id.clone(),
+        });
+        
+        // Query cluster status
+        let response = client
+            .get_cluster_status(request)
+            .await
+            .with_context(|| format!("Failed to get cluster status from {}", endpoint))?;
+        
+        let cluster_response = response.into_inner();
+        
+        // Convert protobuf nodes to ClusterNode
+        let mut nodes = Vec::new();
+        for proto_node in cluster_response.nodes {
+            match self.proto_to_cluster_node(&proto_node) {
+                Ok(node) => nodes.push(node),
+                Err(e) => warn!("Failed to parse node from seed {}: {}", seed_node, e),
+            }
+        }
+        
+        Ok(nodes)
+    }
+
+    /// Convert protobuf NodeInfo to ClusterNode
+    fn proto_to_cluster_node(&self, proto: &NodeInfo) -> Result<ClusterNode> {
+        use crate::grpc::proto::{NodeRole as ProtoRole, NodeStatus as ProtoStatus};
+        
+        let role = match ProtoRole::try_from(proto.role) {
+            Ok(ProtoRole::Leader) => NodeRole::Leader,
+            Ok(ProtoRole::Follower) => NodeRole::Follower,
+            Ok(ProtoRole::Candidate) => NodeRole::Candidate,
+            Err(_) => return Err(anyhow::anyhow!("Invalid node role: {}", proto.role)),
+        };
+        
+        let status = match ProtoStatus::try_from(proto.status) {
+            Ok(ProtoStatus::Healthy) => NodeStatus::Healthy,
+            Ok(ProtoStatus::Unhealthy) => NodeStatus::Unhealthy,
+            Ok(ProtoStatus::Joining) => NodeStatus::Joining,
+            Ok(ProtoStatus::Leaving) => NodeStatus::Leaving,
+            Err(_) => return Err(anyhow::anyhow!("Invalid node status: {}", proto.status)),
+        };
+        
+        let mut node = ClusterNode::new(
+            proto.node_id.clone(),
+            proto.address.clone(),
+            proto.grpc_port as u16,
+            proto.http_port as u16,
+        );
+        
+        node.role = role;
+        node.status = status;
+        node.last_heartbeat = proto.last_heartbeat;
+        
+        Ok(node)
     }
 
     /// Start health event processor
@@ -276,20 +414,6 @@ impl VoiceCliLoadBalancer {
         tokio::spawn(async move {
             while let Some(event) = receiver.recv().await {
                 Self::handle_health_event(event, &circuit_breakers, &routing_stats).await;
-            }
-        })
-    }
-
-    /// Start service event processor
-    fn start_service_event_processor(&mut self) -> tokio::task::JoinHandle<()> {
-        let mut receiver = self
-            .service_event_receiver
-            .take()
-            .expect("Service event receiver should be available");
-
-        tokio::spawn(async move {
-            while let Some(event) = receiver.recv().await {
-                Self::handle_service_event(event).await;
             }
         })
     }
@@ -392,39 +516,6 @@ impl VoiceCliLoadBalancer {
                         node_id, consecutive_failures
                     );
                 }
-            }
-        }
-    }
-
-    /// Handle service events from the service manager
-    async fn handle_service_event(event: ServiceEvent) {
-        match event {
-            ServiceEvent::ServiceRegistered {
-                service_id,
-                node_id,
-            } => {
-                info!("Service {} registered on node {}", service_id, node_id);
-            }
-            ServiceEvent::ServiceDeregistered {
-                service_id,
-                node_id,
-            } => {
-                info!("Service {} deregistered from node {}", service_id, node_id);
-            }
-            ServiceEvent::ServiceHealthy { service_id } => {
-                debug!("Service {} is healthy", service_id);
-            }
-            ServiceEvent::ServiceUnhealthy { service_id, error } => {
-                warn!("Service {} is unhealthy: {}", service_id, error);
-            }
-            ServiceEvent::NodeJoined { node_id, address } => {
-                info!("Node {} joined cluster at {}", node_id, address);
-            }
-            ServiceEvent::NodeLeft { node_id, reason } => {
-                info!("Node {} left cluster: {}", node_id, reason);
-            }
-            ServiceEvent::NodeHealthChanged { node_id, status } => {
-                debug!("Node {} health changed to {:?}", node_id, status);
             }
         }
     }
