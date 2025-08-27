@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast;
 use crate::utils::signal_handling::create_service_shutdown_signal;
-use tracing::{info, warn, error, debug};
+use tracing::{debug, info};
 
 /// Load Balancer Service that implements BackgroundService
 /// 
@@ -197,7 +197,7 @@ impl BackgroundService for LoadBalancerService {
             );
 
             // Extract load balancer specific configuration
-            let lb_config = LoadBalancerConfig {
+            let _lb_config = LoadBalancerConfig {
                 enabled: config.load_balancer.enabled,
                 bind_address: config.load_balancer.bind_address.clone(),
                 port: config.load_balancer.port,

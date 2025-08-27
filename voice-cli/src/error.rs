@@ -1,6 +1,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use config::ConfigError;
 use serde_json::json;
 use thiserror::Error;
 
@@ -29,6 +30,9 @@ pub enum VoiceCliError {
 
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+
+    #[error("Config-rs error: {0}")]
+    ConfigRs(#[from] ConfigError),
 
     #[error("Daemon error: {0}")]
     Daemon(String),
@@ -109,6 +113,7 @@ impl IntoResponse for VoiceCliError {
             }
             VoiceCliError::MultipartError(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             VoiceCliError::MissingField(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            VoiceCliError::ConfigRs(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
         };
 
         let body = Json(json!({

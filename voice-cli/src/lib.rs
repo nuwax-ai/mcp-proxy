@@ -1,5 +1,6 @@
 pub mod cli;
 pub mod config;
+pub mod config_rs_integration;
 pub mod daemon;
 pub mod error;
 pub mod models;

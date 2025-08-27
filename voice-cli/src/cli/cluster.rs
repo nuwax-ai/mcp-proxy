@@ -1,5 +1,5 @@
 use crate::cluster::{ClusterServiceManager, ClusterState, SimpleTaskScheduler};
-use crate::config::{ConfigTemplateGenerator, ServiceConfigLoader, ServiceType};
+use crate::config::{ConfigTemplateGenerator, ServiceType};
 use crate::error::ClusterResultExt;
 use crate::models::Config;
 use crate::models::{ClusterError, ClusterNode, MetadataStore, NodeRole, NodeStatus, TaskState};

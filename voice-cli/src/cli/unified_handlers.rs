@@ -4,14 +4,12 @@
 //! These handlers replace the legacy daemon-based implementations with modern, safe, and consistent approaches.
 
 use crate::daemon::{
-    DefaultServiceManager, HttpServerService, ClusterNodeService, LoadBalancerService, 
-    HttpServerServiceBuilder, ClusterNodeServiceBuilder, LoadBalancerServiceBuilder,
+    DefaultServiceManager, HttpServerServiceBuilder, ClusterNodeServiceBuilder, LoadBalancerServiceBuilder,
     ServiceHealth, ServiceStatus
 };
 use crate::models::Config;
 use crate::VoiceCliError;
-use std::path::PathBuf;
-use tracing::{info, warn, error};
+use tracing::{info, error, warn};
 
 /// Unified server command handlers using the new background service abstraction
 pub mod server {

@@ -1,4 +1,5 @@
-use crate::config::{ConfigTemplateGenerator, ServiceConfigLoader, ServiceType};
+use crate::config::{ConfigTemplateGenerator, ServiceType};
+use crate::config_rs_integration::{ConfigRsLoader, CliOverrides};
 use crate::load_balancer::VoiceCliLoadBalancer;
 use crate::models::Config;
 use crate::models::MetadataStore;
@@ -6,7 +7,7 @@ use crate::{Result, VoiceCliError};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::signal;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 /// Initialize load balancer configuration
 pub async fn handle_lb_init(
@@ -32,11 +33,12 @@ pub async fn handle_lb_init(
 
     // 如果指定了端口参数，更新配置文件
     if let Some(port) = port {
-        let mut config = ServiceConfigLoader::load_service_config(
-            ServiceType::LoadBalancer,
-            Some(&output_path),
-        )?;
-        config.load_balancer.port = port;
+        // 使用新的 config-rs 加载器加载配置
+        let cli_overrides = CliOverrides {
+            lb_port: Some(port),
+            ..Default::default()
+        };
+        let config = ConfigRsLoader::load(Some(&output_path), &cli_overrides, Some(ServiceType::LoadBalancer))?;
         config
             .save(&output_path)
             .map_err(|e| crate::VoiceCliError::Config(e.to_string()))?;

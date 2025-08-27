@@ -1,3 +1,4 @@
+use crate::config_rs_integration::{ConfigRsLoader, CliOverrides};
 use crate::models::Config;
 use crate::VoiceCliError;
 use std::collections::HashMap;
@@ -119,11 +120,9 @@ impl ServiceConfigLoader {
             ConfigTemplateGenerator::generate_config_file(service_type, &config_path)?;
         }
 
-        // 加载并调整配置
-        let mut config = Config::load(&config_path)?;
-        Self::apply_service_specific_settings(&mut config, service_type)?;
-        config.apply_env_overrides()?;
-        config.validate()?;
+        // 使用新的 config-rs 加载器加载配置（自动处理环境变量）
+        let cli_overrides = CliOverrides::default();
+        let config = ConfigRsLoader::load(Some(&config_path), &cli_overrides, Some(service_type))?;
 
         Ok(config)
     }

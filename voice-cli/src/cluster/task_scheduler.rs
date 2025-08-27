@@ -718,7 +718,7 @@ impl SimpleTaskScheduler {
             );
 
             // Update scheduler statistics
-            let mut stats = self.stats.write().await;
+            let _stats = self.stats.write().await;
             // We could add rebalancing stats here if needed
         } else {
             debug!("No tasks were rebalanced - all eligible tasks may be in processing state");

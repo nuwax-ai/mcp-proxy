@@ -128,6 +128,7 @@ impl<T> From<VoiceCliError> for HttpResult<T> {
             }
             VoiceCliError::Model(msg) => Self::system_error(format!("Model error: {}", msg)),
             VoiceCliError::Daemon(msg) => Self::system_error(format!("Daemon error: {}", msg)),
+            VoiceCliError::ConfigRs(err) => Self::system_error(format!("Configuration error: {}", err)),
         }
     }
 }

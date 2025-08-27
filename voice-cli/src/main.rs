@@ -1,13 +1,14 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use std::{error::Error, path::PathBuf};
+use std::path::PathBuf;
 use tracing::{error, info, warn};
 use tracing_subscriber;
 use voice_cli::{
     cli::{
         Cli, ClusterAction, Commands, LoadBalancerAction, ModelAction, ServerAction,
     },
-    config::{ConfigManager, ServiceConfigLoader, ServiceType},
+    config::ServiceType,
+    config_rs_integration::ConfigRsLoader,
     log_cluster_event,
     utils::{init_structured_logging, ClusterLoggingContext},
 };
@@ -21,7 +22,16 @@ async fn main() {
     // This is console-only and will be replaced by proper file logging when services start
     init_console_only_logging(cli.verbose);
 
-    // Load configuration based on command type
+    // Generate CLI overrides from command line arguments
+    let cli_overrides = match ConfigRsLoader::generate_cli_overrides_from_args(&cli) {
+        Ok(overrides) => overrides,
+        Err(e) => {
+            error!("Failed to generate CLI overrides: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    // Load configuration based on command type using config-rs with proper hierarchy
     let config = match &cli.command {
         // For init commands, we don't need to load existing config
         Commands::Server {
@@ -39,92 +49,50 @@ async fn main() {
 
         // For server commands, use server-specific config
         Commands::Server { action } => {
-            match get_config_path_for_server_action(action, &cli.config) {
-                Some(config_path) => {
-                    match ServiceConfigLoader::load_service_config(
-                        ServiceType::Server,
-                        Some(&config_path),
-                    ) {
-                        Ok(config) => config,
-                        Err(e) => {
-                            error!("Failed to load server configuration: {}", e);
-                            std::process::exit(1);
-                        }
-                    }
+            let config_path = get_config_path_for_server_action(action, &cli.config);
+            match ConfigRsLoader::load(config_path.as_ref(), &cli_overrides, Some(ServiceType::Server)) {
+                Ok(config) => config,
+                Err(e) => {
+                    error!("Failed to load server configuration: {}", e);
+                    std::process::exit(1);
                 }
-                None => match ServiceConfigLoader::load_service_config(ServiceType::Server, None) {
-                    Ok(config) => config,
-                    Err(e) => {
-                        error!("Failed to load server configuration: {}", e);
-                        std::process::exit(1);
-                    }
-                },
             }
         }
 
         // For cluster commands, use cluster-specific config
         Commands::Cluster { action } => {
-            match get_config_path_for_cluster_action(action, &cli.config) {
-                Some(config_path) => {
-                    match ServiceConfigLoader::load_service_config(
-                        ServiceType::Cluster,
-                        Some(&config_path),
-                    ) {
-                        Ok(config) => config,
-                        Err(e) => {
-                            error!("Failed to load cluster configuration: {}", e);
-                            std::process::exit(1);
-                        }
-                    }
-                }
-                None => {
-                    match ServiceConfigLoader::load_service_config(ServiceType::Cluster, None) {
-                        Ok(config) => config,
-                        Err(e) => {
-                            error!("Failed to load cluster configuration: {}", e);
-                            std::process::exit(1);
-                        }
-                    }
+            let config_path = get_config_path_for_cluster_action(action, &cli.config);
+            match ConfigRsLoader::load(config_path.as_ref(), &cli_overrides, Some(ServiceType::Cluster)) {
+                Ok(config) => config,
+                Err(e) => {
+                    error!("Failed to load cluster configuration: {}", e);
+                    std::process::exit(1);
                 }
             }
         }
 
         // For load balancer commands, use load balancer-specific config
-        Commands::Lb { action } => match get_config_path_for_lb_action(action, &cli.config) {
-            Some(config_path) => {
-                match ServiceConfigLoader::load_service_config(
-                    ServiceType::LoadBalancer,
-                    Some(&config_path),
-                ) {
-                    Ok(config) => config,
-                    Err(e) => {
-                        error!("Failed to load load balancer configuration: {}", e);
-                        std::process::exit(1);
-                    }
+        Commands::Lb { action } => {
+            let config_path = get_config_path_for_lb_action(action, &cli.config);
+            match ConfigRsLoader::load(config_path.as_ref(), &cli_overrides, Some(ServiceType::LoadBalancer)) {
+                Ok(config) => config,
+                Err(e) => {
+                    error!("Failed to load load balancer configuration: {}", e);
+                    std::process::exit(1);
                 }
             }
-            None => {
-                match ServiceConfigLoader::load_service_config(ServiceType::LoadBalancer, None) {
-                    Ok(config) => config,
-                    Err(e) => {
-                        error!("Failed to load load balancer configuration: {}", e);
-                        std::process::exit(1);
-                    }
-                }
-            }
-        },
+        }
 
-        // For other commands, fall back to the original logic
+        // For other commands, use default config loading
         _ => {
             let config_path = PathBuf::from(&cli.config);
-            let config_manager = match ConfigManager::new(config_path) {
-                Ok(manager) => manager,
+            match ConfigRsLoader::load(Some(&config_path), &cli_overrides, None) {
+                Ok(config) => config,
                 Err(e) => {
                     error!("Failed to load configuration: {}", e);
                     std::process::exit(1);
                 }
-            };
-            config_manager.config().await
+            }
         }
     };
 

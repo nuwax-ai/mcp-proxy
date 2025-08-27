@@ -10,7 +10,7 @@ use crate::VoiceCliError;
 use std::time::Duration;
 use tokio::sync::broadcast;
 use crate::utils::signal_handling::create_service_shutdown_signal;
-use tracing::{info, warn, error, debug};
+use tracing::{info, error};
 
 /// HTTP Server Service that implements BackgroundService
 /// 

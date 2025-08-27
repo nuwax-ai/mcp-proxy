@@ -6,8 +6,8 @@
 
 use crate::models::Config;
 use crate::utils::init_logging;
-use std::{path::PathBuf, sync::OnceLock};
-use tracing::{info, warn, error, debug};
+use std::path::PathBuf;
+use tracing::{error, info, warn};
 
 
 

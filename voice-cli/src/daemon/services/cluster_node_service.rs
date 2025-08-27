@@ -13,7 +13,7 @@ use std::time::Duration;
 use tokio::sync::broadcast;
 use crate::utils::signal_handling::create_service_shutdown_signal;
 use tokio_util::sync::CancellationToken;
-use tracing::{info, warn, error, debug};
+use tracing::{info, error};
 
 /// Cluster Node Service that implements BackgroundService
 /// 
