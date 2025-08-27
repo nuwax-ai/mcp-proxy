@@ -14,16 +14,21 @@ pub struct TranscriptionRequest {
 /// Response structure for transcription API
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct TranscriptionResponse {
+    /// 完整转写结果文本（合并所有分段后的最终文本）
     #[schema(example = "Hello, this is a test transcription.")]
     pub text: String,
+    /// 分段级别的转写结果，包含起止时间、文本与置信度
     #[schema(example = json!([{"start": 0.0, "end": 2.5, "text": "Hello world", "confidence": 0.95}]))]
     pub segments: Vec<Segment>,
+    /// 自动检测到的语种（如可用）。ISO 639-1 两字母代码
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(example = "en")]
     pub language: Option<String>,
+    /// 音频时长（秒），如可获取
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(example = 2.5)]
     pub duration: Option<f32>,
+    /// 处理耗时（秒），从请求进入到生成结果的总时长
     #[schema(example = 0.8)]
     pub processing_time: f32,
 }

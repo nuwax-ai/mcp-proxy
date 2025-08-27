@@ -359,7 +359,7 @@ voice-cli cluster run --http-port 8081 --grpc-port 9091
 nohup voice-cli cluster run --http-port 8081 --grpc-port 9091 > cluster.log 2>&1 &
 
 # 示例：加入现有集群
-voice-cli cluster join 192.168.1.100:9090 --advertise-ip 192.168.1.102 --http-port 8082 --grpc-port 9092
+ voice-cli cluster join  --peer-address 192.168.8.182:50051 --advertise-ip 192.168.8.138  --http-port 8082 --grpc-port 9092
 ```
 
 ### 负载均衡器管理
