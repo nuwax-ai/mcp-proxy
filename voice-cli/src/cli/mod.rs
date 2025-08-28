@@ -1,5 +1,3 @@
-pub mod cluster;
-pub mod lb;
 pub mod model;
 pub mod server;
 
@@ -7,7 +5,7 @@ pub mod server;
 pub mod unified_handlers;
 
 // Re-export unified handlers for convenience
-pub use unified_handlers::{server as unified_server, cluster as unified_cluster, load_balancer as unified_lb};
+pub use unified_handlers::{server as unified_server};
 
 use clap::{Parser, Subcommand};
 
@@ -39,16 +37,6 @@ pub enum Commands {
     Model {
         #[command(subcommand)]
         action: ModelAction,
-    },
-    /// Cluster management commands
-    Cluster {
-        #[command(subcommand)]
-        action: ClusterAction,
-    },
-    /// Load balancer management commands
-    Lb {
-        #[command(subcommand)]
-        action: LoadBalancerAction,
     },
 }
 
@@ -95,157 +83,6 @@ pub enum ModelAction {
     },
 }
 
-#[derive(Subcommand)]
-pub enum ClusterAction {
-    /// Initialize cluster configuration
-    Init {
-        /// Configuration file output path (default: ./cluster-config.yml)
-        #[arg(short, long)]
-        config: Option<std::path::PathBuf>,
-
-        /// HTTP port for this node
-        #[arg(long)]
-        http_port: Option<u16>,
-
-        /// gRPC port for this node
-        #[arg(long)]
-        grpc_port: Option<u16>,
-
-        /// Force overwrite existing configuration file
-        #[arg(long)]
-        force: bool,
-    },
-    /// Run cluster node in foreground mode
-    Run {
-        /// Configuration file path
-        #[arg(short, long)]
-        config: Option<std::path::PathBuf>,
-
-        /// Node ID for this cluster node
-        #[arg(long)]
-        node_id: Option<String>,
-        /// HTTP port for this node
-        #[arg(long)]
-        http_port: Option<u16>,
-        /// gRPC port for this node
-        #[arg(long)]
-        grpc_port: Option<u16>,
-        /// Whether this node can process tasks
-        #[arg(long, default_value = "true")]
-        can_process_tasks: bool,
-        /// IP address to advertise to other cluster nodes (auto-detected if not specified)
-        #[arg(long)]
-        advertise_ip: Option<String>,
-    },
-    /// Join an existing cluster
-    Join {
-        /// Address of a node in the target cluster
-        #[arg(long)]
-        peer_address: String,
-        /// IP address of this node to advertise to other cluster nodes
-        #[arg(long)]
-        advertise_ip: String,
-        /// Node ID for this cluster node
-        #[arg(long)]
-        node_id: Option<String>,
-        /// HTTP port for this node
-        #[arg(long)]
-        http_port: Option<u16>,
-        /// gRPC port for this node
-        #[arg(long)]
-        grpc_port: Option<u16>,
-        /// Cluster token for authentication (optional)
-        #[arg(long)]
-        token: Option<String>,
-    },
-    /// Get cluster status
-    Status {
-        /// Show detailed node information
-        #[arg(long)]
-        detailed: bool,
-    },
-    GenerateConfig {
-        /// Output file path (optional, defaults to current directory)
-        #[arg(long, short)]
-        output: Option<String>,
-        /// Configuration template type
-        #[arg(long, default_value = "default")]
-        template: String,
-    },
-    /// Install systemd service for cluster node
-    InstallService {
-        /// Service name (defaults to voice-cli-cluster)
-        #[arg(long, default_value = "voice-cli-cluster")]
-        service_name: String,
-        /// Node ID for this cluster node
-        #[arg(long)]
-        node_id: Option<String>,
-        /// HTTP port for this node
-        #[arg(long, default_value = "8080")]
-        http_port: u16,
-        /// gRPC port for this node
-        #[arg(long, default_value = "50051")]
-        grpc_port: u16,
-        /// Whether this node can process tasks
-        #[arg(long, default_value = "true")]
-        can_process_tasks: bool,
-        /// Memory limit for the service (e.g., 1G, 512M)
-        #[arg(long)]
-        memory_limit: Option<String>,
-        /// CPU limit for the service (e.g., 2, 0.5)
-        #[arg(long)]
-        cpu_limit: Option<String>,
-        /// User to run the service as (defaults to current user)
-        #[arg(long)]
-        user: Option<String>,
-        /// Group to run the service as (defaults to current user's group)
-        #[arg(long)]
-        group: Option<String>,
-    },
-    /// Uninstall systemd service
-    UninstallService {
-        /// Service name to uninstall
-        #[arg(long, default_value = "voice-cli-cluster")]
-        service_name: String,
-    },
-    /// Check systemd service status
-    ServiceStatus {
-        /// Service name to check
-        #[arg(long, default_value = "voice-cli-cluster")]
-        service_name: String,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum LoadBalancerAction {
-    /// Initialize load balancer configuration
-    Init {
-        /// Configuration file output path (default: ./lb-config.yml)
-        #[arg(short, long)]
-        config: Option<std::path::PathBuf>,
-
-        /// Load balancer port
-        #[arg(short, long)]
-        port: Option<u16>,
-
-        /// Force overwrite existing configuration file
-        #[arg(long)]
-        force: bool,
-    },
-    /// Run load balancer in foreground mode
-    Run {
-        /// Configuration file path
-        #[arg(short, long)]
-        config: Option<std::path::PathBuf>,
-
-        /// Load balancer port
-        #[arg(short, long)]
-        port: Option<u16>,
-        /// Health check interval in seconds
-        #[arg(long)]
-        health_check_interval: Option<u64>,
-    },
-}
 
 // Daemon mode is no longer supported
 // Use foreground mode with shell scripts for background operation

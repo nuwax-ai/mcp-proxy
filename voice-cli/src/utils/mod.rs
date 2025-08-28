@@ -1,17 +1,11 @@
-pub mod ip_discovery;
 pub mod signal_handling;
-pub mod structured_logging;
 
 use crate::VoiceCliError;
 use crate::models::Config;
 use std::path::PathBuf;
-use std::sync::OnceLock;
 use tracing::{Level, info};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{EnvFilter, prelude::*};
-
-// Re-export structured logging components
-pub use structured_logging::{ClusterLoggingContext, init_structured_logging};
 
 // Re-export signal handling components
 pub use signal_handling::{
@@ -19,8 +13,6 @@ pub use signal_handling::{
     handle_system_signals,
 };
 
-// Re-export IP discovery functions
-pub use ip_discovery::{IpDiscovery, IpDiscoveryConfig, get_cluster_ip, get_local_ip};
 
 /// Initialize logging based on configuration
 /// The guard is stored globally to ensure logging stays active

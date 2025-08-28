@@ -15,8 +15,6 @@ pub use service_logging::{
     setup_log_rotation, apply_logging_env_overrides, ServiceLogContext
 };
 pub use services::{
-    HttpServerService, HttpServerServiceBuilder,
-    ClusterNodeService, ClusterNodeServiceBuilder,
-    LoadBalancerService, LoadBalancerServiceBuilder
+    HttpServerService, HttpServerServiceBuilder
 };
 

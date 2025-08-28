@@ -1,22 +1,14 @@
-use crate::VoiceCliError;
-use crate::config_rs_integration::{CliOverrides, ConfigRsLoader};
 use crate::models::Config;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::SystemTime;
-use tokio::sync::{RwLock, broadcast};
-use tracing::{error, info};
+use tracing::info;
 
-/// 服务类型枚举，定义三种不同的服务模式
+/// 服务类型枚举，定义服务模式
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ServiceType {
     /// 单节点服务器模式
     Server,
-    /// 集群节点模式
-    Cluster,
-    /// 负载均衡器模式
-    LoadBalancer,
 }
 
 impl ServiceType {
@@ -24,8 +16,6 @@ impl ServiceType {
     pub fn default_config_filename(&self) -> &'static str {
         match self {
             ServiceType::Server => "server-config.yml",
-            ServiceType::Cluster => "cluster-config.yml",
-            ServiceType::LoadBalancer => "lb-config.yml",
         }
     }
 
@@ -33,8 +23,6 @@ impl ServiceType {
     pub fn display_name(&self) -> &'static str {
         match self {
             ServiceType::Server => "Server",
-            ServiceType::Cluster => "Cluster",
-            ServiceType::LoadBalancer => "Load Balancer",
         }
     }
 
@@ -42,8 +30,6 @@ impl ServiceType {
     pub fn all() -> &'static [ServiceType] {
         &[
             ServiceType::Server,
-            ServiceType::Cluster,
-            ServiceType::LoadBalancer,
         ]
     }
 }
@@ -78,8 +64,6 @@ impl ConfigTemplateGenerator {
     fn get_template_content(service_type: ServiceType) -> crate::Result<&'static str> {
         match service_type {
             ServiceType::Server => Ok(include_str!("../templates/server-config.yml.template")),
-            ServiceType::Cluster => Ok(include_str!("../templates/cluster-config.yml.template")),
-            ServiceType::LoadBalancer => Ok(include_str!("../templates/lb-config.yml.template")),
         }
     }
 

@@ -38,24 +38,15 @@ pub async fn handle_server_run(config: &Config) -> crate::Result<()> {
     crate::utils::init_logging(config)?;
     info!("Logging initialized successfully");
 
-    info!("About to create cluster-aware server...");
-    // Start the cluster-aware HTTP server
-    let server = crate::server::create_cluster_aware_server_with_shutdown(config.clone()).await?;
-    info!("Cluster-aware server created successfully");
+    info!("About to create server...");
+    // Start the HTTP server
+    let server = crate::server::create_server_with_graceful_shutdown(config.clone()).await?;
+    info!("Server created successfully");
 
-    if config.cluster.enabled {
-        info!(
-            "Cluster-aware server running on {}:{}",
-            config.server.host, config.server.port
-        );
-        info!("Cluster node ID: {}", config.cluster.node_id);
-        info!("gRPC port: {}", config.cluster.grpc_port);
-    } else {
-        info!(
-            "Single-node server running on {}:{}",
-            config.server.host, config.server.port
-        );
-    }
+    info!(
+        "Server running on {}:{}",
+        config.server.host, config.server.port
+    );
     info!("Press Ctrl+C to stop the server");
 
     // Run server with graceful shutdown

@@ -1,7 +1,7 @@
 //! Unified background service abstraction for voice-cli
 //! 
 //! This module provides a modern, safe, and unified approach to managing background services
-//! across different voice-cli commands (server, cluster, load balancer). It follows Rust
+//! for the voice-cli server command. It follows Rust
 //! best practices and avoids unsafe code completely.
 //!
 //! # Features
@@ -13,11 +13,10 @@
 //! - Centralized logging with configurable directories
 //! - Proper signal handling for graceful shutdown
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
-use parking_lot::RwLock;
 use tracing::{info, warn, error, debug};
 
 /// Unified background service trait for all voice-cli services
@@ -114,7 +113,7 @@ impl<S: BackgroundService + Clone> ServiceManager<S> {
         let mode = if self.foreground_mode { "foreground" } else { "background" };
         
         info!("Starting {} service in {} mode", service_name, mode);
-        *self.status.write() = ServiceStatus::Starting;
+        *self.status.write().unwrap() = ServiceStatus::Starting;
 
         // Validate configuration
         info!("Validating configuration for {}", service_name);
@@ -160,7 +159,7 @@ impl<S: BackgroundService + Clone> ServiceManager<S> {
         // Spawn service task
         let service_handle = tokio::spawn(async move {
             info!("Service task started for {}", service_name);
-            *status_clone.write() = ServiceStatus::Running;
+            *status_clone.write().unwrap() = ServiceStatus::Running;
             
             info!("About to run service: {}", service_name);
             // Run the actual service
@@ -174,11 +173,11 @@ impl<S: BackgroundService + Clone> ServiceManager<S> {
             match &result {
                 Ok(_) => {
                     info!("{} service completed successfully", service_name);
-                    *status_clone.write() = ServiceStatus::Stopped;
+                    *status_clone.write().unwrap() = ServiceStatus::Stopped;
                 }
                 Err(e) => {
                     error!("{} service failed: {}", service_name, e);
-                    *status_clone.write() = ServiceStatus::Failed { 
+                    *status_clone.write().unwrap() = ServiceStatus::Failed { 
                         error: e.to_string() 
                     };
                 }
@@ -200,7 +199,7 @@ impl<S: BackgroundService + Clone> ServiceManager<S> {
 
         let service_name = self.service.service_name();
         info!("Stopping {} service", service_name);
-        *self.status.write() = ServiceStatus::Stopping;
+        *self.status.write().unwrap() = ServiceStatus::Stopping;
 
         // Send shutdown signal
         if let Some(shutdown_tx) = self.shutdown_tx.take() {
@@ -228,7 +227,7 @@ impl<S: BackgroundService + Clone> ServiceManager<S> {
             warn!("Cleanup error for {}: {}", service_name, e);
         }
 
-        *self.status.write() = ServiceStatus::Stopped;
+        *self.status.write().unwrap() = ServiceStatus::Stopped;
         self.start_time = None;
         info!("{} service stopped successfully", service_name);
         
@@ -253,12 +252,12 @@ impl<S: BackgroundService + Clone> ServiceManager<S> {
 
     /// Check if service is running
     pub fn is_running(&self) -> bool {
-        matches!(*self.status.read(), ServiceStatus::Running | ServiceStatus::Starting)
+        matches!(*self.status.read().unwrap(), ServiceStatus::Running | ServiceStatus::Starting)
     }
 
     /// Get current service status
     pub fn status(&self) -> ServiceStatus {
-        self.status.read().clone()
+        self.status.read().unwrap().clone()
     }
 
     /// Get service uptime
@@ -344,7 +343,7 @@ impl<S: ClonableService> ClonableServiceManager<S> {
         let mode = if self.inner.foreground_mode { "foreground" } else { "background" };
         
         info!("Starting {} service in {} mode", service_name, mode);
-        *self.inner.status.write() = ServiceStatus::Starting;
+        *self.inner.status.write().unwrap() = ServiceStatus::Starting;
 
         // Validate configuration
         S::validate_config(&self.inner.config)
@@ -364,7 +363,7 @@ impl<S: ClonableService> ClonableServiceManager<S> {
 
         // Spawn service task
         let service_handle = tokio::spawn(async move {
-            *status_clone.write() = ServiceStatus::Running;
+            *status_clone.write().unwrap() = ServiceStatus::Running;
             
             let result = service_clone.run(shutdown_rx).await;
             
@@ -376,12 +375,12 @@ impl<S: ClonableService> ClonableServiceManager<S> {
             match &result {
                 Ok(_) => {
                     info!("{} service completed successfully", service_name);
-                    *status_clone.write() = ServiceStatus::Stopped;
+                    *status_clone.write().unwrap() = ServiceStatus::Stopped;
                     Ok(())
                 }
                 Err(e) => {
                     error!("{} service failed: {}", service_name, e);
-                    *status_clone.write() = ServiceStatus::Failed { 
+                    *status_clone.write().unwrap() = ServiceStatus::Failed { 
                         error: e.to_string() 
                     };
                     Err(ServiceError::ServiceError(e.to_string()))

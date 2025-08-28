@@ -1,7 +1,5 @@
-pub mod cluster;
 pub mod config;
 mod http_result;
-pub mod metadata_store;
 pub mod request;
 pub mod worker;
 
@@ -10,12 +8,6 @@ pub use config::*;
 
 // Re-export HTTP result types
 pub use http_result::*;
-
-// Re-export cluster types
-pub use cluster::*;
-
-// Re-export metadata store types
-pub use metadata_store::*;
 
 // Explicit re-exports to avoid conflicts
 // Request module exports (for HTTP API)

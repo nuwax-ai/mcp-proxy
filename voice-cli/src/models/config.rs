@@ -9,10 +9,6 @@ pub struct Config {
     pub whisper: WhisperConfig,
     pub logging: LoggingConfig,
     pub daemon: DaemonConfig,
-    #[serde(default)]
-    pub cluster: ClusterConfig,
-    #[serde(default)]
-    pub load_balancer: LoadBalancerConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,48 +60,6 @@ pub struct DaemonConfig {
     pub work_dir: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ClusterConfig {
-    /// Unique node identifier
-    pub node_id: String,
-    /// Address to bind gRPC server
-    pub bind_address: String,
-    /// Port for gRPC cluster communication
-    pub grpc_port: u16,
-    /// Port for HTTP API (same as server.port by default)
-    pub http_port: u16,
-    /// Whether this node can process tasks (true=leader can process, false=leader only coordinates)
-    pub leader_can_process_tasks: bool,
-    /// Heartbeat interval in seconds
-    pub heartbeat_interval: u64,
-    /// Election timeout in seconds
-    pub election_timeout: u64,
-    /// Path to store cluster metadata database
-    pub metadata_db_path: String,
-    /// Enable cluster mode (false for single-node operation)
-    pub enabled: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LoadBalancerConfig {
-    /// Enable load balancer service
-    pub enabled: bool,
-    /// Address to bind load balancer
-    pub bind_address: String,
-    /// Port for load balancer service
-    pub port: u16,
-    /// Health check interval in seconds
-    pub health_check_interval: u64,
-    /// Health check timeout in seconds
-    pub health_check_timeout: u64,
-    /// PID file for load balancer daemon
-    pub pid_file: String,
-    /// Log file for load balancer
-    pub log_file: String,
-    /// Seed nodes for cluster discovery (format: host:port)
-    pub seed_nodes: Vec<String>,
-}
-
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -113,8 +67,6 @@ impl Default for Config {
             whisper: WhisperConfig::default(),
             logging: LoggingConfig::default(),
             daemon: DaemonConfig::default(),
-            cluster: ClusterConfig::default(),
-            load_balancer: LoadBalancerConfig::default(),
         }
     }
 }
@@ -204,37 +156,6 @@ impl Default for DaemonConfig {
     }
 }
 
-impl Default for ClusterConfig {
-    fn default() -> Self {
-        use uuid::Uuid;
-        Self {
-            node_id: format!("node-{}", Uuid::new_v4().simple()),
-            bind_address: "0.0.0.0".to_string(),
-            grpc_port: 50051,
-            http_port: 8080,                // Same as server port by default
-            leader_can_process_tasks: true, // Leader can process tasks by default
-            heartbeat_interval: 3,
-            election_timeout: 15, // Must be at least 5 times heartbeat_interval (3 * 5 = 15)
-            metadata_db_path: "./cluster_metadata".to_string(),
-            enabled: false, // Disabled by default for backward compatibility
-        }
-    }
-}
-
-impl Default for LoadBalancerConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false, // Disabled by default
-            bind_address: "0.0.0.0".to_string(),
-            port: 8090, // Different port to avoid conflicts
-            health_check_interval: 5,
-            health_check_timeout: 3,
-            pid_file: "./voice-cli-lb.pid".to_string(),
-            log_file: "./logs/lb.log".to_string(),
-            seed_nodes: Vec::new(), // Empty by default
-        }
-    }
-}
 
 impl Config {
     pub fn load(config_path: &PathBuf) -> crate::Result<Self> {
@@ -318,36 +239,7 @@ impl Config {
             tracing::info!("Applied environment override: VOICE_CLI_PORT = {}", port);
         }
 
-        // HTTP port override (alias for server port) - required by task
-        if let Ok(port_str) = std::env::var("VOICE_CLI_HTTP_PORT") {
-            let port = port_str.parse::<u16>().map_err(|_| {
-                crate::VoiceCliError::Config(format!(
-                    "Invalid VOICE_CLI_HTTP_PORT value '{}': must be a valid port number (1-65535)",
-                    port_str
-                ))
-            })?;
-            self.server.port = port;
-            self.cluster.http_port = port; // Keep cluster HTTP port in sync
-            tracing::info!(
-                "Applied environment override: VOICE_CLI_HTTP_PORT = {}",
-                port
-            );
-        }
 
-        // gRPC port override - required by task
-        if let Ok(port_str) = std::env::var("VOICE_CLI_GRPC_PORT") {
-            let port = port_str.parse::<u16>().map_err(|_| {
-                crate::VoiceCliError::Config(format!(
-                    "Invalid VOICE_CLI_GRPC_PORT value '{}': must be a valid port number (1-65535)",
-                    port_str
-                ))
-            })?;
-            self.cluster.grpc_port = port;
-            tracing::info!(
-                "Applied environment override: VOICE_CLI_GRPC_PORT = {}",
-                port
-            );
-        }
 
         // Max file size override
         if let Ok(size_str) = std::env::var("VOICE_CLI_MAX_FILE_SIZE") {
@@ -384,182 +276,8 @@ impl Config {
             );
         }
 
-        // Cluster configuration overrides
-        if let Ok(node_id) = std::env::var("VOICE_CLI_NODE_ID") {
-            if node_id.trim().is_empty() {
-                return Err(crate::VoiceCliError::Config(
-                    "VOICE_CLI_NODE_ID environment variable cannot be empty".to_string(),
-                ));
-            }
-            self.cluster.node_id = node_id.clone();
-            tracing::info!(
-                "Applied environment override: VOICE_CLI_NODE_ID = {}",
-                node_id
-            );
-        }
 
-        if let Ok(enabled_str) = std::env::var("VOICE_CLI_CLUSTER_ENABLED") {
-            let enabled = enabled_str.parse::<bool>().map_err(|_| {
-                crate::VoiceCliError::Config(format!(
-                    "Invalid VOICE_CLI_CLUSTER_ENABLED value '{}': must be 'true' or 'false'",
-                    enabled_str
-                ))
-            })?;
-            self.cluster.enabled = enabled;
-            tracing::info!(
-                "Applied environment override: VOICE_CLI_CLUSTER_ENABLED = {}",
-                enabled
-            );
-        }
 
-        if let Ok(bind_address) = std::env::var("VOICE_CLI_BIND_ADDRESS") {
-            if bind_address.trim().is_empty() {
-                return Err(crate::VoiceCliError::Config(
-                    "VOICE_CLI_BIND_ADDRESS environment variable cannot be empty".to_string(),
-                ));
-            }
-            self.cluster.bind_address = bind_address.clone();
-            tracing::info!(
-                "Applied environment override: VOICE_CLI_BIND_ADDRESS = {}",
-                bind_address
-            );
-        }
-
-        if let Ok(can_process_str) = std::env::var("VOICE_CLI_LEADER_CAN_PROCESS_TASKS") {
-            let can_process = can_process_str.parse::<bool>()
-                .map_err(|_| crate::VoiceCliError::Config(
-                    format!("Invalid VOICE_CLI_LEADER_CAN_PROCESS_TASKS value '{}': must be 'true' or 'false'", can_process_str)
-                ))?;
-            self.cluster.leader_can_process_tasks = can_process;
-            tracing::info!(
-                "Applied environment override: VOICE_CLI_LEADER_CAN_PROCESS_TASKS = {}",
-                can_process
-            );
-        }
-
-        // Heartbeat and election timeout overrides
-        if let Ok(interval_str) = std::env::var("VOICE_CLI_HEARTBEAT_INTERVAL") {
-            let interval = interval_str.parse::<u64>()
-                .map_err(|_| crate::VoiceCliError::Config(
-                    format!("Invalid VOICE_CLI_HEARTBEAT_INTERVAL value '{}': must be a valid number in seconds", interval_str)
-                ))?;
-            if interval == 0 {
-                return Err(crate::VoiceCliError::Config(
-                    "VOICE_CLI_HEARTBEAT_INTERVAL must be greater than 0".to_string(),
-                ));
-            }
-            self.cluster.heartbeat_interval = interval;
-            tracing::info!(
-                "Applied environment override: VOICE_CLI_HEARTBEAT_INTERVAL = {}",
-                interval
-            );
-        }
-
-        if let Ok(timeout_str) = std::env::var("VOICE_CLI_ELECTION_TIMEOUT") {
-            let timeout = timeout_str.parse::<u64>()
-                .map_err(|_| crate::VoiceCliError::Config(
-                    format!("Invalid VOICE_CLI_ELECTION_TIMEOUT value '{}': must be a valid number in seconds", timeout_str)
-                ))?;
-            if timeout == 0 {
-                return Err(crate::VoiceCliError::Config(
-                    "VOICE_CLI_ELECTION_TIMEOUT must be greater than 0".to_string(),
-                ));
-            }
-            self.cluster.election_timeout = timeout;
-            tracing::info!(
-                "Applied environment override: VOICE_CLI_ELECTION_TIMEOUT = {}",
-                timeout
-            );
-        }
-
-        // Load balancer configuration overrides
-        if let Ok(enabled_str) = std::env::var("VOICE_CLI_LB_ENABLED") {
-            let enabled = enabled_str.parse::<bool>().map_err(|_| {
-                crate::VoiceCliError::Config(format!(
-                    "Invalid VOICE_CLI_LB_ENABLED value '{}': must be 'true' or 'false'",
-                    enabled_str
-                ))
-            })?;
-            self.load_balancer.enabled = enabled;
-            tracing::info!(
-                "Applied environment override: VOICE_CLI_LB_ENABLED = {}",
-                enabled
-            );
-        }
-
-        if let Ok(port_str) = std::env::var("VOICE_CLI_LB_PORT") {
-            let port = port_str.parse::<u16>().map_err(|_| {
-                crate::VoiceCliError::Config(format!(
-                    "Invalid VOICE_CLI_LB_PORT value '{}': must be a valid port number (1-65535)",
-                    port_str
-                ))
-            })?;
-            self.load_balancer.port = port;
-            tracing::info!("Applied environment override: VOICE_CLI_LB_PORT = {}", port);
-        }
-
-        if let Ok(bind_address) = std::env::var("VOICE_CLI_LB_BIND_ADDRESS") {
-            if bind_address.trim().is_empty() {
-                return Err(crate::VoiceCliError::Config(
-                    "VOICE_CLI_LB_BIND_ADDRESS environment variable cannot be empty".to_string(),
-                ));
-            }
-            self.load_balancer.bind_address = bind_address.clone();
-            tracing::info!(
-                "Applied environment override: VOICE_CLI_LB_BIND_ADDRESS = {}",
-                bind_address
-            );
-        }
-
-        if let Ok(interval_str) = std::env::var("VOICE_CLI_LB_HEALTH_CHECK_INTERVAL") {
-            let interval = interval_str.parse::<u64>()
-                .map_err(|_| crate::VoiceCliError::Config(
-                    format!("Invalid VOICE_CLI_LB_HEALTH_CHECK_INTERVAL value '{}': must be a valid number in seconds", interval_str)
-                ))?;
-            if interval == 0 {
-                return Err(crate::VoiceCliError::Config(
-                    "VOICE_CLI_LB_HEALTH_CHECK_INTERVAL must be greater than 0".to_string(),
-                ));
-            }
-            self.load_balancer.health_check_interval = interval;
-            tracing::info!(
-                "Applied environment override: VOICE_CLI_LB_HEALTH_CHECK_INTERVAL = {}",
-                interval
-            );
-        }
-
-        if let Ok(timeout_str) = std::env::var("VOICE_CLI_LB_HEALTH_CHECK_TIMEOUT") {
-            let timeout = timeout_str.parse::<u64>()
-                .map_err(|_| crate::VoiceCliError::Config(
-                    format!("Invalid VOICE_CLI_LB_HEALTH_CHECK_TIMEOUT value '{}': must be a valid number in seconds", timeout_str)
-                ))?;
-            if timeout == 0 {
-                return Err(crate::VoiceCliError::Config(
-                    "VOICE_CLI_LB_HEALTH_CHECK_TIMEOUT must be greater than 0".to_string(),
-                ));
-            }
-            self.load_balancer.health_check_timeout = timeout;
-            tracing::info!(
-                "Applied environment override: VOICE_CLI_LB_HEALTH_CHECK_TIMEOUT = {}",
-                timeout
-            );
-        }
-
-        // Seed nodes override
-        if let Ok(seed_nodes_str) = std::env::var("VOICE_CLI_LB_SEED_NODES") {
-            if !seed_nodes_str.trim().is_empty() {
-                let seed_nodes: Vec<String> = seed_nodes_str
-                    .split(',')
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty())
-                    .collect();
-                self.load_balancer.seed_nodes = seed_nodes;
-                tracing::info!(
-                    "Applied environment override: VOICE_CLI_LB_SEED_NODES = {:?}",
-                    self.load_balancer.seed_nodes
-                );
-            }
-        }
 
         // Logging configuration overrides
         if let Ok(level) = std::env::var("VOICE_CLI_LOG_LEVEL") {
@@ -670,19 +388,6 @@ impl Config {
             );
         }
 
-        // Database path overrides
-        if let Ok(db_path) = std::env::var("VOICE_CLI_METADATA_DB_PATH") {
-            if db_path.trim().is_empty() {
-                return Err(crate::VoiceCliError::Config(
-                    "VOICE_CLI_METADATA_DB_PATH environment variable cannot be empty".to_string(),
-                ));
-            }
-            self.cluster.metadata_db_path = db_path.clone();
-            tracing::info!(
-                "Applied environment override: VOICE_CLI_METADATA_DB_PATH = {}",
-                db_path
-            );
-        }
 
         // Daemon configuration overrides
         if let Ok(work_dir) = std::env::var("VOICE_CLI_WORK_DIR") {
@@ -732,27 +437,23 @@ impl Config {
     }
 
     pub fn validate(&self) -> crate::Result<()> {
-        // Validate server configuration (only if cluster is not enabled)
-        if !self.cluster.enabled {
-            if self.server.host.is_empty() {
-                return Err(crate::VoiceCliError::Config(
-                    "Server host cannot be empty".to_string(),
-                ));
-            }
+        // Validate server configuration
+        if self.server.host.is_empty() {
+            return Err(crate::VoiceCliError::Config(
+                "Server host cannot be empty".to_string(),
+            ));
+        }
 
-            if self.server.port == 0 {
-                return Err(crate::VoiceCliError::Config(
-                    "Server port must be between 1 and 65535".to_string(),
-                ));
-            }
+        if self.server.port == 0 {
+            return Err(crate::VoiceCliError::Config(
+                "Server port must be between 1 and 65535".to_string(),
+            ));
+        }
 
-            // Note: u16 max value is 65535, so no need to check upper bound
-
-            if self.server.max_file_size == 0 {
-                return Err(crate::VoiceCliError::Config(
-                    "Max file size must be greater than 0".to_string(),
-                ));
-            }
+        if self.server.max_file_size == 0 {
+            return Err(crate::VoiceCliError::Config(
+                "Max file size must be greater than 0".to_string(),
+            ));
         }
 
         // Validate whisper configuration
@@ -819,143 +520,9 @@ impl Config {
             ));
         }
 
-        // Validate cluster configuration if enabled
-        if self.cluster.enabled {
-            if self.cluster.grpc_port == 0 {
-                return Err(crate::VoiceCliError::Config(
-                    "gRPC port must be between 1 and 65535".to_string(),
-                ));
-            }
 
-            // Note: u16 max value is 65535, so no need to check upper bound
-
-            if self.cluster.http_port == 0 {
-                return Err(crate::VoiceCliError::Config(
-                    "Invalid cluster HTTP port: must be > 0".to_string(),
-                ));
-            }
-
-            // Note: u16 max value is 65535, so no need to check upper bound
-            if self.cluster.heartbeat_interval == 0 {
-                return Err(crate::VoiceCliError::Config(
-                    "Heartbeat interval must be greater than 0".to_string(),
-                ));
-            }
-
-            if self.cluster.election_timeout == 0 {
-                return Err(crate::VoiceCliError::Config(
-                    "Election timeout must be greater than 0".to_string(),
-                ));
-            }
-
-            if self.cluster.election_timeout < self.cluster.heartbeat_interval * 5 {
-                return Err(crate::VoiceCliError::Config(
-                    "Election timeout must be at least 5 times the heartbeat interval".to_string(),
-                ));
-            }
-
-            if self.cluster.node_id.trim().is_empty() {
-                return Err(crate::VoiceCliError::Config(
-                    "Node ID cannot be empty when cluster is enabled".to_string(),
-                ));
-            }
-
-            if self.cluster.bind_address.is_empty() {
-                return Err(crate::VoiceCliError::Config(
-                    "Cluster bind address cannot be empty".to_string(),
-                ));
-            }
-
-            if self.cluster.metadata_db_path.is_empty() {
-                return Err(crate::VoiceCliError::Config(
-                    "Metadata database path cannot be empty".to_string(),
-                ));
-            }
-
-            // Check for port conflicts
-            if self.cluster.grpc_port == self.cluster.http_port {
-                return Err(crate::VoiceCliError::Config(
-                    "gRPC port and HTTP port cannot be the same".to_string(),
-                ));
-            }
-
-            if self.cluster.http_port == self.server.port {
-                tracing::warn!(
-                    "Cluster HTTP port is the same as server port: {}",
-                    self.server.port
-                );
-            }
-        }
-
-        // Validate load balancer configuration if enabled
-        if self.load_balancer.enabled {
-            if self.load_balancer.port == 0 {
-                return Err(crate::VoiceCliError::Config(
-                    "Load balancer port must be between 1 and 65535".to_string(),
-                ));
-            }
-
-            // Note: u16 max value is 65535, so this check is redundant but kept for clarity
-
-            if self.load_balancer.health_check_interval == 0 {
-                return Err(crate::VoiceCliError::Config(
-                    "Health check interval must be greater than 0".to_string(),
-                ));
-            }
-
-            if self.load_balancer.health_check_timeout == 0 {
-                return Err(crate::VoiceCliError::Config(
-                    "Health check timeout must be greater than 0".to_string(),
-                ));
-            }
-
-            if self.load_balancer.health_check_timeout >= self.load_balancer.health_check_interval {
-                return Err(crate::VoiceCliError::Config(
-                    "Health check timeout must be less than health check interval".to_string(),
-                ));
-            }
-
-            if self.load_balancer.bind_address.is_empty() {
-                return Err(crate::VoiceCliError::Config(
-                    "Load balancer bind address cannot be empty".to_string(),
-                ));
-            }
-
-            // Check for port conflicts with other services
-            if self.load_balancer.port == self.server.port {
-                return Err(crate::VoiceCliError::Config(
-                    "Load balancer port cannot be the same as server port".to_string(),
-                ));
-            }
-
-            if self.cluster.enabled && self.load_balancer.port == self.cluster.grpc_port {
-                return Err(crate::VoiceCliError::Config(
-                    "Load balancer port cannot be the same as cluster gRPC port".to_string(),
-                ));
-            }
-
-            if self.cluster.enabled && self.load_balancer.port == self.cluster.http_port {
-                return Err(crate::VoiceCliError::Config(
-                    "Load balancer port cannot be the same as cluster HTTP port".to_string(),
-                ));
-            }
-        }
 
         Ok(())
     }
 
-    /// Get cluster metadata database path
-    pub fn cluster_db_path(&self) -> PathBuf {
-        PathBuf::from(&self.cluster.metadata_db_path)
-    }
-
-    /// Get load balancer PID file path
-    pub fn lb_pid_file_path(&self) -> PathBuf {
-        PathBuf::from(&self.load_balancer.pid_file)
-    }
-
-    /// Get load balancer log file path
-    pub fn lb_log_file_path(&self) -> PathBuf {
-        PathBuf::from(&self.load_balancer.log_file)
-    }
 }

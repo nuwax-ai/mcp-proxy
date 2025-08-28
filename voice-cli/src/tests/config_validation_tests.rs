@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod config_validation_tests {
     use crate::models::{
-        AudioProcessingConfig, ClusterConfig, Config, DaemonConfig, LoadBalancerConfig,
+        AudioProcessingConfig, Config, DaemonConfig,
         LoggingConfig, ServerConfig, WhisperConfig, WorkersConfig,
     };
     use std::path::PathBuf;
@@ -15,17 +15,6 @@ mod config_validation_tests {
                 port: 8080,
                 max_file_size: 25 * 1024 * 1024, // 25MB
                 cors_enabled: true,
-            },
-            cluster: ClusterConfig {
-                enabled: false,
-                node_id: "node-1".to_string(),
-                bind_address: "0.0.0.0".to_string(),
-                grpc_port: 50051,
-                http_port: 8080,
-                leader_can_process_tasks: true,
-                heartbeat_interval: 30,
-                election_timeout: 150,
-                metadata_db_path: "./voice_cli.db".to_string(),
             },
             whisper: WhisperConfig {
                 default_model: "base".to_string(),
@@ -49,16 +38,6 @@ mod config_validation_tests {
                 pid_file: "./voice_cli.pid".to_string(),
                 log_file: "./logs/daemon.log".to_string(),
                 work_dir: "./work".to_string(),
-            },
-            load_balancer: LoadBalancerConfig {
-                enabled: false,
-                port: 8081,
-                bind_address: "0.0.0.0".to_string(),
-                health_check_interval: 30,
-                health_check_timeout: 5,
-                pid_file: "./load_balancer.pid".to_string(),
-                log_file: "./logs/load_balancer.log".to_string(),
-                seed_nodes: Vec::new(),
             },
         }
     }
@@ -119,113 +98,6 @@ mod config_validation_tests {
         assert!(error
             .to_string()
             .contains("Max file size must be greater than 0"));
-    }
-
-    #[test]
-    fn test_cluster_port_conflict_validation() {
-        let mut config = create_valid_config();
-        config.cluster.enabled = true;
-        config.cluster.grpc_port = 8080; // Same as HTTP port
-        config.cluster.http_port = 8080;
-
-        let result = config.validate();
-        assert!(result.is_err());
-
-        let error = result.unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("gRPC port and HTTP port cannot be the same"));
-    }
-
-    #[test]
-    fn test_empty_node_id_validation() {
-        let mut config = create_valid_config();
-        config.cluster.enabled = true;
-        config.cluster.node_id = "".to_string();
-
-        let result = config.validate();
-        assert!(result.is_err());
-
-        let error = result.unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("Node ID cannot be empty when cluster is enabled"));
-    }
-
-    #[test]
-    fn test_whitespace_node_id_validation() {
-        let mut config = create_valid_config();
-        config.cluster.enabled = true;
-        config.cluster.node_id = "   ".to_string();
-
-        let result = config.validate();
-        assert!(result.is_err());
-
-        let error = result.unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("Node ID cannot be empty when cluster is enabled"));
-    }
-
-    #[test]
-    fn test_invalid_grpc_port_validation() {
-        let mut config = create_valid_config();
-        config.cluster.enabled = true;
-        config.cluster.grpc_port = 0;
-
-        let result = config.validate();
-        assert!(result.is_err());
-
-        let error = result.unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("gRPC port must be between 1 and 65535"));
-    }
-
-    #[test]
-    fn test_invalid_heartbeat_interval_validation() {
-        let mut config = create_valid_config();
-        config.cluster.enabled = true;
-        config.cluster.heartbeat_interval = 0;
-
-        let result = config.validate();
-        assert!(result.is_err());
-
-        let error = result.unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("Heartbeat interval must be greater than 0"));
-    }
-
-    #[test]
-    fn test_invalid_election_timeout_validation() {
-        let mut config = create_valid_config();
-        config.cluster.enabled = true;
-        config.cluster.election_timeout = 0;
-
-        let result = config.validate();
-        assert!(result.is_err());
-
-        let error = result.unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("Election timeout must be greater than 0"));
-    }
-
-    #[test]
-    fn test_election_timeout_too_small_validation() {
-        let mut config = create_valid_config();
-        config.cluster.enabled = true;
-        config.cluster.heartbeat_interval = 30;
-        config.cluster.election_timeout = 20; // Less than heartbeat interval
-
-        let result = config.validate();
-        assert!(result.is_err());
-
-        let error = result.unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("Election timeout must be at least 5 times the heartbeat interval"));
     }
 
     #[test]
@@ -337,21 +209,6 @@ mod config_validation_tests {
     }
 
     #[test]
-    fn test_empty_metadata_db_path_validation() {
-        let mut config = create_valid_config();
-        config.cluster.enabled = true; // Enable cluster to trigger validation
-        config.cluster.metadata_db_path = "".to_string();
-
-        let result = config.validate();
-        assert!(result.is_err());
-
-        let error = result.unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("Metadata database path cannot be empty"));
-    }
-
-    #[test]
     fn test_empty_work_dir_validation() {
         let mut config = create_valid_config();
         config.daemon.work_dir = "".to_string();
@@ -373,98 +230,6 @@ mod config_validation_tests {
 
         let error = result.unwrap_err();
         assert!(error.to_string().contains("PID file path cannot be empty"));
-    }
-
-    #[test]
-    fn test_load_balancer_port_conflict_with_server() {
-        let mut config = create_valid_config();
-        config.load_balancer.enabled = true;
-        config.load_balancer.port = 8080; // Same as server port
-
-        let result = config.validate();
-        assert!(result.is_err());
-
-        let error = result.unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("Load balancer port cannot be the same as server port"));
-    }
-
-    #[test]
-    fn test_load_balancer_port_conflict_with_grpc() {
-        let mut config = create_valid_config();
-        config.cluster.enabled = true;
-        config.load_balancer.enabled = true;
-        config.load_balancer.port = 50051; // Same as gRPC port
-
-        let result = config.validate();
-        assert!(result.is_err());
-
-        let error = result.unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("Load balancer port cannot be the same as cluster gRPC port"));
-    }
-
-    #[test]
-    fn test_invalid_load_balancer_port() {
-        let mut config = create_valid_config();
-        config.load_balancer.enabled = true;
-        config.load_balancer.port = 0;
-
-        let result = config.validate();
-        assert!(result.is_err());
-
-        let error = result.unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("Load balancer port must be between 1 and 65535"));
-    }
-
-    #[test]
-    fn test_zero_health_check_interval() {
-        let mut config = create_valid_config();
-        config.load_balancer.enabled = true;
-        config.load_balancer.health_check_interval = 0;
-
-        let result = config.validate();
-        assert!(result.is_err());
-
-        let error = result.unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("Health check interval must be greater than 0"));
-    }
-
-    #[test]
-    fn test_zero_health_check_timeout() {
-        let mut config = create_valid_config();
-        config.load_balancer.enabled = true;
-        config.load_balancer.health_check_timeout = 0;
-
-        let result = config.validate();
-        assert!(result.is_err());
-
-        let error = result.unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("Health check timeout must be greater than 0"));
-    }
-
-    #[test]
-    fn test_health_check_timeout_too_large() {
-        let mut config = create_valid_config();
-        config.load_balancer.enabled = true;
-        config.load_balancer.health_check_interval = 10;
-        config.load_balancer.health_check_timeout = 15; // Greater than interval
-
-        let result = config.validate();
-        assert!(result.is_err());
-
-        let error = result.unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("Health check timeout must be less than health check interval"));
     }
 
     #[test]
@@ -516,39 +281,6 @@ whisper:
     }
 
     #[test]
-    fn test_cluster_disabled_validation_skips() {
-        let mut config = create_valid_config();
-        config.cluster.enabled = false;
-
-        // These would be invalid if cluster was enabled, but should be ignored
-        config.cluster.node_id = "".to_string();
-        config.cluster.grpc_port = 0;
-        config.cluster.heartbeat_interval = 0;
-
-        let result = config.validate();
-        assert!(
-            result.is_ok(),
-            "Cluster validation should be skipped when disabled"
-        );
-    }
-
-    #[test]
-    fn test_load_balancer_disabled_validation_skips() {
-        let mut config = create_valid_config();
-        config.load_balancer.enabled = false;
-
-        // These would be invalid if load balancer was enabled, but should be ignored
-        config.load_balancer.port = 0;
-        config.load_balancer.health_check_interval = 0;
-
-        let result = config.validate();
-        assert!(
-            result.is_ok(),
-            "Load balancer validation should be skipped when disabled"
-        );
-    }
-
-    #[test]
     fn test_edge_case_port_values() {
         let mut config = create_valid_config();
 
@@ -562,25 +294,6 @@ whisper:
 
         // Note: Can't test 65536 as it doesn't fit in u16
         // The type system prevents invalid port values at compile time
-    }
-
-    #[test]
-    fn test_election_timeout_boundary_conditions() {
-        let mut config = create_valid_config();
-        config.cluster.enabled = true;
-        config.cluster.heartbeat_interval = 30;
-
-        // Test minimum valid election timeout (5 * heartbeat_interval)
-        config.cluster.election_timeout = 150; // 5 * 30
-        assert!(config.validate().is_ok());
-
-        // Test just below minimum
-        config.cluster.election_timeout = 149;
-        assert!(config.validate().is_err());
-
-        // Test well above minimum
-        config.cluster.election_timeout = 300;
-        assert!(config.validate().is_ok());
     }
 
     #[test]
@@ -606,47 +319,6 @@ whisper:
 
         // Test high number of files
         config.logging.max_files = 1000;
-        assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn test_comprehensive_valid_cluster_config() {
-        let mut config = create_valid_config();
-        config.cluster.enabled = true;
-        config.cluster.node_id = "test-node-123".to_string();
-        config.cluster.grpc_port = 50051;
-        config.cluster.http_port = 8080;
-        config.cluster.heartbeat_interval = 30;
-        config.cluster.election_timeout = 150;
-        config.cluster.leader_can_process_tasks = true;
-
-        assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn test_comprehensive_valid_load_balancer_config() {
-        let mut config = create_valid_config();
-        config.load_balancer.enabled = true;
-        config.load_balancer.port = 8081;
-        config.load_balancer.bind_address = "0.0.0.0".to_string();
-        config.load_balancer.health_check_interval = 30;
-        config.load_balancer.health_check_timeout = 5;
-
-        assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn test_all_features_enabled_valid_config() {
-        let mut config = create_valid_config();
-
-        // Enable all features with non-conflicting ports
-        config.server.port = 8080;
-        config.cluster.enabled = true;
-        config.cluster.grpc_port = 50051;
-        config.cluster.http_port = 8080;
-        config.load_balancer.enabled = true;
-        config.load_balancer.port = 8082;
-
         assert!(config.validate().is_ok());
     }
 }

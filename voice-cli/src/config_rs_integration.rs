@@ -27,14 +27,6 @@ pub struct CliOverrides {
     pub host: Option<String>,
     /// Server port override
     pub port: Option<u16>,
-    /// HTTP port override (for cluster)
-    pub http_port: Option<u16>,
-    /// gRPC port override (for cluster)
-    pub grpc_port: Option<u16>,
-    /// Load balancer port override
-    pub lb_port: Option<u16>,
-    /// Node ID override (for cluster)
-    pub node_id: Option<String>,
     /// Log level override
     pub log_level: Option<String>,
     /// Models directory override
@@ -43,14 +35,6 @@ pub struct CliOverrides {
     pub default_model: Option<String>,
     /// Transcription workers override
     pub transcription_workers: Option<usize>,
-    /// Health check interval override (for load balancer)
-    pub health_check_interval: Option<u64>,
-    /// Whether leader can process tasks (for cluster)
-    pub leader_can_process_tasks: Option<bool>,
-    /// Whether cluster is enabled
-    pub cluster_enabled: Option<bool>,
-    /// Whether load balancer is enabled
-    pub lb_enabled: Option<bool>,
 }
 
 impl Default for CliOverrides {
@@ -58,18 +42,10 @@ impl Default for CliOverrides {
         Self {
             host: None,
             port: None,
-            http_port: None,
-            grpc_port: None,
-            lb_port: None,
-            node_id: None,
             log_level: None,
             models_dir: None,
             default_model: None,
             transcription_workers: None,
-            health_check_interval: None,
-            leader_can_process_tasks: None,
-            cluster_enabled: None,
-            lb_enabled: None,
         }
     }
 }
@@ -144,33 +120,10 @@ impl ConfigRsLoader {
     fn apply_cli_overrides(config: &mut Config, cli_overrides: &CliOverrides) {
         if let Some(host) = &cli_overrides.host {
             config.server.host = host.clone();
-            if config.cluster.enabled {
-                config.cluster.bind_address = host.clone();
-            }
         }
 
         if let Some(port) = cli_overrides.port {
             config.server.port = port;
-            if config.cluster.enabled {
-                config.cluster.http_port = port;
-            }
-        }
-
-        if let Some(http_port) = cli_overrides.http_port {
-            config.server.port = http_port;
-            config.cluster.http_port = http_port;
-        }
-
-        if let Some(grpc_port) = cli_overrides.grpc_port {
-            config.cluster.grpc_port = grpc_port;
-        }
-
-        if let Some(lb_port) = cli_overrides.lb_port {
-            config.load_balancer.port = lb_port;
-        }
-
-        if let Some(node_id) = &cli_overrides.node_id {
-            config.cluster.node_id = node_id.clone();
         }
 
         if let Some(log_level) = &cli_overrides.log_level {
@@ -188,22 +141,6 @@ impl ConfigRsLoader {
         if let Some(workers) = cli_overrides.transcription_workers {
             config.whisper.workers.transcription_workers = workers;
         }
-
-        if let Some(interval) = cli_overrides.health_check_interval {
-            config.load_balancer.health_check_interval = interval;
-        }
-
-        if let Some(can_process) = cli_overrides.leader_can_process_tasks {
-            config.cluster.leader_can_process_tasks = can_process;
-        }
-
-        if let Some(enabled) = cli_overrides.cluster_enabled {
-            config.cluster.enabled = enabled;
-        }
-
-        if let Some(enabled) = cli_overrides.lb_enabled {
-            config.load_balancer.enabled = enabled;
-        }
     }
 
     /// Apply service-specific settings based on service type
@@ -213,19 +150,7 @@ impl ConfigRsLoader {
     ) -> Result<(), VoiceCliError> {
         match service_type {
             crate::config::ServiceType::Server => {
-                config.cluster.enabled = false;
-                config.load_balancer.enabled = false;
                 config.daemon.pid_file = "./voice-cli-server.pid".to_string();
-            }
-            crate::config::ServiceType::Cluster => {
-                config.cluster.enabled = true;
-                config.load_balancer.enabled = false;
-                config.daemon.pid_file = "./voice-cli-cluster.pid".to_string();
-            }
-            crate::config::ServiceType::LoadBalancer => {
-                config.cluster.enabled = false;
-                config.load_balancer.enabled = true;
-                config.daemon.pid_file = config.load_balancer.pid_file.clone();
             }
         }
         Ok(())
@@ -243,20 +168,9 @@ impl ConfigRsLoader {
                     let clean_key = &key[1..]; // Remove the underscore prefix
                     
                     // Handle specific environment variable overrides
-                    match clean_key {
-                        "load_balancer" => {
-                            if let ValueKind::Table(lb_table) = &value.kind {
-                                if let Some(port_value) = lb_table.get("port") {
-                                    if let ValueKind::I64(port) = port_value.kind {
-                                        config.load_balancer.port = port as u16;
-                                        println!("Applied environment override: load_balancer.port = {}", port);
-                                    }
-                                }
-                            }
-                        }
-                        // Add more environment variable overrides here as needed
-                        _ => {}
-                    }
+                    // Add environment variable overrides here as needed
+                    let _ = clean_key; // Avoid unused variable warning
+                    let _ = value; // Avoid unused variable warning
                 }
             }
         }
@@ -273,45 +187,6 @@ impl ConfigRsLoader {
                 if let crate::cli::ServerAction::Run { .. } = action {
                     // Server run command can have port overrides
                     // These will be extracted from the action in the main handler
-                }
-            }
-            crate::cli::Commands::Cluster { action } => {
-                if let crate::cli::ClusterAction::Run {
-                    node_id,
-                    http_port,
-                    grpc_port,
-                    can_process_tasks,
-                    ..
-                } = action
-                {
-                    overrides.node_id = node_id.clone();
-                    overrides.http_port = *http_port;
-                    overrides.grpc_port = *grpc_port;
-                    overrides.leader_can_process_tasks = Some(*can_process_tasks);
-                    overrides.cluster_enabled = Some(true);
-                } else if let crate::cli::ClusterAction::Join {
-                    node_id,
-                    http_port,
-                    grpc_port,
-                    ..
-                } = action
-                {
-                    overrides.node_id = node_id.clone();
-                    overrides.http_port = *http_port;
-                    overrides.grpc_port = *grpc_port;
-                    overrides.cluster_enabled = Some(true);
-                }
-            }
-            crate::cli::Commands::Lb { action } => {
-                if let crate::cli::LoadBalancerAction::Run {
-                    port,
-                    health_check_interval,
-                    ..
-                } = action
-                {
-                    overrides.lb_port = *port;
-                    overrides.health_check_interval = *health_check_interval;
-                    overrides.lb_enabled = Some(true);
                 }
             }
             _ => {}

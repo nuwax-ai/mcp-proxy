@@ -1,5 +1,3 @@
-pub mod cluster_handlers;
-pub mod cluster_routes;
 pub mod handlers;
 pub mod middleware;
 pub mod routes;
@@ -9,58 +7,8 @@ pub mod middleware_config;
 use crate::models::Config;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tracing::{info, error};
+use tracing::info;
 
-/// Create server with cluster awareness
-pub async fn create_cluster_aware_server(
-    config: Config,
-) -> crate::Result<impl std::future::Future<Output = Result<(), std::io::Error>>> {
-    let app = cluster_routes::create_cluster_routes(config.clone()).await?;
-
-    let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
-    info!("Cluster-aware server listening on {}", addr);
-
-    let listener = tokio::net::TcpListener::bind(&addr)
-        .await
-        .map_err(|e| crate::VoiceCliError::Config(format!("Failed to bind to address: {}", e)))?;
-
-    Ok(async move {
-        axum::serve(listener, app)
-            .await
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
-    })
-}
-
-/// Create cluster-aware server with graceful shutdown
-pub async fn create_cluster_aware_server_with_shutdown(
-    config: Config,
-) -> crate::Result<impl std::future::Future<Output = Result<(), std::io::Error>>> {
-    info!("Creating cluster routes...");
-    let app = cluster_routes::create_cluster_routes(config.clone()).await?;
-    info!("Cluster routes created successfully");
-
-    let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
-    info!(
-        "Cluster-aware server with graceful shutdown listening on {}",
-        addr
-    );
-
-    let listener = tokio::net::TcpListener::bind(&addr)
-        .await
-        .map_err(|e| crate::VoiceCliError::Config(format!("Failed to bind to address: {}", e)))?;
-    
-    info!("TCP listener created successfully: {:?}", listener.local_addr());
-
-    Ok(async move {
-        info!("Starting axum server...");
-        let result = axum::serve(listener, app).await;
-        info!("axum server completed with result: {:?}", result);
-        if let Err(e) = &result {
-            error!("Server error: {}", e);
-        }
-        result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
-    })
-}
 
 pub async fn create_server(
     config: Config,

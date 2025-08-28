@@ -1,7 +1,7 @@
 //! HTTP Server Service Implementation
 //! 
 //! This module provides a BackgroundService implementation for the voice-cli HTTP server,
-//! supporting both single-node and cluster-aware modes with proper lifecycle management.
+//! supporting single-node mode with proper lifecycle management.
 
 use crate::daemon::background_service::{BackgroundService, ServiceHealth, ClonableService};
 use crate::daemon::service_logging::{init_service_logging, log_service_startup, log_service_shutdown};
@@ -50,13 +50,6 @@ impl HttpServerService {
         self.start_time.map(|start| start.elapsed())
     }
 
-    /// Check if running in cluster mode
-    pub fn is_cluster_mode(&self) -> bool {
-        self.config
-            .as_ref()
-            .map(|c| c.cluster.enabled)
-            .unwrap_or(false)
-    }
 }
 
 impl BackgroundService for HttpServerService {
@@ -73,14 +66,7 @@ impl BackgroundService for HttpServerService {
             .map_err(|e| VoiceCliError::Config(format!("Logging initialization failed: {}", e)))?;
 
         // Log detailed startup information
-        let additional_info = if config.cluster.enabled {
-            Some(format!(
-                "Cluster mode enabled - Node ID: {}, gRPC: {}, HTTP: {}",
-                config.cluster.node_id, config.cluster.grpc_port, config.server.port
-            ))
-        } else {
-            Some("Single-node mode".to_string())
-        };
+        let additional_info = Some("Server mode".to_string());
 
         log_service_startup(&config, self.service_name(), self.foreground_mode, additional_info.as_ref().map(|s| s.as_str()));
 
@@ -122,60 +108,30 @@ impl BackgroundService for HttpServerService {
                 }
             };
 
-            // Run server with shutdown monitoring based on cluster configuration
-            let server_result = if config.cluster.enabled {
-                info!(
-                    "Starting cluster-aware HTTP server on {}:{}",
-                    config.server.host, config.server.port
-                );
-                info!("Cluster node ID: {}", config.cluster.node_id);
-                info!("gRPC cluster communication port: {}", config.cluster.grpc_port);
-                
-                let server_future = crate::server::create_cluster_aware_server_with_shutdown(config).await?;
-                
-                tokio::select! {
-                    result = server_future => {
-                        match result {
-                            Ok(_) => {
-                                info!("Cluster-aware HTTP server completed successfully");
-                                Ok(())
-                            }
-                            Err(e) => {
-                                error!("Cluster-aware HTTP server error: {}", e);
-                                Err(VoiceCliError::Config(format!("Server error: {}", e)))
-                            }
+            // Run server with shutdown monitoring
+            info!(
+                "Starting HTTP server on {}:{}",
+                config.server.host, config.server.port
+            );
+            
+            let server_future = crate::server::create_server_with_graceful_shutdown(config).await?;
+            
+            let server_result = tokio::select! {
+                result = server_future => {
+                    match result {
+                        Ok(_) => {
+                            info!("HTTP server completed successfully");
+                            Ok(())
                         }
-                    }
-                    _ = shutdown_signal => {
-                        info!("Cluster-aware HTTP server shutting down gracefully");
-                        Ok(())
+                        Err(e) => {
+                            error!("HTTP server error: {}", e);
+                            Err(VoiceCliError::Config(format!("Server error: {}", e)))
+                        }
                     }
                 }
-            } else {
-                info!(
-                    "Starting single-node HTTP server on {}:{}",
-                    config.server.host, config.server.port
-                );
-                
-                let server_future = crate::server::create_server_with_graceful_shutdown(config).await?;
-                
-                tokio::select! {
-                    result = server_future => {
-                        match result {
-                            Ok(_) => {
-                                info!("Single-node HTTP server completed successfully");
-                                Ok(())
-                            }
-                            Err(e) => {
-                                error!("Single-node HTTP server error: {}", e);
-                                Err(VoiceCliError::Config(format!("Server error: {}", e)))
-                            }
-                        }
-                    }
-                    _ = shutdown_signal => {
-                        info!("Single-node HTTP server shutting down gracefully");
-                        Ok(())
-                    }
+                _ = shutdown_signal => {
+                    info!("HTTP server shutting down gracefully");
+                    Ok(())
                 }
             };
             
@@ -250,22 +206,6 @@ impl BackgroundService for HttpServerService {
             return Err(VoiceCliError::Config("Server port cannot be 0".to_string()));
         }
 
-        // Validate cluster configuration if enabled
-        if config.cluster.enabled {
-            if config.cluster.node_id.is_empty() {
-                return Err(VoiceCliError::Config("Cluster node ID cannot be empty".to_string()));
-            }
-
-            if config.cluster.grpc_port == 0 {
-                return Err(VoiceCliError::Config("Cluster gRPC port cannot be 0".to_string()));
-            }
-
-            if config.cluster.grpc_port == config.server.port {
-                return Err(VoiceCliError::Config(
-                    "Cluster gRPC port cannot be the same as HTTP server port".to_string(),
-                ));
-            }
-        }
 
         // Validate Whisper configuration
         if config.whisper.default_model.is_empty() {
@@ -333,7 +273,7 @@ impl Default for HttpServerServiceBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{Config, ServerConfig, WhisperConfig, LoggingConfig, DaemonConfig, ClusterConfig, LoadBalancerConfig};
+    use crate::models::{Config, ServerConfig, WhisperConfig, LoggingConfig, DaemonConfig};
     use tempfile::TempDir;
 
     fn create_test_config(temp_dir: &TempDir) -> Config {
@@ -359,8 +299,6 @@ mod tests {
                 max_files: 5,
             },
             daemon: DaemonConfig::default(),
-            cluster: ClusterConfig::default(),
-            load_balancer: LoadBalancerConfig::default(),
         }
     }
 
@@ -402,24 +340,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[tokio::test]
-    async fn test_cluster_mode_validation() {
-        let temp_dir = TempDir::new().unwrap();
-        let mut config = create_test_config(&temp_dir);
-        
-        // Enable cluster mode
-        config.cluster.enabled = true;
-        config.cluster.node_id = "test-node".to_string();
-        config.cluster.grpc_port = 9090;
-        
-        let result = HttpServerService::validate_config(&config);
-        assert!(result.is_ok());
-        
-        // Same port for HTTP and gRPC should fail
-        config.cluster.grpc_port = config.server.port;
-        let result = HttpServerService::validate_config(&config);
-        assert!(result.is_err());
-    }
 
     #[tokio::test]
     async fn test_service_initialization() {
@@ -444,18 +364,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_cluster_mode_detection() {
-        let temp_dir = TempDir::new().unwrap();
-        let mut config = create_test_config(&temp_dir);
-        
-        let mut service = HttpServerService::with_config(config.clone(), true);
-        assert!(!service.is_cluster_mode());
-        
-        config.cluster.enabled = true;
-        service = HttpServerService::with_config(config, true);
-        assert!(service.is_cluster_mode());
-    }
 
     #[test]
     fn test_uptime_tracking() {
