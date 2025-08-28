@@ -129,7 +129,10 @@ pub enum AudioFormat {
     Mov,     // QuickTime format
     Avi,     // Audio Video Interleave
     Mkv,     // Matroska container
-
+    Flv,
+    Wmv,
+    Mpeg,
+    Mxf,
     Unknown,
 }
 
@@ -195,6 +198,10 @@ impl AudioFormat {
             "mov" => AudioFormat::Mov,
             "avi" => AudioFormat::Avi,
             "mkv" | "mka" => AudioFormat::Mkv,
+            "flv" => AudioFormat::Flv,
+            "wmv" => AudioFormat::Wmv,
+            "mpeg" | "mpg" => AudioFormat::Mpeg,
+            "mxf" => AudioFormat::Mxf,
 
             _ => AudioFormat::Unknown,
         }
@@ -232,6 +239,10 @@ impl AudioFormat {
             AudioFormat::Mov => "mov",
             AudioFormat::Avi => "avi",
             AudioFormat::Mkv => "mkv",
+            AudioFormat::Flv => "flv",
+            AudioFormat::Wmv => "wmv",
+            AudioFormat::Mpeg => "mpeg",
+            AudioFormat::Mxf => "mxf",
             AudioFormat::Unknown => "unknown",
         }
     }
@@ -258,6 +269,10 @@ impl AudioFormat {
             AudioFormat::Mov => "video/quicktime",
             AudioFormat::Avi => "video/x-msvideo",
             AudioFormat::Mkv => "video/x-matroska",
+            AudioFormat::Flv => "video/x-flv",
+            AudioFormat::Wmv => "video/x-ms-wmv",
+            AudioFormat::Mpeg => "video/mpeg",
+            AudioFormat::Mxf => "application/mxf",
             AudioFormat::Unknown => "application/octet-stream",
         }
     }
@@ -284,6 +299,10 @@ impl AudioFormat {
             AudioFormat::Mov => Some("mov"),
             AudioFormat::Avi => Some("avi"),
             AudioFormat::Mkv => Some("matroska"),
+            AudioFormat::Flv => Some("flv"),
+            AudioFormat::Wmv => Some("wmv"),
+            AudioFormat::Mpeg => Some("mpeg"),
+            AudioFormat::Mxf => Some("mxf"),
             AudioFormat::Unknown => None,
         }
     }

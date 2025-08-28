@@ -33,7 +33,7 @@ whisper:
   
   # Audio processing settings
   audio_processing:
-    supported_formats: ["mp3", "wav", "flac", "m4a", "ogg"]
+    supported_formats: ["mp3", "wav", "flac", "m4a", "ogg", "aac", "opus", "amr", "wma", "aiff", "caf", "mp4", "mov", "avi", "mkv", "webm", "3gp", "flv", "wmv", "mpeg", "mxf"]
     auto_convert: true
     conversion_timeout: 60  # seconds
     temp_file_cleanup: true
