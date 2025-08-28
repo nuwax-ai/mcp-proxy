@@ -103,7 +103,7 @@ impl AudioFormatDetector {
         let reader = &probe_result.format;
         let tracks = reader.tracks();
 
-        // Find the first audio track
+        // Find the first audio track (any track with codec parameters)
         let track = tracks
             .iter()
             .find(|t| t.codec_params.codec != symphonia::core::codecs::CODEC_TYPE_NULL)

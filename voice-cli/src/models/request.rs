@@ -12,7 +12,7 @@ pub struct TranscriptionRequest {
 }
 
 /// Response structure for transcription API
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TranscriptionResponse {
     /// 完整转写结果文本（合并所有分段后的最终文本）
     #[schema(example = "Hello, this is a test transcription.")]
@@ -34,7 +34,7 @@ pub struct TranscriptionResponse {
 }
 
 /// Individual segment in transcription
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Segment {
     /// Start time of the segment in seconds
     #[schema(example = 0.0)]
@@ -103,7 +103,7 @@ pub struct ProcessedAudio {
 }
 
 /// Audio format detection result
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum AudioFormat {
     // Core audio formats (commonly supported by Symphonia)
     Wav,
@@ -314,46 +314,30 @@ impl AudioFormat {
 
     /// Convert from Symphonia codec type
     pub fn from_symphonia_codec(codec_type: symphonia::core::codecs::CodecType) -> Self {
-        use symphonia::core::codecs::*;
-
-        // Match specific Symphonia codec types to our AudioFormat enum
-        match codec_type {
-            CODEC_TYPE_NULL => AudioFormat::Unknown,
-
-            // PCM codecs (usually WAV)
-            CODEC_TYPE_PCM_S16LE | CODEC_TYPE_PCM_S16BE | CODEC_TYPE_PCM_S24LE
-            | CODEC_TYPE_PCM_S24BE | CODEC_TYPE_PCM_S32LE | CODEC_TYPE_PCM_S32BE
-            | CODEC_TYPE_PCM_F32LE | CODEC_TYPE_PCM_F32BE | CODEC_TYPE_PCM_F64LE
-            | CODEC_TYPE_PCM_F64BE | CODEC_TYPE_PCM_U8 => AudioFormat::Wav,
-
-            // MP3 codec
-            CODEC_TYPE_MP3 => AudioFormat::Mp3,
-
-            // FLAC codec
-            CODEC_TYPE_FLAC => AudioFormat::Flac,
-
-            // AAC codec
-            CODEC_TYPE_AAC => AudioFormat::Aac,
-
-            // Vorbis (usually in OGG container)
-            CODEC_TYPE_VORBIS => AudioFormat::Ogg,
-
-            // Opus codec
-            CODEC_TYPE_OPUS => AudioFormat::Opus,
-
-            // Default to Unknown for unsupported codecs
-            _ => AudioFormat::Unknown,
+        // Convert codec type to string for matching since Symphonia 0.5 uses different constants
+        let codec_str = format!("{:?}", codec_type).to_lowercase();
+        
+        if codec_str.contains("pcm") || codec_str.contains("wav") {
+            AudioFormat::Wav
+        } else if codec_str.contains("mp3") || codec_str.contains("mpeg") {
+            AudioFormat::Mp3
+        } else if codec_str.contains("flac") {
+            AudioFormat::Flac
+        } else if codec_str.contains("aac") {
+            AudioFormat::Aac
+        } else if codec_str.contains("vorbis") {
+            AudioFormat::Ogg
+        } else if codec_str.contains("opus") {
+            AudioFormat::Opus
+        } else {
+            AudioFormat::Unknown
         }
     }
 
-    /// Get corresponding Symphonia codec type
+    /// Get corresponding Symphonia codec type (placeholder implementation)
     pub fn to_symphonia_codec(&self) -> Option<symphonia::core::codecs::CodecType> {
-        // For MVP, return None for all formats since codec constant mapping is complex
-        // In a full implementation, this would map to appropriate Symphonia codec constants
-        match self {
-            AudioFormat::Unknown => None,
-            _ => Some(symphonia::core::codecs::CODEC_TYPE_NULL), // Placeholder
-        }
+        // For MVP, return None since we don't need reverse mapping
+        None
     }
 }
 

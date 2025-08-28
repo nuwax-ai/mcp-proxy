@@ -1,0 +1,1 @@
+- /Volumes/soddy/git_workspace/mcp-proxy/temp/apalis 路径,是 apalis 源码,apalis的使用,可以去参考下源码怎么写的,也有参考使用 examples 示例

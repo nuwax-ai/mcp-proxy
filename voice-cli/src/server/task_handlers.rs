@@ -1,179 +1,23 @@
 use crate::models::{
-    AsyncTaskResponse, CancelResponse, Config,
-    HealthResponse, HttpResult, ModelsResponse,
-    TaskStatusResponse, TranscriptionResponse, TaskStatus,
+    AsyncTaskResponse, CancelResponse, TaskStatusResponse, TranscriptionResponse, TaskStatus
 };
-use crate::services::{ModelService, ApalisManager};
+use crate::services::ApalisManager;
 use crate::VoiceCliError;
+
 use axum::{
-    extract::{Multipart, State},
+    extract::{Multipart, Path, State},
+    response::Json,
 };
 use bytes::Bytes;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use utoipa;
 
-#[derive(Clone, Debug)]
-pub struct AppState {
-    pub config: Arc<Config>,
-    pub model_service: Arc<ModelService>,
-    pub apalis_manager: Option<Arc<Mutex<ApalisManager>>>,
-    pub start_time: SystemTime,
-}
-
-impl AppState {
-    pub async fn new(config: Arc<Config>) -> crate::Result<Self> {
-        let model_service = Arc::new(ModelService::new((*config).clone()));
-
-        // 如果启用任务管理，初始化 Apalis 管理器
-        let apalis_manager = if config.task_management.enabled {
-            info!("初始化 Apalis 任务管理器");
-            let mut manager = ApalisManager::new(
-                config.task_management.clone(),
-                model_service.clone(),
-            ).await?;
-
-            // 启动 worker
-            manager.start_worker(model_service.clone()).await?;
-
-            Some(Arc::new(Mutex::new(manager)))
-        } else {
-            None
-        };
-
-        Ok(Self {
-            config,
-            model_service,
-            apalis_manager,
-            start_time: SystemTime::now(),
-        })
-    }
-
-    /// 优雅关闭
-    pub async fn shutdown(self) {
-        info!("关闭应用状态");
-        // Apalis 管理器会在 Drop 时自动清理
-        info!("应用状态关闭完成");
-    }
-}
-
-/// 健康检查端点
-/// GET /health
-#[utoipa::path(
-    get,
-    path = "/health",
-    tag = "健康检查",
-    summary = "健康检查",
-    description = "检查服务是否正常运行",
-    responses(
-        (status = 200, description = "服务正常", body = HealthResponse),
-        (status = 500, description = "服务异常", body = String)
-    ),
-)]
-pub async fn health_handler(State(state): State<AppState>) -> HttpResult<HealthResponse> {
-    let uptime = SystemTime::now()
-        .duration_since(state.start_time)
-        .unwrap_or_default();
-
-    HttpResult::success(HealthResponse {
-        status: "healthy".to_string(),
-        models_loaded: vec![],
-        uptime: uptime.as_secs(),
-        version: env!("CARGO_PKG_VERSION").to_string(),
-    })
-}
-
-/// 获取模型列表
-/// GET /models
-#[utoipa::path(
-    get,
-    path = "/models",
-    tag = "模型管理",
-    summary = "获取可用模型列表",
-    description = "获取当前支持的语音转录模型列表",
-    responses(
-        (status = 200, description = "模型列表", body = ModelsResponse),
-        (status = 500, description = "服务器错误", body = String)
-    ),
-)]
-pub async fn models_list_handler(State(_state): State<AppState>) -> HttpResult<ModelsResponse> {
-    // 简化版本，返回空模型列表
-    HttpResult::success(ModelsResponse {
-        available_models: vec!["base".to_string(), "small".to_string()],
-        loaded_models: vec!["base".to_string()],
-        model_info: std::collections::HashMap::new(),
-    })
-}
-
-/// 同步转录处理
-/// POST /transcribe
-#[utoipa::path(
-    post,
-    path = "/transcribe",
-    tag = "转录",
-    summary = "同步音频转录",
-    description = "上传音频文件进行同步转录处理，立即返回结果",
-    request_body(
-        content = String,
-        description = "multipart/form-data 包含音频文件和可选参数",
-        content_type = "multipart/form-data"
-    ),
-    responses(
-        (status = 200, description = "转录成功", body = TranscriptionResponse),
-        (status = 400, description = "请求无效", body = String),
-        (status = 413, description = "文件过大", body = String),
-        (status = 500, description = "服务器错误", body = String)
-    ),
-)]
-pub async fn transcribe_handler(
-    State(state): State<AppState>,
-    multipart: Multipart,
-) -> Result<HttpResult<TranscriptionResponse>, VoiceCliError> {
-    // 解析 multipart 请求
-    let (audio_data, request) = extract_transcription_request(multipart).await?;
-
-    // 验证音频文件
-    validate_audio_file(&audio_data, &request.filename)?;
-
-    // 使用转录引擎处理
-    let transcription_engine = crate::services::TranscriptionEngine::new(state.model_service);
-    
-    // 先保存临时文件，然后转录
-    let temp_dir = std::env::temp_dir();
-    let temp_file = temp_dir.join(&request.filename);
-    
-    tokio::fs::write(&temp_file, &audio_data).await
-        .map_err(|e| VoiceCliError::Storage(format!("写入临时文件失败: {}", e)))?;
-    
-    let result = transcription_engine
-        .transcribe_compatible_audio(
-            "base", // 默认模型
-            &temp_file,
-            30 // timeout_secs
-        )
-        .await?;
-    
-    // 清理临时文件
-    let _ = tokio::fs::remove_file(&temp_file).await;
-
-    // 转换 TranscriptionResult 到 TranscriptionResponse
-    let response = TranscriptionResponse {
-        text: result.text,
-        segments: result.segments.into_iter().map(|s| crate::models::Segment {
-            start: s.start_time as f32 / 1000.0, // Convert from ms to seconds
-            end: s.end_time as f32 / 1000.0,     // Convert from ms to seconds
-            text: s.text,
-            confidence: s.confidence,
-        }).collect(),
-        language: result.language,
-        duration: None, // 简化版本
-        processing_time: 0.0, // 简化版本
-    };
-
-    info!("同步转录完成: {} 字符", response.text.len());
-    Ok(HttpResult::success(response))
+/// 应用状态
+#[derive(Clone)]
+pub struct TaskAppState {
+    pub apalis_manager: Arc<ApalisManager>,
 }
 
 /// 提交异步转录任务
@@ -196,34 +40,28 @@ pub async fn transcribe_handler(
         (status = 500, description = "服务器错误", body = String)
     ),
 )]
-pub async fn async_transcribe_handler(
-    State(state): State<AppState>,
+pub async fn submit_transcription_task(
+    State(state): State<TaskAppState>,
     multipart: Multipart,
-) -> Result<HttpResult<AsyncTaskResponse>, VoiceCliError> {
-    let Some(apalis_manager) = &state.apalis_manager else {
-        return Err(VoiceCliError::TaskManagementDisabled);
-    };
-    
-    let mut apalis_manager = apalis_manager.lock().await;
-
+) -> Result<Json<AsyncTaskResponse>, VoiceCliError> {
     let task_id = generate_task_id();
     info!("开始处理异步转录请求: {}", task_id);
 
-    // 解析 multipart 请求
+    // 1. 解析 multipart 数据
     let (audio_data, request) = extract_transcription_request(multipart).await?;
 
-    // 验证音频文件
+    // 2. 验证音频文件
     validate_audio_file(&audio_data, &request.filename)?;
 
-    // 保存音频文件
+    // 3. 保存音频文件
     let audio_file_manager = crate::services::AudioFileManager::new("./data/audio")
         .map_err(|e| VoiceCliError::Storage(format!("创建音频文件管理器失败: {}", e)))?;
     
     let audio_file_path = audio_file_manager.save_audio_file(&task_id, &audio_data, &request.filename).await
         .map_err(|e| VoiceCliError::Storage(format!("保存音频文件失败: {}", e)))?;
 
-    // 提交任务到队列
-    let returned_task_id = apalis_manager.submit_task(
+    // 4. 提交任务到队列
+    let returned_task_id = state.apalis_manager.submit_task(
         audio_file_path,
         request.filename,
         request.model,
@@ -240,11 +78,11 @@ pub async fn async_transcribe_handler(
         estimated_completion: None,
     };
     
-    Ok(HttpResult::success(response))
+    Ok(Json(response))
 }
 
 /// 获取任务状态
-/// GET /tasks/:task_id
+/// GET /tasks/{task_id}
 #[utoipa::path(
     get,
     path = "/tasks/{task_id}",
@@ -260,26 +98,20 @@ pub async fn async_transcribe_handler(
         (status = 500, description = "服务器错误", body = String)
     ),
 )]
-pub async fn get_task_handler(
-    State(state): State<AppState>,
-    axum::extract::Path(task_id): axum::extract::Path<String>,
-) -> Result<HttpResult<TaskStatusResponse>, VoiceCliError> {
-    let Some(apalis_manager) = &state.apalis_manager else {
-        return Err(VoiceCliError::TaskManagementDisabled);
-    };
-    
-    let apalis_manager = apalis_manager.lock().await;
-
-    match apalis_manager.get_task_status(&task_id).await? {
+pub async fn get_task_status(
+    State(state): State<TaskAppState>,
+    Path(task_id): Path<String>,
+) -> Result<Json<TaskStatusResponse>, VoiceCliError> {
+    match state.apalis_manager.get_task_status(&task_id).await? {
         Some(status) => {
             info!("获取任务状态成功: {} -> {:?}", task_id, status);
             let response = TaskStatusResponse {
                 task_id: task_id.clone(),
                 status,
-                created_at: chrono::Utc::now(),
+                created_at: chrono::Utc::now(), // 简化版本，实际应从数据库获取
                 updated_at: chrono::Utc::now(),
             };
-            Ok(HttpResult::success(response))
+            Ok(Json(response))
         }
         None => {
             warn!("任务不存在: {}", task_id);
@@ -289,7 +121,7 @@ pub async fn get_task_handler(
 }
 
 /// 获取任务结果
-/// GET /tasks/:task_id/result
+/// GET /tasks/{task_id}/result
 #[utoipa::path(
     get,
     path = "/tasks/{task_id}/result",
@@ -306,20 +138,14 @@ pub async fn get_task_handler(
         (status = 500, description = "服务器错误", body = String)
     ),
 )]
-pub async fn get_task_result_handler(
-    State(state): State<AppState>,
-    axum::extract::Path(task_id): axum::extract::Path<String>,
-) -> Result<HttpResult<TranscriptionResponse>, VoiceCliError> {
-    let Some(apalis_manager) = &state.apalis_manager else {
-        return Err(VoiceCliError::TaskManagementDisabled);
-    };
-    
-    let apalis_manager = apalis_manager.lock().await;
-
-    match apalis_manager.get_task_result(&task_id).await? {
+pub async fn get_task_result(
+    State(state): State<TaskAppState>,
+    Path(task_id): Path<String>,
+) -> Result<Json<TranscriptionResponse>, VoiceCliError> {
+    match state.apalis_manager.get_task_result(&task_id).await? {
         Some(result) => {
             info!("获取任务结果成功: {} -> {} 字符", task_id, result.text.len());
-            Ok(HttpResult::success(result))
+            Ok(Json(result))
         }
         None => {
             warn!("任务结果不可用: {}", task_id);
@@ -329,7 +155,7 @@ pub async fn get_task_result_handler(
 }
 
 /// 取消任务
-/// DELETE /tasks/:task_id
+/// DELETE /tasks/{task_id}
 #[utoipa::path(
     delete,
     path = "/tasks/{task_id}",
@@ -346,17 +172,11 @@ pub async fn get_task_result_handler(
         (status = 500, description = "服务器错误", body = String)
     ),
 )]
-pub async fn cancel_task_handler(
-    State(state): State<AppState>,
-    axum::extract::Path(task_id): axum::extract::Path<String>,
-) -> Result<HttpResult<CancelResponse>, VoiceCliError> {
-    let Some(apalis_manager) = &state.apalis_manager else {
-        return Err(VoiceCliError::TaskManagementDisabled);
-    };
-    
-    let apalis_manager = apalis_manager.lock().await;
-
-    let cancelled = apalis_manager.cancel_task(&task_id).await?;
+pub async fn cancel_task(
+    State(state): State<TaskAppState>,
+    Path(task_id): Path<String>,
+) -> Result<Json<CancelResponse>, VoiceCliError> {
+    let cancelled = state.apalis_manager.cancel_task(&task_id).await?;
     
     let response = CancelResponse {
         task_id: task_id.clone(),
@@ -369,7 +189,7 @@ pub async fn cancel_task_handler(
     };
     
     info!("任务取消操作: {} -> {}", task_id, response.message);
-    Ok(HttpResult::success(response))
+    Ok(Json(response))
 }
 
 // ===== 辅助函数 =====
@@ -460,4 +280,25 @@ fn generate_task_id() -> String {
             .as_millis(),
         std::process::id()
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generate_task_id() {
+        let task_id = generate_task_id();
+        assert!(task_id.starts_with("task_"));
+        assert!(task_id.len() > 10);
+    }
+
+    #[test]
+    fn test_validate_audio_file() {
+        let small_data = Bytes::from(vec![0u8; 1024]);
+        assert!(validate_audio_file(&small_data, "test.wav").is_ok());
+
+        let large_data = Bytes::from(vec![0u8; 300 * 1024 * 1024]); // 300MB
+        assert!(validate_audio_file(&large_data, "large.wav").is_err());
+    }
 }

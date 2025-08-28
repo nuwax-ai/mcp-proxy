@@ -11,14 +11,25 @@ use crate::server::middleware_config::set_layer;
 /// Create routes for the server
 pub async fn create_routes(config: Arc<Config>) -> crate::Result<Router> {
     let shared_state = handlers::AppState::new(config.clone()).await?;
+    create_routes_with_state(shared_state).await
+}
 
+/// Create routes with pre-created AppState
+pub async fn create_routes_with_state(shared_state: handlers::AppState) -> crate::Result<Router> {
+    let config = shared_state.config.clone();
+    
     let app = Router::new()
         // Health check endpoint
         .route("/health", get(handlers::health_handler))
         // Models management endpoints
         .route("/models", get(handlers::models_list_handler))
-        // Transcription endpoint
+        // Transcription endpoint (synchronous)
         .route("/transcribe", post(handlers::transcribe_handler))
+        // Task management endpoints (asynchronous)
+        .route("/tasks/transcribe", post(handlers::async_transcribe_handler))
+        .route("/tasks/:task_id", get(handlers::get_task_handler))
+        .route("/tasks/:task_id", axum::routing::delete(handlers::cancel_task_handler))
+        .route("/tasks/:task_id/result", get(handlers::get_task_result_handler))
         // Add shared state
         .with_state(shared_state.clone())
         // Merge Swagger UI routes

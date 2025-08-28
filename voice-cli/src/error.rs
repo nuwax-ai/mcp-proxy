@@ -75,6 +75,20 @@ pub enum VoiceCliError {
 
     #[error("Missing required field: {0}")]
     MissingField(String),
+
+    // Storage related errors
+    #[error("Storage error: {0}")]
+    Storage(String),
+
+    // Task management errors
+    #[error("Task management is disabled")]
+    TaskManagementDisabled,
+
+    #[error("Resource not found: {0}")]
+    NotFound(String),
+
+    #[error("Initialization error: {0}")]
+    Initialization(String),
 }
 
 impl IntoResponse for VoiceCliError {
@@ -113,7 +127,11 @@ impl IntoResponse for VoiceCliError {
             }
             VoiceCliError::MultipartError(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             VoiceCliError::MissingField(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            VoiceCliError::Storage(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             VoiceCliError::ConfigRs(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+            VoiceCliError::TaskManagementDisabled => (StatusCode::BAD_REQUEST, self.to_string()),
+            VoiceCliError::NotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
+            VoiceCliError::Initialization(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
         };
 
         let body = Json(json!({

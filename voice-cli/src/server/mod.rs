@@ -3,6 +3,7 @@ pub mod middleware;
 pub mod routes;
 pub mod http_tracing;
 pub mod middleware_config;
+pub mod app_state;
 
 use crate::models::Config;
 use std::net::SocketAddr;
@@ -32,7 +33,9 @@ pub async fn create_server(
 pub async fn create_server_with_graceful_shutdown(
     config: Config,
 ) -> crate::Result<impl std::future::Future<Output = Result<(), std::io::Error>>> {
-    let app = routes::create_routes(Arc::new(config.clone())).await?;
+    let config_arc = Arc::new(config.clone());
+    let app_state = handlers::AppState::new(config_arc.clone()).await?;
+    let app = routes::create_routes_with_state(app_state.clone()).await?;
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
     info!("Server listening on {}", addr);
@@ -50,7 +53,15 @@ pub async fn create_server_with_graceful_shutdown(
             .await
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e));
         
-        info!("Axum server completed with result: {:?}", result);
+        info!("Axum server completed, performing graceful shutdown...");
+        
+        // Perform graceful shutdown of application state
+        app_state.shutdown().await;
+        
+        // Perform global cleanup operations
+        crate::utils::perform_shutdown_cleanup().await;
+        
+        info!("Graceful shutdown completed with result: {:?}", result);
         result
     })
 }

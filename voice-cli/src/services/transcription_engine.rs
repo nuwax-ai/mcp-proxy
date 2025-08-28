@@ -2,8 +2,7 @@ use crate::services::ModelService;
 use crate::VoiceCliError;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::collections::HashMap;
-use tokio::sync::RwLock;
+use dashmap::DashMap;
 
 // Reuse an already-loaded WhisperTranscriber to avoid reloading the model
 use voice_toolkit::stt::{self, TranscriptionResult, WhisperConfig, WhisperTranscriber};
@@ -12,7 +11,17 @@ use voice_toolkit::stt::{self, TranscriptionResult, WhisperConfig, WhisperTransc
 pub struct TranscriptionEngine {
     model_service: Arc<ModelService>,
     // Cache transcribers per model to avoid reloading model/VRAM each time
-    transcribers: RwLock<HashMap<String, Arc<WhisperTranscriber>>>,
+    // Using DashMap for better concurrent performance
+    transcribers: DashMap<String, Arc<WhisperTranscriber>>,
+}
+
+impl std::fmt::Debug for TranscriptionEngine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TranscriptionEngine")
+            .field("model_service", &self.model_service)
+            .field("transcribers_count", &self.transcribers.len())
+            .finish()
+    }
 }
 
 impl TranscriptionEngine {
@@ -20,7 +29,7 @@ impl TranscriptionEngine {
     pub fn new(model_service: Arc<ModelService>) -> Self {
         Self {
             model_service,
-            transcribers: RwLock::new(HashMap::new()),
+            transcribers: DashMap::new(),
         }
     }
 
@@ -28,9 +37,9 @@ impl TranscriptionEngine {
         &self,
         model_name: &str,
     ) -> Result<Arc<WhisperTranscriber>, VoiceCliError> {
-        // Fast path: try read cache
-        if let Some(existing) = self.transcribers.read().await.get(model_name).cloned() {
-            return Ok(existing);
+        // Fast path: try get from cache
+        if let Some(existing) = self.transcribers.get(model_name) {
+            return Ok(existing.clone());
         }
 
         // Resolve model path
@@ -50,10 +59,19 @@ impl TranscriptionEngine {
         let created = created_res.map_err(|e| VoiceCliError::Model(e.to_string()))?;
         let transcriber = Arc::new(created);
 
-        // Insert into cache if absent
-        let mut write_guard = self.transcribers.write().await;
-        let entry = write_guard.entry(model_name.to_string()).or_insert_with(|| transcriber.clone());
-        Ok(entry.clone())
+        // Insert into cache using DashMap's atomic operations
+        // Use entry API to handle race conditions where another thread might have inserted the same key
+        match self.transcribers.entry(model_name.to_string()) {
+            dashmap::mapref::entry::Entry::Occupied(entry) => {
+                // Another thread already inserted this transcriber, use the existing one
+                Ok(entry.get().clone())
+            }
+            dashmap::mapref::entry::Entry::Vacant(entry) => {
+                // We're the first to insert, use our transcriber
+                entry.insert(transcriber.clone());
+                Ok(transcriber)
+            }
+        }
     }
 
     /// Transcribe an audio file that is already Whisper-compatible (wav, correct params)

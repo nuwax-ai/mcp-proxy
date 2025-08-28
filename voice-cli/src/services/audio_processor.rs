@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use tempfile::NamedTempFile;
 use tracing::{debug, info, warn};
 
+#[derive(Debug)]
 pub struct AudioProcessor {
     temp_dir: PathBuf,
 }

@@ -1,4 +1,5 @@
 pub mod signal_handling;
+pub mod cleanup;
 
 use crate::VoiceCliError;
 use crate::models::Config;
@@ -12,6 +13,7 @@ pub use signal_handling::{
     create_combined_shutdown_signal, create_service_shutdown_signal, create_shutdown_signal,
     handle_system_signals,
 };
+pub use cleanup::perform_shutdown_cleanup;
 
 
 /// Initialize logging based on configuration

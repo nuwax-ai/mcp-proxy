@@ -14,7 +14,7 @@ pub use error::{Result, VoiceCliError};
 pub use models::*;
 
 // Re-export services
-pub use services::{AudioProcessor, ModelService, TranscriptionService};
+pub use services::{AudioProcessor, ModelService, transcription_engine};
 
 // Tests module
 #[cfg(test)]

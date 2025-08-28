@@ -51,9 +51,9 @@ logging:
   # Directory for log files
   log_dir: "./logs"
   # Maximum size per log file
-  max_file_size: "10MB"
+  max_file_size: "100MB"
   # Maximum number of log files to keep
-  max_files: 5
+  max_files: 30
 
 daemon:
   # PID file for daemon mode
@@ -62,3 +62,17 @@ daemon:
   log_file: "./logs/server-daemon.log"
   # Working directory for daemon
   work_dir: "./"
+
+# Async task management configuration
+task_management:
+  # Enable async task processing (set to false to disable)
+  enabled: true
+  
+  # Apalis worker configuration
+  max_concurrent_tasks: 4  # Max concurrent async tasks (should match or be less than transcription_workers)
+  retry_attempts: 3  # Number of retry attempts for failed tasks
+  task_timeout_seconds: 3600  # Task processing timeout in seconds (0 to disable)
+  catch_panic: true  # Catch panics in execution and pipe them as errors
+  
+  # SQLite database configuration  
+  sqlite_db_path: "./data/tasks.db"  # Path to SQLite database file

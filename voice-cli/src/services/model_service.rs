@@ -6,6 +6,7 @@ use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use tracing::{debug, info, warn};
 
+#[derive(Debug)]
 pub struct ModelService {
     config: Config,
     client: Client,

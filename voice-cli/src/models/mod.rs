@@ -1,7 +1,7 @@
 pub mod config;
 mod http_result;
 pub mod request;
-pub mod worker;
+pub mod stepped_task;
 
 // Re-export config types
 pub use config::*;
@@ -9,22 +9,46 @@ pub use config::*;
 // Re-export HTTP result types
 pub use http_result::*;
 
-// Explicit re-exports to avoid conflicts
 // Request module exports (for HTTP API)
 pub use request::{
     AudioFormat, AudioFormatResult, DaemonStatus, DetectionMethod, DownloadStatus, HealthResponse,
     ModelDownloadStatus, ModelInfo, ModelsResponse, ProcessedAudio, Segment, TranscriptionResponse,
+    AudioMetadata, TranscriptionRequest,
 };
 
-// Rename conflicting types from request module
-pub use request::{
-    AudioMetadata as HttpAudioMetadata, TranscriptionRequest as HttpTranscriptionRequest,
+// Stepped task module exports
+pub use stepped_task::{
+    AsyncTranscriptionTask, AudioProcessedTask, ProcessingStage, ProcessingStageInfo,
+    ProgressDetails, SerializableSegment, SerializableTranscriptionResult, TaskError,
+    TaskPriority, TaskStatus, TranscriptionCompletedTask,
 };
 
-// Worker module exports (for internal processing)
-pub use worker::{TranscriptionResult, TranscriptionTask, WorkerProcessedAudio};
+// 简化的任务响应类型
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
-// Rename conflicting types from worker module
-pub use worker::{
-    AudioMetadata as WorkerAudioMetadata, TranscriptionRequest as WorkerTranscriptionRequest,
-};
+/// 异步任务提交响应
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct AsyncTaskResponse {
+    pub task_id: String,
+    pub status: TaskStatus,
+    pub estimated_completion: Option<DateTime<Utc>>,
+}
+
+/// 任务状态查询响应
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TaskStatusResponse {
+    pub task_id: String,
+    pub status: TaskStatus,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// 任务取消响应
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CancelResponse {
+    pub task_id: String,
+    pub cancelled: bool,
+    pub message: String,
+}
