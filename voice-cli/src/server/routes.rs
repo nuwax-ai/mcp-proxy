@@ -27,9 +27,9 @@ pub async fn create_routes_with_state(shared_state: handlers::AppState) -> crate
         .route("/transcribe", post(handlers::transcribe_handler))
         // Task management endpoints (asynchronous)
         .route("/tasks/transcribe", post(handlers::async_transcribe_handler))
-        .route("/tasks/:task_id", get(handlers::get_task_handler))
-        .route("/tasks/:task_id", axum::routing::delete(handlers::cancel_task_handler))
-        .route("/tasks/:task_id/result", get(handlers::get_task_result_handler))
+        .route("/tasks/{task_id}", get(handlers::get_task_handler))
+        .route("/tasks/{task_id}", axum::routing::delete(handlers::cancel_task_handler))
+        .route("/tasks/{task_id}/result", get(handlers::get_task_result_handler))
         // Add shared state
         .with_state(shared_state.clone())
         // Merge Swagger UI routes

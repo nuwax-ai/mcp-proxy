@@ -99,8 +99,21 @@ impl ApalisManager {
         config: TaskManagementConfig,
         _model_service: Arc<ModelService>,
     ) -> Result<Self, VoiceCliError> {
-        let database_url = format!("sqlite:{}", config.sqlite_db_path);
+        let database_url = format!("sqlite://{}", config.sqlite_db_path);
         info!("初始化 ApalisManager，数据库: {}", database_url);
+
+        // 确保数据库目录存在
+        let db_path = std::path::Path::new(&config.sqlite_db_path);
+        info!("数据库路径: {:?} (当前工作目录: {:?})", db_path, std::env::current_dir());
+        if let Some(parent_dir) = db_path.parent() {
+            info!("父目录: {:?}, 是否存在: {}", parent_dir, parent_dir.exists());
+            if !parent_dir.exists() {
+                info!("创建目录: {:?}", parent_dir);
+                std::fs::create_dir_all(parent_dir)
+                    .map_err(|e| VoiceCliError::Storage(format!("创建数据库目录失败: {}", e)))?;
+                info!("目录创建成功: {:?}", parent_dir);
+            }
+        }
 
         // 创建数据库连接池
         let pool = SqlitePoolOptions::new()
