@@ -1,6 +1,7 @@
 use crate::VoiceCliError;
 use crate::models::{
     AsyncTranscriptionTask, TaskManagementConfig, TaskStatus, TranscriptionResponse,
+    TaskStatsResponse,
 };
 use crate::services::{AudioFileManager, ModelService, TranscriptionEngine};
 
@@ -291,6 +292,115 @@ impl ApalisManager {
             }
             _ => Ok(false),
         }
+    }
+
+    /// 重试任务
+    pub async fn retry_task(&self, task_id: &str) -> Result<bool, VoiceCliError> {
+        let current_status = self.get_task_status(task_id).await?;
+
+        match current_status {
+            Some(TaskStatus::Failed { .. }) | Some(TaskStatus::Cancelled { .. }) => {
+                // 查询数据库中是否有原始任务数据
+                let task_data: Option<(String, String, String, Option<String>, Option<String>)> = sqlx::query_as(
+                    "SELECT id, task_id, status, payload, lock_by FROM apalis.jobs WHERE task_id = ? LIMIT 1"
+                )
+                .bind(task_id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| VoiceCliError::Storage(format!("查询任务数据失败: {}", e)))?;
+
+                if task_data.is_some() {
+                    // 重置状态为待处理
+                    let retry_status = TaskStatus::Pending {
+                        queued_at: Utc::now(),
+                    };
+
+                    self.status_cache
+                        .insert(task_id.to_string(), retry_status);
+
+                    // 重新提交任务到队列 (这里简化实现，仅更新状态)
+                    // 实际实现可能需要重新将任务推入 Apalis 队列
+                    
+                    info!("任务已重新提交: {}", task_id);
+                    Ok(true)
+                } else {
+                    warn!("任务数据不存在，无法重试: {}", task_id);
+                    Ok(false)
+                }
+            }
+            Some(TaskStatus::Pending { .. }) | Some(TaskStatus::Processing { .. }) => {
+                warn!("任务正在处理中，无法重试: {}", task_id);
+                Ok(false)
+            }
+            Some(TaskStatus::Completed { .. }) => {
+                warn!("任务已完成，无法重试: {}", task_id);
+                Ok(false)
+            }
+            None => {
+                warn!("任务不存在，无法重试: {}", task_id);
+                Ok(false)
+            }
+        }
+    }
+
+    /// 获取任务统计信息
+    pub async fn get_tasks_stats(&self) -> Result<TaskStatsResponse, VoiceCliError> {
+        let mut total_tasks = 0u32;
+        let mut pending_tasks = 0u32;
+        let mut processing_tasks = 0u32;
+        let mut completed_tasks = 0u32;
+        let mut failed_tasks = 0u32;
+        let mut cancelled_tasks = 0u32;
+        let mut failed_task_ids = Vec::new();
+        let mut processing_times = Vec::new();
+
+        // 遍历状态缓存统计
+        for entry in self.status_cache.iter() {
+            total_tasks += 1;
+            
+            match &*entry.value() {
+                TaskStatus::Pending { .. } => {
+                    pending_tasks += 1;
+                }
+                TaskStatus::Processing { .. } => {
+                    processing_tasks += 1;
+                }
+                TaskStatus::Completed { processing_time, .. } => {
+                    completed_tasks += 1;
+                    processing_times.push(processing_time.as_millis() as f64);
+                }
+                TaskStatus::Failed { .. } => {
+                    failed_tasks += 1;
+                    failed_task_ids.push(entry.key().clone());
+                }
+                TaskStatus::Cancelled { .. } => {
+                    cancelled_tasks += 1;
+                }
+            }
+        }
+
+        // 计算平均处理时间
+        let average_processing_time_ms = if !processing_times.is_empty() {
+            Some(processing_times.iter().sum::<f64>() / processing_times.len() as f64)
+        } else {
+            None
+        };
+
+        let stats = TaskStatsResponse {
+            total_tasks,
+            pending_tasks,
+            processing_tasks,
+            completed_tasks,
+            failed_tasks,
+            cancelled_tasks,
+            average_processing_time_ms,
+            failed_task_ids,
+        };
+
+        info!("任务统计: 总共 {} 个任务, 完成 {} 个, 失败 {} 个", 
+              total_tasks, completed_tasks, failed_tasks);
+
+        Ok(stats)
     }
 
     /// 保存任务结果

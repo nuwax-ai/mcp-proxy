@@ -52,3 +52,24 @@ pub struct CancelResponse {
     pub cancelled: bool,
     pub message: String,
 }
+
+/// 任务重试响应
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RetryResponse {
+    pub task_id: String,
+    pub retried: bool,
+    pub message: String,
+}
+
+/// 任务统计响应
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TaskStatsResponse {
+    pub total_tasks: u32,
+    pub pending_tasks: u32,
+    pub processing_tasks: u32,
+    pub completed_tasks: u32,
+    pub failed_tasks: u32,
+    pub cancelled_tasks: u32,
+    pub average_processing_time_ms: Option<f64>,
+    pub failed_task_ids: Vec<String>,
+}

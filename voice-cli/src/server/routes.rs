@@ -30,6 +30,9 @@ pub async fn create_routes_with_state(shared_state: handlers::AppState) -> crate
         .route("/tasks/{task_id}", get(handlers::get_task_handler))
         .route("/tasks/{task_id}", axum::routing::delete(handlers::cancel_task_handler))
         .route("/tasks/{task_id}/result", get(handlers::get_task_result_handler))
+        .route("/tasks/{task_id}/cancel", post(handlers::cancel_task_post_handler))
+        .route("/tasks/{task_id}/retry", post(handlers::retry_task_handler))
+        .route("/tasks/stats", get(handlers::get_tasks_stats_handler))
         // Add shared state
         .with_state(shared_state.clone())
         // Merge Swagger UI routes
