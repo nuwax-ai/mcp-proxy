@@ -144,32 +144,5 @@ impl IntoResponse for VoiceCliError {
 }
 
 
-// Conversion from ServiceError to VoiceCliError (for background services)
-impl From<crate::daemon::background_service::ServiceError> for VoiceCliError {
-    fn from(error: crate::daemon::background_service::ServiceError) -> Self {
-        match error {
-            crate::daemon::background_service::ServiceError::AlreadyRunning(msg) => {
-                VoiceCliError::Daemon(format!("Service already running: {}", msg))
-            }
-            crate::daemon::background_service::ServiceError::ConfigurationError(msg) => {
-                VoiceCliError::Config(msg)
-            }
-            crate::daemon::background_service::ServiceError::InitializationFailed(msg) => {
-                VoiceCliError::Daemon(format!("Service initialization failed: {}", msg))
-            }
-            crate::daemon::background_service::ServiceError::ShutdownTimeout => {
-                VoiceCliError::Daemon("Service shutdown timeout".to_string())
-            }
-            crate::daemon::background_service::ServiceError::ServiceError(msg) => {
-                VoiceCliError::Daemon(msg)
-            }
-            crate::daemon::background_service::ServiceError::DaemonError(msg) => {
-                VoiceCliError::Daemon(format!("Daemonization error: {}", msg))
-            }
-        }
-    }
-}
-
-
 pub type Result<T> = std::result::Result<T, VoiceCliError>;
 

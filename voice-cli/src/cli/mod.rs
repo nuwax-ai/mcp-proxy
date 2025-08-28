@@ -1,11 +1,7 @@
 pub mod model;
 pub mod server;
 
-// New unified handlers using the background service abstraction
-pub mod unified_handlers;
 
-// Re-export unified handlers for convenience
-pub use unified_handlers::{server as unified_server};
 
 use clap::{Parser, Subcommand};
 

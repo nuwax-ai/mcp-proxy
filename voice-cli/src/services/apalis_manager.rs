@@ -116,6 +116,28 @@ impl ApalisManager {
             }
         }
 
+        // 确保数据库文件存在
+        if !db_path.exists() {
+            info!("创建数据库文件: {:?}", db_path);
+            // 创建空文件
+            std::fs::File::create(db_path)
+                .map_err(|e| VoiceCliError::Storage(format!("创建数据库文件失败: {}", e)))?;
+            info!("数据库文件创建成功: {:?}", db_path);
+        } else {
+            // 检查文件权限
+            let metadata = std::fs::metadata(db_path)
+                .map_err(|e| VoiceCliError::Storage(format!("获取数据库文件元数据失败: {}", e)))?;
+            
+            if metadata.permissions().readonly() {
+                return Err(VoiceCliError::Storage(format!(
+                    "数据库文件只读，无法写入: {:?}", 
+                    db_path
+                )));
+            }
+            
+            info!("数据库文件已存在且可写: {:?}", db_path);
+        }
+
         // 创建数据库连接池
         let pool = SqlitePoolOptions::new()
             .max_connections(10)
@@ -208,15 +230,23 @@ impl ApalisManager {
             .backend(self.storage.clone())
             .build_fn(transcription_pipeline_worker);
 
-        // 启动监控器
+        // 启动监控器 - 使用更简单的方法
         let monitor = Monitor::new().register(worker);
-        let handle = tokio::spawn(async move {
-            if let Err(e) = monitor.run().await {
-                warn!("Apalis 监控器错误: {}", e);
+        
+        info!("启动 Apalis 监控器...");
+        
+        // 在后台运行监控器
+        let monitor_handle = tokio::spawn(async move {
+            info!("Apalis 监控器开始运行，等待任务...");
+            match monitor.run().await {
+                Ok(()) => info!("Apalis 监控器正常完成"),
+                Err(e) => warn!("Apalis 监控器错误: {}", e),
             }
         });
 
-        self.monitor_handle = Some(handle);
+        self.monitor_handle = Some(monitor_handle);
+        
+        info!("Apalis 监控器启动完成");
 
         info!("Apalis worker 启动成功");
         Ok(())
@@ -241,9 +271,11 @@ impl ApalisManager {
         let apalis_task: TranscriptionTask = task.clone().into();
 
         self.storage
-            .push(apalis_task)
+            .push(apalis_task.clone())
             .await
             .map_err(|e| VoiceCliError::Storage(format!("提交任务失败: {}", e)))?;
+        
+        info!("任务已推送到 Apalis 存储: {:?}", apalis_task.task_id);
 
         // 初始状态
         let initial_status = TaskStatus::Pending {
@@ -341,6 +373,11 @@ impl ApalisManager {
                 Ok(false)
             }
         }
+    }
+
+    /// 检查 worker 是否运行
+    pub fn is_worker_running(&self) -> bool {
+        self.monitor_handle.is_some()
     }
 
     /// 获取任务统计信息
