@@ -194,7 +194,7 @@ pub async fn transcribe_handler(
 /// POST /tasks/transcribe
 #[utoipa::path(
     post,
-    path = "/tasks/transcribe",
+    path = "/api/v1/tasks/transcribe",
     tag = "异步转录",
     summary = "提交音频转录任务",
     description = "上传音频文件进行异步转录处理，立即返回任务ID用于跟踪进度",
@@ -269,7 +269,7 @@ pub async fn async_transcribe_handler(
 /// GET /tasks/:task_id
 #[utoipa::path(
     get,
-    path = "/tasks/{task_id}",
+    path = "/api/v1/tasks/{task_id}",
     tag = "任务管理",
     summary = "获取任务状态",
     description = "根据任务ID查询转录任务的当前状态",
@@ -322,7 +322,7 @@ pub async fn get_task_handler(
 /// GET /tasks/:task_id/result
 #[utoipa::path(
     get,
-    path = "/tasks/{task_id}/result",
+    path = "/api/v1/tasks/{task_id}/result",
     tag = "任务管理",
     summary = "获取转录结果",
     description = "获取已完成任务的转录结果",
@@ -366,7 +366,7 @@ pub async fn get_task_result_handler(
 /// DELETE /tasks/:task_id
 #[utoipa::path(
     delete,
-    path = "/tasks/{task_id}",
+    path = "/api/v1/tasks/{task_id}",
     tag = "任务管理", 
     summary = "取消任务",
     description = "取消待处理或正在处理的转录任务",
@@ -407,7 +407,7 @@ pub async fn cancel_task_handler(
 /// POST /tasks/:task_id/cancel
 #[utoipa::path(
     post,
-    path = "/tasks/{task_id}/cancel",
+    path = "/api/v1/tasks/{task_id}/cancel",
     tag = "任务管理", 
     summary = "取消任务",
     description = "取消待处理或正在处理的转录任务（POST方式）",
@@ -437,7 +437,7 @@ pub async fn cancel_task_post_handler(
 /// POST /tasks/:task_id/retry
 #[utoipa::path(
     post,
-    path = "/tasks/{task_id}/retry",
+    path = "/api/v1/tasks/{task_id}/retry",
     tag = "任务管理",
     summary = "重试任务",
     description = "重试已失败或已取消的转录任务",
@@ -478,7 +478,7 @@ pub async fn retry_task_handler(
 /// GET /tasks/stats
 #[utoipa::path(
     get,
-    path = "/tasks/stats",
+    path = "/api/v1/tasks/stats",
     tag = "任务管理",
     summary = "获取任务统计信息",
     description = "获取当前任务执行情况的统计信息，包括各状态任务数量、平均执行时间等",
