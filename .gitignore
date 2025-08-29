@@ -33,3 +33,7 @@ cluster_metadata
 *.pid
 
 voice-cli/build/*
+voice-cli/data/*
+voice-cli/server-config.yml
+voice-cli/server_debug.log
+voice-cli/test_audio.txt

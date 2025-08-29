@@ -4,18 +4,18 @@ use crate::models::{
     TaskStatsResponse,
 };
 use crate::services::{AudioFileManager, ModelService, TranscriptionEngine};
-
 use apalis::prelude::*;
 use apalis::layers::retry::RetryPolicy;
 use apalis::layers::WorkerBuilderExt;
-use apalis_sql::sqlite::{SqlitePool, SqliteStorage};
+use apalis_sql::sqlite::SqliteStorage;
 use chrono::{DateTime, Utc};
-use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::Row;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
+use tokio::time;
 use tracing::{debug, info, warn};
 
 
@@ -72,8 +72,87 @@ impl From<AsyncTranscriptionTask> for TranscriptionTask {
 pub struct StepContext {
     pub transcription_engine: Arc<TranscriptionEngine>,
     pub audio_file_manager: Arc<AudioFileManager>,
-    pub status_cache: DashMap<String, TaskStatus>,
-    pub results_cache: DashMap<String, TranscriptionResponse>,
+    pub pool: sqlx::SqlitePool,
+}
+
+impl StepContext {
+    /// 保存任务状态到SQLite
+    async fn save_task_status(&self, task_id: &str, status: &TaskStatus) -> Result<(), Error> {
+        let status_json = serde_json::to_string(status)
+            .map_err(|e| Error::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>))?;
+        
+        sqlx::query(
+            "INSERT OR REPLACE INTO task_status (task_id, status, updated_at) VALUES (?, ?, ?)"
+        )
+        .bind(task_id)
+        .bind(status_json)
+        .bind(Utc::now().timestamp())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| Error::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>))?;
+        
+        Ok(())
+    }
+
+    /// 获取任务状态
+    async fn get_task_status(&self, task_id: &str) -> Result<Option<TaskStatus>, Error> {
+        let row = sqlx::query("SELECT status FROM task_status WHERE task_id = ?")
+            .bind(task_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| Error::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>))?;
+
+        if let Some(row) = row {
+            let status_json: String = row.try_get("status")
+                .map_err(|e| Error::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>))?;
+            
+            let status = serde_json::from_str(&status_json)
+                .map_err(|e| Error::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>))?;
+            
+            Ok(Some(status))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// 保存任务结果到SQLite
+    async fn save_task_result(&self, task_id: &str, result: &TranscriptionResponse) -> Result<(), Error> {
+        let result_json = serde_json::to_string(result)
+            .map_err(|e| Error::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>))?;
+        
+        sqlx::query(
+            "INSERT OR REPLACE INTO task_results (task_id, result, created_at) VALUES (?, ?, ?)"
+        )
+        .bind(task_id)
+        .bind(result_json)
+        .bind(Utc::now().timestamp())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| Error::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>))?;
+        
+        Ok(())
+    }
+
+    /// 获取任务结果
+    async fn get_task_result(&self, task_id: &str) -> Result<Option<TranscriptionResponse>, Error> {
+        let row = sqlx::query("SELECT result FROM task_results WHERE task_id = ?")
+            .bind(task_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| Error::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>))?;
+
+        if let Some(row) = row {
+            let result_json: String = row.try_get("result")
+                .map_err(|e| Error::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>))?;
+            
+            let result = serde_json::from_str(&result_json)
+                .map_err(|e| Error::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>))?;
+            
+            Ok(Some(result))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 /// 任务状态更新
@@ -83,23 +162,26 @@ pub struct TaskStatusUpdate {
     pub status: TaskStatus,
 }
 
-/// 简化的任务管理器
+/// 任务存储和状态管理
+#[derive(Debug, Clone)]
+pub struct TaskStorage {
+    pub sqlite_storage: SqliteStorage<TranscriptionTask>,
+}
+
+/// Apalis 任务管理器
 #[derive(Debug)]
 pub struct ApalisManager {
-    storage: SqliteStorage<TranscriptionTask>,
-    pool: SqlitePool,
-    config: TaskManagementConfig,
-    status_cache: DashMap<String, TaskStatus>,
-    results_cache: DashMap<String, TranscriptionResponse>,
-    monitor_handle: Option<tokio::task::JoinHandle<()>>,
+    pub config: TaskManagementConfig,
+    pub pool: sqlx::SqlitePool,
+    pub monitor_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl ApalisManager {
-    /// 创建新的管理器
+    /// 创建新的管理器，返回 (ApalisManager, SqliteStorage) 元组
     pub async fn new(
         config: TaskManagementConfig,
         _model_service: Arc<ModelService>,
-    ) -> Result<Self, VoiceCliError> {
+    ) -> Result<(Self, SqliteStorage<TranscriptionTask>), VoiceCliError> {
         let database_url = format!("sqlite://{}", config.sqlite_db_path);
         info!("初始化 ApalisManager，数据库: {}", database_url);
 
@@ -153,11 +235,8 @@ impl ApalisManager {
         let storage = SqliteStorage::new(pool.clone());
 
         let manager = Self {
-            storage,
             pool,
             config,
-            status_cache: DashMap::new(),
-            results_cache: DashMap::new(),
             monitor_handle: None,
         };
 
@@ -165,7 +244,7 @@ impl ApalisManager {
         manager.init_custom_tables().await?;
 
         info!("ApalisManager 初始化完成");
-        Ok(manager)
+        Ok((manager, storage))
     }
 
     /// 初始化自定义数据表
@@ -204,6 +283,7 @@ impl ApalisManager {
     /// 启动 worker（内部使用步骤化逻辑）
     pub async fn start_worker(
         &mut self,
+        storage: SqliteStorage<TranscriptionTask>,
         model_service: Arc<ModelService>,
     ) -> Result<(), VoiceCliError> {
         // 创建服务
@@ -217,8 +297,7 @@ impl ApalisManager {
         let step_context = StepContext {
             transcription_engine,
             audio_file_manager,
-            status_cache: self.status_cache.clone(),
-            results_cache: self.results_cache.clone(),
+            pool: self.pool.clone(),
         };
 
         // 创建普通 worker，内部使用步骤化逻辑
@@ -227,7 +306,7 @@ impl ApalisManager {
             .enable_tracing()
             .concurrency(self.config.max_concurrent_tasks)
             .retry(RetryPolicy::retries(self.config.retry_attempts))
-            .backend(self.storage.clone())
+            .backend(storage.clone())
             .build_fn(transcription_pipeline_worker);
 
         // 启动监控器 - 使用更简单的方法
@@ -254,12 +333,14 @@ impl ApalisManager {
 
     /// 提交任务
     pub async fn submit_task(
-        &mut self,
+        &self,
+        storage: &mut SqliteStorage<TranscriptionTask>,
         audio_file_path: PathBuf,
         original_filename: String,
         model: Option<String>,
         response_format: Option<String>,
     ) -> Result<String, VoiceCliError> {
+        info!("submit_task: 开始创建任务...");
         let task = AsyncTranscriptionTask::new(
             self.generate_task_id(),
             audio_file_path,
@@ -268,22 +349,43 @@ impl ApalisManager {
             response_format,
         );
 
+        info!("submit_task: 任务创建完成: {}", task.task_id);
         let apalis_task: TranscriptionTask = task.clone().into();
 
-        self.storage
-            .push(apalis_task.clone())
-            .await
-            .map_err(|e| VoiceCliError::Storage(format!("提交任务失败: {}", e)))?;
+        info!("submit_task: 开始推送任务到队列...");
+        info!("submit_task: 任务数据: {:?}", apalis_task);
+        
+        // Use the storage directly without cloning
+        info!("submit_task: 准备调用 storage.push()...");
+        let push_result = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            storage.push(apalis_task.clone())
+        ).await;
+        info!("submit_task: storage.push() 调用完成");
+        
+        match push_result {
+            Ok(Ok(_)) => {
+                info!("submit_task: 任务推送成功");
+            },
+            Ok(Err(e)) => {
+                info!("submit_task: 任务推送失败: {}", e);
+                return Err(VoiceCliError::Storage(format!("提交任务失败: {}", e)));
+            },
+            Err(_) => {
+                info!("submit_task: 任务推送超时");
+                return Err(VoiceCliError::Storage("推送任务到队列超时".to_string()));
+            },
+        };
         
         info!("任务已推送到 Apalis 存储: {:?}", apalis_task.task_id);
 
         // 初始状态
+        info!("submit_task: 保存初始任务状态...");
         let initial_status = TaskStatus::Pending {
             queued_at: Utc::now(),
         };
 
-        self.status_cache
-            .insert(task.task_id.clone(), initial_status);
+        self.save_task_status(&task.task_id, &initial_status).await?;
 
         info!("任务提交成功: {}", task.task_id);
         Ok(task.task_id)
@@ -294,7 +396,43 @@ impl ApalisManager {
         &self,
         task_id: &str,
     ) -> Result<Option<TaskStatus>, VoiceCliError> {
-        Ok(self.status_cache.get(task_id).map(|entry| entry.clone()))
+        let row = sqlx::query("SELECT status FROM task_status WHERE task_id = ?")
+            .bind(task_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| VoiceCliError::Storage(format!("查询任务状态失败: {}", e)))?;
+
+        if let Some(row) = row {
+            let status_json: String = row.try_get("status")
+                .map_err(|e| VoiceCliError::Storage(format!("获取状态字段失败: {}", e)))?;
+            let status = serde_json::from_str(&status_json)
+                .map_err(|e| VoiceCliError::Storage(format!("解析任务状态失败: {}", e)))?;
+            Ok(Some(status))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// 保存任务状态
+    async fn save_task_status(
+        &self,
+        task_id: &str,
+        status: &TaskStatus,
+    ) -> Result<(), VoiceCliError> {
+        let status_json = serde_json::to_string(status)
+            .map_err(|e| VoiceCliError::Storage(format!("序列化任务状态失败: {}", e)))?;
+        
+        sqlx::query(
+            "INSERT OR REPLACE INTO task_status (task_id, status, updated_at) VALUES (?, ?, ?)"
+        )
+        .bind(task_id)
+        .bind(status_json)
+        .bind(Utc::now().timestamp())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| VoiceCliError::Storage(format!("保存任务状态失败: {}", e)))?;
+        
+        Ok(())
     }
 
     /// 获取任务结果
@@ -302,7 +440,43 @@ impl ApalisManager {
         &self,
         task_id: &str,
     ) -> Result<Option<TranscriptionResponse>, VoiceCliError> {
-        Ok(self.results_cache.get(task_id).map(|entry| entry.clone()))
+        let row = sqlx::query("SELECT result FROM task_results WHERE task_id = ?")
+            .bind(task_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| VoiceCliError::Storage(format!("查询任务结果失败: {}", e)))?;
+
+        if let Some(row) = row {
+            let result_json: String = row.try_get("result")
+                .map_err(|e| VoiceCliError::Storage(format!("获取结果字段失败: {}", e)))?;
+            let result = serde_json::from_str(&result_json)
+                .map_err(|e| VoiceCliError::Storage(format!("解析任务结果失败: {}", e)))?;
+            Ok(Some(result))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// 保存任务结果
+    async fn save_task_result(
+        &self,
+        task_id: &str,
+        result: &TranscriptionResponse,
+    ) -> Result<(), VoiceCliError> {
+        let result_json = serde_json::to_string(result)
+            .map_err(|e| VoiceCliError::Storage(format!("序列化任务结果失败: {}", e)))?;
+        
+        sqlx::query(
+            "INSERT OR REPLACE INTO task_results (task_id, result, created_at) VALUES (?, ?, ?)"
+        )
+        .bind(task_id)
+        .bind(result_json)
+        .bind(Utc::now().timestamp())
+        .execute(&self.pool)
+        .await
+        .map_err(|e| VoiceCliError::Storage(format!("保存任务结果失败: {}", e)))?;
+        
+        Ok(())
     }
 
     /// 取消任务
@@ -316,8 +490,7 @@ impl ApalisManager {
                     reason: Some("用户取消".to_string()),
                 };
 
-                self.status_cache
-                    .insert(task_id.to_string(), cancelled_status);
+                self.save_task_status(task_id, &cancelled_status).await?;
 
                 info!("任务已取消: {}", task_id);
                 Ok(true)
@@ -347,8 +520,7 @@ impl ApalisManager {
                         queued_at: Utc::now(),
                     };
 
-                    self.status_cache
-                        .insert(task_id.to_string(), retry_status);
+                    self.save_task_status(task_id, &retry_status).await?;
 
                     // 重新提交任务到队列 (这里简化实现，仅更新状态)
                     // 实际实现可能需要重新将任务推入 Apalis 队列
@@ -391,11 +563,24 @@ impl ApalisManager {
         let mut failed_task_ids = Vec::new();
         let mut processing_times = Vec::new();
 
-        // 遍历状态缓存统计
-        for entry in self.status_cache.iter() {
+        // 从 SQLite 查询所有任务状态
+        let rows = sqlx::query("SELECT task_id, status FROM task_status")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| VoiceCliError::Storage(format!("查询任务统计失败: {}", e)))?;
+
+        for row in rows {
+            let task_id: String = row.try_get("task_id")
+                .map_err(|e| VoiceCliError::Storage(format!("获取任务ID失败: {}", e)))?;
+            let status_json: String = row.try_get("status")
+                .map_err(|e| VoiceCliError::Storage(format!("获取状态字段失败: {}", e)))?;
+            
+            let status: TaskStatus = serde_json::from_str(&status_json)
+                .map_err(|e| VoiceCliError::Storage(format!("解析任务状态失败: {}", e)))?;
+            
             total_tasks += 1;
             
-            match &*entry.value() {
+            match status {
                 TaskStatus::Pending { .. } => {
                     pending_tasks += 1;
                 }
@@ -408,7 +593,7 @@ impl ApalisManager {
                 }
                 TaskStatus::Failed { .. } => {
                     failed_tasks += 1;
-                    failed_task_ids.push(entry.key().clone());
+                    failed_task_ids.push(task_id);
                 }
                 TaskStatus::Cancelled { .. } => {
                     cancelled_tasks += 1;
@@ -446,23 +631,7 @@ impl ApalisManager {
         task_id: &str,
         result: TranscriptionResponse,
     ) -> Result<(), VoiceCliError> {
-        self.results_cache
-            .insert(task_id.to_string(), result.clone());
-
-        let result_json = serde_json::to_string(&result)
-            .map_err(|e| VoiceCliError::Storage(format!("序列化结果失败: {}", e)))?;
-
-        let now = Utc::now().timestamp();
-
-        sqlx::query(
-            "INSERT OR REPLACE INTO task_results (task_id, result, created_at) VALUES (?, ?, ?)",
-        )
-        .bind(task_id)
-        .bind(&result_json)
-        .bind(now)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| VoiceCliError::Storage(format!("保存结果失败: {}", e)))?;
+        self.save_task_result(task_id, &result).await?;
 
         debug!("保存结果成功: {}", task_id);
         Ok(())
@@ -472,8 +641,9 @@ impl ApalisManager {
     pub async fn shutdown(mut self) -> Result<(), VoiceCliError> {
         if let Some(handle) = self.monitor_handle.take() {
             handle.abort();
-            info!("ApalisManager 已关闭");
         }
+        
+        info!("ApalisManager 已关闭");
         Ok(())
     }
 
@@ -492,24 +662,21 @@ impl ApalisManager {
 pub async fn init_global_apalis_manager(
     config: TaskManagementConfig,
     model_service: Arc<ModelService>,
-) -> Result<(), VoiceCliError> {
-    let manager = ApalisManager::new(config, model_service).await?;
+) -> Result<(Arc<tokio::sync::Mutex<ApalisManager>>, SqliteStorage<TranscriptionTask>), VoiceCliError> {
+    let (manager, storage) = ApalisManager::new(config, model_service).await?;
     let manager_arc = Arc::new(tokio::sync::Mutex::new(manager));
     
-    GLOBAL_APALIS_MANAGER
-        .set(manager_arc)
-        .map_err(|_| VoiceCliError::Initialization("全局 Apalis 管理器已初始化".to_string()))?;
-    
-    Ok(())
+    GLOBAL_APALIS_MANAGER.set(manager_arc.clone())
+        .map_err(|_| VoiceCliError::Config("全局 Apalis 管理器已经初始化".to_string()))?;
+
+    Ok((manager_arc, storage))
 }
 
-/// 获取全局 Apalis 管理器实例
-pub fn get_global_apalis_manager() -> Result<Arc<tokio::sync::Mutex<ApalisManager>>, VoiceCliError> {
-    GLOBAL_APALIS_MANAGER
-        .get()
-        .cloned()
-        .ok_or_else(|| VoiceCliError::Initialization("全局 Apalis 管理器未初始化".to_string()))
+/// 获取全局 Apalis 管理器
+pub async fn get_global_apalis_manager() -> Option<Arc<tokio::sync::Mutex<ApalisManager>>> {
+    GLOBAL_APALIS_MANAGER.get().cloned()
 }
+
 
 /// 步骤 1: 音频预处理
 async fn audio_preprocessing_step(
@@ -519,14 +686,11 @@ async fn audio_preprocessing_step(
     info!("步骤 1 - 音频预处理: {}", task.task_id);
 
     // 更新状态为处理中
-    ctx.status_cache.insert(
-        task.task_id.clone(),
-        TaskStatus::Processing {
-            stage: crate::models::ProcessingStage::AudioFormatDetection,
-            started_at: Utc::now(),
-            progress_details: None,
-        },
-    );
+    ctx.save_task_status(&task.task_id, &TaskStatus::Processing {
+        stage: crate::models::ProcessingStage::AudioFormatDetection,
+        started_at: Utc::now(),
+        progress_details: None,
+    }).await?;
 
     // 读取并验证音频文件
     let _audio_data = tokio::fs::read(&task.audio_file_path).await.map_err(|e| {
@@ -558,14 +722,11 @@ async fn transcription_step(
     info!("步骤 2 - Whisper 转录: {}", task.task_id);
 
     // 更新状态为转录中
-    ctx.status_cache.insert(
-        task.task_id.clone(),
-        TaskStatus::Processing {
-            stage: crate::models::ProcessingStage::WhisperTranscription,
-            started_at: Utc::now(),
-            progress_details: None,
-        },
-    );
+    ctx.save_task_status(&task.task_id, &TaskStatus::Processing {
+        stage: crate::models::ProcessingStage::WhisperTranscription,
+        started_at: Utc::now(),
+        progress_details: None,
+    }).await?;
 
     // 执行转录
     let model = task.model.as_deref().unwrap_or("base");
@@ -624,9 +785,8 @@ async fn result_formatting_step(
 ) -> Result<(), Error> {
     info!("步骤 3 - 结果格式化和存储: {}", task.task_id);
 
-    // 保存结果到缓存
-    ctx.results_cache
-        .insert(task.task_id.clone(), task.transcription_result.clone());
+    // 保存结果到SQLite存储
+    ctx.save_task_result(&task.task_id, &task.transcription_result).await?;
 
     // 计算实际处理时间
     let now = Utc::now();
@@ -634,17 +794,14 @@ async fn result_formatting_step(
     let duration = Duration::from_secs(processing_time.num_seconds().max(0) as u64);
 
     // 更新状态为完成
-    ctx.status_cache.insert(
-        task.task_id.clone(),
-        TaskStatus::Completed {
-            completed_at: now,
-            processing_time: duration,
-            result_summary: Some(format!(
-                "转录了 {} 个字符",
-                task.transcription_result.text.len()
-            )),
-        },
-    );
+    ctx.save_task_status(&task.task_id, &TaskStatus::Completed {
+        completed_at: now,
+        processing_time: duration,
+        result_summary: Some(format!(
+            "转录了 {} 个字符",
+            task.transcription_result.text.len()
+        )),
+    }).await?;
 
     info!(
         "转录任务完成: {} (处理时间: {}s)",
@@ -655,7 +812,7 @@ async fn result_formatting_step(
 }
 
 /// 转录流水线 worker - 内部调用步骤函数
-async fn transcription_pipeline_worker(
+pub async fn transcription_pipeline_worker(
     task: TranscriptionTask,
     ctx: Data<StepContext>,
 ) -> Result<(), Error> {

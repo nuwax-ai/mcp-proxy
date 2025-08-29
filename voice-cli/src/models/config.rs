@@ -70,6 +70,8 @@ pub struct TaskManagementConfig {
     pub retry_attempts: usize,
     pub task_timeout_seconds: u64,
     pub catch_panic: bool,
+    pub task_retention_days: u32,
+    pub sled_db_path: String,
 }
 
 
@@ -89,7 +91,7 @@ impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             host: "0.0.0.0".to_string(),
-            port: 8080,
+            port: 8087,
             max_file_size: 200 * 1024 * 1024, // 200MB
             cors_enabled: true,
         }
@@ -179,6 +181,8 @@ impl Default for TaskManagementConfig {
             retry_attempts: 3,
             task_timeout_seconds: 3600,
             catch_panic: true,
+            task_retention_days: 1,
+            sled_db_path: "./data/sled".to_string(),
         }
     }
 }
@@ -488,6 +492,38 @@ impl Config {
             tracing::info!(
                 "Applied environment override: VOICE_CLI_SQLITE_DB_PATH = {}",
                 db_path
+            );
+        }
+
+        if let Ok(retention_days_str) = std::env::var("VOICE_CLI_TASK_RETENTION_DAYS") {
+            let retention_days = retention_days_str.parse::<u32>().map_err(|_| {
+                crate::VoiceCliError::Config(format!(
+                    "Invalid VOICE_CLI_TASK_RETENTION_DAYS value '{}': must be a valid number",
+                    retention_days_str
+                ))
+            })?;
+            if retention_days == 0 {
+                return Err(crate::VoiceCliError::Config(
+                    "VOICE_CLI_TASK_RETENTION_DAYS must be greater than 0".to_string(),
+                ));
+            }
+            self.task_management.task_retention_days = retention_days;
+            tracing::info!(
+                "Applied environment override: VOICE_CLI_TASK_RETENTION_DAYS = {}",
+                retention_days
+            );
+        }
+
+        if let Ok(sled_path) = std::env::var("VOICE_CLI_SLED_DB_PATH") {
+            if sled_path.trim().is_empty() {
+                return Err(crate::VoiceCliError::Config(
+                    "VOICE_CLI_SLED_DB_PATH environment variable cannot be empty".to_string(),
+                ));
+            }
+            self.task_management.sled_db_path = sled_path.clone();
+            tracing::info!(
+                "Applied environment override: VOICE_CLI_SLED_DB_PATH = {}",
+                sled_path
             );
         }
 

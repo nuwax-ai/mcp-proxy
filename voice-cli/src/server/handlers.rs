@@ -4,10 +4,11 @@ use crate::models::{
     TaskStatusResponse, TranscriptionResponse, TaskStatus,
     RetryResponse, TaskStatsResponse,
 };
-use crate::services::{ModelService, ApalisManager};
+use crate::services::{ModelService, ApalisManager, AudioFileManager, TranscriptionTask};
 use crate::VoiceCliError;
+use apalis_sql::sqlite::SqliteStorage;
 use axum::{
-    extract::{Multipart, State},
+    extract::{Multipart, State, Extension},
 };
 use bytes::Bytes;
 use std::sync::Arc;
@@ -21,6 +22,8 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub model_service: Arc<ModelService>,
     pub apalis_manager: Option<Arc<Mutex<ApalisManager>>>,
+    pub apalis_storage: Option<SqliteStorage<TranscriptionTask>>,
+    pub audio_file_manager: Arc<AudioFileManager>,
     pub start_time: SystemTime,
 }
 
@@ -29,25 +32,33 @@ impl AppState {
         let model_service = Arc::new(ModelService::new((*config).clone()));
 
         // 如果启用任务管理，初始化 Apalis 管理器
-        let apalis_manager = if config.task_management.enabled {
+        let (apalis_manager, apalis_storage) = if config.task_management.enabled {
             info!("初始化 Apalis 任务管理器");
-            let mut manager = ApalisManager::new(
+            let (mut manager, storage) = ApalisManager::new(
                 config.task_management.clone(),
                 model_service.clone(),
             ).await?;
 
             // 启动 worker
-            manager.start_worker(model_service.clone()).await?;
+            manager.start_worker(storage.clone(), model_service.clone()).await?;
 
-            Some(Arc::new(Mutex::new(manager)))
+            (Some(Arc::new(Mutex::new(manager))), Some(storage))
         } else {
-            None
+            (None, None)
         };
+
+        // 初始化音频文件管理器
+        let audio_file_manager = Arc::new(
+            AudioFileManager::new("./data/audio")
+                .map_err(|e| VoiceCliError::Storage(format!("创建音频文件管理器失败: {}", e)))?
+        );
 
         Ok(Self {
             config,
             model_service,
             apalis_manager,
+            apalis_storage,
+            audio_file_manager,
             start_time: SystemTime::now(),
         })
     }
@@ -199,14 +210,10 @@ pub async fn transcribe_handler(
 )]
 pub async fn async_transcribe_handler(
     State(state): State<AppState>,
+    Extension(apalis_manager): Extension<Arc<tokio::sync::Mutex<ApalisManager>>>,
+    Extension(apalis_storage): Extension<SqliteStorage<TranscriptionTask>>,
     multipart: Multipart,
 ) -> Result<HttpResult<AsyncTaskResponse>, VoiceCliError> {
-    let Some(apalis_manager) = &state.apalis_manager else {
-        return Err(VoiceCliError::TaskManagementDisabled);
-    };
-    
-    let mut apalis_manager = apalis_manager.lock().await;
-
     let task_id = generate_task_id();
     info!("开始处理异步转录请求: {}", task_id);
 
@@ -216,20 +223,25 @@ pub async fn async_transcribe_handler(
     // 验证音频文件
     validate_audio_file(&audio_data, &request.filename)?;
 
-    // 保存音频文件
-    let audio_file_manager = crate::services::AudioFileManager::new("./data/audio")
-        .map_err(|e| VoiceCliError::Storage(format!("创建音频文件管理器失败: {}", e)))?;
-    
-    let audio_file_path = audio_file_manager.save_audio_file(&task_id, &audio_data, &request.filename).await
+    // 保存音频文件 - 使用共享的音频文件管理器
+    let audio_file_path = state.audio_file_manager.save_audio_file(&task_id, &audio_data, &request.filename).await
         .map_err(|e| VoiceCliError::Storage(format!("保存音频文件失败: {}", e)))?;
 
-    // 提交任务到队列
-    let returned_task_id = apalis_manager.submit_task(
-        audio_file_path,
-        request.filename,
-        request.model,
-        request.response_format,
-    ).await?;
+    // 提交任务到队列 - 使用无锁的 storage
+    info!("开始提交任务到队列...");
+    let returned_task_id = {
+        let apalis_manager = apalis_manager.lock().await;
+        let mut storage_mut = apalis_storage.clone();
+        let result = apalis_manager.submit_task(
+            &mut storage_mut,
+            audio_file_path,
+            request.filename,
+            request.model,
+            request.response_format,
+        ).await;
+        info!("任务提交操作完成，结果: {:?}", result);
+        result?
+    };
 
     info!("异步转录任务提交成功: {}", returned_task_id);
     
@@ -263,12 +275,9 @@ pub async fn async_transcribe_handler(
 )]
 pub async fn get_task_handler(
     State(state): State<AppState>,
+    Extension(apalis_manager): Extension<Arc<tokio::sync::Mutex<ApalisManager>>>,
     axum::extract::Path(task_id): axum::extract::Path<String>,
 ) -> Result<HttpResult<TaskStatusResponse>, VoiceCliError> {
-    let Some(apalis_manager) = &state.apalis_manager else {
-        return Err(VoiceCliError::TaskManagementDisabled);
-    };
-    
     let apalis_manager = apalis_manager.lock().await;
 
     match apalis_manager.get_task_status(&task_id).await? {
@@ -309,12 +318,9 @@ pub async fn get_task_handler(
 )]
 pub async fn get_task_result_handler(
     State(state): State<AppState>,
+    Extension(apalis_manager): Extension<Arc<tokio::sync::Mutex<ApalisManager>>>,
     axum::extract::Path(task_id): axum::extract::Path<String>,
 ) -> Result<HttpResult<TranscriptionResponse>, VoiceCliError> {
-    let Some(apalis_manager) = &state.apalis_manager else {
-        return Err(VoiceCliError::TaskManagementDisabled);
-    };
-    
     let apalis_manager = apalis_manager.lock().await;
 
     match apalis_manager.get_task_result(&task_id).await? {
@@ -349,12 +355,9 @@ pub async fn get_task_result_handler(
 )]
 pub async fn cancel_task_handler(
     State(state): State<AppState>,
+    Extension(apalis_manager): Extension<Arc<tokio::sync::Mutex<ApalisManager>>>,
     axum::extract::Path(task_id): axum::extract::Path<String>,
 ) -> Result<HttpResult<CancelResponse>, VoiceCliError> {
-    let Some(apalis_manager) = &state.apalis_manager else {
-        return Err(VoiceCliError::TaskManagementDisabled);
-    };
-    
     let apalis_manager = apalis_manager.lock().await;
 
     let cancelled = apalis_manager.cancel_task(&task_id).await?;
@@ -393,10 +396,11 @@ pub async fn cancel_task_handler(
 )]
 pub async fn cancel_task_post_handler(
     State(state): State<AppState>,
+    Extension(apalis_manager): Extension<Arc<tokio::sync::Mutex<ApalisManager>>>,
     axum::extract::Path(task_id): axum::extract::Path<String>,
 ) -> Result<HttpResult<CancelResponse>, VoiceCliError> {
     // 复用已有的取消逻辑
-    cancel_task_handler(State(state), axum::extract::Path(task_id)).await
+    cancel_task_handler(State(state), Extension(apalis_manager), axum::extract::Path(task_id)).await
 }
 
 /// 重试任务
@@ -419,12 +423,9 @@ pub async fn cancel_task_post_handler(
 )]
 pub async fn retry_task_handler(
     State(state): State<AppState>,
+    Extension(apalis_manager): Extension<Arc<tokio::sync::Mutex<ApalisManager>>>,
     axum::extract::Path(task_id): axum::extract::Path<String>,
 ) -> Result<HttpResult<RetryResponse>, VoiceCliError> {
-    let Some(apalis_manager) = &state.apalis_manager else {
-        return Err(VoiceCliError::TaskManagementDisabled);
-    };
-    
     let apalis_manager = apalis_manager.lock().await;
 
     let retried = apalis_manager.retry_task(&task_id).await?;
@@ -458,11 +459,8 @@ pub async fn retry_task_handler(
 )]
 pub async fn get_tasks_stats_handler(
     State(state): State<AppState>,
+    Extension(apalis_manager): Extension<Arc<tokio::sync::Mutex<ApalisManager>>>,
 ) -> Result<HttpResult<TaskStatsResponse>, VoiceCliError> {
-    let Some(apalis_manager) = &state.apalis_manager else {
-        return Err(VoiceCliError::TaskManagementDisabled);
-    };
-    
     let apalis_manager = apalis_manager.lock().await;
 
     let stats = apalis_manager.get_tasks_stats().await?;

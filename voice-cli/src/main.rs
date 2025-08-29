@@ -3,13 +3,11 @@ use clap::Parser;
 use std::path::PathBuf;
 use tracing::{error, info};
 use voice_cli::{
-    cli::{
-        Cli, Commands, ModelAction, ServerAction,
-    },
+    cli::{Cli, Commands, ModelAction, ServerAction},
     config::ServiceType,
     config_rs_integration::ConfigRsLoader,
+    server,
 };
-
 #[tokio::main]
 async fn main() {
     // Parse command line arguments
@@ -40,7 +38,11 @@ async fn main() {
         // For server commands, use server-specific config
         Commands::Server { action } => {
             let config_path = get_config_path_for_server_action(action, &cli.config);
-            match ConfigRsLoader::load(config_path.as_ref(), &cli_overrides, Some(ServiceType::Server)) {
+            match ConfigRsLoader::load(
+                config_path.as_ref(),
+                &cli_overrides,
+                Some(ServiceType::Server),
+            ) {
                 Ok(config) => config,
                 Err(e) => {
                     error!("Failed to load server configuration: {}", e);
@@ -81,14 +83,14 @@ async fn main() {
         Err(e) => {
             // Print error to stderr to ensure it's always visible
             eprintln!("❌ Error: {}", e);
-            
+
             // Also print the error chain if available
             let mut current_error = e.source();
             while let Some(err) = current_error {
                 eprintln!("   Caused by: {}", err);
                 current_error = err.source();
             }
-            
+
             // Also log the error
             error!("Command failed: {}", e);
             std::process::exit(1);
@@ -98,8 +100,6 @@ async fn main() {
 
 /// Handle server-related commands
 async fn handle_server_command(action: ServerAction, config: &voice_cli::Config) -> Result<()> {
-    use voice_cli::cli::server;
-
     match action {
         ServerAction::Init {
             config: config_path,
@@ -157,8 +157,6 @@ async fn handle_model_command(action: ModelAction, config: &voice_cli::Config) -
     }
 }
 
-
-
 /// Extract config path from server action
 fn get_config_path_for_server_action(
     action: &ServerAction,
@@ -169,7 +167,6 @@ fn get_config_path_for_server_action(
         _ => None,
     }
 }
-
 
 #[cfg(test)]
 mod tests {
