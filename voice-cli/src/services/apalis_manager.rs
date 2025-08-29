@@ -989,7 +989,7 @@ async fn transcription_step(
         .transcribe_compatible_audio(
             model,
             &task.processed_audio_path,
-            3600, // timeout_secs
+            ctx.transcription_engine.worker_timeout(), // 使用配置中的超时时间
         )
         .await
         .map_err(|e| {

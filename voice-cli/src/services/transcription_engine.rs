@@ -101,6 +101,11 @@ impl TranscriptionEngine {
         self.model_service.default_model()
     }
 
+    /// Get the worker timeout from configuration
+    pub fn worker_timeout(&self) -> u64 {
+        self.model_service.worker_timeout()
+    }
+
     /// Transcribe an input audio file, converting to Whisper-compatible format if necessary
     pub async fn transcribe_with_conversion(
         &self,

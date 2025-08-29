@@ -165,7 +165,7 @@ pub async fn transcribe_handler(
     let result = transcription_engine
         .transcribe_compatible_audio(
             transcription_engine.default_model(), // 使用配置中的默认模型
-            &temp_file, 3600, // timeout_secs
+            &temp_file, transcription_engine.worker_timeout(), // 使用配置中的超时时间
         )
         .await?;
 

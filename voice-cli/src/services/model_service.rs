@@ -27,6 +27,11 @@ impl ModelService {
         &self.config.whisper.default_model
     }
 
+    /// Get the worker timeout from configuration
+    pub fn worker_timeout(&self) -> u64 {
+        self.config.whisper.workers.worker_timeout as u64
+    }
+
     /// Ensure a model is available (download if necessary)
     pub async fn ensure_model(&self, model_name: &str) -> Result<(), VoiceCliError> {
         if self.is_model_downloaded(model_name).await? {
