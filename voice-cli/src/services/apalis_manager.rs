@@ -655,7 +655,7 @@ impl LockFreeApalisManager {
     }
 
     /// 优雅关闭
-    pub async fn shutdown(self) -> Result<(), VoiceCliError> {
+    pub async fn shutdown(&self) -> Result<(), VoiceCliError> {
         self.worker_running.store(false, Ordering::Release);
         if let Some(handle) = self.monitor_handle.lock().await.take() {
             handle.abort();

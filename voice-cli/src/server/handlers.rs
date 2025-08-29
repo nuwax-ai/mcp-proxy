@@ -3,13 +3,12 @@ use crate::models::{
     AsyncTaskResponse, CancelResponse, Config, HealthResponse, HttpResult, ModelsResponse,
     RetryResponse, SimpleTaskStatus, TaskStatsResponse, TaskStatus, TaskStatusResponse, TranscriptionResponse,
 };
-use crate::services::{ApalisManager, LockFreeApalisManager, AudioFileManager, ModelService, TranscriptionTask};
+use crate::services::{LockFreeApalisManager, AudioFileManager, ModelService, TranscriptionTask};
 use apalis_sql::sqlite::SqliteStorage;
 use axum::extract::{Multipart, State};
 use bytes::Bytes;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::sync::Mutex;
 use tracing::{info, warn};
 use utoipa;
 
@@ -17,9 +16,8 @@ use utoipa;
 pub struct AppState {
     pub config: Arc<Config>,
     pub model_service: Arc<ModelService>,
-    pub apalis_manager: Option<Arc<Mutex<ApalisManager>>>,
-    pub lock_free_apalis_manager: Option<Arc<LockFreeApalisManager>>,
-    pub apalis_storage: Option<SqliteStorage<TranscriptionTask>>,
+    pub lock_free_apalis_manager: Arc<LockFreeApalisManager>,
+    pub apalis_storage: SqliteStorage<TranscriptionTask>,
     pub audio_file_manager: Arc<AudioFileManager>,
     pub start_time: SystemTime,
 }
@@ -28,21 +26,18 @@ impl AppState {
     pub async fn new(config: Arc<Config>) -> crate::Result<Self> {
         let model_service = Arc::new(ModelService::new((*config).clone()));
 
-        // 如果启用任务管理，初始化无锁 Apalis 管理器
-        let (lock_free_apalis_manager, apalis_storage) = if config.task_management.enabled {
-            info!("初始化无锁 Apalis 任务管理器");
-            let (manager, storage) =
-                LockFreeApalisManager::new(config.task_management.clone(), model_service.clone()).await?;
+        // 初始化无锁 Apalis 管理器
+        info!("初始化无锁 Apalis 任务管理器");
+        let (manager, storage) =
+            LockFreeApalisManager::new(config.task_management.clone(), model_service.clone()).await?;
 
-            // 启动 worker
-            manager
-                .start_worker(storage.clone(), model_service.clone())
-                .await?;
+        // 启动 worker
+        manager
+            .start_worker(storage.clone(), model_service.clone())
+            .await?;
 
-            (Some(Arc::new(manager)), Some(storage))
-        } else {
-            (None, None)
-        };
+        let lock_free_apalis_manager = Arc::new(manager);
+        let apalis_storage = storage;
 
         // 初始化音频文件管理器
         let audio_file_manager = Arc::new(
@@ -53,7 +48,6 @@ impl AppState {
         Ok(Self {
             config,
             model_service,
-            apalis_manager: None,
             lock_free_apalis_manager,
             apalis_storage,
             audio_file_manager,
@@ -62,9 +56,14 @@ impl AppState {
     }
 
     /// 优雅关闭
-    pub async fn shutdown(self) {
+    pub async fn shutdown(&self) {
         info!("关闭应用状态");
-        // Apalis 管理器会在 Drop 时自动清理
+        
+        // 优雅关闭 Apalis 管理器
+        if let Err(e) = self.lock_free_apalis_manager.shutdown().await {
+            warn!("关闭 Apalis 管理器失败: {}", e);
+        }
+        
         info!("应用状态关闭完成");
     }
 }
@@ -232,25 +231,21 @@ pub async fn async_transcribe_handler(
 
     // 提交任务到队列 - 使用无锁管理器
     info!("开始提交任务到队列...");
-    let returned_task_id = if let (Some(manager), Some(mut storage)) = (
-        state.lock_free_apalis_manager.as_ref(),
-        state.apalis_storage.clone(),
-    ) {
-        info!("使用无锁 ApalisManager 提交任务...");
-        let result = manager
-            .submit_task(
-                &mut storage,
-                audio_file_path,
-                request.filename,
-                request.model,
-                request.response_format,
-            )
-            .await;
-        info!("任务提交操作完成，结果: {:?}", result);
-        result?
-    } else {
-        return Err(VoiceCliError::Config("Apalis 管理器未初始化".to_string()));
-    };
+    let mut storage = state.apalis_storage.clone();
+    let manager = state.lock_free_apalis_manager.as_ref();
+    
+    info!("使用无锁 ApalisManager 提交任务...");
+    let result = manager
+        .submit_task(
+            &mut storage,
+            audio_file_path,
+            request.filename,
+            request.model,
+            request.response_format,
+        )
+        .await;
+    info!("任务提交操作完成，结果: {:?}", result);
+    let returned_task_id = result?;
 
     info!("异步转录任务提交成功: {}", returned_task_id);
 
@@ -286,8 +281,7 @@ pub async fn get_task_handler(
     State(state): State<AppState>,
     axum::extract::Path(task_id): axum::extract::Path<String>,
 ) -> Result<HttpResult<TaskStatusResponse>, VoiceCliError> {
-    let manager = state.lock_free_apalis_manager.as_ref()
-        .ok_or_else(|| VoiceCliError::Config("Apalis 管理器未初始化".to_string()))?;
+    let manager = state.lock_free_apalis_manager.as_ref();
 
     match manager.get_task_status(&task_id).await? {
         Some(status) => {
@@ -340,8 +334,7 @@ pub async fn get_task_result_handler(
     State(state): State<AppState>,
     axum::extract::Path(task_id): axum::extract::Path<String>,
 ) -> Result<HttpResult<TranscriptionResponse>, VoiceCliError> {
-    let manager = state.lock_free_apalis_manager.as_ref()
-        .ok_or_else(|| VoiceCliError::Config("Apalis 管理器未初始化".to_string()))?;
+    let manager = state.lock_free_apalis_manager.as_ref();
 
     match manager.get_task_result(&task_id).await? {
         Some(result) => {
@@ -384,8 +377,7 @@ pub async fn cancel_task_handler(
     State(state): State<AppState>,
     axum::extract::Path(task_id): axum::extract::Path<String>,
 ) -> Result<HttpResult<CancelResponse>, VoiceCliError> {
-    let manager = state.lock_free_apalis_manager.as_ref()
-        .ok_or_else(|| VoiceCliError::Config("Apalis 管理器未初始化".to_string()))?;
+    let manager = state.lock_free_apalis_manager.as_ref();
 
     let cancelled = manager.cancel_task(&task_id).await?;
 
@@ -455,8 +447,7 @@ pub async fn retry_task_handler(
     State(state): State<AppState>,
     axum::extract::Path(task_id): axum::extract::Path<String>,
 ) -> Result<HttpResult<RetryResponse>, VoiceCliError> {
-    let manager = state.lock_free_apalis_manager.as_ref()
-        .ok_or_else(|| VoiceCliError::Config("Apalis 管理器未初始化".to_string()))?;
+    let manager = state.lock_free_apalis_manager.as_ref();
 
     let retried = manager.retry_task(&task_id).await?;
 
@@ -490,8 +481,7 @@ pub async fn retry_task_handler(
 pub async fn get_tasks_stats_handler(
     State(state): State<AppState>,
 ) -> Result<HttpResult<TaskStatsResponse>, VoiceCliError> {
-    let manager = state.lock_free_apalis_manager.as_ref()
-        .ok_or_else(|| VoiceCliError::Config("Apalis 管理器未初始化".to_string()))?;
+    let manager = state.lock_free_apalis_manager.as_ref();
 
     let stats = manager.get_tasks_stats().await?;
 

@@ -6,13 +6,11 @@ pub mod middleware_config;
 pub mod app_state;
 
 use crate::models::Config;
-use crate::services::StepContext;
-use apalis::prelude::*;
-use apalis::layers::retry::RetryPolicy;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tracing::info;
+use tokio::sync::broadcast;
+use tracing::{info, warn};
 
 
 
@@ -41,6 +39,29 @@ async fn shutdown_signal() {
     }
 
     info!("Signal received, starting graceful shutdown");
+}
+
+async fn shutdown_signal_with_broadcast(shutdown_tx: broadcast::Sender<()>) {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+    info!("Signal received, starting graceful shutdown");
+    let _ = shutdown_tx.send(());
 }
 
 /// Initialize server configuration
@@ -84,12 +105,12 @@ pub async fn handle_server_run(config: &Config) -> crate::Result<()> {
     // Clone app_state for use in monitor
     let app_state_for_monitor = app_state.clone();
     
-    // 如果启用了任务管理，添加 storage 作为 Extension
-    if config.task_management.enabled {
-        if let Some(storage) = &app_state.apalis_storage {
-            app = app.layer(axum::Extension(storage.clone()));
-        }
-    }
+    // Create shutdown channel for monitor task
+    let (shutdown_tx, _) = broadcast::channel(1);
+    let mut shutdown_rx = shutdown_tx.subscribe();
+    
+    // 添加 storage 作为 Extension
+    app = app.layer(axum::Extension(app_state.apalis_storage.clone()));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
     info!("Server listening on {}", addr);
@@ -103,7 +124,7 @@ pub async fn handle_server_run(config: &Config) -> crate::Result<()> {
 
     let http = async {
         let result = axum::serve(listener, app)
-            .with_graceful_shutdown(shutdown_signal())
+            .with_graceful_shutdown(shutdown_signal_with_broadcast(shutdown_tx))
             .await
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e));
         
@@ -120,37 +141,15 @@ pub async fn handle_server_run(config: &Config) -> crate::Result<()> {
     };
 
     let monitor = async {
-        if config.task_management.enabled {
-            if let Some(apalis_manager) = &app_state_for_monitor.apalis_manager {
-                if let Some(storage) = &app_state_for_monitor.apalis_storage {
-                    let manager = apalis_manager.lock().await;
-                    let step_context = StepContext {
-                        transcription_engine: Arc::new(crate::services::TranscriptionEngine::new(app_state_for_monitor.model_service.clone())),
-                        audio_file_manager: Arc::new(
-                            crate::services::AudioFileManager::new("./data/audio")
-                                .map_err(|e| crate::VoiceCliError::Storage(format!("创建音频文件管理器失败: {}", e)))
-                                .unwrap_or_else(|_| panic!("Failed to create audio file manager")),
-                        ),
-                        pool: manager.pool.clone(),
-                    };
-
-                    info!("Apalis 监控器开始运行，等待任务...");
-                    Monitor::new()
-                        .register(
-                            WorkerBuilder::new("transcription-pipeline")
-                                .data(step_context)
-                                .enable_tracing()
-                                .concurrency(config.task_management.max_concurrent_tasks)
-                                .retry(RetryPolicy::retries(config.task_management.retry_attempts))
-                                .backend(storage.clone())
-                                .build_fn(crate::services::transcription_pipeline_worker)
-                        )
-                        .run()
-                        .await
-                        .unwrap();
-                }
-            }
+        // Wait for shutdown signal
+        let _ = shutdown_rx.recv().await;
+        info!("Monitor task received shutdown signal, stopping Apalis manager...");
+        
+        // Gracefully shutdown the Apalis manager
+        if let Err(e) = app_state_for_monitor.lock_free_apalis_manager.shutdown().await {
+            warn!("Failed to shutdown Apalis manager gracefully: {}", e);
         }
+        
         Ok::<(), std::io::Error>(())
     };
 

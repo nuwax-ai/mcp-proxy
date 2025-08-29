@@ -65,8 +65,6 @@ daemon:
 
 # Async task management configuration
 task_management:
-  # Enable async task processing (set to false to disable)
-  enabled: true
   
   # Apalis worker configuration
   max_concurrent_tasks: 4  # Max concurrent async tasks (should match or be less than transcription_workers)

@@ -64,7 +64,6 @@ pub struct DaemonConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskManagementConfig {
-    pub enabled: bool,
     pub max_concurrent_tasks: usize,
     pub sqlite_db_path: String,
     pub retry_attempts: usize,
@@ -175,7 +174,6 @@ impl Default for DaemonConfig {
 impl Default for TaskManagementConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
             max_concurrent_tasks: 4,
             sqlite_db_path: "./data/tasks.db".to_string(),
             retry_attempts: 3,
@@ -448,20 +446,6 @@ impl Config {
             );
         }
 
-        // Task management configuration overrides
-        if let Ok(enabled_str) = std::env::var("VOICE_CLI_TASK_MANAGEMENT_ENABLED") {
-            let enabled = enabled_str.parse::<bool>().map_err(|_| {
-                crate::VoiceCliError::Config(format!(
-                    "Invalid VOICE_CLI_TASK_MANAGEMENT_ENABLED value '{}': must be 'true' or 'false'",
-                    enabled_str
-                ))
-            })?;
-            self.task_management.enabled = enabled;
-            tracing::info!(
-                "Applied environment override: VOICE_CLI_TASK_MANAGEMENT_ENABLED = {}",
-                enabled
-            );
-        }
 
         if let Ok(max_tasks_str) = std::env::var("VOICE_CLI_MAX_CONCURRENT_TASKS") {
             let max_tasks = max_tasks_str.parse::<usize>().map_err(|_| {
@@ -633,18 +617,16 @@ impl Config {
         }
 
         // Validate task management configuration
-        if self.task_management.enabled {
-            if self.task_management.max_concurrent_tasks == 0 {
-                return Err(crate::VoiceCliError::Config(
-                    "Max concurrent tasks must be greater than 0".to_string(),
-                ));
-            }
+        if self.task_management.max_concurrent_tasks == 0 {
+            return Err(crate::VoiceCliError::Config(
+                "Max concurrent tasks must be greater than 0".to_string(),
+            ));
+        }
 
-            if self.task_management.sqlite_db_path.is_empty() {
-                return Err(crate::VoiceCliError::Config(
-                    "SQLite database path cannot be empty".to_string(),
-                ));
-            }
+        if self.task_management.sqlite_db_path.is_empty() {
+            return Err(crate::VoiceCliError::Config(
+                "SQLite database path cannot be empty".to_string(),
+            ));
         }
 
 
