@@ -177,6 +177,17 @@ pub struct LockFreeApalisManager {
     pub worker_running: AtomicBool,
 }
 
+impl Clone for LockFreeApalisManager {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            pool: self.pool.clone(),
+            monitor_handle: self.monitor_handle.clone(),
+            worker_running: AtomicBool::new(self.worker_running.load(std::sync::atomic::Ordering::Relaxed)),
+        }
+    }
+}
+
 /// Apalis 任务管理器（保留兼容性）
 #[derive(Debug)]
 pub struct ApalisManager {
@@ -341,6 +352,11 @@ impl LockFreeApalisManager {
         *self.monitor_handle.lock().await = Some(monitor_handle);
         
         info!("Apalis 监控器启动完成");
+
+        // 启动定时清理任务调度器
+        if let Err(e) = self.start_cleanup_scheduler().await {
+            warn!("启动清理调度器失败: {}", e);
+        }
 
         info!("Apalis worker 启动成功");
         Ok(())
@@ -677,6 +693,133 @@ impl LockFreeApalisManager {
               total_tasks, completed_tasks, failed_tasks);
 
         Ok(stats)
+    }
+
+    /// 清理过期任务
+    pub async fn cleanup_expired_tasks(&self) -> Result<usize, VoiceCliError> {
+        let retention_days = self.config.task_retention_days;
+        if retention_days == 0 {
+            info!("任务保留天数为0，跳过清理");
+            return Ok(0);
+        }
+
+        let cutoff_time = chrono::Utc::now() - chrono::Duration::days(retention_days as i64);
+        let cutoff_timestamp = cutoff_time.timestamp();
+
+        info!("开始清理过期任务，保留天数: {}，截止时间: {}", retention_days, cutoff_time);
+
+        // 获取过期任务列表
+        let expired_tasks = self.get_expired_task_ids(cutoff_timestamp).await?;
+        
+        let mut cleaned_count = 0;
+        
+        for task_id in &expired_tasks {
+            if let Ok(deleted) = self.delete_task_with_files(task_id).await {
+                if deleted {
+                    cleaned_count += 1;
+                }
+            }
+        }
+
+        info!("清理完成: 总共 {} 个过期任务，成功清理 {} 个", expired_tasks.len(), cleaned_count);
+        Ok(cleaned_count)
+    }
+
+    /// 获取过期任务ID列表
+    async fn get_expired_task_ids(&self, cutoff_timestamp: i64) -> Result<Vec<String>, VoiceCliError> {
+        let rows = sqlx::query(
+            "SELECT task_id FROM task_status WHERE updated_at < ?"
+        )
+        .bind(cutoff_timestamp)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| VoiceCliError::Storage(format!("查询过期任务失败: {}", e)))?;
+
+        let mut task_ids = Vec::new();
+        for row in rows {
+            if let Ok(task_id) = row.try_get::<String, _>("task_id") {
+                task_ids.push(task_id);
+            }
+        }
+
+        Ok(task_ids)
+    }
+
+    /// 删除任务及其相关文件
+    async fn delete_task_with_files(&self, task_id: &str) -> Result<bool, VoiceCliError> {
+        // 首先获取任务的文件路径信息
+        if let Some(audio_file_path) = self.get_task_audio_file_path(task_id).await? {
+            // 删除音频文件
+            if let Err(e) = tokio::fs::remove_file(&audio_file_path).await {
+                warn!("删除音频文件失败: {} - {}", audio_file_path.display(), e);
+            }
+            
+            // 尝试删除文件所在目录（如果为空）
+            if let Some(parent_dir) = audio_file_path.parent() {
+                let _ = tokio::fs::remove_dir(parent_dir).await;
+            }
+        }
+
+        // 删除数据库中的任务数据
+        self.delete_task(task_id).await
+    }
+
+    /// 获取任务的音频文件路径
+    async fn get_task_audio_file_path(&self, task_id: &str) -> Result<Option<PathBuf>, VoiceCliError> {
+        // 从 Apalis jobs 表中查询任务数据
+        let row = sqlx::query(
+            "SELECT payload FROM apalis.jobs WHERE task_id = ? LIMIT 1"
+        )
+        .bind(task_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| VoiceCliError::Storage(format!("查询任务数据失败: {}", e)))?;
+
+        if let Some(row) = row {
+            if let Ok(payload_json) = row.try_get::<String, _>("payload") {
+                if let Ok(task_data) = serde_json::from_str::<TranscriptionTask>(&payload_json) {
+                    return Ok(Some(task_data.audio_file_path));
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// 启动定时清理任务
+    pub async fn start_cleanup_scheduler(&self) -> Result<(), VoiceCliError> {
+        if self.config.task_retention_days == 0 {
+            info!("任务保留天数为0，不启动清理调度器");
+            return Ok(());
+        }
+
+        let manager = self.clone();
+        
+        tokio::spawn(async move {
+            // 初始延迟，避免立即清理
+            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+            
+            // 定时清理任务，默认每10分钟清理一次
+            let cleanup_interval = tokio::time::Duration::from_secs(600);
+            
+            loop {
+                tokio::time::sleep(cleanup_interval).await;
+                
+                match manager.cleanup_expired_tasks().await {
+                    Ok(cleaned_count) => {
+                        if cleaned_count > 0 {
+                            info!("定时清理完成: 清理了 {} 个过期任务", cleaned_count);
+                        }
+                    }
+                    Err(e) => {
+                        warn!("定时清理任务失败: {}", e);
+                    }
+                }
+            }
+        });
+
+        info!("任务清理调度器启动成功，保留天数: {} 天", self.config.task_retention_days);
+        Ok(())
     }
 
     /// 保存任务结果

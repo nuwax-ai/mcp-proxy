@@ -2,7 +2,7 @@
 mod config_validation_tests {
     use crate::models::{
         AudioProcessingConfig, Config, DaemonConfig,
-        LoggingConfig, ServerConfig, WhisperConfig, WorkersConfig,
+        LoggingConfig, ServerConfig, TaskManagementConfig, WhisperConfig, WorkersConfig,
     };
     use std::path::PathBuf;
     use tempfile::TempDir;
@@ -39,6 +39,7 @@ mod config_validation_tests {
                 log_file: "./logs/daemon.log".to_string(),
                 work_dir: "./work".to_string(),
             },
+            task_management: TaskManagementConfig::default(),
         }
     }
 

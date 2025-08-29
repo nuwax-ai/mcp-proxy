@@ -3,73 +3,110 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
+    /// 服务器配置
     #[serde(default)]
     pub server: ServerConfig,
+    /// Whisper 模型配置
     #[serde(default)]
     pub whisper: WhisperConfig,
+    /// 日志配置
     pub logging: LoggingConfig,
+    /// 守护进程配置
     pub daemon: DaemonConfig,
+    /// 任务管理配置
     #[serde(default)]
     pub task_management: TaskManagementConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
+    /// 服务器监听主机
     pub host: String,
+    /// 服务器监听端口
     pub port: u16,
+    /// 最大文件大小（字节）
     pub max_file_size: usize,
+    /// 是否启用 CORS
     pub cors_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WhisperConfig {
+    /// 默认 Whisper 模型
     pub default_model: String,
+    /// 模型文件存储目录
     pub models_dir: String,
+    /// 是否自动下载模型
     pub auto_download: bool,
+    /// 支持的模型列表
     pub supported_models: Vec<String>,
+    /// 音频处理配置
     pub audio_processing: AudioProcessingConfig,
+    /// Worker 配置
     pub workers: WorkersConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioProcessingConfig {
+    /// 支持的音频格式列表
     pub supported_formats: Vec<String>,
+    /// 是否自动转换音频格式
     pub auto_convert: bool,
+    /// 音频转换超时时间（秒）
     pub conversion_timeout: u32,
+    /// 是否清理临时文件
     pub temp_file_cleanup: bool,
+    /// 临时文件保留时间（秒）
     pub temp_file_retention: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkersConfig {
+    /// 转录工作线程数
     pub transcription_workers: usize,
+    /// 通道缓冲区大小
     pub channel_buffer_size: usize,
+    /// Worker 超时时间（秒）
     pub worker_timeout: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoggingConfig {
+    /// 日志级别
     pub level: String,
+    /// 日志目录
     pub log_dir: String,
+    /// 最大日志文件大小
     pub max_file_size: String,
+    /// 最大日志文件数量
     pub max_files: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DaemonConfig {
+    /// PID 文件路径
     pub pid_file: String,
+    /// 日志文件路径
     pub log_file: String,
+    /// 工作目录
     pub work_dir: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskManagementConfig {
+    /// 最大并发任务数
     pub max_concurrent_tasks: usize,
+    /// SQLite 数据库文件路径
     pub sqlite_db_path: String,
+    /// 任务重试次数
     pub retry_attempts: usize,
+    /// 任务超时时间（秒）
     pub task_timeout_seconds: u64,
+    /// 是否捕获 panic
     pub catch_panic: bool,
+    /// 任务保留天数
     pub task_retention_days: u32,
+    /// Sled 数据库路径
     pub sled_db_path: String,
 }
 
