@@ -981,14 +981,15 @@ async fn transcription_step(
         progress_details: None,
     }).await?;
 
-    // 执行转录
-    let model = task.model.as_deref().unwrap_or("base");
+    // 执行转录，使用配置中的默认模型
+    let default_model = ctx.transcription_engine.default_model();
+    let model = task.model.as_deref().unwrap_or(default_model);
     let transcription_result = ctx
         .transcription_engine
         .transcribe_compatible_audio(
             model,
             &task.processed_audio_path,
-            30, // timeout_secs
+            3600, // timeout_secs
         )
         .await
         .map_err(|e| {

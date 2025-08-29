@@ -22,6 +22,11 @@ impl ModelService {
         }
     }
 
+    /// Get the default model name from configuration
+    pub fn default_model(&self) -> &str {
+        &self.config.whisper.default_model
+    }
+
     /// Ensure a model is available (download if necessary)
     pub async fn ensure_model(&self, model_name: &str) -> Result<(), VoiceCliError> {
         if self.is_model_downloaded(model_name).await? {

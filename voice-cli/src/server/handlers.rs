@@ -107,11 +107,16 @@ pub async fn health_handler(State(state): State<AppState>) -> HttpResult<HealthR
         (status = 500, description = "服务器错误", body = String)
     ),
 )]
-pub async fn models_list_handler(State(_state): State<AppState>) -> HttpResult<ModelsResponse> {
-    // 简化版本，返回空模型列表
+pub async fn models_list_handler(State(state): State<AppState>) -> HttpResult<ModelsResponse> {
+    // 使用配置中的支持模型列表
+    let available_models = state.config.whisper.supported_models.clone();
+    
+    // 简化版本，假设默认模型已加载
+    let loaded_models = vec![state.config.whisper.default_model.clone()];
+    
     HttpResult::success(ModelsResponse {
-        available_models: vec!["base".to_string(), "small".to_string()],
-        loaded_models: vec!["base".to_string()],
+        available_models,
+        loaded_models,
         model_info: std::collections::HashMap::new(),
     })
 }
@@ -159,7 +164,7 @@ pub async fn transcribe_handler(
 
     let result = transcription_engine
         .transcribe_compatible_audio(
-            "base", // 默认模型
+            transcription_engine.default_model(), // 使用配置中的默认模型
             &temp_file, 3600, // timeout_secs
         )
         .await?;
@@ -234,13 +239,16 @@ pub async fn async_transcribe_handler(
     let mut storage = state.apalis_storage.clone();
     let manager = state.lock_free_apalis_manager.as_ref();
     
+    // 如果请求中没有指定模型，使用配置中的默认模型
+    let model = request.model.or_else(|| Some(state.config.whisper.default_model.clone()));
+    
     info!("使用无锁 ApalisManager 提交任务...");
     let result = manager
         .submit_task(
             &mut storage,
             audio_file_path,
             request.filename,
-            request.model,
+            model,
             request.response_format,
         )
         .await;

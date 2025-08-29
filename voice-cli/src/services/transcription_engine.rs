@@ -96,6 +96,11 @@ impl TranscriptionEngine {
         Ok(result)
     }
 
+    /// Get the default model name from configuration
+    pub fn default_model(&self) -> &str {
+        self.model_service.default_model()
+    }
+
     /// Transcribe an input audio file, converting to Whisper-compatible format if necessary
     pub async fn transcribe_with_conversion(
         &self,
