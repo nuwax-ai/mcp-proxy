@@ -182,6 +182,28 @@ impl TaskError {
     }
 }
 
+impl std::fmt::Display for TaskError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TaskError::AudioProcessingFailed { stage, message, .. } => {
+                write!(f, "音频处理失败 ({}): {}", stage.step_name(), message)
+            }
+            TaskError::TranscriptionFailed { model, message, .. } => {
+                write!(f, "转录失败 ({}): {}", model, message)
+            }
+            TaskError::StorageError { operation, message } => {
+                write!(f, "存储错误 ({}): {}", operation, message)
+            }
+            TaskError::TimeoutError { stage, timeout_duration } => {
+                write!(f, "超时错误 ({}): {} 秒", stage.step_name(), timeout_duration.as_secs())
+            }
+            TaskError::CancellationRequested => {
+                write!(f, "任务已被取消")
+            }
+        }
+    }
+}
+
 impl Default for TaskPriority {
     fn default() -> Self {
         TaskPriority::Normal

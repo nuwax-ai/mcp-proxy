@@ -6,7 +6,7 @@ pub mod model_service;
 pub mod transcription_engine;
 
 // 重新导出核心服务
-pub use apalis_manager::{ApalisManager, TranscriptionTask, StepContext, TaskStatusUpdate, init_global_apalis_manager, transcription_pipeline_worker};
+pub use apalis_manager::{ApalisManager, LockFreeApalisManager, TranscriptionTask, StepContext, TaskStatusUpdate, init_global_apalis_manager, init_global_lock_free_apalis_manager, transcription_pipeline_worker};
 pub use audio_file_manager::AudioFileManager;
 pub use audio_format_detector::AudioFormatDetector;
 pub use audio_processor::AudioProcessor;

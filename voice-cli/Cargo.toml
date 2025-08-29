@@ -63,7 +63,7 @@ chrono = { workspace = true, features = ["serde"] }
 # Utilities
 bytes = "1.0"
 futures = { workspace = true }
-uuid = { workspace = true, features = ["v4"] }
+uuid = { workspace = true, features = ["v4","v7"] }
 base64 = "0.22"
 tempfile = "3.0"
 dirs = "6.0"

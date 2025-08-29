@@ -36,11 +36,35 @@ pub struct AsyncTaskResponse {
     pub estimated_completion: Option<DateTime<Utc>>,
 }
 
+/// 简化任务状态枚举
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub enum SimpleTaskStatus {
+    Pending,
+    Processing,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+impl From<&TaskStatus> for SimpleTaskStatus {
+    fn from(status: &TaskStatus) -> Self {
+        match status {
+            TaskStatus::Pending { .. } => SimpleTaskStatus::Pending,
+            TaskStatus::Processing { .. } => SimpleTaskStatus::Processing,
+            TaskStatus::Completed { .. } => SimpleTaskStatus::Completed,
+            TaskStatus::Failed { .. } => SimpleTaskStatus::Failed,
+            TaskStatus::Cancelled { .. } => SimpleTaskStatus::Cancelled,
+        }
+    }
+}
+
 /// 任务状态查询响应
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TaskStatusResponse {
     pub task_id: String,
-    pub status: TaskStatus,
+    pub status: SimpleTaskStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

@@ -1,7 +1,6 @@
 use axum::{
     routing::{get, post},
     Router,
-    extract::Extension,
 };
 use std::sync::Arc;
 use crate::models::Config;
@@ -36,9 +35,6 @@ pub async fn create_routes_with_state(shared_state: handlers::AppState) -> crate
         .route("/tasks/stats", get(handlers::get_tasks_stats_handler))
         // Add shared state
         .with_state(shared_state.clone())
-        // Add apalis manager and storage extensions if enabled
-        .layer(Extension(shared_state.apalis_manager.clone().unwrap()))
-        .layer(Extension(shared_state.apalis_storage.clone().unwrap()))
         // Merge Swagger UI routes
         .merge(openapi::create_swagger_ui());
 
