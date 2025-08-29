@@ -1,5 +1,5 @@
 use axum::{
-    routing::{get, post},
+    routing::{delete, get, post},
     Router,
 };
 use std::sync::Arc;
@@ -50,9 +50,9 @@ fn task_routes() -> Router<handlers::AppState> {
         .route("/transcribe", post(handlers::async_transcribe_handler))
         // Task status and management
         .route("/{task_id}", get(handlers::get_task_handler))
-        .route("/{task_id}", axum::routing::delete(handlers::cancel_task_handler))
+        .route("/{task_id}", delete(handlers::delete_task_handler))
         .route("/{task_id}/result", get(handlers::get_task_result_handler))
-        .route("/{task_id}/cancel", post(handlers::cancel_task_post_handler))
+        .route("/{task_id}/cancel", post(handlers::cancel_task_handler))
         .route("/{task_id}/retry", post(handlers::retry_task_handler))
         // Task statistics
         .route("/stats", get(handlers::get_tasks_stats_handler))

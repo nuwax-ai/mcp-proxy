@@ -85,6 +85,14 @@ pub struct RetryResponse {
     pub message: String,
 }
 
+/// 任务删除响应
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct DeleteResponse {
+    pub task_id: String,
+    pub deleted: bool,
+    pub message: String,
+}
+
 /// 任务统计响应
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TaskStatsResponse {

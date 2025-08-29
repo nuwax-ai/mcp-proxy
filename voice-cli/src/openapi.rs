@@ -1,5 +1,5 @@
 use crate::models::{
-    AsyncTaskResponse, CancelResponse, HealthResponse, ModelInfo, ModelsResponse,
+    AsyncTaskResponse, CancelResponse, DeleteResponse, HealthResponse, ModelInfo, ModelsResponse,
     RetryResponse, Segment, TaskPriority, TaskStatsResponse, TaskStatus, TaskStatusResponse, 
     TranscriptionResponse,
 };
@@ -34,7 +34,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::get_task_handler,
         handlers::cancel_task_handler,
         handlers::get_task_result_handler,
-        handlers::cancel_task_post_handler,
+        handlers::delete_task_handler,
         handlers::retry_task_handler,
         handlers::get_tasks_stats_handler
     ),
@@ -50,6 +50,7 @@ use utoipa_swagger_ui::SwaggerUi;
             TaskStatus,
             TaskPriority,
             CancelResponse,
+            DeleteResponse,
             RetryResponse,
             TaskStatsResponse
         )

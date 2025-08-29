@@ -564,6 +564,43 @@ impl LockFreeApalisManager {
         }
     }
 
+    /// 删除任务（彻底删除任务数据和状态）
+    pub async fn delete_task(&self, task_id: &str) -> Result<bool, VoiceCliError> {
+        // 从所有相关表中删除任务数据
+        let mut deleted = false;
+        
+        // 删除任务状态
+        let status_result = sqlx::query("DELETE FROM task_status WHERE task_id = ?")
+            .bind(task_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| VoiceCliError::Storage(format!("删除任务状态失败: {}", e)))?;
+        
+        if status_result.rows_affected() > 0 {
+            deleted = true;
+        }
+        
+        // 删除任务结果
+        let result_result = sqlx::query("DELETE FROM task_results WHERE task_id = ?")
+            .bind(task_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| VoiceCliError::Storage(format!("删除任务结果失败: {}", e)))?;
+        
+        if result_result.rows_affected() > 0 {
+            deleted = true;
+        }
+        
+        // 尝试从 Apalis 作业表中删除（如果存在）
+        let _ = sqlx::query("DELETE FROM apalis.jobs WHERE task_id = ?")
+            .bind(task_id)
+            .execute(&self.pool)
+            .await;
+        
+        info!("任务删除操作: {} -> {}", task_id, if deleted { "成功" } else { "任务不存在" });
+        Ok(deleted)
+    }
+
     /// 检查 worker 是否运行
     pub fn is_worker_running(&self) -> bool {
         self.worker_running.load(Ordering::Acquire)

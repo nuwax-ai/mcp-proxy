@@ -1,6 +1,6 @@
 use crate::VoiceCliError;
 use crate::models::{
-    AsyncTaskResponse, CancelResponse, Config, HealthResponse, HttpResult, ModelsResponse,
+    AsyncTaskResponse, CancelResponse, Config, DeleteResponse, HealthResponse, HttpResult, ModelsResponse,
     RetryResponse, SimpleTaskStatus, TaskStatsResponse, TaskStatus, TaskStatusResponse, TranscriptionResponse,
 };
 use crate::services::{LockFreeApalisManager, AudioFileManager, ModelService, TranscriptionTask};
@@ -103,7 +103,7 @@ pub async fn health_handler(State(state): State<AppState>) -> HttpResult<HealthR
     summary = "获取可用模型列表",
     description = "获取当前支持的语音转录模型列表",
     responses(
-        (status = 200, description = "模型列表", body = ModelsResponse),
+        (status = 200, description = "模型列表", body = HttpResult<ModelsResponse>),
         (status = 500, description = "服务器错误", body = String)
     ),
 )]
@@ -130,7 +130,7 @@ pub async fn models_list_handler(State(_state): State<AppState>) -> HttpResult<M
         content_type = "multipart/form-data"
     ),
     responses(
-        (status = 200, description = "转录成功", body = TranscriptionResponse),
+        (status = 200, description = "转录成功", body = HttpResult<TranscriptionResponse>),
         (status = 400, description = "请求无效", body = String),
         (status = 413, description = "文件过大", body = String),
         (status = 500, description = "服务器错误", body = String)
@@ -203,7 +203,7 @@ pub async fn transcribe_handler(
         content_type = "multipart/form-data"
     ),
     responses(
-        (status = 200, description = "任务提交成功", body = AsyncTaskResponse),
+        (status = 200, description = "任务提交成功", body = HttpResult<AsyncTaskResponse>),
         (status = 400, description = "请求无效", body = String),
         (status = 413, description = "文件过大", body = String),
         (status = 500, description = "服务器错误", body = String)
@@ -272,7 +272,7 @@ pub async fn async_transcribe_handler(
         ("task_id" = String, Path, description = "任务ID")
     ),
     responses(
-        (status = 200, description = "状态获取成功", body = TaskStatusResponse),
+        (status = 200, description = "状态获取成功", body = HttpResult<TaskStatusResponse>),
         (status = 404, description = "任务不存在", body = String),
         (status = 500, description = "服务器错误", body = String)
     ),
@@ -324,7 +324,7 @@ pub async fn get_task_handler(
         ("task_id" = String, Path, description = "任务ID")
     ),
     responses(
-        (status = 200, description = "结果获取成功", body = TranscriptionResponse),
+        (status = 200, description = "结果获取成功", body = HttpResult<TranscriptionResponse>),
         (status = 404, description = "任务不存在或结果不可用", body = String),
         (status = 400, description = "任务未完成", body = String),
         (status = 500, description = "服务器错误", body = String)
@@ -356,9 +356,9 @@ pub async fn get_task_result_handler(
 }
 
 /// 取消任务
-/// DELETE /tasks/:task_id
+/// POST /tasks/:task_id
 #[utoipa::path(
-    delete,
+    post,
     path = "/api/v1/tasks/{task_id}",
     tag = "任务管理", 
     summary = "取消任务",
@@ -367,7 +367,7 @@ pub async fn get_task_result_handler(
         ("task_id" = String, Path, description = "任务ID")
     ),
     responses(
-        (status = 200, description = "取消成功", body = CancelResponse),
+        (status = 200, description = "取消成功", body = HttpResult<CancelResponse>),  
         (status = 404, description = "任务不存在", body = String),
         (status = 400, description = "任务无法取消", body = String),
         (status = 500, description = "服务器错误", body = String)
@@ -395,36 +395,6 @@ pub async fn cancel_task_handler(
     Ok(HttpResult::success(response))
 }
 
-/// 取消任务 (POST版本)
-/// POST /tasks/:task_id/cancel
-#[utoipa::path(
-    post,
-    path = "/api/v1/tasks/{task_id}/cancel",
-    tag = "任务管理", 
-    summary = "取消任务",
-    description = "取消待处理或正在处理的转录任务（POST方式）",
-    params(
-        ("task_id" = String, Path, description = "任务ID")
-    ),
-    responses(
-        (status = 200, description = "取消成功", body = CancelResponse),
-        (status = 404, description = "任务不存在", body = String),
-        (status = 400, description = "任务无法取消", body = String),
-        (status = 500, description = "服务器错误", body = String)
-    ),
-)]
-pub async fn cancel_task_post_handler(
-    State(state): State<AppState>,
-    axum::extract::Path(task_id): axum::extract::Path<String>,
-) -> Result<HttpResult<CancelResponse>, VoiceCliError> {
-    // 复用已有的取消逻辑
-    cancel_task_handler(
-        State(state),
-        axum::extract::Path(task_id),
-    )
-    .await
-}
-
 /// 重试任务
 /// POST /tasks/:task_id/retry
 #[utoipa::path(
@@ -437,7 +407,7 @@ pub async fn cancel_task_post_handler(
         ("task_id" = String, Path, description = "任务ID")
     ),
     responses(
-        (status = 200, description = "重试成功", body = RetryResponse),
+        (status = 200, description = "重试成功", body = HttpResult<RetryResponse>),
         (status = 404, description = "任务不存在", body = String),
         (status = 400, description = "任务无法重试", body = String),
         (status = 500, description = "服务器错误", body = String)
@@ -465,6 +435,45 @@ pub async fn retry_task_handler(
     Ok(HttpResult::success(response))
 }
 
+/// 删除任务
+/// DELETE /tasks/:task_id/delete
+#[utoipa::path(
+    delete,
+    path = "/api/v1/tasks/{task_id}/delete",
+    tag = "任务管理", 
+    summary = "删除任务",
+    description = "彻底删除任务数据，包括状态和结果",
+    params(
+        ("task_id" = String, Path, description = "任务ID")
+    ),
+    responses(
+        (status = 200, description = "删除成功", body = HttpResult<DeleteResponse>),
+        (status = 404, description = "任务不存在", body = String),
+        (status = 500, description = "服务器错误", body = String)
+    ),
+)]
+pub async fn delete_task_handler(
+    State(state): State<AppState>,
+    axum::extract::Path(task_id): axum::extract::Path<String>,
+) -> Result<HttpResult<DeleteResponse>, VoiceCliError> {
+    let manager = state.lock_free_apalis_manager.as_ref();
+
+    let deleted = manager.delete_task(&task_id).await?;
+
+    let response = DeleteResponse {
+        task_id: task_id.clone(),
+        deleted,
+        message: if deleted {
+            format!("任务 {} 已彻底删除", task_id)
+        } else {
+            format!("任务 {} 不存在", task_id)
+        },
+    };
+
+    info!("任务删除操作: {} -> {}", task_id, response.message);
+    Ok(HttpResult::success(response))
+}
+
 /// 获取任务统计信息
 /// GET /tasks/stats
 #[utoipa::path(
@@ -474,7 +483,7 @@ pub async fn retry_task_handler(
     summary = "获取任务统计信息",
     description = "获取当前任务执行情况的统计信息，包括各状态任务数量、平均执行时间等",
     responses(
-        (status = 200, description = "统计信息获取成功", body = TaskStatsResponse),
+        (status = 200, description = "统计信息获取成功", body = HttpResult<TaskStatsResponse>),
         (status = 500, description = "服务器错误", body = String)
     ),
 )]
