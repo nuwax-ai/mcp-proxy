@@ -8,13 +8,14 @@ use crate::services::{
     AudioFileManager, AudioFormatDetector, LockFreeApalisManager, ModelService, TranscriptionTask,
 };
 use apalis_sql::sqlite::SqliteStorage;
-use axum::extract::{Multipart, State};
+use axum::extract::{Multipart, State, Json};
 use futures::TryStreamExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncWriteExt;
 use tracing::{error, info, warn};
+use url::Url;
 use utoipa;
 
 #[derive(Clone, Debug)]
@@ -250,6 +251,71 @@ pub async fn async_transcribe_handler(
     let returned_task_id = result?;
 
     info!("异步转录任务提交成功: {}", returned_task_id);
+
+    let response = AsyncTaskResponse {
+        task_id: returned_task_id,
+        status: TaskStatus::Pending {
+            queued_at: chrono::Utc::now(),
+        },
+        estimated_completion: None,
+    };
+
+    Ok(HttpResult::success(response))
+}
+
+/// 通过URL提交异步转录任务
+/// POST /transcribeFromUrl
+#[utoipa::path(
+    post,
+    path = "/api/v1/tasks/transcribeFromUrl",
+    tag = "异步转录",
+    summary = "通过URL提交音频转录任务",
+    description = "通过URL下载音频文件进行异步转录处理，立即返回任务ID用于跟踪进度",
+    request_body(
+        content = UrlTranscriptionRequest,
+        description = "URL transcription request data",
+        content_type = "application/json"
+    ),
+    responses(
+        (status = 200, description = "任务提交成功", body = HttpResult<AsyncTaskResponse>),
+        (status = 400, description = "请求无效", body = String),
+        (status = 500, description = "服务器错误", body = String)
+    ),
+)]
+pub async fn transcribe_from_url_handler(
+    State(state): State<AppState>,
+    Json(request): Json<UrlTranscriptionRequest>,
+) -> Result<HttpResult<AsyncTaskResponse>, VoiceCliError> {
+    let task_id = generate_task_id();
+    info!("开始处理URL异步转录请求: {} - URL: {}", task_id, request.url);
+
+    // 从URL中提取文件名
+    let filename = extract_filename_from_url(&request.url).unwrap_or_else(|| "audio_from_url".to_string());
+
+    // 提交URL任务到队列 - 使用无锁管理器
+    info!("开始提交URL任务到队列...");
+    let mut storage = state.apalis_storage.clone();
+    let manager = state.lock_free_apalis_manager.as_ref();
+
+    // 如果请求中没有指定模型，使用配置中的默认模型
+    let model = request
+        .model
+        .or_else(|| Some(state.config.whisper.default_model.clone()));
+
+    info!("使用无锁 ApalisManager 提交URL任务...");
+    let result = manager
+        .submit_task_for_url(
+            &mut storage,
+            request.url,
+            filename,
+            model,
+            request.response_format,
+        )
+        .await;
+    info!("URL任务提交操作完成，结果: {:?}", result);
+    let returned_task_id = result?;
+
+    info!("URL异步转录任务提交成功: {}", returned_task_id);
 
     let response = AsyncTaskResponse {
         task_id: returned_task_id,
@@ -511,6 +577,14 @@ struct TranscriptionRequest {
     response_format: Option<String>,
 }
 
+/// URL转录请求数据
+#[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
+pub struct UrlTranscriptionRequest {
+    url: String,
+    model: Option<String>,
+    response_format: Option<String>,
+}
+
 /// 解析 multipart 请求，使用流式处理避免内存占用
 async fn extract_transcription_request_streaming(
     mut multipart: Multipart,
@@ -681,6 +755,18 @@ async fn extract_transcription_request_streaming(
     };
 
     Ok((final_file_path, request))
+}
+
+/// 从URL中提取文件名
+fn extract_filename_from_url(url: &str) -> Option<String> {
+    Url::parse(url)
+        .ok()
+        .and_then(|parsed_url| {
+            parsed_url.path_segments()
+                .and_then(|segments| segments.last())
+                .map(|last_segment| last_segment.to_string())
+        })
+        .filter(|filename| !filename.is_empty())
 }
 
 /// 生成任务 ID

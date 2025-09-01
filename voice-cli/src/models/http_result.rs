@@ -150,6 +150,7 @@ impl<T> From<VoiceCliError> for HttpResult<T> {
             VoiceCliError::Storage(msg) => Self::system_error(format!("Storage error: {}", msg)),
             VoiceCliError::TaskManagementDisabled => Self::system_error("Task management is disabled".to_string()),
             VoiceCliError::NotFound(msg) => Self::task_not_found(msg),
+            VoiceCliError::Network(msg) => Self::system_error(format!("Network error: {}", msg)),
             VoiceCliError::Initialization(msg) => Self::system_error(format!("Initialization error: {}", msg)),
         }
     }

@@ -67,6 +67,7 @@ uuid = { workspace = true, features = ["v4","v7"] }
 base64 = "0.22"
 tempfile = "3.0"
 dirs = "6.0"
+url = "2.5"
 
 # Embedded database for task persistence
 # sled = { version = "0.34", features = ["compression"] }  # Disabled due to zstd dependency conflict

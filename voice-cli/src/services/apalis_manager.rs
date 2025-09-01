@@ -3,7 +3,7 @@ use crate::models::{
     AsyncTranscriptionTask, TaskManagementConfig, TaskStatus, TranscriptionResponse,
     TaskStatsResponse, TaskError, ProcessingStage,
 };
-use crate::services::{AudioFileManager, ModelService, TranscriptionEngine};
+use crate::services::{AudioFileManager, AudioFormatDetector, ModelService, TranscriptionEngine};
 use apalis::prelude::*;
 use apalis::layers::retry::RetryPolicy;
 use apalis::layers::WorkerBuilderExt;
@@ -17,11 +17,23 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tracing::{debug, info, warn};
 use std::sync::atomic::{AtomicBool, Ordering};
+use reqwest;
+use tokio::io::AsyncWriteExt;
+use futures::StreamExt;
 
 
 /// 全局 Apalis 管理器实例（无锁版本）
 static GLOBAL_APALIS_MANAGER: OnceLock<Arc<LockFreeApalisManager>> = OnceLock::new();
 
+
+/// 任务类型
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum TaskType {
+    /// 文件上传任务
+    FileUpload,
+    /// URL下载任务
+    UrlDownload,
+}
 
 /// 初始转录任务 - 流水线的第一步
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,6 +44,10 @@ pub struct TranscriptionTask {
     pub model: Option<String>,
     pub response_format: Option<String>,
     pub created_at: DateTime<Utc>,
+    /// 任务类型
+    pub task_type: TaskType,
+    /// URL地址（仅对UrlDownload类型有效）
+    pub url: Option<String>,
 }
 
 /// 音频预处理完成的任务 - 流水线的第二步
@@ -63,6 +79,8 @@ impl From<AsyncTranscriptionTask> for TranscriptionTask {
             model: task.model,
             response_format: task.response_format,
             created_at: task.created_at,
+            task_type: TaskType::FileUpload,
+            url: None,
         }
     }
 }
@@ -397,6 +415,94 @@ impl LockFreeApalisManager {
         ).await?;
 
         info!("任务提交成功: {}", task.task_id);
+        Ok(task.task_id)
+    }
+
+    /// 提交URL转录任务
+    pub async fn submit_task_for_url(
+        &self,
+        storage: &mut SqliteStorage<TranscriptionTask>,
+        url: String,
+        filename: String,
+        model: Option<String>,
+        response_format: Option<String>,
+    ) -> Result<String, VoiceCliError> {
+        info!("submit_task_for_url: 开始创建URL任务...");
+        
+        // 生成任务ID
+        let task_id = self.generate_task_id();
+        
+        // 创建临时文件路径（实际下载将在worker中执行）
+        let temp_audio_path = PathBuf::from(format!("./data/audio/temp_{}.pending", task_id));
+        
+        // 创建任务对象
+        let task = AsyncTranscriptionTask::new(
+            task_id.clone(),
+            temp_audio_path.clone(),
+            filename.clone(),
+            model.clone(),
+            response_format.clone(),
+        );
+
+        info!("submit_task_for_url: 任务创建完成: {}", task.task_id);
+        
+        // 转换为Apalis任务，设置URL任务类型
+        let apalis_task = TranscriptionTask {
+            task_id: task.task_id.clone(),
+            audio_file_path: temp_audio_path,
+            original_filename: filename.clone(),
+            model: task.model,
+            response_format: task.response_format,
+            created_at: task.created_at,
+            task_type: TaskType::UrlDownload,
+            url: Some(url),
+        };
+
+        info!("submit_task_for_url: 开始推送URL任务到队列...");
+        info!("submit_task_for_url: 任务数据: {:?}", apalis_task);
+        
+        // 推送任务到队列
+        let push_result = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            storage.push(apalis_task.clone())
+        ).await;
+        info!("submit_task_for_url: storage.push() 调用完成");
+        
+        match push_result {
+            Ok(Ok(_)) => {
+                info!("submit_task_for_url: 任务推送成功");
+            },
+            Ok(Err(e)) => {
+                info!("submit_task_for_url: 任务推送失败: {}", e);
+                return Err(VoiceCliError::Storage(format!("提交URL任务失败: {}", e)));
+            },
+            Err(_) => {
+                info!("submit_task_for_url: 任务推送超时");
+                return Err(VoiceCliError::Storage("推送URL任务到队列超时".to_string()));
+            },
+        };
+        
+        info!("URL任务已推送到 Apalis 存储: {:?}", apalis_task.task_id);
+
+        // 初始状态
+        info!("submit_task_for_url: 保存初始任务状态...");
+        let initial_status = TaskStatus::Pending {
+            queued_at: Utc::now(),
+        };
+
+        // 保存任务信息，包含URL
+        self.save_task_info(
+            &task.task_id, 
+            &initial_status, 
+            None, // 文件路径将在下载后设置
+            Some(&filename),
+            model.as_ref().map(|s| s.as_str()),
+            response_format.as_ref().map(|s| s.as_str()),
+            0, 
+            None
+        ).await?;
+
+        info!("URL任务提交成功: {}", task.task_id);
         Ok(task.task_id)
     }
 
@@ -991,7 +1097,7 @@ pub async fn get_global_apalis_manager() -> Option<Arc<tokio::sync::Mutex<Apalis
 }
 
 
-/// 步骤 1: 音频预处理
+/// 步骤 1: 音频预处理（包含URL下载）
 async fn audio_preprocessing_step(
     task: TranscriptionTask,
     ctx: Data<StepContext>,
@@ -1005,18 +1111,72 @@ async fn audio_preprocessing_step(
         progress_details: None,
     }).await?;
 
-    // 读取并验证音频文件
-    let _audio_data = tokio::fs::read(&task.audio_file_path).await.map_err(|e| {
-        Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("读取音频文件失败: {}", e),
-        ))))
-    })?;
+    let audio_file_path = if task.task_type == TaskType::UrlDownload {
+        // URL下载任务：下载音频文件
+        info!("下载URL音频文件: {} - URL: {:?}", task.task_id, task.url);
+        
+        if let Some(url) = task.url {
+            let downloaded_path = download_audio_from_url(&url, &task.task_id, &ctx.audio_file_manager.storage_dir).await
+                .map_err(|e| {
+                    Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("下载URL音频文件失败: {}", e),
+                    ))))
+                })?;
+            
+            // 检测文件真实格式并重命名
+            let final_audio_path = detect_and_rename_audio_file(&downloaded_path, &task.task_id).await
+                .map_err(|e| {
+                    Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("检测音频文件格式失败: {}", e),
+                    ))))
+                })?;
+            
+            // 更新数据库中的文件路径
+            update_task_file_path_in_db(&task.task_id, &final_audio_path, &ctx).await
+                .map_err(|e| {
+                    Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("更新数据库文件路径失败: {}", e),
+                    ))))
+                })?;
+            
+            final_audio_path
+        } else {
+            return Err(Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("URL任务缺少URL地址: {}", task.task_id),
+            )))));
+        }
+    } else {
+        // 文件上传任务：直接使用现有文件路径
+        info!("处理文件上传任务: {} - 文件: {:?}", task.task_id, task.audio_file_path);
+        
+        // 读取并验证音频文件
+        let _audio_data = tokio::fs::read(&task.audio_file_path).await.map_err(|e| {
+            Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("读取音频文件失败: {}", e),
+            ))))
+        })?;
+        
+        // 确保数据库中的文件路径是正确的（文件上传任务）
+        update_task_file_path_in_db(&task.task_id, &task.audio_file_path, &ctx).await
+            .map_err(|e| {
+                Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("更新数据库文件路径失败: {}", e),
+                ))))
+            })?;
+        
+        task.audio_file_path
+    };
 
     // 音频预处理完成，进入下一步
     let processed_task = AudioProcessedTask {
         task_id: task.task_id.clone(),
-        processed_audio_path: task.audio_file_path,
+        processed_audio_path: audio_file_path,
         original_filename: task.original_filename,
         model: task.model,
         response_format: task.response_format,
@@ -1205,6 +1365,187 @@ pub async fn transcription_pipeline_worker(
 
     info!("转录流水线完成: {}", task.task_id);
     Ok(())
+}
+
+/// 从URL下载音频文件
+async fn download_audio_from_url(
+    url: &str,
+    task_id: &str,
+    storage_dir: &std::path::Path,
+) -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync>> {
+    info!("[Task {}] 开始从URL下载音频文件: {}", task_id, url);
+    
+    // 创建HTTP客户端
+    let client = reqwest::Client::new();
+    
+    // 发送GET请求
+    let response = client.get(url)
+        .send()
+        .await
+        .map_err(|e| format!("下载URL失败: {} - {}", url, e))?;
+    
+    // 检查响应状态
+    if !response.status().is_success() {
+        return Err(format!(
+            "URL下载失败，HTTP状态: {}", 
+            response.status()
+        ).into());
+    }
+    
+    // 获取内容类型并确定文件扩展名
+    let content_type = response.headers()
+        .get("content-type")
+        .and_then(|ct| ct.to_str().ok())
+        .unwrap_or("application/octet-stream");
+    
+    let extension = match content_type {
+        "audio/mpeg" => "mp3",
+        "audio/wav" => "wav", 
+        "audio/flac" => "flac",
+        "audio/mp4" => "m4a",
+        "audio/ogg" => "ogg",
+        _ => {
+            // 尝试从URL中提取扩展名
+            if let Some(ext) = extract_extension_from_url(url) {
+                ext
+            } else {
+                warn!("[Task {}] 无法确定文件类型，使用默认扩展名: {}", task_id, content_type);
+                "bin"
+            }
+        }
+    };
+    
+    // 创建目标文件路径
+    let filename = format!("task_{}.{}", task_id, extension);
+    let file_path = storage_dir.join(&filename);
+    
+    // 确保目录存在
+    if let Some(parent) = file_path.parent() {
+        tokio::fs::create_dir_all(parent).await.map_err(|e| 
+            format!("创建目录失败: {} - {}", parent.display(), e)
+        )?;
+    }
+    
+    // 流式下载文件
+    let mut file = tokio::fs::File::create(&file_path).await.map_err(|e| 
+        format!("创建文件失败: {} - {}", file_path.display(), e)
+    )?;
+    
+    let mut stream = response.bytes_stream();
+    let mut total_bytes = 0;
+    
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("下载数据失败: {}", e))?;
+        
+        file.write_all(&chunk).await.map_err(|e| 
+            format!("写入文件失败: {} - {}", file_path.display(), e)
+        )?;
+        
+        total_bytes += chunk.len();
+    }
+    
+    file.flush().await.map_err(|e| 
+        format!("刷新文件失败: {} - {}", file_path.display(), e)
+    )?;
+    
+    info!("[Task {}] 下载完成: {} 字节 -> {}", task_id, total_bytes, file_path.display());
+    
+    Ok(file_path)
+}
+
+/// 检测音频文件格式并重命名为正确扩展名
+async fn detect_and_rename_audio_file(
+    file_path: &PathBuf,
+    task_id: &str,
+) -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync>> {
+    info!("[Task {}] 检测音频文件格式: {:?}", task_id, file_path);
+    
+    // 使用 AudioFormatDetector 检测文件真实格式
+    let format_result = AudioFormatDetector::detect_format_from_path(file_path)
+        .map_err(|e| format!("检测文件格式失败: {}", e))?;
+    
+    let detected_extension = format_result.extension().to_lowercase();
+    info!("[Task {}] 检测到文件格式: {}", task_id, detected_extension);
+    
+    // 获取当前文件扩展名
+    let current_extension = file_path.extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    
+    // 如果扩展名不匹配，重命名文件
+    if current_extension != detected_extension {
+        info!("[Task {}] 文件扩展名不匹配: 当前 {} -> 检测 {}", 
+            task_id, current_extension, detected_extension);
+        
+        let parent_dir = file_path.parent()
+            .ok_or_else(|| format!("无法获取文件父目录: {:?}", file_path))?;
+        
+        let new_filename = format!("task_{}.{}", task_id, detected_extension);
+        let new_file_path = parent_dir.join(&new_filename);
+        
+        // 重命名文件
+        tokio::fs::rename(file_path, &new_file_path).await
+            .map_err(|e| format!("重命名文件失败: {} -> {}: {}", 
+                file_path.display(), new_file_path.display(), e))?;
+        
+        info!("[Task {}] 文件已重命名: {} -> {}", 
+            task_id, file_path.display(), new_file_path.display());
+        
+        Ok(new_file_path)
+    } else {
+        info!("[Task {}] 文件扩展名正确: {}", task_id, current_extension);
+        Ok(file_path.clone())
+    }
+}
+
+/// 更新数据库中任务的文件路径
+async fn update_task_file_path_in_db(
+    task_id: &str,
+    file_path: &PathBuf,
+    ctx: &StepContext,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let file_path_str = file_path.to_string_lossy().to_string();
+    
+    sqlx::query(
+        "UPDATE task_info SET file_path = ?, updated_at = ? WHERE task_id = ?"
+    )
+    .bind(&file_path_str)
+    .bind(chrono::Utc::now().timestamp())
+    .bind(task_id)
+    .execute(&ctx.pool)
+    .await
+    .map_err(|e| format!("更新任务文件路径失败: {}", e))?;
+    
+    info!("[Task {}] 数据库文件路径已更新: {}", task_id, file_path_str);
+    Ok(())
+}
+
+/// 从URL中提取文件扩展名
+fn extract_extension_from_url(url: &str) -> Option<&'static str> {
+    if let Ok(parsed_url) = url::Url::parse(url) {
+        parsed_url.path_segments()
+            .and_then(|segments| segments.last())
+            .and_then(|filename| {
+                if let Some(dot_index) = filename.rfind('.') {
+                    let ext = &filename[dot_index + 1..];
+                    match ext.to_lowercase().as_str() {
+                        "mp3" => Some("mp3"),
+                        "wav" => Some("wav"),
+                        "flac" => Some("flac"), 
+                        "m4a" => Some("m4a"),
+                        "ogg" => Some("ogg"),
+                        "aac" => Some("aac"),
+                        "opus" => Some("opus"),
+                        _ => None
+                    }
+                } else {
+                    None
+                }
+            })
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]

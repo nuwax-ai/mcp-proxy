@@ -76,6 +76,10 @@ pub enum VoiceCliError {
     #[error("Missing required field: {0}")]
     MissingField(String),
 
+    // Network related errors
+    #[error("Network error: {0}")]
+    Network(String),
+
     // Storage related errors
     #[error("Storage error: {0}")]
     Storage(String),
@@ -127,6 +131,7 @@ impl IntoResponse for VoiceCliError {
             }
             VoiceCliError::MultipartError(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             VoiceCliError::MissingField(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            VoiceCliError::Network(_) => (StatusCode::BAD_GATEWAY, self.to_string()),
             VoiceCliError::Storage(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             VoiceCliError::ConfigRs(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             VoiceCliError::TaskManagementDisabled => (StatusCode::BAD_REQUEST, self.to_string()),

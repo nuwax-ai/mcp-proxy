@@ -30,6 +30,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::health_handler,
         handlers::models_list_handler,
         handlers::transcribe_handler,
+        handlers::transcribe_from_url_handler,
         handlers::async_transcribe_handler,
         handlers::get_task_handler,
         handlers::cancel_task_handler,

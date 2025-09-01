@@ -48,6 +48,8 @@ fn task_routes() -> Router<handlers::AppState> {
     Router::new()
         // Task submission
         .route("/transcribe", post(handlers::async_transcribe_handler))
+        // URL-based task submission
+        .route("/transcribeFromUrl", post(handlers::transcribe_from_url_handler))
         // Task status and management
         .route("/{task_id}", get(handlers::get_task_handler))
         .route("/{task_id}", delete(handlers::delete_task_handler))
