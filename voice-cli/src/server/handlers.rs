@@ -1,15 +1,21 @@
 use crate::VoiceCliError;
 use crate::models::{
-    AsyncTaskResponse, CancelResponse, Config, DeleteResponse, HealthResponse, HttpResult, ModelsResponse,
-    RetryResponse, SimpleTaskStatus, TaskStatsResponse, TaskStatus, TaskStatusResponse, TranscriptionResponse,
+    AsyncTaskResponse, CancelResponse, Config, DeleteResponse, HealthResponse, HttpResult,
+    ModelsResponse, RetryResponse, SimpleTaskStatus, TaskStatsResponse, TaskStatus,
+    TaskStatusResponse, TranscriptionResponse,
 };
-use crate::services::{LockFreeApalisManager, AudioFileManager, ModelService, TranscriptionTask};
+use crate::services::{
+    AudioFileManager, AudioFormatDetector, LockFreeApalisManager, ModelService, TranscriptionTask,
+};
 use apalis_sql::sqlite::SqliteStorage;
 use axum::extract::{Multipart, State};
 use bytes::Bytes;
+use futures::TryStreamExt;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::{info, warn};
+use tokio::io::AsyncWriteExt;
+use tracing::{error, info, warn};
 use utoipa;
 
 #[derive(Clone, Debug)]
@@ -29,7 +35,8 @@ impl AppState {
         // 初始化无锁 Apalis 管理器
         info!("初始化无锁 Apalis 任务管理器");
         let (manager, storage) =
-            LockFreeApalisManager::new(config.task_management.clone(), model_service.clone()).await?;
+            LockFreeApalisManager::new(config.task_management.clone(), model_service.clone())
+                .await?;
 
         // 启动 worker
         manager
@@ -58,12 +65,12 @@ impl AppState {
     /// 优雅关闭
     pub async fn shutdown(&self) {
         info!("关闭应用状态");
-        
+
         // 优雅关闭 Apalis 管理器
         if let Err(e) = self.lock_free_apalis_manager.shutdown().await {
             warn!("关闭 Apalis 管理器失败: {}", e);
         }
-        
+
         info!("应用状态关闭完成");
     }
 }
@@ -110,10 +117,10 @@ pub async fn health_handler(State(state): State<AppState>) -> HttpResult<HealthR
 pub async fn models_list_handler(State(state): State<AppState>) -> HttpResult<ModelsResponse> {
     // 使用配置中的支持模型列表
     let available_models = state.config.whisper.supported_models.clone();
-    
+
     // 简化版本，假设默认模型已加载
     let loaded_models = vec![state.config.whisper.default_model.clone()];
-    
+
     HttpResult::success(ModelsResponse {
         available_models,
         loaded_models,
@@ -145,32 +152,23 @@ pub async fn transcribe_handler(
     State(state): State<AppState>,
     multipart: Multipart,
 ) -> Result<HttpResult<TranscriptionResponse>, VoiceCliError> {
-    // 解析 multipart 请求
-    let (audio_data, request) = extract_transcription_request(multipart).await?;
-
-    // 验证音频文件
-    validate_audio_file(&audio_data, &request.filename)?;
+    // 使用临时目录进行流式处理
+    let temp_dir = std::env::temp_dir();
+    let task_id = generate_task_id();
+    // 使用流式处理避免内存占用
+    let (temp_file, _request) =
+        extract_transcription_request_streaming(multipart, &task_id, &temp_dir).await?;
 
     // 使用转录引擎处理
     let transcription_engine = crate::services::TranscriptionEngine::new(state.model_service);
 
-    // 先保存临时文件，然后转录
-    let temp_dir = std::env::temp_dir();
-    let temp_file = temp_dir.join(&request.filename);
-
-    tokio::fs::write(&temp_file, &audio_data)
-        .await
-        .map_err(|e| VoiceCliError::Storage(format!("写入临时文件失败: {}", e)))?;
-
     let result = transcription_engine
         .transcribe_compatible_audio(
             transcription_engine.default_model(), // 使用配置中的默认模型
-            &temp_file, transcription_engine.worker_timeout(), // 使用配置中的超时时间
+            &temp_file,
+            transcription_engine.worker_timeout(), // 使用配置中的超时时间
         )
         .await?;
-
-    // 清理临时文件
-    let _ = tokio::fs::remove_file(&temp_file).await;
 
     // 转换 TranscriptionResult 到 TranscriptionResponse
     let response = TranscriptionResponse {
@@ -221,27 +219,24 @@ pub async fn async_transcribe_handler(
     let task_id = generate_task_id();
     info!("开始处理异步转录请求: {}", task_id);
 
-    // 解析 multipart 请求
-    let (audio_data, request) = extract_transcription_request(multipart).await?;
-
-    // 验证音频文件
-    validate_audio_file(&audio_data, &request.filename)?;
-
-    // 保存音频文件 - 使用共享的音频文件管理器
-    let audio_file_path = state
-        .audio_file_manager
-        .save_audio_file(&task_id, &audio_data, &request.filename)
-        .await
-        .map_err(|e| VoiceCliError::Storage(format!("保存音频文件失败: {}", e)))?;
+    // 使用流式处理避免内存占用
+    let (audio_file_path, request) = extract_transcription_request_streaming(
+        multipart,
+        &task_id,
+        &state.audio_file_manager.storage_dir,
+    )
+    .await?;
 
     // 提交任务到队列 - 使用无锁管理器
     info!("开始提交任务到队列...");
     let mut storage = state.apalis_storage.clone();
     let manager = state.lock_free_apalis_manager.as_ref();
-    
+
     // 如果请求中没有指定模型，使用配置中的默认模型
-    let model = request.model.or_else(|| Some(state.config.whisper.default_model.clone()));
-    
+    let model = request
+        .model
+        .or_else(|| Some(state.config.whisper.default_model.clone()));
+
     info!("使用无锁 ApalisManager 提交任务...");
     let result = manager
         .submit_task(
@@ -300,7 +295,7 @@ pub async fn get_task_handler(
                 TaskStatus::Cancelled { reason, .. } => reason.clone(),
                 _ => None,
             };
-            
+
             let response = TaskStatusResponse {
                 task_id: task_id.clone(),
                 status: SimpleTaskStatus::from(&status),
@@ -516,34 +511,85 @@ struct TranscriptionRequest {
     response_format: Option<String>,
 }
 
-/// 解析 multipart 请求
-async fn extract_transcription_request(
+/// 解析 multipart 请求，使用流式处理避免内存占用
+async fn extract_transcription_request_streaming(
     mut multipart: Multipart,
-) -> Result<(Bytes, TranscriptionRequest), VoiceCliError> {
-    let mut audio_data: Option<Bytes> = None;
+    task_id: &str,
+    temp_dir: &Path,
+) -> Result<(PathBuf, TranscriptionRequest), VoiceCliError> {
     let mut filename: Option<String> = None;
     let mut model: Option<String> = None;
     let mut response_format: Option<String> = None;
+    let mut audio_data_temp_file: Option<PathBuf> = None;
 
+    // 收集所有字段信息
     while let Some(field) = multipart
         .next_field()
         .await
         .map_err(|e| VoiceCliError::MultipartError(format!("解析 multipart 失败: {}", e)))?
     {
-        let field_name = field.name().unwrap_or("unknown");
+        let field_name = field.name().unwrap_or("unknown").to_string();
 
-        match field_name {
+        match field_name.as_str() {
             "audio" => {
+                // 立即处理音频字段，避免借用冲突
                 filename = field.file_name().map(|s| s.to_string());
-                let data = field.bytes().await.map_err(|e| {
-                    VoiceCliError::MultipartError(format!("读取音频数据失败: {}", e))
-                })?;
-                audio_data = Some(data);
-                info!(
-                    "接收音频文件: {} bytes, 文件名: {:?}",
-                    audio_data.as_ref().unwrap().len(),
-                    filename
+
+                // 创建临时文件
+                let temp_filename = format!("task_{}.bin", task_id);
+                let temp_file_path = temp_dir.join(&temp_filename);
+
+                // 流式保存音频数据
+                let file = tokio::fs::File::create(&temp_file_path)
+                    .await
+                    .map_err(|e| {
+                        error!(
+                            "[Task {}] 无法创建临时音频文件 '{}': {}",
+                            task_id,
+                            temp_file_path.display(),
+                            e
+                        );
+                        VoiceCliError::Storage(format!(
+                            "无法创建临时音频文件 '{}': {}",
+                            temp_file_path.display(),
+                            e
+                        ))
+                    })?;
+
+                let mut writer = tokio::io::BufWriter::new(file);
+                let mut reader = tokio_util::io::StreamReader::new(
+                    field.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)),
                 );
+
+                let total_bytes = tokio::io::copy(&mut reader, &mut writer)
+                    .await
+                    .map_err(|e| {
+                        error!("[Task {}] 流式复制音频文件数据失败: {}", task_id, e);
+                        VoiceCliError::Storage(format!("流式复制音频文件数据失败: {}", e))
+                    })?;
+
+                writer.flush().await.map_err(|e| {
+                    error!(
+                        "[Task {}] 无法刷新数据到临时文件 '{}': {}",
+                        task_id,
+                        temp_file_path.display(),
+                        e
+                    );
+                    VoiceCliError::Storage(format!(
+                        "无法刷新数据到文件 '{}': {}",
+                        temp_file_path.display(),
+                        e
+                    ))
+                })?;
+
+                info!(
+                    "[Task {}] 成功接收音频文件: {} 字节 -> {}",
+                    task_id,
+                    total_bytes,
+                    temp_file_path.display()
+                );
+
+                audio_data_temp_file = Some(temp_file_path);
             }
             "model" => {
                 model = Some(field.text().await.map_err(|e| {
@@ -561,37 +607,80 @@ async fn extract_transcription_request(
         }
     }
 
-    let audio_data = audio_data.ok_or_else(|| VoiceCliError::MissingField("audio".to_string()))?;
+    let temp_file_path =
+        audio_data_temp_file.ok_or_else(|| VoiceCliError::MissingField("audio".to_string()))?;
 
-    // 生成文件名（如果没有提供）
-    let filename = filename.unwrap_or_else(|| format!("audio_{}.wav", generate_task_id()));
+    // 检查文件是否存在且有效
+    let metadata = tokio::fs::metadata(&temp_file_path).await.map_err(|e| {
+        error!(
+            "[Task {}] 无法访问临时音频文件 '{}': {}",
+            task_id,
+            temp_file_path.display(),
+            e
+        );
+        VoiceCliError::Storage(format!(
+            "无法访问临时音频文件 '{}': {}",
+            temp_file_path.display(),
+            e
+        ))
+    })?;
+
+    if metadata.len() == 0 {
+        error!(
+            "[Task {}] 接收到的音频文件为空: {}",
+            task_id,
+            temp_file_path.display()
+        );
+        return Err(VoiceCliError::Storage(format!(
+            "音频文件为空: {}",
+            temp_file_path.display()
+        )));
+    }
+
+    // 探测文件真实格式
+    let extension = match AudioFormatDetector::detect_format_from_path(&temp_file_path) {
+        Ok(file_type) => file_type.extension().to_lowercase(),
+        Err(_) => {
+            warn!("[Task {}] 无法检测音频文件格式，使用默认扩展名", task_id);
+            "bin".to_string()
+        }
+    };
+
+    // 重命名为正确的扩展名
+    let final_filename = format!("task_{}.{}", task_id, extension);
+    let final_file_path = temp_dir.join(&final_filename);
+
+    // 重命名文件
+    tokio::fs::rename(&temp_file_path, &final_file_path)
+        .await
+        .map_err(|e| {
+            error!(
+                "[Task {}] 无法重命名临时文件 '{}' -> '{}': {}",
+                task_id,
+                temp_file_path.display(),
+                final_file_path.display(),
+                e
+            );
+            VoiceCliError::Storage(format!("重命名文件失败: {}", e))
+        })?;
+
+    info!(
+        "[Task {}] 音频文件已重命名: {} -> {}",
+        task_id,
+        temp_file_path.display(),
+        final_file_path.display()
+    );
+
+    // 使用原始文件名或生成的文件名
+    let final_filename_str = filename.unwrap_or_else(|| final_filename.clone());
 
     let request = TranscriptionRequest {
-        filename,
+        filename: final_filename_str,
         model,
         response_format,
     };
 
-    Ok((audio_data, request))
-}
-
-/// 验证音频文件
-fn validate_audio_file(audio_data: &Bytes, filename: &str) -> Result<(), VoiceCliError> {
-    const MAX_FILE_SIZE: usize = 200 * 1024 * 1024; // 200MB
-
-    if audio_data.len() > MAX_FILE_SIZE {
-        return Err(VoiceCliError::FileTooLarge {
-            size: audio_data.len(),
-            max: MAX_FILE_SIZE,
-        });
-    }
-
-    info!(
-        "音频文件验证通过: {} ({} bytes)",
-        filename,
-        audio_data.len()
-    );
-    Ok(())
+    Ok((final_file_path, request))
 }
 
 /// 生成任务 ID

@@ -1,5 +1,7 @@
 use bytes::Bytes;
+use infer::{self, Type};
 use std::io::Cursor;
+use std::path::Path;
 use symphonia::core::formats::{FormatReader, Track};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
@@ -15,7 +17,16 @@ use crate::models::request::{AudioFormat, AudioFormatResult, AudioMetadata, Dete
 pub struct AudioFormatDetector;
 
 impl AudioFormatDetector {
-    /// Detect audio format using Symphonia probe with fallback to filename extension
+
+    /// Detect audio format using infer library (magic number detection)
+    pub fn detect_format_from_path(path: &Path) -> anyhow::Result<Type> {
+        let kind = infer::get_from_path(path)
+            .expect("file read successfully")
+            .expect("file type is known");
+        Ok(kind)
+    }
+
+    /// Detect audio format using Symphonia probe with fallback to infer (magic number detection) and filename extension
     pub fn detect_format(
         audio_data: &Bytes,
         filename: Option<&str>,
@@ -254,5 +265,63 @@ mod tests {
         };
 
         assert!(AudioFormatDetector::validate_format_support(&unsupported_result).is_err());
+    }
+
+    /// Test format detection using infer library with magic numbers
+    #[test]
+    fn test_infer_format_detection() {
+        // Test MP3 magic number detection
+        // MP3 file starts with ID3v2 tag (FF FB is for MPEG Layer 3)
+        let mp3_header = Bytes::from(vec![0xFF, 0xFB, 0x90, 0x44, 0x00, 0x00, 0x00, 0x00]);
+        let result = AudioFormatDetector::detect_format(&mp3_header, Some("test.unknown"));
+        match result {
+            Ok(format_result) => {
+                assert_eq!(format_result.format, AudioFormat::Mp3);
+                assert_eq!(format_result.detection_method, DetectionMethod::ContentType);
+                assert_eq!(format_result.confidence, 0.85);
+            }
+            Err(e) => {
+                panic!("Expected MP3 detection to succeed, got error: {:?}", e);
+            }
+        }
+
+        // Test WAV magic number detection
+        // WAV file starts with 'RIFF' and 'WAVE' headers
+        let wav_header = Bytes::from(vec![
+            0x52, 0x49, 0x46, 0x46, // RIFF
+            0x00, 0x00, 0x00, 0x00, // Size
+            0x57, 0x41, 0x56, 0x45, // WAVE
+        ]);
+        let result = AudioFormatDetector::detect_format(&wav_header, Some("test.unknown"));
+        match result {
+            Ok(format_result) => {
+                assert_eq!(format_result.format, AudioFormat::Wav);
+                assert_eq!(format_result.detection_method, DetectionMethod::ContentType);
+                assert_eq!(format_result.confidence, 0.85);
+            }
+            Err(e) => {
+                panic!("Expected WAV detection to succeed, got error: {:?}", e);
+            }
+        }
+    }
+
+    /// Test format detection fallback order
+    #[test]
+    fn test_detection_fallback_order() {
+        // Create dummy data that should fail Symphonia detection but pass infer detection
+        let dummy_mp3_data = Bytes::from(vec![0xFF, 0xFB, 0x90, 0x44, 0x00, 0x00, 0x00, 0x00]);
+
+        // Test with a filename that doesn't match the actual format
+        let result = AudioFormatDetector::detect_format(&dummy_mp3_data, Some("test.flac"));
+        match result {
+            Ok(format_result) => {
+                // Should detect as MP3 via infer, not FLAC via filename
+                assert_eq!(format_result.format, AudioFormat::Mp3);
+                assert_eq!(format_result.detection_method, DetectionMethod::ContentType);
+            }
+            Err(e) => {
+                panic!("Expected format detection to succeed, got error: {:?}", e);
+            }
+        }
     }
 }

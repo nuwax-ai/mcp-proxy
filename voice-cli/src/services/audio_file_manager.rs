@@ -3,11 +3,14 @@ use std::fs;
 use bytes::Bytes;
 use tracing::{info, warn, error};
 use crate::VoiceCliError;
+use axum::extract::multipart::Field;
+use futures::{TryStreamExt};  // StreamExt 未使用，移除
+use tokio::io::AsyncWriteExt;
 
 /// Service for managing audio files on disk
 #[derive(Debug, Clone)]
 pub struct AudioFileManager {
-    storage_dir: PathBuf,
+    pub storage_dir: PathBuf,
 }
 
 impl AudioFileManager {
@@ -65,6 +68,94 @@ impl AudioFileManager {
         );
         
         Ok(file_path)
+    }
+    
+    /// Save audio data from multipart field stream directly to disk
+    pub async fn save_audio_file_streaming(
+        &self,
+        task_id: &str,
+        field: Field<'_>,
+        temp_file_name: &str,
+    ) -> Result<String, VoiceCliError> {
+        // 获取原始文件名（如果有）用于日志记录
+        let original_filename = field.file_name().map(|s| s.to_string()).unwrap_or_else(|| "unknown".to_string());
+        info!(
+            "[Task {}] 开始接收音频文件流: {}, 目标临时文件名: {}",
+            task_id,
+            original_filename,
+            temp_file_name
+        );
+        
+        let file_path = self.storage_dir.join(&temp_file_name);
+        
+        // 确保存储目录存在
+        if let Some(parent) = file_path.parent() {
+            if !parent.exists() {
+                tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                    error!("[Task {}] 无法创建存储目录 '{}': {}", task_id, parent.display(), e);
+                    VoiceCliError::Storage(format!(
+                        "无法创建存储目录 '{}': {}",
+                        parent.display(),
+                        e
+                    ))
+                })?;
+            }
+        }
+        
+        // 创建文件
+        let file = tokio::fs::File::create(&file_path).await.map_err(|e| {
+            error!("[Task {}] 无法创建音频文件 '{}': {}", task_id, file_path.display(), e);
+            VoiceCliError::Storage(format!(
+                "无法创建音频文件 '{}': {}",
+                file_path.display(),
+                e
+            ))
+        })?;
+        
+        // 创建缓冲写入器以提高性能
+        let mut writer = tokio::io::BufWriter::new(file);
+        
+        // 将 field 转换为 StreamReader (实现 AsyncRead trait)
+        let mut reader = tokio_util::io::StreamReader::new(
+            field.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+        );
+        
+        // 使用 tokio::io::copy 进行高效的流式复制
+        let total_bytes = tokio::io::copy(&mut reader, &mut writer).await.map_err(|e| {
+            error!(
+                "[Task {}] 流式复制音频文件数据失败 ({} -> {}): {}",
+                task_id,
+                original_filename,
+                file_path.display(),
+                e
+            );
+            VoiceCliError::Storage(format!(
+                "流式复制音频文件数据失败 ({} -> {}): {}",
+                original_filename,
+                file_path.display(),
+                e
+            ))
+        })?;
+        
+        // 确保所有数据都写入磁盘
+        writer.flush().await.map_err(|e| {
+            error!("[Task {}] 无法刷新数据到文件 '{}': {}", task_id, file_path.display(), e);
+            VoiceCliError::Storage(format!(
+                "无法刷新数据到文件 '{}': {}",
+                file_path.display(),
+                e
+            ))
+        })?;
+        
+        info!(
+            "[Task {}] 成功接收并保存音频文件: {} ({} 字节) -> {}",
+            task_id,
+            original_filename,
+            total_bytes,
+            file_path.display()
+        );
+        
+        Ok(file_path.to_string_lossy().into_owned())
     }
     
     /// Delete an audio file from disk

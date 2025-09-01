@@ -93,16 +93,10 @@ impl ConfigRsLoader {
         let built_config = config_rs.build()?;
         
         
-        // 5. Clone the config for environment variable merging before deserialization consumes it
-        let built_config_clone = built_config.clone();
-        
-        // 6. Apply CLI overrides (highest priority)
+        // 5. Deserialize the built config
         let mut config: Config = built_config.try_deserialize()?;
         
-        // 7. Manually merge environment variable overrides (config-rs adds underscore prefix)
-        Self::merge_environment_overrides(&mut config, &built_config_clone);
-        
-        // 8. Apply CLI overrides
+        // 6. Apply CLI overrides (highest priority)
         Self::apply_cli_overrides(&mut config, cli_overrides);
 
         // 9. Apply service-specific settings
@@ -157,11 +151,11 @@ impl ConfigRsLoader {
     }
 
     /// Manually merge environment variable overrides (config-rs adds underscore prefix)
-    fn merge_environment_overrides(config: &mut Config, built_config: &ConfigRs) {
+    fn merge_environment_overrides(_config: &mut Config, _built_config: &ConfigRs) {
         use config::ValueKind;
         
         // Check if there are any underscore-prefixed values from environment variables
-        if let ValueKind::Table(cache) = &built_config.cache.kind {
+        if let ValueKind::Table(cache) = &_built_config.cache.kind {
             for (key, value) in cache {
                 if key.starts_with('_') {
                     // This is an environment variable override
@@ -180,7 +174,7 @@ impl ConfigRsLoader {
     pub fn generate_cli_overrides_from_args(
         args: &crate::cli::Cli,
     ) -> Result<CliOverrides, VoiceCliError> {
-        let mut overrides = CliOverrides::default();
+        let overrides = CliOverrides::default();
 
         match &args.command {
             crate::cli::Commands::Server { action } => {

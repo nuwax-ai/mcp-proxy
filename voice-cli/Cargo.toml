@@ -76,6 +76,7 @@ dirs = "6.0"
 symphonia = { workspace = true }
 bincode = { workspace = true }
 dashmap = { workspace = true }
+infer = "0.19"
 
 # Task queue and persistence for async processing
 apalis = { version = "0.7", features = ["tracing", "limit", "timeout", "catch-panic", "retry", "filter"] }
