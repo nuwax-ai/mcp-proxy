@@ -857,7 +857,7 @@ impl LockFreeApalisManager {
         
         tokio::spawn(async move {
             // 初始延迟，避免立即清理
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+            tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
             
             // 定时清理任务，默认每1分钟清理一次
             let cleanup_interval = tokio::time::Duration::from_secs(60);
