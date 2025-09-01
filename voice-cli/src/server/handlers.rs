@@ -9,7 +9,6 @@ use crate::services::{
 };
 use apalis_sql::sqlite::SqliteStorage;
 use axum::extract::{Multipart, State};
-use bytes::Bytes;
 use futures::TryStreamExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -421,8 +420,9 @@ pub async fn retry_task_handler(
     axum::extract::Path(task_id): axum::extract::Path<String>,
 ) -> Result<HttpResult<RetryResponse>, VoiceCliError> {
     let manager = state.lock_free_apalis_manager.as_ref();
+    let mut storage = state.apalis_storage.clone();
 
-    let retried = manager.retry_task(&task_id).await?;
+    let retried = manager.retry_task(&mut storage, &task_id).await?;
 
     let response = RetryResponse {
         task_id: task_id.clone(),

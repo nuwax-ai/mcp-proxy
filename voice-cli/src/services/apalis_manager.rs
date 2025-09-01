@@ -237,6 +237,9 @@ impl LockFreeApalisManager {
                 task_id TEXT PRIMARY KEY,
                 status TEXT NOT NULL,
                 file_path TEXT,
+                original_filename TEXT,
+                model TEXT,
+                response_format TEXT,
                 retry_count INTEGER DEFAULT 0,
                 error_message TEXT,
                 created_at INTEGER NOT NULL,
@@ -340,9 +343,9 @@ impl LockFreeApalisManager {
         let task = AsyncTranscriptionTask::new(
             self.generate_task_id(),
             audio_file_path.clone(),
-            original_filename,
-            model,
-            response_format,
+            original_filename.clone(),
+            model.clone(),
+            response_format.clone(),
         );
 
         info!("submit_task: 任务创建完成: {}", task.task_id);
@@ -386,6 +389,9 @@ impl LockFreeApalisManager {
             &task.task_id, 
             &initial_status, 
             Some(&audio_file_path), 
+            Some(&original_filename),
+            model.as_ref().map(|s| s.as_str()),
+            response_format.as_ref().map(|s| s.as_str()),
             0, 
             None
         ).await?;
@@ -447,6 +453,9 @@ impl LockFreeApalisManager {
         task_id: &str,
         status: &TaskStatus,
         file_path: Option<&PathBuf>,
+        original_filename: Option<&str>,
+        model: Option<&str>,
+        response_format: Option<&str>,
         retry_count: u32,
         error_message: Option<&str>,
     ) -> Result<(), VoiceCliError> {
@@ -456,11 +465,14 @@ impl LockFreeApalisManager {
         let file_path_str = file_path.map(|p| p.to_string_lossy().to_string());
         
         sqlx::query(
-            "INSERT OR REPLACE INTO task_info (task_id, status, file_path, retry_count, error_message, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+            "INSERT OR REPLACE INTO task_info (task_id, status, file_path, original_filename, model, response_format, retry_count, error_message, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         .bind(task_id)
         .bind(status_json)
         .bind(file_path_str)
+        .bind(original_filename)
+        .bind(model)
+        .bind(response_format)
         .bind(retry_count as i32)
         .bind(error_message)
         .bind(Utc::now().timestamp())
@@ -537,33 +549,57 @@ impl LockFreeApalisManager {
     }
 
     /// 重试任务
-    pub async fn retry_task(&self, task_id: &str) -> Result<bool, VoiceCliError> {
+    pub async fn retry_task(
+        &self,
+        storage: &mut SqliteStorage<TranscriptionTask>,
+        task_id: &str,
+    ) -> Result<bool, VoiceCliError> {
         let current_status = self.get_task_status(task_id).await?;
 
         match current_status {
             Some(TaskStatus::Failed { .. }) | Some(TaskStatus::Cancelled { .. }) => {
-                // 查询数据库中是否有原始任务数据
-                let task_data: Option<(String, String, String, Option<String>, Option<String>)> = sqlx::query_as(
-                    "SELECT id, task_id, status, payload, lock_by FROM apalis.jobs WHERE task_id = ? LIMIT 1"
+                // 查询我们自己的 task_info 表中存储的原始任务数据
+                let task_data: Option<(Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+                    "SELECT file_path, original_filename, model, response_format, error_message FROM task_info WHERE task_id = ?"
                 )
                 .bind(task_id)
                 .fetch_optional(&self.pool)
                 .await
                 .map_err(|e| VoiceCliError::Storage(format!("查询任务数据失败: {}", e)))?;
 
-                if task_data.is_some() {
-                    // 重置状态为待处理
-                    let retry_status = TaskStatus::Pending {
-                        queued_at: Utc::now(),
-                    };
+                if let Some((file_path, original_filename, model, response_format, _error_message)) = task_data {
+                    if let Some(file_path_str) = file_path {
+                        let audio_file_path = PathBuf::from(file_path_str);
+                        
+                        // 检查文件是否仍然存在
+                        if audio_file_path.exists() {
+                            // 重新提交任务到 Apalis 队列
+                            let result = self.submit_task(
+                                storage,
+                                audio_file_path,
+                                original_filename.unwrap_or_else(|| "unknown".to_string()),
+                                model,
+                                response_format,
+                            ).await;
 
-                    self.save_task_status(task_id, &retry_status).await?;
-
-                    // 重新提交任务到队列 (这里简化实现，仅更新状态)
-                    // 实际实现可能需要重新将任务推入 Apalis 队列
-                    
-                    info!("任务已重新提交: {}", task_id);
-                    Ok(true)
+                            match result {
+                                Ok(new_task_id) => {
+                                    info!("任务已重新提交: {} -> {}", task_id, new_task_id);
+                                    Ok(true)
+                                }
+                                Err(e) => {
+                                    warn!("重新提交任务失败: {} - {}", task_id, e);
+                                    Ok(false)
+                                }
+                            }
+                        } else {
+                            warn!("任务音频文件不存在，无法重试: {}", task_id);
+                            Ok(false)
+                        }
+                    } else {
+                        warn!("任务文件路径不存在，无法重试: {}", task_id);
+                        Ok(false)
+                    }
                 } else {
                     warn!("任务数据不存在，无法重试: {}", task_id);
                     Ok(false)
