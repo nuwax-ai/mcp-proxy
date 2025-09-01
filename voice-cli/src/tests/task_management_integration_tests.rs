@@ -18,7 +18,7 @@ mod task_management_integration_tests {
             task_timeout_seconds: 30,
             catch_panic: true,
             sqlite_db_path: db_path.to_string_lossy().to_string(),
-            task_retention_days: 1,
+            task_retention_minutes: 1440, // 24 hours in minutes
             sled_db_path: "./data/sled".to_string(),
         };
 

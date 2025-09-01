@@ -104,8 +104,8 @@ pub struct TaskManagementConfig {
     pub task_timeout_seconds: u64,
     /// 是否捕获 panic
     pub catch_panic: bool,
-    /// 任务保留天数
-    pub task_retention_days: u32,
+    /// 任务保留分钟数
+    pub task_retention_minutes: u32,
     /// Sled 数据库路径
     pub sled_db_path: String,
 }
@@ -213,10 +213,10 @@ impl Default for TaskManagementConfig {
         Self {
             max_concurrent_tasks: 4,
             sqlite_db_path: "./data/tasks.db".to_string(),
-            retry_attempts: 3,
+            retry_attempts: 2,
             task_timeout_seconds: 3600,
             catch_panic: true,
-            task_retention_days: 1,
+            task_retention_minutes: 1440, // 24 hours in minutes
             sled_db_path: "./data/sled".to_string(),
         }
     }
@@ -516,22 +516,22 @@ impl Config {
             );
         }
 
-        if let Ok(retention_days_str) = std::env::var("VOICE_CLI_TASK_RETENTION_DAYS") {
-            let retention_days = retention_days_str.parse::<u32>().map_err(|_| {
+        if let Ok(retention_minutes_str) = std::env::var("VOICE_CLI_TASK_RETENTION_MINUTES") {
+            let retention_minutes = retention_minutes_str.parse::<u32>().map_err(|_| {
                 crate::VoiceCliError::Config(format!(
-                    "Invalid VOICE_CLI_TASK_RETENTION_DAYS value '{}': must be a valid number",
-                    retention_days_str
+                    "Invalid VOICE_CLI_TASK_RETENTION_MINUTES value '{}': must be a valid number",
+                    retention_minutes_str
                 ))
             })?;
-            if retention_days == 0 {
+            if retention_minutes == 0 {
                 return Err(crate::VoiceCliError::Config(
-                    "VOICE_CLI_TASK_RETENTION_DAYS must be greater than 0".to_string(),
+                    "VOICE_CLI_TASK_RETENTION_MINUTES must be greater than 0".to_string(),
                 ));
             }
-            self.task_management.task_retention_days = retention_days;
+            self.task_management.task_retention_minutes = retention_minutes;
             tracing::info!(
-                "Applied environment override: VOICE_CLI_TASK_RETENTION_DAYS = {}",
-                retention_days
+                "Applied environment override: VOICE_CLI_TASK_RETENTION_MINUTES = {}",
+                retention_minutes
             );
         }
 

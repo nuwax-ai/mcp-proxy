@@ -68,10 +68,10 @@ task_management:
   
   # Apalis worker configuration
   max_concurrent_tasks: 4  # Max concurrent async tasks (should match or be less than transcription_workers)
-  retry_attempts: 3  # Number of retry attempts for failed tasks
+  retry_attempts: 2  # Number of retry attempts for failed tasks
   task_timeout_seconds: 3600  # Task processing timeout in seconds (0 to disable)
   catch_panic: true  # Catch panics in execution and pipe them as errors
-  task_retention_days: 1 # task retention days
+  task_retention_minutes: 1440 # task retention in minutes (1440 minutes = 24 hours)
   
   # SQLite database configuration  
   sqlite_db_path: "./data/tasks.db"  # Path to SQLite database file
