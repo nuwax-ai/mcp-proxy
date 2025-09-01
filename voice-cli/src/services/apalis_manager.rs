@@ -1,7 +1,7 @@
 use crate::VoiceCliError;
 use crate::models::{
     AsyncTranscriptionTask, TaskManagementConfig, TaskStatus, TranscriptionResponse,
-    TaskStatsResponse,
+    TaskStatsResponse, TaskError, ProcessingStage,
 };
 use crate::services::{AudioFileManager, ModelService, TranscriptionEngine};
 use apalis::prelude::*;
@@ -877,8 +877,8 @@ impl ApalisManager {
         storage: SqliteStorage<TranscriptionTask>,
         model_service: Arc<ModelService>,
     ) -> Result<(), VoiceCliError> {
-        let (lock_free_manager, _) = LockFreeApalisManager::new(self.config.clone(), model_service).await?;
-        lock_free_manager.start_worker(storage, Arc::new(ModelService::new(crate::models::Config::default()))).await
+        let (lock_free_manager, _) = LockFreeApalisManager::new(self.config.clone(), model_service.clone()).await?;
+        lock_free_manager.start_worker(storage, model_service).await
     }
     
     /// 其他方法委托实现...
@@ -1073,25 +1073,75 @@ pub async fn transcription_pipeline_worker(
     info!("开始处理转录流水线: {}", task.task_id);
     
     // 步骤 1: 音频预处理
-    let audio_processed_task = audio_preprocessing_step(task.clone(), ctx.clone()).await
-        .map_err(|e| {
-            warn!("步骤 1 失败: {} - {}", task.task_id, e);
-            e
-        })?;
+    let audio_processed_task = match audio_preprocessing_step(task.clone(), ctx.clone()).await {
+        Ok(task) => task,
+        Err(e) => {
+            let error_msg = format!("音频预处理失败: {}", e);
+            warn!("步骤 1 失败: {} - {}", task.task_id, error_msg);
+            
+            // 更新任务状态为失败
+            if let Err(save_err) = ctx.save_task_status(&task.task_id, &TaskStatus::Failed {
+                error: TaskError::AudioProcessingFailed {
+                    stage: ProcessingStage::AudioFormatDetection,
+                    message: error_msg.clone(),
+                    is_recoverable: true,
+                },
+                failed_at: Utc::now(),
+                retry_count: 0,
+                is_recoverable: true,
+            }).await {
+                warn!("保存失败状态失败: {} - {}", task.task_id, save_err);
+            }
+            
+            return Err(e);
+        }
+    };
 
     // 步骤 2: Whisper 转录
-    let transcription_completed_task = transcription_step(audio_processed_task, ctx.clone()).await
-        .map_err(|e| {
-            warn!("步骤 2 失败: {} - {}", task.task_id, e);
-            e
-        })?;
+    let transcription_completed_task = match transcription_step(audio_processed_task, ctx.clone()).await {
+        Ok(task) => task,
+        Err(e) => {
+            let error_msg = format!("Whisper转录失败: {}", e);
+            warn!("步骤 2 失败: {} - {}", task.task_id, error_msg);
+            
+            // 更新任务状态为失败
+            if let Err(save_err) = ctx.save_task_status(&task.task_id, &TaskStatus::Failed {
+                error: TaskError::TranscriptionFailed {
+                    model: task.model.clone().unwrap_or_else(|| "unknown".to_string()),
+                    message: error_msg.clone(),
+                    is_recoverable: true,
+                },
+                failed_at: Utc::now(),
+                retry_count: 0,
+                is_recoverable: true,
+            }).await {
+                warn!("保存失败状态失败: {} - {}", task.task_id, save_err);
+            }
+            
+            return Err(e);
+        }
+    };
 
     // 步骤 3: 结果格式化和存储
-    result_formatting_step(transcription_completed_task, ctx.clone()).await
-        .map_err(|e| {
-            warn!("步骤 3 失败: {} - {}", task.task_id, e);
-            e
-        })?;
+    if let Err(e) = result_formatting_step(transcription_completed_task, ctx.clone()).await {
+        let error_msg = format!("结果格式化失败: {}", e);
+        warn!("步骤 3 失败: {} - {}", task.task_id, error_msg);
+        
+        // 更新任务状态为失败
+        if let Err(save_err) = ctx.save_task_status(&task.task_id, &TaskStatus::Failed {
+            error: TaskError::StorageError {
+                operation: "result_formatting".to_string(),
+                message: error_msg.clone(),
+            },
+            failed_at: Utc::now(),
+            retry_count: 0,
+            is_recoverable: true,
+        }).await {
+            warn!("保存失败状态失败: {} - {}", task.task_id, save_err);
+        }
+        
+        return Err(e);
+    }
 
     info!("转录流水线完成: {}", task.task_id);
     Ok(())
