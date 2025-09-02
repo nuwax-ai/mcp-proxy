@@ -72,11 +72,13 @@ class TTSService:
             if INDEX_TTS_AVAILABLE and AUDIO_LIBS_AVAILABLE:
                 # 使用真实的IndexTTS库
                 # IndexTTS 需要语音提示文件，我们使用一个默认的或从模型路径加载
-                self.model = {
-                    "model_dir": self.model_path.as_deref().unwrap_or("checkpoints"),
-                    "config": self.model_path.as_ref().map(|p| p.join("config.yaml")).unwrap_or_else(|| PathBuf::from("checkpoints/config.yaml")),
-                    "device": self.device
-                }
+                from indextts.infer import IndexTTS
+                model_dir = self.model_path or "checkpoints"
+                config_path = f"{model_dir}/config.yaml"
+                self.model = IndexTTS(
+                    model_dir=model_dir,
+                    cfg_path=config_path
+                )
                 logger.info(f"IndexTTS model config loaded successfully: {model_name}")
             else:
                 # Mock实现
@@ -143,10 +145,10 @@ class TTSService:
                     logger.info(f"Starting TTS synthesis for text: {text[:50]}...")
                     
                     # 使用TTS进行合成
-                    self.model.tts_to_file(
+                    self.model.infer(
+                        audio_prompt="reference_voice.wav",
                         text=text,
-                        file_path=output_path,
-                        speed=speed
+                        output_path=output_path
                     )
                     
                     logger.info(f"TTS synthesis completed successfully")
@@ -165,6 +167,7 @@ class TTSService:
                 raise FileNotFoundError(f"Output file not created: {output_path}")
             
             file_size = Path(output_path).stat().st_size
+            duration = len(text) * 0.1  # 估算时长
             
             return {
                 "success": True,
