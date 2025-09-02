@@ -828,16 +828,9 @@ fn extract_filename_from_url(url: &str) -> Option<String> {
         .filter(|filename| !filename.is_empty())
 }
 
-/// 生成任务 ID
+/// 生成任务 ID - 使用统一的工具函数
 fn generate_task_id() -> String {
-    format!(
-        "task_{}_{}",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis(),
-        std::process::id()
-    )
+    crate::utils::generate_task_id()
 }
 
 /// TTS同步处理端点

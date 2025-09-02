@@ -1,5 +1,6 @@
 pub mod signal_handling;
 pub mod cleanup;
+pub mod task_id;
 
 use crate::VoiceCliError;
 use crate::models::Config;
@@ -14,6 +15,7 @@ pub use signal_handling::{
     handle_system_signals,
 };
 pub use cleanup::perform_shutdown_cleanup;
+pub use task_id::{generate_task_id, generate_legacy_task_id};
 
 
 /// Initialize logging based on configuration

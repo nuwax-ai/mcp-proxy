@@ -14,7 +14,7 @@ use reqwest;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use sqlx::sqlite::SqlitePoolOptions;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -1096,9 +1096,9 @@ impl LockFreeApalisManager {
         Ok(())
     }
 
-    /// 生成任务 ID
+    /// 生成任务 ID - 使用统一的工具函数
     fn generate_task_id(&self) -> String {
-        format!("task_{}", uuid::Uuid::now_v7().to_string())
+        crate::utils::generate_task_id()
     }
 }
 
@@ -1350,9 +1350,26 @@ async fn transcription_step(
     // 执行转录，使用配置中的默认模型
     let default_model = ctx.transcription_engine.default_model();
     let model = task.model.as_deref().unwrap_or(default_model);
+    
+    // 首先检查文件是否有音频流
+    let has_audio = check_file_has_audio_stream(&task.processed_audio_path).await
+        .map_err(|e| {
+            Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("检查音频流失败: {}", e),
+            ))))
+        })?;
+    
+    if !has_audio {
+        return Err(Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "文件不包含音频流，无法进行转录".to_string(),
+        )))));
+    }
+    
     let transcription_result = ctx
         .transcription_engine
-        .transcribe_compatible_audio(
+        .transcribe_with_conversion(
             model,
             &task.processed_audio_path,
             ctx.transcription_engine.worker_timeout(), // 使用配置中的超时时间
@@ -1404,6 +1421,26 @@ async fn transcription_step(
         completed_task.transcription_result.text.len()
     );
     Ok(completed_task)
+}
+
+/// 检查文件是否包含音频流
+async fn check_file_has_audio_stream(file_path: &Path) -> Result<bool, VoiceCliError> {
+    use std::process::Command;
+    
+    // 使用 ffprobe 检查文件是否有音频流
+    let output = Command::new("ffprobe")
+        .args([
+            "-v", "quiet",
+            "-show_streams",
+            "-select_streams", "a",
+            "-of", "csv=p=0",
+            file_path.to_str().unwrap_or("invalid_path"),
+        ])
+        .output()
+        .map_err(|e| VoiceCliError::AudioConversionFailed(format!("执行 ffprobe 失败: {}", e)))?;
+    
+    // 如果输出为空，则没有音频流
+    Ok(!output.stdout.is_empty())
 }
 
 /// 步骤 3: 结果格式化和存储
