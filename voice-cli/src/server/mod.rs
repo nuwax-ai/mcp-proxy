@@ -59,6 +59,14 @@ pub async fn handle_server_init(config_path: Option<PathBuf>, force: bool) -> cr
 
     println!("✅ Server configuration initialized: {:?}", output_path);
     
+    // 检查并创建 tts_service.py 文件
+    if let Err(e) = create_tts_service_file().await {
+        warn!("Failed to create tts_service.py: {}", e);
+        println!("⚠️  TTS service file creation failed: {}", e);
+    } else {
+        println!("✅ TTS service file created successfully");
+    }
+    
     // 初始化 Python 虚拟环境和 TTS 依赖
     if let Err(e) = init_python_tts_environment().await {
         warn!("Failed to initialize Python TTS environment: {}", e);
@@ -74,11 +82,47 @@ pub async fn handle_server_init(config_path: Option<PathBuf>, force: bool) -> cr
     Ok(())
 }
 
+/// Create tts_service.py file if it doesn't exist
+pub async fn create_tts_service_file() -> crate::Result<()> {
+    use std::fs;
+    
+    let current_dir = std::env::current_dir()
+        .map_err(|e| crate::VoiceCliError::Config(format!("Failed to get current directory: {}", e)))?;
+    
+    let tts_service_path = current_dir.join("tts_service.py");
+    
+    // 如果文件已存在，跳过创建
+    if tts_service_path.exists() {
+        info!("tts_service.py already exists, skipping creation");
+        return Ok(());
+    }
+    
+    // 从模板文件加载 tts_service.py 内容
+    let tts_service_content = include_str!("../../templates/tts_service.py.template");
+    
+    // 写入文件
+    fs::write(&tts_service_path, tts_service_content)
+        .map_err(|e| crate::VoiceCliError::Config(format!("Failed to create tts_service.py: {}", e)))?;
+    
+    // 设置文件权限为可执行
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = tts_service_path.metadata()
+            .map_err(|e| crate::VoiceCliError::Config(format!("Failed to get file permissions: {}", e)))?
+            .permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&tts_service_path, perms)
+            .map_err(|e| crate::VoiceCliError::Config(format!("Failed to set file permissions: {}", e)))?;
+    }
+    
+    info!("tts_service.py created successfully: {:?}", tts_service_path);
+    Ok(())
+}
+
 /// Initialize Python virtual environment and TTS dependencies using uv
 pub async fn init_python_tts_environment() -> crate::Result<()> {
     use std::process::Command;
-    use std::time::Duration;
-    use tokio::time::sleep;
 
     println!("🐍 Initializing Python TTS environment with uv...");
 
