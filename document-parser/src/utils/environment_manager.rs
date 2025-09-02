@@ -1520,12 +1520,7 @@ impl EnvironmentManager {
             ));
         }
 
-        // 检查磁盘空间
-        if let Err(e) = self.check_disk_space(base_dir, 500 * 1024 * 1024).await {
-            issues.push(format!("磁盘空间检查: {e}"));
-        }
-
-        issues
+         issues
     }
 
     /// 生成虚拟环境问题的恢复建议
@@ -3291,14 +3286,6 @@ print('MarkItDown功能验证成功')
             ));
         }
 
-        // 检查磁盘空间（至少需要500MB）
-        if let Err(e) = self.check_disk_space(base_dir, 500 * 1024 * 1024).await {
-            return Err(AppError::virtual_environment_path_error(
-                format!("磁盘空间不足: {e}"),
-                base_dir,
-            ));
-        }
-
         // 检查路径长度（Windows路径长度限制）
         if cfg!(windows) && venv_path.to_string_lossy().len() > 260 {
             return Err(AppError::virtual_environment_path_error(
@@ -3323,77 +3310,6 @@ print('MarkItDown功能验证成功')
             }
             Err(e) => Err(e),
         }
-    }
-
-    /// 检查磁盘空间
-    async fn check_disk_space(&self, path: &Path, required_bytes: u64) -> Result<(), String> {
-        // 这是一个简化的磁盘空间检查
-        // 在实际实现中，可以使用系统调用获取更准确的磁盘空间信息
-
-        #[cfg(unix)]
-        {
-            use std::ffi::CString;
-            use std::mem;
-
-            let path_cstr = CString::new(path.to_string_lossy().as_bytes())
-                .map_err(|e| format!("路径转换失败: {e}"))?;
-
-            unsafe {
-                let mut statvfs: libc::statvfs = mem::zeroed();
-                if libc::statvfs(path_cstr.as_ptr(), &mut statvfs) == 0 {
-                    let available_bytes = (statvfs.f_bavail as u64) * (statvfs.f_frsize as u64);
-                    if available_bytes < required_bytes {
-                        return Err(format!(
-                            "可用空间不足: 需要 {} MB，可用 {} MB",
-                            required_bytes / 1024 / 1024,
-                            available_bytes / 1024 / 1024
-                        ));
-                    }
-                } else {
-                    return Err("无法获取磁盘空间信息".to_string());
-                }
-            }
-        }
-
-        #[cfg(windows)]
-        {
-            use std::ffi::OsStr;
-            use std::os::windows::ffi::OsStrExt;
-
-            // 获取路径的根目录
-            let root_path = path.ancestors().last().unwrap_or(path);
-            let wide_path: Vec<u16> = OsStr::new(&root_path.to_string_lossy().to_string())
-                .encode_wide()
-                .chain(std::iter::once(0))
-                .collect();
-
-            unsafe {
-                let mut free_bytes_available = 0u64;
-                let mut total_number_of_bytes = 0u64;
-                let mut total_number_of_free_bytes = 0u64;
-
-                let result = winapi::um::fileapi::GetDiskFreeSpaceExW(
-                    wide_path.as_ptr(),
-                    &mut free_bytes_available,
-                    &mut total_number_of_bytes,
-                    &mut total_number_of_free_bytes,
-                );
-
-                if result != 0 {
-                    if free_bytes_available < required_bytes {
-                        return Err(format!(
-                            "可用空间不足: 需要 {} MB，可用 {} MB",
-                            required_bytes / 1024 / 1024,
-                            free_bytes_available / 1024 / 1024
-                        ));
-                    }
-                } else {
-                    warn!("无法获取Windows磁盘空间信息，跳过检查");
-                }
-            }
-        }
-
-        Ok(())
     }
 
     /// 处理虚拟环境创建错误并提供恢复建议
@@ -3491,18 +3407,6 @@ print('MarkItDown功能验证成功')
                 severity: ValidationSeverity::Critical,
                 auto_fixable: false,
                 fix_suggestion: "检查目录权限，确保当前用户有写入权限".to_string(),
-            });
-        }
-
-        // 2. 检查磁盘空间
-        if let Err(e) = self.check_disk_space(current_dir, 500 * 1024 * 1024).await {
-            result.is_valid = false;
-            result.issues.push(DirectoryValidationIssue {
-                issue_type: DirectoryIssueType::InsufficientSpace,
-                message: format!("磁盘空间不足: {e}"),
-                severity: ValidationSeverity::Critical,
-                auto_fixable: false,
-                fix_suggestion: "清理磁盘空间，至少保留500MB可用空间".to_string(),
             });
         }
 

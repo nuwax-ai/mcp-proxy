@@ -1,4 +1,7 @@
 pub mod model;
+pub mod tts;
+
+pub use tts::TtsAction;
 
 
 
@@ -32,6 +35,11 @@ pub enum Commands {
     Model {
         #[command(subcommand)]
         action: ModelAction,
+    },
+    /// TTS management commands
+    Tts {
+        #[command(subcommand)]
+        action: TtsAction,
     },
 }
 

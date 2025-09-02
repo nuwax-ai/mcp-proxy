@@ -3,7 +3,7 @@ use clap::Parser;
 use std::path::PathBuf;
 use tracing::{error, info};
 use voice_cli::{
-    cli::{Cli, Commands, ModelAction, ServerAction},
+    cli::{Cli, Commands, ModelAction, ServerAction, TtsAction},
     config::ServiceType,
     config_rs_integration::ConfigRsLoader,
     server,
@@ -73,6 +73,7 @@ async fn main() {
     let result = match cli.command {
         Commands::Server { action } => handle_server_command(action, &config).await,
         Commands::Model { action } => handle_model_command(action, &config).await,
+        Commands::Tts { action } => handle_tts_command(action, &config).await,
     };
 
     // Handle result
@@ -153,6 +154,26 @@ async fn handle_model_command(action: ModelAction, config: &voice_cli::Config) -
             model::handle_model_diagnose(config, &model_name)
                 .await
                 .context("Failed to diagnose model")
+        }
+    }
+}
+
+/// Handle TTS-related commands
+async fn handle_tts_command(action: TtsAction, config: &voice_cli::Config) -> Result<()> {
+    use voice_cli::cli::tts;
+
+    match action {
+        TtsAction::Init { force } => {
+            info!("Initializing TTS environment");
+            tts::handle_tts_init(force)
+                .await
+                .context("Failed to initialize TTS environment")
+        }
+        TtsAction::Test { text, output, model, speed, pitch, volume, format } => {
+            info!("Testing TTS functionality");
+            tts::handle_tts_test(config, text, output, model, speed, pitch, volume, format)
+                .await
+                .context("Failed to test TTS functionality")
         }
     }
 }

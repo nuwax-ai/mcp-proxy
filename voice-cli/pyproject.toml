@@ -1,0 +1,21 @@
+[project]
+name = "voice-cli-tts"
+version = "0.1.0"
+description = "TTS dependencies for voice-cli"
+requires-python = ">=3.8"
+dependencies = [
+    "torch>=2.0.0",
+    "torchaudio>=2.0.0", 
+    "numpy>=1.21.0",
+    "soundfile>=0.12.0"
+]
+
+[tool.uv]
+dev-dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tts_service.py"]

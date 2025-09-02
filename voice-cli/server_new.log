@@ -1,0 +1,105 @@
+warning: unused import: `std::path::PathBuf`
+ --> voice-cli\src\models\tts.rs:1:5
+  |
+1 | use std::path::PathBuf;
+  |     ^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `tower_http::body::Full`
+  --> voice-cli\src\server\handlers.rs:15:5
+   |
+15 | use tower_http::body::Full;
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `warn`
+ --> voice-cli\src\services\tts_service.rs:6:35
+  |
+6 | use tracing::{debug, error, info, warn};
+  |                                   ^^^^
+
+warning: unused import: `std::path::PathBuf`
+ --> voice-cli\src\services\tts_task_manager.rs:8:5
+  |
+8 | use std::path::PathBuf;
+  |     ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::time::Duration`
+  --> voice-cli\src\services\tts_task_manager.rs:10:5
+   |
+10 | use std::time::Duration;
+   |     ^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `debug`, `error`, and `warn`
+  --> voice-cli\src\services\tts_task_manager.rs:12:15
+   |
+12 | use tracing::{debug, error, info, warn};
+   |               ^^^^^  ^^^^^        ^^^^
+
+warning: unused import: `apalis::prelude`
+ --> voice-cli\src\services\tts_task_manager.rs:3:5
+  |
+3 | use apalis::prelude::*;
+  |     ^^^^^^^^^^^^^^^
+
+warning: unused variable: `output`
+  --> voice-cli\src\services\tts_service.rs:22:23
+   |
+22 |             if let Ok(output) = Command::new("python3").arg("--version").output() {
+   |                       ^^^^^^ help: if this is intentional, prefix it with an underscore: `_output`
+   |
+   = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `output`
+  --> voice-cli\src\services\tts_service.rs:24:30
+   |
+24 |             } else if let Ok(output) = Command::new("python").arg("--version").output() {
+   |                              ^^^^^^ help: if this is intentional, prefix it with an underscore: `_output`
+
+warning: associated function `merge_environment_overrides` is never used
+   --> voice-cli\src\config_rs_integration.rs:154:8
+    |
+56  | impl ConfigRsLoader {
+    | ------------------- associated function in this implementation
+...
+154 |     fn merge_environment_overrides(_config: &mut Config, _built_config: &ConfigRs) {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: field `max_concurrent_tasks` is never read
+  --> voice-cli\src\services\tts_task_manager.rs:40:5
+   |
+38 | pub struct TtsTaskManager {
+   |            -------------- field in this struct
+39 |     storage: Arc<RwLock<SqliteStorage<TtsTask>>>,
+40 |     max_concurrent_tasks: usize,
+   |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: `voice-cli` (lib) generated 11 warnings (run `cargo fix --lib -p voice-cli` to apply 6 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.79s
+     Running `D:\git_work\mcp-proxy\target\debug\voice-cli.exe server run --config server-config.yml`
+[2m2025-09-01T15:56:05.375482Z[0m [32m INFO[0m ThreadId(01) [2mvoice_cli::utils[0m[2m:[0m [2mvoice-cli\src\utils\mod.rs[0m[2m:[0m[2m71:[0m Logging initialized - Level: info, Directory: "./logs"
+[2m2025-09-01T15:56:05.375602Z[0m [32m INFO[0m ThreadId(01) [2mvoice_cli::server[0m[2m:[0m [2mvoice-cli\src\server\mod.rs[0m[2m:[0m[2m74:[0m Logging initialized successfully
+[2m2025-09-01T15:56:05.375884Z[0m [32m INFO[0m ThreadId(01) [2mvoice_cli::server::handlers[0m[2m:[0m [2mvoice-cli\src\server\handlers.rs[0m[2m:[0m[2m39:[0m 初始化无锁 Apalis 任务管理器
+[2m2025-09-01T15:56:05.375908Z[0m [32m INFO[0m ThreadId(01) [2mvoice_cli::services::apalis_manager[0m[2m:[0m [2mvoice-cli\src\services\apalis_manager.rs[0m[2m:[0m[2m188:[0m 初始化 ApalisManager，数据库: sqlite://./data/tasks.db
+[2m2025-09-01T15:56:05.375921Z[0m [32m INFO[0m ThreadId(01) [2mvoice_cli::services::apalis_manager[0m[2m:[0m [2mvoice-cli\src\services\apalis_manager.rs[0m[2m:[0m[2m192:[0m 数据库路径: "./data/tasks.db" (当前工作目录: Ok("D:\\git_work\\mcp-proxy\\voice-cli"))
+[2m2025-09-01T15:56:05.376084Z[0m [32m INFO[0m ThreadId(01) [2mvoice_cli::services::apalis_manager[0m[2m:[0m [2mvoice-cli\src\services\apalis_manager.rs[0m[2m:[0m[2m198:[0m 父目录: "./data", 是否存在: true
+[2m2025-09-01T15:56:05.376301Z[0m [32m INFO[0m ThreadId(01) [2mvoice_cli::services::apalis_manager[0m[2m:[0m [2mvoice-cli\src\services\apalis_manager.rs[0m[2m:[0m[2m230:[0m 数据库文件已存在且可写: "./data/tasks.db"
+[2m2025-09-01T15:56:05.380689Z[0m [32m INFO[0m ThreadId(01) [2mvoice_cli::services::apalis_manager[0m[2m:[0m [2mvoice-cli\src\services\apalis_manager.rs[0m[2m:[0m[2m257:[0m ApalisManager 初始化完成
+[2m2025-09-01T15:56:05.380867Z[0m [32m INFO[0m ThreadId(01) [2mvoice_cli::services::audio_file_manager[0m[2m:[0m [2mvoice-cli\src\services\audio_file_manager.rs[0m[2m:[0m[2m32:[0m AudioFileManager initialized with storage directory: ./data/audio
+[2m2025-09-01T15:56:05.380888Z[0m [32m INFO[0m ThreadId(01) [2mvoice_cli::services::apalis_manager[0m[2m:[0m [2mvoice-cli\src\services\apalis_manager.rs[0m[2m:[0m[2m325:[0m 创建 Apalis worker...max_concurrent_tasks=4,retry_attempts=2
+[2m2025-09-01T15:56:05.380934Z[0m [32m INFO[0m ThreadId(01) [2mvoice_cli::services::apalis_manager[0m[2m:[0m [2mvoice-cli\src\services\apalis_manager.rs[0m[2m:[0m[2m340:[0m 启动 Apalis 监控器...
+[2m2025-09-01T15:56:05.380963Z[0m [32m INFO[0m ThreadId(01) [2mvoice_cli::services::apalis_manager[0m[2m:[0m [2mvoice-cli\src\services\apalis_manager.rs[0m[2m:[0m[2m355:[0m Apalis 监控器启动完成
+[2m2025-09-01T15:56:05.380981Z[0m [32m INFO[0m ThreadId(01) [2mvoice_cli::services::apalis_manager[0m[2m:[0m [2mvoice-cli\src\services\apalis_manager.rs[0m[2m:[0m[2m1039:[0m 任务清理调度器启动成功，保留分钟数: 1440 分钟
+[2m2025-09-01T15:56:05.380993Z[0m [32m INFO[0m ThreadId(01) [2mvoice_cli::services::apalis_manager[0m[2m:[0m [2mvoice-cli\src\services\apalis_manager.rs[0m[2m:[0m[2m362:[0m Apalis worker 启动成功
+[2m2025-09-01T15:56:05.380997Z[0m [32m INFO[0m ThreadId(20) [2mvoice_cli::services::apalis_manager[0m[2m:[0m [2mvoice-cli\src\services\apalis_manager.rs[0m[2m:[0m[2m344:[0m Apalis 监控器开始运行，等待任务...
+[2m2025-09-01T15:56:05.381082Z[0m [32m INFO[0m ThreadId(01) [2mvoice_cli::services::audio_file_manager[0m[2m:[0m [2mvoice-cli\src\services\audio_file_manager.rs[0m[2m:[0m[2m32:[0m AudioFileManager initialized with storage directory: ./data/audio
+[2m2025-09-01T15:56:05.381098Z[0m [32m INFO[0m ThreadId(01) [2mvoice_cli::server::handlers[0m[2m:[0m [2mvoice-cli\src\server\handlers.rs[0m[2m:[0m[2m59:[0m 初始化TTS服务
+[2m2025-09-01T15:56:05.647715Z[0m [32m INFO[0m ThreadId(01) [2mvoice_cli::services::tts_service[0m[2m:[0m [2mvoice-cli\src\services\tts_service.rs[0m[2m:[0m[2m42:[0m 初始化TTS服务 - Python: "python3", 脚本: "D:\\git_work\\mcp-proxy\\voice-cli\\tts_service.py"
+[2m2025-09-01T15:56:05.650170Z[0m [32m INFO[0m ThreadId(01) [2mvoice_cli::server::middleware_config[0m[2m:[0m [2mvoice-cli\src\server\middleware_config.rs[0m[2m:[0m[2m27:[0m 最大文件大小限制: 200MB
+[2m2025-09-01T15:56:05.650304Z[0m [32m INFO[0m ThreadId(01) [2mvoice_cli::server[0m[2m:[0m [2mvoice-cli\src\server\mod.rs[0m[2m:[0m[2m91:[0m Server listening on 0.0.0.0:8080
+❌ Error: Failed to run server
+   Caused by: Configuration error: Failed to bind to address: 通常每个套接字地址(协议/网络地址/端口)只允许使用一次。 (os error 10048)
+[2m2025-09-01T15:56:05.653274Z[0m [31mERROR[0m ThreadId(01) [2mvoice_cli[0m[2m:[0m [2mvoice-cli\src\main.rs[0m[2m:[0m[2m95:[0m Command failed: Failed to run server
+error: process didn't exit successfully: `D:\git_work\mcp-proxy\target\debug\voice-cli.exe server run --config server-config.yml` (exit code: 1)

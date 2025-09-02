@@ -25,6 +25,8 @@ pub async fn create_routes_with_state(shared_state: handlers::AppState) -> crate
         .route("/models", get(handlers::models_list_handler))
         // Transcription endpoint (synchronous)
         .route("/transcribe", post(handlers::transcribe_handler))
+        // TTS endpoints
+        .route("/tts/sync", post(handlers::tts_sync_handler))
         // Task management endpoints under /api/v1/tasks
         .nest("/api/v1/tasks", task_routes())
         // Add shared state
@@ -50,6 +52,8 @@ fn task_routes() -> Router<handlers::AppState> {
         .route("/transcribe", post(handlers::async_transcribe_handler))
         // URL-based task submission
         .route("/transcribeFromUrl", post(handlers::transcribe_from_url_handler))
+        // TTS task submission
+        .route("/tts", post(handlers::tts_async_handler))
         // Task status and management
         .route("/{task_id}", get(handlers::get_task_handler))
         .route("/{task_id}", delete(handlers::delete_task_handler))
