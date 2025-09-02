@@ -3,7 +3,7 @@ use log::{debug, info};
  * Create a local SSE server that proxies requests to a stdio MCP server.
  */
 use rmcp::{
-    Error, RoleClient, RoleServer, ServerHandler,
+    ErrorData, RoleClient, RoleServer, ServerHandler,
     model::{
         CallToolRequestParam, CallToolResult, ClientInfo, Content, Implementation, ListToolsResult,
         PaginatedRequestParam, ServerInfo,
@@ -70,7 +70,7 @@ impl ServerHandler for ProxyHandler {
         &self,
         request: Option<PaginatedRequestParam>,
         _context: RequestContext<RoleServer>,
-    ) -> Result<ListToolsResult, Error> {
+    ) -> Result<ListToolsResult, ErrorData> {
         let client = self.client.clone();
         let guard = client.lock().await;
 
@@ -105,7 +105,7 @@ impl ServerHandler for ProxyHandler {
         &self,
         request: CallToolRequestParam,
         _context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, Error> {
+    ) -> Result<CallToolResult, ErrorData> {
         let client = self.client.clone();
         let guard = client.lock().await;
 
@@ -139,7 +139,7 @@ impl ServerHandler for ProxyHandler {
         &self,
         request: Option<PaginatedRequestParam>,
         _context: RequestContext<RoleServer>,
-    ) -> Result<rmcp::model::ListResourcesResult, Error> {
+    ) -> Result<rmcp::model::ListResourcesResult, ErrorData> {
         // Get a lock on the client
         let client = self.client.clone();
         let guard = client.lock().await;
@@ -172,7 +172,7 @@ impl ServerHandler for ProxyHandler {
         &self,
         request: rmcp::model::ReadResourceRequestParam,
         _context: RequestContext<RoleServer>,
-    ) -> Result<rmcp::model::ReadResourceResult, Error> {
+    ) -> Result<rmcp::model::ReadResourceResult, ErrorData> {
         // Get a lock on the client
         let client = self.client.clone();
         let guard = client.lock().await;
@@ -193,7 +193,7 @@ impl ServerHandler for ProxyHandler {
                     }
                     Err(err) => {
                         tracing::error!("Error reading resource: {:?}", err);
-                        Err(Error::internal_error(
+                        Err(ErrorData::internal_error(
                             format!("Error reading resource: {err}"),
                             None,
                         ))
@@ -214,7 +214,7 @@ impl ServerHandler for ProxyHandler {
         &self,
         request: Option<PaginatedRequestParam>,
         _context: RequestContext<RoleServer>,
-    ) -> Result<rmcp::model::ListResourceTemplatesResult, Error> {
+    ) -> Result<rmcp::model::ListResourceTemplatesResult, ErrorData> {
         // Get a lock on the client
         let client = self.client.clone();
         let guard = client.lock().await;
@@ -247,7 +247,7 @@ impl ServerHandler for ProxyHandler {
         &self,
         request: Option<PaginatedRequestParam>,
         _context: RequestContext<RoleServer>,
-    ) -> Result<rmcp::model::ListPromptsResult, Error> {
+    ) -> Result<rmcp::model::ListPromptsResult, ErrorData> {
         // Get a lock on the client
         let client = self.client.clone();
         let guard = client.lock().await;
@@ -280,7 +280,7 @@ impl ServerHandler for ProxyHandler {
         &self,
         request: rmcp::model::GetPromptRequestParam,
         _context: RequestContext<RoleServer>,
-    ) -> Result<rmcp::model::GetPromptResult, Error> {
+    ) -> Result<rmcp::model::GetPromptResult, ErrorData> {
         // Get a lock on the client
         let client = self.client.clone();
         let guard = client.lock().await;
@@ -296,7 +296,7 @@ impl ServerHandler for ProxyHandler {
                     }
                     Err(err) => {
                         tracing::error!("Error getting prompt: {:?}", err);
-                        Err(Error::internal_error(
+                        Err(ErrorData::internal_error(
                             format!("Error getting prompt: {err}"),
                             None,
                         ))
@@ -318,7 +318,7 @@ impl ServerHandler for ProxyHandler {
         &self,
         request: rmcp::model::CompleteRequestParam,
         _context: RequestContext<RoleServer>,
-    ) -> Result<rmcp::model::CompleteResult, Error> {
+    ) -> Result<rmcp::model::CompleteResult, ErrorData> {
         // Get a lock on the client
         let client = self.client.clone();
         let guard = client.lock().await;
@@ -331,7 +331,7 @@ impl ServerHandler for ProxyHandler {
             }
             Err(err) => {
                 tracing::error!("Error completing: {:?}", err);
-                Err(Error::internal_error(
+                Err(ErrorData::internal_error(
                     format!("Error completing: {err}"),
                     None,
                 ))
