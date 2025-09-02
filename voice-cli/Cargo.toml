@@ -79,6 +79,9 @@ bincode = { workspace = true }
 dashmap = { workspace = true }
 infer = "0.19"
 
+# FFmpeg command wrapper
+ffmpeg-sidecar = "2.2"
+
 # Task queue and persistence for async processing
 apalis = { version = "0.7", features = ["tracing", "limit", "timeout", "catch-panic", "retry", "filter"] }
 apalis-sql = { version = "0.7", features = ["sqlite"] }

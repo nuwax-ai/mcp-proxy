@@ -1511,9 +1511,9 @@ checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
 
 [[package]]
 name = "ffmpeg-sidecar"
-version = "2.1.0"
+version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f35f3bfdf862abfb6999b3f9079c5ec5c55dfa1010e907ed055e4fbdd64c335"
+checksum = "869812b38b887a5fb7291e5551677476c4696a395ae6676955f42f01e6a5d1c1"
 dependencies = [
  "anyhow",
  "tar",
@@ -3874,9 +3874,9 @@ dependencies = [
 
 [[package]]
 name = "rmcp"
-version = "0.5.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2faf35b7d3c4b7f8c21c45bb014011b32a0ce6444bf6094da04daab01a8c3c34"
+checksum = "1f521fbd040eba82684b17d787d423f43afb6e97974029b51f679157a589592a"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -3907,9 +3907,9 @@ dependencies = [
 
 [[package]]
 name = "rmcp-macros"
-version = "0.5.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad9720d9d2a943779f1dc3d47fa9072c7eeffaff4e1a82f67eb9f7ea52696091"
+checksum = "c162bf8a2846f70464ded6dda6430b60d1e2fb4b0e371f0906e39f63916641b9"
 dependencies = [
  "darling 0.21.1",
  "proc-macro2",
@@ -3932,9 +3932,9 @@ dependencies = [
 
 [[package]]
 name = "rs-voice-toolkit-audio"
-version = "0.14.0"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f01154229d7997db3f0ab9c633f3130ef88e534653f8fd00824440ab76dc9fcb"
+checksum = "a58d7e41288661af9812db37df6b8900557acb9189ac0e5ccb5777f17b8dde2a"
 dependencies = [
  "ffmpeg-sidecar",
  "hound",
@@ -3947,9 +3947,9 @@ dependencies = [
 
 [[package]]
 name = "rs-voice-toolkit-stt"
-version = "0.14.0"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e34887dc8263d6bc36242bfc3647757ed915f5376f58782c5c10afeccac82bd"
+checksum = "b4be0bd8bb74f1e63610441fa26922b33ee43377cc08c8a8ff44def404d11915"
 dependencies = [
  "anyhow",
  "ffmpeg-sidecar",
@@ -4028,9 +4028,9 @@ dependencies = [
 
 [[package]]
 name = "run_code_rmcp"
-version = "0.0.31"
+version = "0.0.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6df7a405814efbb5ff46022af9d9ae6d7ca06539f080dd7dab4f69490c5977f4"
+checksum = "e6a647409cf93d064d4d23cc62d99d93a4e19191227202f99d61c79ffd2d3a4a"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5160,15 +5160,15 @@ dependencies = [
 
 [[package]]
 name = "tempfile"
-version = "3.20.0"
+version = "3.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8a64e3985349f2441a1a9ef0b853f869006c3855f2cda6862a94d26ebb9d6a1"
+checksum = "15b61f8f20e3a6f7e0649d825294eaf317edce30f82cf6026e7e4cb9222a7d1e"
 dependencies = [
  "fastrand",
  "getrandom 0.3.3",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -5962,6 +5962,7 @@ dependencies = [
  "config",
  "dashmap",
  "dirs",
+ "ffmpeg-sidecar",
  "futures",
  "infer",
  "opentelemetry 0.30.0",
@@ -5993,9 +5994,9 @@ dependencies = [
 
 [[package]]
 name = "voice-toolkit"
-version = "0.14.0"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c78965c083b9888886c756a41838e6777af54e151ffb68f65e1bc46a0ad86c3b"
+checksum = "2a1e0dd17b6cbf95f04cbd10e97158c08888b973634de9b03b46ffa9c0bfc7cd"
 dependencies = [
  "rs-voice-toolkit-audio",
  "rs-voice-toolkit-stt",

@@ -2,6 +2,7 @@ pub mod config;
 mod http_result;
 pub mod request;
 pub mod stepped_task;
+pub mod tts;
 
 // Re-export config types
 pub use config::*;
@@ -21,6 +22,12 @@ pub use stepped_task::{
     AsyncTranscriptionTask, AudioProcessedTask, ProcessingStage, ProcessingStageInfo,
     ProgressDetails, SerializableSegment, SerializableTranscriptionResult, TaskError,
     TaskPriority, TaskStatus, TranscriptionCompletedTask,
+};
+
+// TTS module exports
+pub use tts::{
+    TtsSyncRequest, TtsAsyncRequest, TtsTaskResponse, TtsProcessingStage, TtsTaskStatus,
+    TtsProgressDetails, TtsTaskError, TaskPriority as TtsTaskPriority,
 };
 
 // 简化的任务响应类型

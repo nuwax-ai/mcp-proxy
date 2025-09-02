@@ -58,9 +58,179 @@ pub async fn handle_server_init(config_path: Option<PathBuf>, force: bool) -> cr
     crate::config::ConfigTemplateGenerator::generate_config_file(crate::config::ServiceType::Server, &output_path)?;
 
     println!("✅ Server configuration initialized: {:?}", output_path);
+    
+    // 初始化 Python 虚拟环境和 TTS 依赖
+    if let Err(e) = init_python_tts_environment().await {
+        warn!("Failed to initialize Python TTS environment: {}", e);
+        println!("⚠️  Python TTS environment initialization failed: {}", e);
+        println!("💡 You can manually initialize it later with: uv venv && uv add index-tts torch torchaudio numpy soundfile");
+    } else {
+        println!("✅ Python TTS environment initialized successfully");
+    }
+
     println!("📝 Edit the configuration file and run:");
     println!("   voice-cli server run --config {:?}", output_path);
 
+    Ok(())
+}
+
+/// Initialize Python virtual environment and TTS dependencies using uv
+pub async fn init_python_tts_environment() -> crate::Result<()> {
+    use std::process::Command;
+    use std::time::Duration;
+    use tokio::time::sleep;
+
+    println!("🐍 Initializing Python TTS environment with uv...");
+
+    // Check if uv is available
+    let uv_check = Command::new("uv").arg("--version").output();
+    match uv_check {
+        Ok(output) if output.status.success() => {
+            let version = String::from_utf8_lossy(&output.stdout);
+            println!("✅ Found uv: {}", version.trim());
+        }
+        Ok(_) => {
+            return Err(crate::VoiceCliError::Config(
+                "uv command found but failed to get version".to_string(),
+            ));
+        }
+        Err(e) => {
+            return Err(crate::VoiceCliError::Config(format!(
+                "uv not found. Please install uv first: https://docs.astral.sh/uv/getting-started/installation/ - Error: {}",
+                e
+            )));
+        }
+    }
+
+    // Get the path to the pyproject.toml file (in the voice-cli crate directory)
+    let project_dir = std::env::current_dir()
+        .map_err(|e| crate::VoiceCliError::Config(format!("Failed to get current directory: {}", e)))?;
+    
+    // Check if pyproject.toml exists in current directory
+    let pyproject_path = project_dir.join("pyproject.toml");
+    let work_dir = if pyproject_path.exists() {
+        project_dir.clone()
+    } else {
+        // Try to find it in the crate directory
+        let crate_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let crate_pyproject = crate_path.join("pyproject.toml");
+        if crate_pyproject.exists() {
+            crate_path
+        } else {
+            return Err(crate::VoiceCliError::Config(
+                "pyproject.toml not found in current directory or crate directory".to_string()
+            ));
+        }
+    };
+    
+    println!("   Using project directory: {:?}", work_dir);
+
+    // Create virtual environment if it doesn't exist
+    let venv_path = work_dir.join(".venv");
+    if !venv_path.exists() {
+        println!("📦 Creating Python virtual environment...");
+        let mut cmd = Command::new("uv");
+        cmd.arg("venv")
+           .current_dir(&work_dir);
+        
+        let output = cmd.output()
+            .map_err(|e| crate::VoiceCliError::Config(format!("Failed to create virtual environment: {}", e)))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(crate::VoiceCliError::Config(format!(
+                "Failed to create virtual environment: {}",
+                stderr
+            )));
+        }
+        println!("✅ Virtual environment created successfully");
+    } else {
+        println!("✅ Virtual environment already exists");
+    }
+
+    // Install TTS dependencies
+    println!("📚 Installing TTS dependencies...");
+    
+    // Install audio processing dependencies
+    let dependencies = ["torch", "torchaudio", "numpy", "soundfile"];
+    for dep in &dependencies {
+        println!("   Installing {}...", dep);
+        let mut cmd = Command::new("uv");
+        cmd.arg("add")
+           .arg(dep)
+           .current_dir(&work_dir);
+        
+        let output = cmd.output()
+            .map_err(|e| crate::VoiceCliError::Config(format!("Failed to install {}: {}", dep, e)))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            println!("⚠️  {} installation warning: {}", dep, stderr);
+        } else {
+            println!("✅ {} installed successfully", dep);
+        }
+    }
+
+    // Test the installation (check if audio libraries are available)
+    println!("🧪 Testing TTS installation...");
+    let test_script = r#"
+import sys
+try:
+    import torch
+    import torchaudio
+    import numpy as np
+    import soundfile as sf
+    print("Audio processing libraries imported successfully")
+    print(f"PyTorch version: {torch.__version__}")
+    print(f"Torchaudio version: {torchaudio.__version__}")
+    print(f"NumPy version: {np.__version__}")
+    print(f"SoundFile version: {sf.__version__}")
+    
+    # Test if index-tts is available (optional)
+    try:
+        import index_tts
+        print("index-tts is available - using real TTS")
+        HAS_REAL_TTS = True
+    except ImportError:
+        print("index-tts not available - using mock TTS implementation")
+        HAS_REAL_TTS = False
+    
+except ImportError as e:
+    print(f"Failed to import audio libraries: {e}")
+    sys.exit(1)
+except Exception as e:
+    print(f"Error testing audio libraries: {e}")
+    sys.exit(1)
+"#;
+
+    let mut cmd = Command::new("uv");
+    cmd.arg("run")
+       .arg("python")
+       .arg("-c")
+       .arg(test_script)
+       .current_dir(&work_dir);
+    
+    let output = cmd.output()
+        .map_err(|e| crate::VoiceCliError::Config(format!("Failed to test TTS installation: {}", e)))?;
+
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        println!("✅ TTS installation test passed:");
+        for line in stdout.lines() {
+            println!("   {}", line);
+        }
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        println!("⚠️  TTS installation test failed:");
+        println!("   stderr: {}", stderr);
+        println!("   stdout: {}", stdout);
+        return Err(crate::VoiceCliError::Config(format!(
+            "TTS installation test failed"
+        )));
+    }
+
+    println!("✅ Python TTS environment setup complete!");
     Ok(())
 }
 

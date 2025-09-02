@@ -2,15 +2,17 @@ use crate::VoiceCliError;
 use crate::models::{
     AsyncTaskResponse, CancelResponse, Config, DeleteResponse, HealthResponse, HttpResult,
     ModelsResponse, RetryResponse, SimpleTaskStatus, TaskStatsResponse, TaskStatus,
-    TaskStatusResponse, TranscriptionResponse,
+    TaskStatusResponse, TranscriptionResponse, TtsSyncRequest, TtsAsyncRequest, TtsTaskResponse,
 };
 use crate::services::{
-    AudioFileManager, AudioFormatDetector, LockFreeApalisManager, ModelService, TranscriptionTask,
+    AudioFileManager, AudioFormatDetector, LockFreeApalisManager, MetadataExtractor, ModelService, TranscriptionTask, TtsService,
 };
 use apalis_sql::sqlite::SqliteStorage;
 use axum::extract::{Multipart, State, Json};
 use futures::TryStreamExt;
 use std::path::{Path, PathBuf};
+use axum::response::IntoResponse;
+use tower_http::body::Full;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncWriteExt;
@@ -25,6 +27,7 @@ pub struct AppState {
     pub lock_free_apalis_manager: Arc<LockFreeApalisManager>,
     pub apalis_storage: SqliteStorage<TranscriptionTask>,
     pub audio_file_manager: Arc<AudioFileManager>,
+    pub tts_service: Arc<TtsService>,
     pub start_time: SystemTime,
 }
 
@@ -52,12 +55,22 @@ impl AppState {
                 .map_err(|e| VoiceCliError::Storage(format!("创建音频文件管理器失败: {}", e)))?,
         );
 
+        // 初始化TTS服务
+        info!("初始化TTS服务");
+        let tts_service = Arc::new(
+            TtsService::new(
+                config.tts.python_path.clone(),
+                config.tts.model_path.clone(),
+            ).map_err(|e| VoiceCliError::Config(format!("创建TTS服务失败: {}", e)))?
+        );
+
         Ok(Self {
             config,
             model_service,
             lock_free_apalis_manager,
             apalis_storage,
             audio_file_manager,
+            tts_service,
             start_time: SystemTime::now(),
         })
     }
@@ -159,6 +172,36 @@ pub async fn transcribe_handler(
     let (temp_file, _request) =
         extract_transcription_request_streaming(multipart, &task_id, &temp_dir).await?;
 
+    // 提取音视频元数据
+    let metadata = match MetadataExtractor::extract_metadata(&temp_file).await {
+        Ok(meta) => {
+            info!("成功提取音视频元数据: {}", crate::services::MetadataExtractor::get_format_description(&meta));
+            // 转换为models::request::AudioVideoMetadata
+            Some(crate::models::request::AudioVideoMetadata {
+                format: meta.format,
+                container_format: meta.container_format,
+                duration_seconds: meta.duration_seconds,
+                file_size_bytes: meta.file_size_bytes,
+                audio_codec: meta.audio_codec,
+                sample_rate: meta.sample_rate,
+                channels: meta.channels,
+                audio_bitrate: meta.audio_bitrate,
+                has_video: meta.has_video,
+                video_codec: meta.video_codec,
+                width: meta.width,
+                height: meta.height,
+                video_bitrate: meta.video_bitrate,
+                frame_rate: meta.frame_rate,
+                bitrate: meta.bitrate,
+                creation_time: meta.creation_time,
+            })
+        }
+        Err(e) => {
+            warn!("提取元数据失败，使用默认值: {}", e);
+            None
+        }
+    };
+
     // 使用转录引擎处理
     let transcription_engine = crate::services::TranscriptionEngine::new(state.model_service);
 
@@ -171,7 +214,7 @@ pub async fn transcribe_handler(
         .await?;
 
     // 转换 TranscriptionResult 到 TranscriptionResponse
-    let response = TranscriptionResponse {
+    let mut response = TranscriptionResponse {
         text: result.text,
         segments: result
             .segments
@@ -186,7 +229,14 @@ pub async fn transcribe_handler(
         language: result.language,
         duration: None,       // 简化版本
         processing_time: 0.0, // 简化版本
+        metadata: None,       // 稍后设置
     };
+
+    // 设置元数据和时长
+    if let Some(meta) = &metadata {
+        response.duration = Some(meta.duration_seconds as f32);
+        response.metadata = Some(meta.clone());
+    }
 
     info!("同步转录完成: {} 字符", response.text.len());
     Ok(HttpResult::success(response))
@@ -226,6 +276,15 @@ pub async fn async_transcribe_handler(
         &state.audio_file_manager.storage_dir,
     )
     .await?;
+
+    // 提取基础元数据用于日志记录
+    if let Ok(metadata) = MetadataExtractor::extract_metadata(&audio_file_path).await {
+        info!(
+            "异步转录请求 - 文件: {}, 元数据: {}",
+            request.filename,
+            crate::services::MetadataExtractor::get_format_description(&metadata)
+        );
+    }
 
     // 提交任务到队列 - 使用无锁管理器
     info!("开始提交任务到队列...");
@@ -779,4 +838,134 @@ fn generate_task_id() -> String {
             .as_millis(),
         std::process::id()
     )
+}
+
+/// TTS同步处理端点
+/// POST /tts/sync
+#[utoipa::path(
+    post,
+    path = "/tts/sync",
+    tag = "TTS",
+    summary = "同步文本转语音",
+    description = "将文本转换为语音并直接返回音频文件",
+    request_body = TtsSyncRequest,
+    responses(
+        (status = 200, description = "转换成功"),
+        (status = 400, description = "请求参数错误"),
+        (status = 500, description = "服务器内部错误")
+    ),
+)]
+pub async fn tts_sync_handler(
+    State(state): State<AppState>,
+    Json(request): Json<TtsSyncRequest>,
+) -> Result<axum::response::Response, HttpResult<String>> {
+    let start_time = std::time::Instant::now();
+    
+    info!("收到TTS同步请求 - 文本长度: {}", request.text.len());
+
+    // 验证文本长度
+    if request.text.len() > state.config.tts.max_text_length {
+        let error_msg = format!("文本长度超过限制 ({} > {})", 
+            request.text.len(), state.config.tts.max_text_length);
+        error!("{}", error_msg);
+        return Ok(HttpResult::<String>::from(VoiceCliError::InvalidInput(error_msg)).into_response());
+    }
+
+    // 应用默认参数
+    let mut processed_request = request.clone();
+    processed_request.speed.get_or_insert(state.config.tts.default_speed);
+    processed_request.pitch.get_or_insert(state.config.tts.default_pitch);
+    processed_request.volume.get_or_insert(state.config.tts.default_volume);
+    processed_request.format.get_or_insert("mp3".to_string());
+
+    // 执行TTS合成
+    match state.tts_service.synthesize_sync(processed_request).await {
+        Ok(audio_file_path) => {
+            let processing_time = start_time.elapsed();
+            info!("TTS同步处理完成 - 耗时: {:?}", processing_time);
+
+            // 读取音频文件并返回
+            match tokio::fs::read(&audio_file_path).await {
+                Ok(audio_data) => {
+                    let content_type = match audio_file_path.extension()
+                        .and_then(|ext| ext.to_str())
+                        .unwrap_or("mp3") {
+                        "wav" => "audio/wav",
+                        "mp3" => "audio/mpeg",
+                        _ => "audio/octet-stream",
+                    };
+
+                    let response = axum::response::Response::builder()
+                        .status(200)
+                        .header("Content-Type", content_type)
+                        .header("Content-Length", audio_data.len())
+                        .header("X-Processing-Time", format!("{:?}", processing_time))
+                        .body(axum::body::Body::from(audio_data))
+                        .unwrap();
+
+                    Ok(response)
+                }
+                Err(e) => {
+                    let error_msg = format!("读取音频文件失败: {}", e);
+                    error!("{}", error_msg);
+                    Ok(HttpResult::<String>::from(VoiceCliError::TtsError(error_msg)).into_response())
+                }
+            }
+        }
+        Err(e) => {
+            let error_msg = format!("TTS合成失败: {}", e);
+            error!("{}", error_msg);
+            Ok(HttpResult::<String>::from(VoiceCliError::TtsError(error_msg)).into_response())
+        }
+    }
+}
+
+/// TTS异步处理端点
+/// POST /api/v1/tasks/tts
+#[utoipa::path(
+    post,
+    path = "/api/v1/tasks/tts",
+    tag = "TTS",
+    summary = "异步文本转语音",
+    description = "提交TTS任务到队列，返回任务ID",
+    request_body = TtsAsyncRequest,
+    responses(
+        (status = 202, description = "任务已接受", body = TtsTaskResponse),
+        (status = 400, description = "请求参数错误", body = HttpResult<String>),
+        (status = 500, description = "服务器内部错误", body = HttpResult<String>)
+    ),
+)]
+pub async fn tts_async_handler(
+    State(state): State<AppState>,
+    Json(request): Json<TtsAsyncRequest>,
+) -> HttpResult<TtsTaskResponse> {
+    info!("收到TTS异步请求 - 文本长度: {}", request.text.len());
+
+    // 验证文本长度
+    if request.text.len() > state.config.tts.max_text_length {
+        let error_msg = format!("文本长度超过限制 ({} > {})", 
+            request.text.len(), state.config.tts.max_text_length);
+        error!("{}", error_msg);
+        return HttpResult::<String>::error("400".to_string(), error_msg);
+    }
+
+    // 应用默认参数
+    let mut processed_request = request.clone();
+    processed_request.speed.get_or_insert(state.config.tts.default_speed);
+    processed_request.pitch.get_or_insert(state.config.tts.default_pitch);
+    processed_request.volume.get_or_insert(state.config.tts.default_volume);
+    processed_request.format.get_or_insert("mp3".to_string());
+
+    // 创建异步任务
+    match state.tts_service.create_async_task(processed_request).await {
+        Ok(response) => {
+            info!("TTS异步任务已创建 - ID: {}", response.task_id);
+            HttpResult::success(response)
+        }
+        Err(e) => {
+            let error_msg = format!("创建TTS异步任务失败: {}", e);
+            error!("{}", error_msg);
+            HttpResult::<TtsTaskResponse>::from(VoiceCliError::TtsError(error_msg))
+        }
+    }
 }

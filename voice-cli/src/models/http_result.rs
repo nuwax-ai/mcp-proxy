@@ -152,6 +152,9 @@ impl<T> From<VoiceCliError> for HttpResult<T> {
             VoiceCliError::NotFound(msg) => Self::task_not_found(msg),
             VoiceCliError::Network(msg) => Self::system_error(format!("Network error: {}", msg)),
             VoiceCliError::Initialization(msg) => Self::system_error(format!("Initialization error: {}", msg)),
+            VoiceCliError::TtsError(msg) => Self::processing_failed(format!("TTS error: {}", msg)),
+            VoiceCliError::InvalidInput(msg) => Self::unsupported_format(format!("Invalid input: {}", msg)),
+            VoiceCliError::Io(msg) => Self::system_error(format!("I/O error: {}", msg)),
         }
     }
 }

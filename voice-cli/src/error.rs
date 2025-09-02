@@ -93,6 +93,16 @@ pub enum VoiceCliError {
 
     #[error("Initialization error: {0}")]
     Initialization(String),
+
+    // TTS related errors
+    #[error("TTS error: {0}")]
+    TtsError(String),
+
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
+
+    #[error("Io error: {0}")]
+    Io(String),
 }
 
 impl IntoResponse for VoiceCliError {
@@ -137,6 +147,9 @@ impl IntoResponse for VoiceCliError {
             VoiceCliError::TaskManagementDisabled => (StatusCode::BAD_REQUEST, self.to_string()),
             VoiceCliError::NotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
             VoiceCliError::Initialization(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+            VoiceCliError::TtsError(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+            VoiceCliError::InvalidInput(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            VoiceCliError::Io(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
         };
 
         let body = Json(json!({

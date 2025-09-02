@@ -16,6 +16,9 @@ pub struct Config {
     /// 任务管理配置
     #[serde(default)]
     pub task_management: TaskManagementConfig,
+    /// TTS配置
+    #[serde(default)]
+    pub tts: TtsConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -110,6 +113,28 @@ pub struct TaskManagementConfig {
     pub sled_db_path: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TtsConfig {
+    /// Python解释器路径
+    pub python_path: Option<PathBuf>,
+    /// TTS模型路径
+    pub model_path: Option<PathBuf>,
+    /// 默认语音模型
+    pub default_model: String,
+    /// 支持的音频格式
+    pub supported_formats: Vec<String>,
+    /// 最大文本长度
+    pub max_text_length: usize,
+    /// 默认语速
+    pub default_speed: f32,
+    /// 默认音调
+    pub default_pitch: i32,
+    /// 默认音量
+    pub default_volume: f32,
+    /// TTS任务超时时间（秒）
+    pub timeout_seconds: u64,
+}
+
 
 impl Default for Config {
     fn default() -> Self {
@@ -119,6 +144,7 @@ impl Default for Config {
             logging: LoggingConfig::default(),
             daemon: DaemonConfig::default(),
             task_management: TaskManagementConfig::default(),
+            tts: TtsConfig::default(),
         }
     }
 }
@@ -218,6 +244,26 @@ impl Default for TaskManagementConfig {
             catch_panic: true,
             task_retention_minutes: 1440, // 24 hours in minutes
             sled_db_path: "./data/sled".to_string(),
+        }
+    }
+}
+
+impl Default for TtsConfig {
+    fn default() -> Self {
+        Self {
+            python_path: Some(if cfg!(windows) {
+                PathBuf::from(".venv/Scripts/python.exe")
+            } else {
+                PathBuf::from(".venv/bin/python")
+            }),
+            model_path: None,
+            default_model: "default".to_string(),
+            supported_formats: vec!["mp3".to_string(), "wav".to_string()],
+            max_text_length: 5000,
+            default_speed: 1.0,
+            default_pitch: 0,
+            default_volume: 1.0,
+            timeout_seconds: 300,
         }
     }
 }

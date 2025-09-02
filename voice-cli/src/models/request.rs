@@ -2,6 +2,66 @@ use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+/// 音视频元数据信息
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct AudioVideoMetadata {
+    // 基础信息
+    /// 文件格式 (mp3, wav, mp4, etc.)
+    #[schema(example = "mp3")]
+    pub format: String,
+    /// 容器格式
+    #[schema(example = "mp3")]
+    pub container_format: String,
+    /// 时长（秒）
+    #[schema(example = 180.5)]
+    pub duration_seconds: f64,
+    /// 文件大小（字节）
+    #[schema(example = 3640010)]
+    pub file_size_bytes: u64,
+    
+    // 音频信息
+    /// 音频编码器
+    #[schema(example = "mp3")]
+    pub audio_codec: String,
+    /// 采样率 (Hz)
+    #[schema(example = 44100)]
+    pub sample_rate: u32,
+    /// 声道数
+    #[schema(example = 2)]
+    pub channels: u8,
+    /// 音频码率 (kbps)
+    #[schema(example = 128)]
+    pub audio_bitrate: u32,
+    
+    // 视频信息（如果是视频文件）
+    /// 是否包含视频
+    #[schema(example = false)]
+    pub has_video: bool,
+    /// 视频编码器
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub video_codec: Option<String>,
+    /// 视频宽度
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    /// 视频高度
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+    /// 视频码率 (kbps)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub video_bitrate: Option<u32>,
+    /// 帧率
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frame_rate: Option<f64>,
+    
+    // 其他元数据
+    /// 总码率 (kbps)
+    #[schema(example = 160)]
+    pub bitrate: u32,
+    /// 创建时间
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub creation_time: Option<String>,
+}
+
 /// Request structure for transcription (internal use after extracting from multipart)
 #[derive(Debug)]
 pub struct TranscriptionRequest {
@@ -31,6 +91,9 @@ pub struct TranscriptionResponse {
     /// 处理耗时（秒），从请求进入到生成结果的总时长
     #[schema(example = 0.8)]
     pub processing_time: f32,
+    /// 音视频元数据信息
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<AudioVideoMetadata>,
 }
 
 /// Individual segment in transcription
