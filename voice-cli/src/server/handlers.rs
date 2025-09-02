@@ -5,7 +5,7 @@ use crate::models::{
     TaskStatusResponse, TranscriptionResponse, TtsSyncRequest, TtsAsyncRequest, TtsTaskResponse,
 };
 use crate::services::{
-    AudioFileManager, AudioFormatDetector, LockFreeApalisManager, ModelService, TranscriptionTask, TtsService,
+    AudioFileManager, AudioFormatDetector, LockFreeApalisManager, MetadataExtractor, ModelService, TranscriptionTask, TtsService,
 };
 use apalis_sql::sqlite::SqliteStorage;
 use axum::extract::{Multipart, State, Json};
@@ -172,6 +172,36 @@ pub async fn transcribe_handler(
     let (temp_file, _request) =
         extract_transcription_request_streaming(multipart, &task_id, &temp_dir).await?;
 
+    // 提取音视频元数据
+    let metadata = match MetadataExtractor::extract_metadata(&temp_file).await {
+        Ok(meta) => {
+            info!("成功提取音视频元数据: {}", crate::services::MetadataExtractor::get_format_description(&meta));
+            // 转换为models::request::AudioVideoMetadata
+            Some(crate::models::request::AudioVideoMetadata {
+                format: meta.format,
+                container_format: meta.container_format,
+                duration_seconds: meta.duration_seconds,
+                file_size_bytes: meta.file_size_bytes,
+                audio_codec: meta.audio_codec,
+                sample_rate: meta.sample_rate,
+                channels: meta.channels,
+                audio_bitrate: meta.audio_bitrate,
+                has_video: meta.has_video,
+                video_codec: meta.video_codec,
+                width: meta.width,
+                height: meta.height,
+                video_bitrate: meta.video_bitrate,
+                frame_rate: meta.frame_rate,
+                bitrate: meta.bitrate,
+                creation_time: meta.creation_time,
+            })
+        }
+        Err(e) => {
+            warn!("提取元数据失败，使用默认值: {}", e);
+            None
+        }
+    };
+
     // 使用转录引擎处理
     let transcription_engine = crate::services::TranscriptionEngine::new(state.model_service);
 
@@ -184,7 +214,7 @@ pub async fn transcribe_handler(
         .await?;
 
     // 转换 TranscriptionResult 到 TranscriptionResponse
-    let response = TranscriptionResponse {
+    let mut response = TranscriptionResponse {
         text: result.text,
         segments: result
             .segments
@@ -199,7 +229,14 @@ pub async fn transcribe_handler(
         language: result.language,
         duration: None,       // 简化版本
         processing_time: 0.0, // 简化版本
+        metadata: None,       // 稍后设置
     };
+
+    // 设置元数据和时长
+    if let Some(meta) = &metadata {
+        response.duration = Some(meta.duration_seconds as f32);
+        response.metadata = Some(meta.clone());
+    }
 
     info!("同步转录完成: {} 字符", response.text.len());
     Ok(HttpResult::success(response))
@@ -239,6 +276,15 @@ pub async fn async_transcribe_handler(
         &state.audio_file_manager.storage_dir,
     )
     .await?;
+
+    // 提取基础元数据用于日志记录
+    if let Ok(metadata) = MetadataExtractor::extract_metadata(&audio_file_path).await {
+        info!(
+            "异步转录请求 - 文件: {}, 元数据: {}",
+            request.filename,
+            crate::services::MetadataExtractor::get_format_description(&metadata)
+        );
+    }
 
     // 提交任务到队列 - 使用无锁管理器
     info!("开始提交任务到队列...");

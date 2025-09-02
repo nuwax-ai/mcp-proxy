@@ -18,43 +18,67 @@ impl TtsService {
     /// 创建新的TTS服务实例
     pub fn new(python_path: Option<PathBuf>, model_path: Option<PathBuf>) -> Result<Self, VoiceCliError> {
         let python_path = python_path.unwrap_or_else(|| {
-            // 优先使用 uv 虚拟环境中的 Python
-            let venv_python = if cfg!(windows) {
-                PathBuf::from(".venv/Scripts/python.exe")
-            } else {
-                PathBuf::from(".venv/bin/python")
-            };
-            
-            if venv_python.exists() {
-                venv_python
-            } else {
-                // 回退到系统 Python
-                if let Ok(_output) = Command::new("python3").arg("--version").output() {
-                    PathBuf::from("python3")
-                } else if let Ok(_output) = Command::new("python").arg("--version").output() {
-                    PathBuf::from("python")
+            // 尝试在多个位置查找虚拟环境中的 Python
+            let possible_venv_paths = vec![
+                // 当前目录下的虚拟环境
+                if cfg!(windows) {
+                    PathBuf::from(".venv/Scripts/python.exe")
                 } else {
-                    PathBuf::from("python3") // 默认使用python3
+                    PathBuf::from(".venv/bin/python")
+                },
+                // crate 目录下的虚拟环境
+                if cfg!(windows) {
+                    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".venv/Scripts/python.exe")
+                } else {
+                    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".venv/bin/python")
+                },
+            ];
+            
+            // 查找第一个存在的 Python 解释器
+            for venv_python in possible_venv_paths {
+                if venv_python.exists() {
+                    return venv_python;
                 }
+            }
+            
+            // 回退到系统 Python
+            if let Ok(_output) = Command::new("python3").arg("--version").output() {
+                PathBuf::from("python3")
+            } else if let Ok(_output) = Command::new("python").arg("--version").output() {
+                PathBuf::from("python")
+            } else {
+                PathBuf::from("python3") // 默认使用python3
             }
         });
 
-        // 获取脚本路径（相对于当前工作目录）
-        let script_path = std::env::current_dir()
-            .map_err(|e| VoiceCliError::Config(format!("获取当前目录失败: {}", e)))?
-            .join("tts_service.py");
+        // 获取脚本路径（首先尝试当前目录，然后尝试 crate 目录）
+        let current_dir = std::env::current_dir()
+            .map_err(|e| VoiceCliError::Config(format!("获取当前目录失败: {}", e)))?;
+        
+        let script_path = current_dir.join("tts_service.py");
+        
+        let final_script_path = if script_path.exists() {
+            script_path
+        } else {
+            // 尝试在 crate 目录中查找
+            let crate_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            let crate_script_path = crate_path.join("tts_service.py");
+            if crate_script_path.exists() {
+                crate_script_path
+            } else {
+                return Err(VoiceCliError::Config(
+                    format!("TTS脚本不存在: 在 {:?} 或 {:?} 中都未找到", script_path, crate_script_path)
+                ));
+            }
+        };
 
-        if !script_path.exists() {
-            return Err(VoiceCliError::Config(
-                format!("TTS脚本不存在: {:?}", script_path)
-            ));
-        }
+        info!("使用 TTS 脚本: {:?}", final_script_path);
 
-        info!("初始化TTS服务 - Python: {:?}, 脚本: {:?}", python_path, script_path);
+        info!("初始化TTS服务 - Python: {:?}, 脚本: {:?}", python_path, final_script_path);
 
         Ok(Self {
             python_path,
-            script_path,
+            script_path: final_script_path,
             model_path,
         })
     }
@@ -97,15 +121,18 @@ impl TtsService {
 
         info!("开始TTS合成 - 文本长度: {}, 格式: {}", request.text.len(), output_format);
 
-        // 构建Python命令
-        let mut cmd = Command::new(&self.python_path);
-        cmd.arg(&self.script_path)
+        // 使用 uv run 来确保在正确的虚拟环境中运行
+        let mut cmd = Command::new("uv");
+        cmd.arg("run")
+           .arg(&self.script_path)
            .arg(&request.text)
            .arg("--output").arg(output_path_str)
            .arg("--speed").arg(request.speed.unwrap_or(1.0).to_string())
            .arg("--pitch").arg(request.pitch.unwrap_or(0).to_string())
            .arg("--volume").arg(request.volume.unwrap_or(1.0).to_string())
-           .arg("--format").arg(output_format);
+           .arg("--format").arg(output_format)
+           // 设置工作目录为脚本所在的目录
+           .current_dir(self.script_path.parent().unwrap_or(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))));
 
         // 添加模型参数
         if let Some(model) = &request.model {

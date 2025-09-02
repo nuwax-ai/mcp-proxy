@@ -4,10 +4,10 @@ version = "0.1.0"
 description = "TTS dependencies for voice-cli"
 requires-python = ">=3.8"
 dependencies = [
-    "torch>=2.0.0",
-    "torchaudio>=2.0.0", 
-    "numpy>=1.21.0",
-    "soundfile>=0.12.0"
+    "torch>=2.8.0",
+    "torchaudio>=2.8.0",
+    "numpy>=2.3.2",
+    "soundfile>=0.12.0",
 ]
 
 [tool.uv]

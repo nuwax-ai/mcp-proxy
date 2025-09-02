@@ -2,6 +2,7 @@ pub mod apalis_manager;
 pub mod audio_file_manager;
 pub mod audio_format_detector;
 pub mod audio_processor;
+pub mod metadata_extractor;
 pub mod model_service;
 pub mod transcription_engine;
 pub mod tts_service;
@@ -12,6 +13,7 @@ pub use apalis_manager::{ApalisManager, LockFreeApalisManager, TranscriptionTask
 pub use audio_file_manager::AudioFileManager;
 pub use audio_format_detector::AudioFormatDetector;
 pub use audio_processor::AudioProcessor;
+pub use metadata_extractor::{MetadataExtractor, AudioVideoMetadata};
 pub use model_service::ModelService;
 pub use transcription_engine::TranscriptionEngine;
 pub use tts_service::TtsService;

@@ -305,6 +305,7 @@ impl From<SerializableTranscriptionResult> for crate::models::TranscriptionRespo
             language: result.language,
             duration: Some(result.audio_duration as f32 / 1000.0), // Convert from ms to seconds
             processing_time: 0.0, // Will be set by the handler
+            metadata: None,
         }
     }
 }

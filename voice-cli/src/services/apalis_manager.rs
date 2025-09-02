@@ -3,7 +3,7 @@ use crate::models::{
     AsyncTranscriptionTask, ProcessingStage, TaskError, TaskManagementConfig, TaskStatsResponse,
     TaskStatus, TranscriptionResponse,
 };
-use crate::services::{AudioFileManager, AudioFormatDetector, ModelService, TranscriptionEngine};
+use crate::services::{AudioFileManager, AudioFormatDetector, MetadataExtractor, ModelService, TranscriptionEngine};
 use apalis::layers::WorkerBuilderExt;
 use apalis::layers::retry::RetryPolicy;
 use apalis::prelude::*;
@@ -65,6 +65,7 @@ pub struct TranscriptionCompletedTask {
     pub task_id: String,
     pub transcription_result: TranscriptionResponse,
     pub response_format: Option<String>,
+    pub metadata: Option<crate::models::request::AudioVideoMetadata>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -116,15 +117,23 @@ impl StepContext {
         &self,
         task_id: &str,
         result: &TranscriptionResponse,
+        metadata: &Option<crate::models::request::AudioVideoMetadata>,
     ) -> Result<(), Error> {
         let result_json = serde_json::to_string(result)
             .map_err(|e| Error::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>))?;
+        
+        let metadata_json = metadata
+            .as_ref()
+            .map(|m| serde_json::to_string(m)
+                .map_err(|e| Error::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>)))
+            .transpose()?;
 
         sqlx::query(
-            "INSERT OR REPLACE INTO task_results (task_id, result, created_at) VALUES (?, ?, ?)",
+            "INSERT OR REPLACE INTO task_results (task_id, result, metadata, created_at) VALUES (?, ?, ?, ?)",
         )
         .bind(task_id)
         .bind(result_json)
+        .bind(metadata_json)
         .bind(Utc::now().timestamp())
         .execute(&self.pool)
         .await
@@ -287,6 +296,7 @@ impl LockFreeApalisManager {
             CREATE TABLE IF NOT EXISTS task_results (
                 task_id TEXT PRIMARY KEY,
                 result TEXT NOT NULL,
+                metadata TEXT,
                 created_at INTEGER NOT NULL
             )
             "#,
@@ -615,7 +625,7 @@ impl LockFreeApalisManager {
         &self,
         task_id: &str,
     ) -> Result<Option<TranscriptionResponse>, VoiceCliError> {
-        let row = sqlx::query("SELECT result FROM task_results WHERE task_id = ?")
+        let row = sqlx::query("SELECT result, metadata FROM task_results WHERE task_id = ?")
             .bind(task_id)
             .fetch_optional(&self.pool)
             .await
@@ -625,8 +635,21 @@ impl LockFreeApalisManager {
             let result_json: String = row
                 .try_get("result")
                 .map_err(|e| VoiceCliError::Storage(format!("获取结果字段失败: {}", e)))?;
-            let result = serde_json::from_str(&result_json)
+            
+            let mut result: TranscriptionResponse = serde_json::from_str(&result_json)
                 .map_err(|e| VoiceCliError::Storage(format!("解析任务结果失败: {}", e)))?;
+            
+            // 尝试获取元数据
+            let metadata_json: Option<String> = row
+                .try_get("metadata")
+                .unwrap_or(None);
+            
+            if let Some(meta_json) = metadata_json {
+                if let Ok(metadata) = serde_json::from_str::<crate::models::request::AudioVideoMetadata>(&meta_json) {
+                    result.metadata = Some(metadata);
+                }
+            }
+            
             Ok(Some(result))
         } else {
             Ok(None)
@@ -641,12 +664,19 @@ impl LockFreeApalisManager {
     ) -> Result<(), VoiceCliError> {
         let result_json = serde_json::to_string(result)
             .map_err(|e| VoiceCliError::Storage(format!("序列化任务结果失败: {}", e)))?;
+        
+        let metadata_json = result.metadata
+            .as_ref()
+            .map(|m| serde_json::to_string(m)
+                .map_err(|e| VoiceCliError::Storage(format!("序列化元数据失败: {}", e))))
+            .transpose()?;
 
         sqlx::query(
-            "INSERT OR REPLACE INTO task_results (task_id, result, created_at) VALUES (?, ?, ?)",
+            "INSERT OR REPLACE INTO task_results (task_id, result, metadata, created_at) VALUES (?, ?, ?, ?)",
         )
         .bind(task_id)
         .bind(result_json)
+        .bind(metadata_json)
         .bind(Utc::now().timestamp())
         .execute(&self.pool)
         .await
@@ -1280,6 +1310,43 @@ async fn transcription_step(
     )
     .await?;
 
+    // 提取音视频元数据
+    let metadata = match MetadataExtractor::extract_metadata(&task.processed_audio_path).await {
+        Ok(meta) => {
+            info!(
+                "[Task {}] 成功提取音视频元数据: {}",
+                task.task_id,
+                MetadataExtractor::get_format_description(&meta)
+            );
+            // 转换为models::request::AudioVideoMetadata
+            Some(crate::models::request::AudioVideoMetadata {
+                format: meta.format,
+                container_format: meta.container_format,
+                duration_seconds: meta.duration_seconds,
+                file_size_bytes: meta.file_size_bytes,
+                audio_codec: meta.audio_codec,
+                sample_rate: meta.sample_rate,
+                channels: meta.channels,
+                audio_bitrate: meta.audio_bitrate,
+                has_video: meta.has_video,
+                video_codec: meta.video_codec,
+                width: meta.width,
+                height: meta.height,
+                video_bitrate: meta.video_bitrate,
+                frame_rate: meta.frame_rate,
+                bitrate: meta.bitrate,
+                creation_time: meta.creation_time,
+            })
+        }
+        Err(e) => {
+            warn!(
+                "[Task {}] 提取元数据失败: {}",
+                task.task_id, e
+            );
+            None
+        }
+    };
+
     // 执行转录，使用配置中的默认模型
     let default_model = ctx.transcription_engine.default_model();
     let model = task.model.as_deref().unwrap_or(default_model);
@@ -1299,7 +1366,7 @@ async fn transcription_step(
         })?;
 
     // 转换为 TranscriptionResponse
-    let response = TranscriptionResponse {
+    let mut response = TranscriptionResponse {
         text: transcription_result.text,
         segments: transcription_result
             .segments
@@ -1314,12 +1381,20 @@ async fn transcription_step(
         language: transcription_result.language,
         duration: None,
         processing_time: 0.0,
+        metadata: None,
     };
+
+    // 设置元数据和时长
+    if let Some(meta) = &metadata {
+        response.duration = Some(meta.duration_seconds as f32);
+        response.metadata = Some(meta.clone());
+    }
 
     let completed_task = TranscriptionCompletedTask {
         task_id: task.task_id.clone(),
         transcription_result: response,
         response_format: task.response_format,
+        metadata,
         created_at: task.created_at,
     };
 
@@ -1338,8 +1413,8 @@ async fn result_formatting_step(
 ) -> Result<(), Error> {
     info!("步骤 3 - 结果格式化和存储: {}", task.task_id);
 
-    // 保存结果到SQLite存储
-    ctx.save_task_result(&task.task_id, &task.transcription_result)
+    // 保存结果到SQLite存储（包含元数据）
+    ctx.save_task_result(&task.task_id, &task.transcription_result, &task.metadata)
         .await?;
 
     // 计算实际处理时间
@@ -1348,15 +1423,26 @@ async fn result_formatting_step(
     let duration = Duration::from_secs(processing_time.num_seconds().max(0) as u64);
 
     // 更新状态为完成
+    let result_summary = if let Some(metadata) = &task.metadata {
+        format!(
+            "转录了 {} 个字符，文件: {} ({:.2}s)",
+            task.transcription_result.text.len(),
+            metadata.format,
+            metadata.duration_seconds
+        )
+    } else {
+        format!(
+            "转录了 {} 个字符",
+            task.transcription_result.text.len()
+        )
+    };
+
     ctx.save_task_status(
         &task.task_id,
         &TaskStatus::Completed {
             completed_at: now,
             processing_time: duration,
-            result_summary: Some(format!(
-                "转录了 {} 个字符",
-                task.transcription_result.text.len()
-            )),
+            result_summary: Some(result_summary),
         },
     )
     .await?;

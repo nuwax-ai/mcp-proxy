@@ -79,7 +79,7 @@ dirs = "6.0"
 scopeguard = "1.2"
 
 # 自己开发的语音相关工具
-voice-toolkit = { version = "0.14", features = ["stt", "audio"] }
+voice-toolkit = { version = "0.16", features = ["stt", "audio"] }
 
 # Task queue and persistence for async processing
 apalis = { version = "0.7", features = ["tracing", "limit"] }
