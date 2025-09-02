@@ -17,12 +17,12 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 try:
-    import index_tts
+    import indextts
     INDEX_TTS_AVAILABLE = True
-    logger.info("index-tts library imported successfully")
+    logger.info("IndexTTS library imported successfully")
 except ImportError as e:
     INDEX_TTS_AVAILABLE = False
-    logger.warning(f"index-tts library not available: {e}")
+    logger.warning(f"IndexTTS library not available: {e}")
 
 try:
     import torch
@@ -36,7 +36,7 @@ except ImportError as e:
     logger.warning(f"Audio processing libraries not available: {e}")
 
 class TTSService:
-    """TTS服务类 - 使用index-tts进行语音合成"""
+    """TTS服务类 - 使用IndexTTS库进行语音合成"""
     
     def __init__(self, model_path: Optional[str] = None):
         """
@@ -50,7 +50,7 @@ class TTSService:
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         
         if not INDEX_TTS_AVAILABLE:
-            logger.warning("index-tts not available, using mock implementation")
+            logger.warning("IndexTTS not available, using mock implementation")
         
         if not AUDIO_LIBS_AVAILABLE:
             logger.warning("Audio processing libraries not available, using mock implementation")
@@ -70,18 +70,18 @@ class TTSService:
         """
         try:
             if INDEX_TTS_AVAILABLE and AUDIO_LIBS_AVAILABLE:
-                # 使用真实的index-tts库
-                if self.model_path and Path(self.model_path).exists():
-                    # 从指定路径加载模型
-                    self.model = index_tts.TTS(model_path=self.model_path)
-                else:
-                    # 使用默认模型
-                    self.model = index_tts.TTS()
-                logger.info(f"index-tts model loaded successfully: {model_name}")
+                # 使用真实的IndexTTS库
+                # IndexTTS 需要语音提示文件，我们使用一个默认的或从模型路径加载
+                self.model = {
+                    "model_dir": self.model_path.as_deref().unwrap_or("checkpoints"),
+                    "config": self.model_path.as_ref().map(|p| p.join("config.yaml")).unwrap_or_else(|| PathBuf::from("checkpoints/config.yaml")),
+                    "device": self.device
+                }
+                logger.info(f"IndexTTS model config loaded successfully: {model_name}")
             else:
                 # Mock实现
                 self.model = f"mock_model_{model_name}"
-                logger.info(f"Mock TTS model loaded: {model_name}")
+                logger.info(f"Mock IndexTTS model loaded: {model_name}")
         except Exception as e:
             logger.error(f"Failed to load TTS model: {e}")
             raise
@@ -137,59 +137,23 @@ class TTSService:
             start_time = time.time()
             
             if INDEX_TTS_AVAILABLE and AUDIO_LIBS_AVAILABLE:
-                # 使用真实的index-tts库进行合成
+                # 使用真实的TTS库进行合成
                 try:
                     # 合成音频
                     logger.info(f"Starting TTS synthesis for text: {text[:50]}...")
                     
-                    # 使用index-tts进行合成
-                    audio_data = self.model.synthesize(
+                    # 使用TTS进行合成
+                    self.model.tts_to_file(
                         text=text,
-                        speed=speed,
-                        pitch=pitch,
-                        volume=volume
+                        file_path=output_path,
+                        speed=speed
                     )
                     
-                    # 转换为numpy数组
-                    if isinstance(audio_data, torch.Tensor):
-                        audio_np = audio_data.cpu().numpy()
-                    else:
-                        audio_np = np.array(audio_data)
-                    
-                    # 应用音量调整
-                    audio_np = audio_np * volume
-                    
-                    # 保存音频文件
-                    if format.lower() == "wav":
-                        sf.write(output_path, audio_np, 22050, format='WAV')
-                    elif format.lower() == "mp3":
-                        # 先保存为WAV，然后转换为MP3（如果需要）
-                        temp_wav = output_path.replace('.mp3', '.wav')
-                        sf.write(temp_wav, audio_np, 22050, format='WAV')
-                        
-                        # 尝试转换为MP3
-                        try:
-                            import subprocess
-                            subprocess.run([
-                                'ffmpeg', '-y', '-i', temp_wav, 
-                                '-codec:a', 'libmp3lame', '-qscale:a', '2',
-                                output_path
-                            ], check=True, capture_output=True)
-                            # 删除临时WAV文件
-                            Path(temp_wav).unlink(missing_ok=True)
-                        except (subprocess.CalledProcessError, FileNotFoundError):
-                            # 如果ffmpeg不可用，直接使用WAV格式
-                            logger.warning("ffmpeg not available, using WAV format instead")
-                            Path(temp_wav).rename(output_path)
-                    else:
-                        # 其他格式默认使用WAV
-                        sf.write(output_path, audio_np, 22050, format='WAV')
-                    
-                    duration = len(audio_np) / 22050  # 假设采样率22050Hz
+                    logger.info(f"TTS synthesis completed successfully")
                     logger.info(f"TTS synthesis completed in {time.time() - start_time:.2f}s")
                     
                 except Exception as e:
-                    logger.error(f"index-tts synthesis failed: {e}")
+                    logger.error(f"TTS synthesis failed: {e}")
                     # 回退到Mock实现
                     return self._mock_synthesize(text, output_path, speed, pitch, volume, format)
             else:
