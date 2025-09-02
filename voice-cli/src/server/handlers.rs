@@ -277,14 +277,7 @@ pub async fn async_transcribe_handler(
     )
     .await?;
 
-    // 提取基础元数据用于日志记录
-    if let Ok(metadata) = MetadataExtractor::extract_metadata(&audio_file_path).await {
-        info!(
-            "异步转录请求 - 文件: {}, 元数据: {}",
-            request.filename,
-            crate::services::MetadataExtractor::get_format_description(&metadata)
-        );
-    }
+    // 元数据提取移到worker中执行，避免阻塞接口响应
 
     // 提交任务到队列 - 使用无锁管理器
     info!("开始提交任务到队列...");
