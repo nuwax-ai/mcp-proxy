@@ -20,28 +20,6 @@ pub fn generate_task_id() -> String {
     format!("task{}", cleaned_uuid)
 }
 
-/// Generate a task ID with timestamp and process ID (legacy format)
-/// This is kept for backward compatibility but new code should use generate_task_id()
-/// 
-/// # Examples
-/// 
-/// ```
-/// let task_id = generate_legacy_task_id();
-/// assert!(task_id.starts_with("task_"));
-/// ```
-#[deprecated(since = "0.1.0", note = "use `generate_task_id` instead")]
-pub fn generate_legacy_task_id() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    
-    format!(
-        "task_{}_{}",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis(),
-        std::process::id()
-    )
-}
 
 #[cfg(test)]
 mod tests {
@@ -71,16 +49,5 @@ mod tests {
         
         // Should be different (due to timestamp in UUID v7)
         assert_ne!(id1, id2);
-    }
-
-    #[test]
-    fn test_generate_legacy_task_id() {
-        let task_id = generate_legacy_task_id();
-        
-        // Check format
-        assert!(task_id.starts_with("task_"));
-        
-        // Should contain underscore and timestamp
-        assert!(task_id.contains('_'));
     }
 }

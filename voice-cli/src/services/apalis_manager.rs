@@ -3,6 +3,7 @@ use crate::models::{
     AsyncTranscriptionTask, ProcessingStage, TaskError, TaskManagementConfig, TaskStatsResponse,
     TaskStatus, TranscriptionResponse,
 };
+use crate::utils::{get_file_extension, is_supported_media_format};
 use crate::services::{AudioFileManager, AudioFormatDetector, MetadataExtractor, ModelService, TranscriptionEngine};
 use apalis::layers::WorkerBuilderExt;
 use apalis::layers::retry::RetryPolicy;
@@ -1623,25 +1624,15 @@ async fn download_audio_from_url(
         .and_then(|ct| ct.to_str().ok())
         .unwrap_or("application/octet-stream");
 
-    let extension = match content_type {
-        "audio/mpeg" => "mp3",
-        "audio/wav" => "wav",
-        "audio/flac" => "flac",
-        "audio/mp4" => "m4a",
-        "audio/ogg" => "ogg",
-        _ => {
-            // 尝试从URL中提取扩展名
-            if let Some(ext) = extract_extension_from_url(url) {
-                ext
-            } else {
-                warn!(
-                    "[Task {}] 无法确定文件类型，使用默认扩展名: {}",
-                    task_id, content_type
-                );
-                "bin"
-            }
-        }
-    };
+    let extension = get_file_extension(content_type, url);
+    
+    // 检查是否为支持的媒体格式
+    if !is_supported_media_format(content_type) {
+        warn!(
+            "[Task {}] 可能不支持的媒体格式 [{}], 扩展名 [{}], 后续处理可能会失败",
+            task_id, content_type, extension
+        );
+    }
 
     // 创建目标文件路径
     let filename = format!("task_{}.{}", task_id, extension);
@@ -1767,33 +1758,6 @@ async fn update_task_file_path_in_db(
     Ok(())
 }
 
-/// 从URL中提取文件扩展名
-fn extract_extension_from_url(url: &str) -> Option<&'static str> {
-    if let Ok(parsed_url) = url::Url::parse(url) {
-        parsed_url
-            .path_segments()
-            .and_then(|segments| segments.last())
-            .and_then(|filename| {
-                if let Some(dot_index) = filename.rfind('.') {
-                    let ext = &filename[dot_index + 1..];
-                    match ext.to_lowercase().as_str() {
-                        "mp3" => Some("mp3"),
-                        "wav" => Some("wav"),
-                        "flac" => Some("flac"),
-                        "m4a" => Some("m4a"),
-                        "ogg" => Some("ogg"),
-                        "aac" => Some("aac"),
-                        "opus" => Some("opus"),
-                        _ => None,
-                    }
-                } else {
-                    None
-                }
-            })
-    } else {
-        None
-    }
-}
 
 #[cfg(test)]
 mod tests {

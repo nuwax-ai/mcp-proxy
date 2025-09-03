@@ -1,6 +1,7 @@
 pub mod signal_handling;
 pub mod cleanup;
 pub mod task_id;
+pub mod mime_types;
 
 use crate::VoiceCliError;
 use crate::models::Config;
@@ -15,7 +16,17 @@ pub use signal_handling::{
     handle_system_signals,
 };
 pub use cleanup::perform_shutdown_cleanup;
-pub use task_id::{generate_task_id, generate_legacy_task_id};
+pub use task_id::{generate_task_id};
+pub use mime_types::{
+    mime_type_to_extension,
+    extract_extension_from_url,
+    infer_mime_type_from_path,
+    extension_to_mime_type,
+    get_file_extension,
+    is_supported_audio_format,
+    is_supported_video_format,
+    is_supported_media_format,
+};
 
 
 /// Initialize logging based on configuration
