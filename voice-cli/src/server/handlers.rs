@@ -239,6 +239,17 @@ pub async fn transcribe_handler(
     }
 
     info!("同步转录完成: {} 字符", response.text.len());
+    
+    // 清理临时文件 - 使用异步任务确保即使出错也不影响响应
+    let cleanup_file = temp_file.clone();
+    info!("临时文件: {}", temp_file.display());
+    tokio::spawn(async move {
+        match tokio::fs::remove_file(&cleanup_file).await {
+            Ok(_) => info!("已清理临时文件: {}", cleanup_file.display()),
+            Err(e) => warn!("清理临时文件失败 {}: {}", cleanup_file.display(), e),
+        }
+    });
+    
     Ok(HttpResult::success(response))
 }
 
@@ -657,7 +668,7 @@ async fn extract_transcription_request_streaming(
         let field_name = field.name().unwrap_or("unknown").to_string();
 
         match field_name.as_str() {
-            "audio" => {
+            "file" | "audio" => {
                 // 立即处理音频字段，避免借用冲突
                 filename = field.file_name().map(|s| s.to_string());
 
