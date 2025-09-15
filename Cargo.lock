@@ -4028,9 +4028,9 @@ dependencies = [
 
 [[package]]
 name = "run_code_rmcp"
-version = "0.0.32"
+version = "0.0.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6a647409cf93d064d4d23cc62d99d93a4e19191227202f99d61c79ffd2d3a4a"
+checksum = "08010230b18f54a24f35c4617ee3d98eef9c14fc8575a7a057d2118c7face640"
 dependencies = [
  "anyhow",
  "async-trait",
