@@ -273,12 +273,12 @@ impl DocumentService {
         self.update_task_stage_safe(task_id, stage).await;
 
         // Parse document - 使用绝对路径
-        debug!("开始调用解析器，使用绝对路径: {}", absolute_path);
+        info!("开始调用解析器，使用绝对路径: {}", absolute_path);
         let parse_result = self
             .dual_parser
             .parse_document_auto(&absolute_path)
             .await
-            .with_context(|| format!("文档解析失败[parse_document_internal]: {absolute_path}"))?;
+            .with_context(|| format!("文档解析失败[parse_document_internal]"))?;
         debug!(
             "解析器调用完成，内容长度: {}",
             parse_result.markdown_content.len()
