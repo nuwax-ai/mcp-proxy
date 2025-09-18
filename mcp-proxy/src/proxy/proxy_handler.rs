@@ -19,6 +19,8 @@ pub struct ProxyHandler {
     client: Arc<Mutex<RunningService<RoleClient, ClientInfo>>>,
     // Store the server's capabilities to avoid locking the client on every get_info call
     cached_info: Arc<RwLock<Option<ServerInfo>>>,
+    // MCP ID 用于日志记录
+    mcp_id: String,
 }
 
 impl ServerHandler for ProxyHandler {
@@ -39,6 +41,9 @@ impl ServerHandler for ProxyHandler {
                     server_info: Implementation {
                         name: peer_info.server_info.name.clone(),
                         version: peer_info.server_info.version.clone(),
+                        title: None,
+                        website_url: None,
+                        icons: None,
                     },
                     instructions: peer_info.instructions.clone(),
                     capabilities: peer_info.capabilities.clone(),
@@ -60,12 +65,19 @@ impl ServerHandler for ProxyHandler {
             server_info: Implementation {
                 name: "MCP Proxy - Service Unavailable".to_string(),
                 version: "0.1.0".to_string(),
+                title: None,
+                website_url: None,
+                icons: None,
             },
             instructions: Some("ERROR: MCP service is not available or still initializing. Please try again later.".to_string()),
             capabilities: Default::default(), // 空的能力列表，表示服务不可用
         }
     }
 
+    #[tracing::instrument(skip(self, request, _context), fields(
+        mcp_id = %self.mcp_id,
+        request = ?request,
+    ))]
     async fn list_tools(
         &self,
         request: Option<PaginatedRequestParam>,
@@ -80,6 +92,13 @@ impl ServerHandler for ProxyHandler {
                 match guard.list_tools(request).await {
                     // Forward request to client
                     Ok(result) => {
+                        // 记录工具列表结果，这些结果会通过 SSE 推送给客户端
+                        info!(
+                            "[list_tools] 工具列表结果 - MCP ID: {}, 工具数量: {}",
+                            self.mcp_id,
+                            result.tools.len()
+                        );
+
                         debug!(
                             "Proxying list_tools response with {} tools",
                             result.tools.len()
@@ -101,6 +120,11 @@ impl ServerHandler for ProxyHandler {
         }
     }
 
+    #[tracing::instrument(skip(self, request, _context), fields(
+        mcp_id = %self.mcp_id,
+        tool_name = %request.name,
+        tool_arguments = ?request.arguments,
+    ))]
     async fn call_tool(
         &self,
         request: CallToolRequestParam,
@@ -114,6 +138,13 @@ impl ServerHandler for ProxyHandler {
             Some(_) => {
                 match guard.call_tool(request.clone()).await {
                     Ok(result) => {
+                        // 记录工具调用结果，这些结果会通过 SSE 推送给客户端
+                        info!(
+                            "[call_tool] 工具调用结果 - MCP ID: {}, 工具: {}",
+                            self.mcp_id,
+                            request.name
+                        );
+
                         debug!("Tool call succeeded");
                         Ok(result)
                     }
@@ -150,6 +181,13 @@ impl ServerHandler for ProxyHandler {
                 // Forward request to client
                 match guard.list_resources(request).await {
                     Ok(result) => {
+                        // 记录资源列表结果，这些结果会通过 SSE 推送给客户端
+                        info!(
+                            "[list_resources] 资源列表结果 - MCP ID: {}, 资源数量: {}",
+                            self.mcp_id,
+                            result.resources.len()
+                        );
+
                         debug!("Proxying list_resources response");
                         Ok(result)
                     }
@@ -188,6 +226,13 @@ impl ServerHandler for ProxyHandler {
                     .await
                 {
                     Ok(result) => {
+                        // 记录资源读取结果，这些结果会通过 SSE 推送给客户端
+                        info!(
+                            "[read_resource] 资源读取结果 - MCP ID: {}, URI: {}",
+                            self.mcp_id,
+                            request.uri
+                        );
+
                         debug!("Proxying read_resource response for {}", request.uri);
                         Ok(result)
                     }
@@ -378,6 +423,10 @@ impl ServerHandler for ProxyHandler {
 
 impl ProxyHandler {
     pub fn new(client: RunningService<RoleClient, ClientInfo>) -> Self {
+        Self::with_mcp_id(client, "unknown".to_string())
+    }
+
+    pub fn with_mcp_id(client: RunningService<RoleClient, ClientInfo>, mcp_id: String) -> Self {
         let peer_info = client.peer_info();
 
         // Create a ServerInfo object that forwards the server's capabilities
@@ -386,6 +435,9 @@ impl ProxyHandler {
                 server_info: Implementation {
                     name: peer_info.server_info.name.clone(),
                     version: peer_info.server_info.version.clone(),
+                    title: None,
+                    website_url: None,
+                    icons: None,
                 },
                 instructions: peer_info.instructions.clone(),
                 capabilities: peer_info.capabilities.clone(),
@@ -394,6 +446,7 @@ impl ProxyHandler {
         Self {
             client: Arc::new(Mutex::new(client)),
             cached_info: Arc::new(RwLock::new(cached_info)),
+            mcp_id,
         }
     }
 

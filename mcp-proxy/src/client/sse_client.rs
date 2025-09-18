@@ -7,7 +7,7 @@ use rmcp::{
     ServiceExt,
     model::{ClientCapabilities, ClientInfo},
 };
-use std::{collections::HashMap, error::Error as StdError, str::FromStr};
+use std::{collections::HashMap, error::Error as StdError};
 use tracing::info;
 
 use crate::proxy::ProxyHandler;
