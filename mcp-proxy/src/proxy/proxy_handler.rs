@@ -3,10 +3,12 @@ use log::{debug, info};
  * Create a local SSE server that proxies requests to a stdio MCP server.
  */
 use rmcp::{
+    ErrorData, RoleClient, RoleServer, ServerHandler,
     model::{
         CallToolRequestParam, CallToolResult, ClientInfo, Content, Implementation, ListToolsResult,
         PaginatedRequestParam, ServerInfo,
-    }, service::{NotificationContext, RequestContext, RunningService}, Error, RoleClient, RoleServer, ServerHandler
+    },
+    service::{NotificationContext, RequestContext, RunningService},
 };
 use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex;
@@ -27,7 +29,7 @@ impl ServerHandler for ProxyHandler {
                 return cached.clone();
             }
         }
-        
+
         // 如果缓存为空，尝试动态获取
         let client = self.client.clone();
         if let Ok(guard) = client.try_lock() {
@@ -41,17 +43,17 @@ impl ServerHandler for ProxyHandler {
                     instructions: peer_info.instructions.clone(),
                     capabilities: peer_info.capabilities.clone(),
                 };
-                
+
                 // 将动态获取的信息缓存起来
                 if let Ok(mut cached_write) = self.cached_info.write() {
                     *cached_write = Some(server_info.clone());
                     debug!("Successfully cached server info from peer_info");
                 }
-                
+
                 return server_info;
             }
         }
-        
+
         // 如果都获取不到，返回错误状态信息
         ServerInfo {
             protocol_version: Default::default(),
@@ -68,7 +70,7 @@ impl ServerHandler for ProxyHandler {
         &self,
         request: Option<PaginatedRequestParam>,
         _context: RequestContext<RoleServer>,
-    ) -> Result<ListToolsResult, Error> {
+    ) -> Result<ListToolsResult, ErrorData> {
         let client = self.client.clone();
         let guard = client.lock().await;
 
@@ -103,7 +105,7 @@ impl ServerHandler for ProxyHandler {
         &self,
         request: CallToolRequestParam,
         _context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, Error> {
+    ) -> Result<CallToolResult, ErrorData> {
         let client = self.client.clone();
         let guard = client.lock().await;
 
@@ -119,8 +121,7 @@ impl ServerHandler for ProxyHandler {
                         tracing::error!("Error calling tool: {:?}", err);
                         // Return an error result instead of propagating the error
                         Ok(CallToolResult::error(vec![Content::text(format!(
-                            "Error: {}",
-                            err
+                            "Error: {err}"
                         ))]))
                     }
                 }
@@ -138,7 +139,7 @@ impl ServerHandler for ProxyHandler {
         &self,
         request: Option<PaginatedRequestParam>,
         _context: RequestContext<RoleServer>,
-    ) -> Result<rmcp::model::ListResourcesResult, Error> {
+    ) -> Result<rmcp::model::ListResourcesResult, ErrorData> {
         // Get a lock on the client
         let client = self.client.clone();
         let guard = client.lock().await;
@@ -171,7 +172,7 @@ impl ServerHandler for ProxyHandler {
         &self,
         request: rmcp::model::ReadResourceRequestParam,
         _context: RequestContext<RoleServer>,
-    ) -> Result<rmcp::model::ReadResourceResult, Error> {
+    ) -> Result<rmcp::model::ReadResourceResult, ErrorData> {
         // Get a lock on the client
         let client = self.client.clone();
         let guard = client.lock().await;
@@ -192,8 +193,8 @@ impl ServerHandler for ProxyHandler {
                     }
                     Err(err) => {
                         tracing::error!("Error reading resource: {:?}", err);
-                        Err(Error::internal_error(
-                            format!("Error reading resource: {}", err),
+                        Err(ErrorData::internal_error(
+                            format!("Error reading resource: {err}"),
                             None,
                         ))
                     }
@@ -213,7 +214,7 @@ impl ServerHandler for ProxyHandler {
         &self,
         request: Option<PaginatedRequestParam>,
         _context: RequestContext<RoleServer>,
-    ) -> Result<rmcp::model::ListResourceTemplatesResult, Error> {
+    ) -> Result<rmcp::model::ListResourceTemplatesResult, ErrorData> {
         // Get a lock on the client
         let client = self.client.clone();
         let guard = client.lock().await;
@@ -246,7 +247,7 @@ impl ServerHandler for ProxyHandler {
         &self,
         request: Option<PaginatedRequestParam>,
         _context: RequestContext<RoleServer>,
-    ) -> Result<rmcp::model::ListPromptsResult, Error> {
+    ) -> Result<rmcp::model::ListPromptsResult, ErrorData> {
         // Get a lock on the client
         let client = self.client.clone();
         let guard = client.lock().await;
@@ -279,7 +280,7 @@ impl ServerHandler for ProxyHandler {
         &self,
         request: rmcp::model::GetPromptRequestParam,
         _context: RequestContext<RoleServer>,
-    ) -> Result<rmcp::model::GetPromptResult, Error> {
+    ) -> Result<rmcp::model::GetPromptResult, ErrorData> {
         // Get a lock on the client
         let client = self.client.clone();
         let guard = client.lock().await;
@@ -295,8 +296,8 @@ impl ServerHandler for ProxyHandler {
                     }
                     Err(err) => {
                         tracing::error!("Error getting prompt: {:?}", err);
-                        Err(Error::internal_error(
-                            format!("Error getting prompt: {}", err),
+                        Err(ErrorData::internal_error(
+                            format!("Error getting prompt: {err}"),
                             None,
                         ))
                     }
@@ -317,7 +318,7 @@ impl ServerHandler for ProxyHandler {
         &self,
         request: rmcp::model::CompleteRequestParam,
         _context: RequestContext<RoleServer>,
-    ) -> Result<rmcp::model::CompleteResult, Error> {
+    ) -> Result<rmcp::model::CompleteResult, ErrorData> {
         // Get a lock on the client
         let client = self.client.clone();
         let guard = client.lock().await;
@@ -330,8 +331,8 @@ impl ServerHandler for ProxyHandler {
             }
             Err(err) => {
                 tracing::error!("Error completing: {:?}", err);
-                Err(Error::internal_error(
-                    format!("Error completing: {}", err),
+                Err(ErrorData::internal_error(
+                    format!("Error completing: {err}"),
                     None,
                 ))
             }
@@ -380,8 +381,7 @@ impl ProxyHandler {
         let peer_info = client.peer_info();
 
         // Create a ServerInfo object that forwards the server's capabilities
-        let cached_info = if let Some(peer_info) = peer_info {
-            Some(ServerInfo {
+        let cached_info = peer_info.map(|peer_info| ServerInfo {
                 protocol_version: peer_info.protocol_version.clone(),
                 server_info: Implementation {
                     name: peer_info.server_info.name.clone(),
@@ -389,11 +389,7 @@ impl ProxyHandler {
                 },
                 instructions: peer_info.instructions.clone(),
                 capabilities: peer_info.capabilities.clone(),
-            })
-        } else {
-            // peer_info 尚未准备好，稍后通过 get_info() 动态获取
-            None
-        };
+            });
 
         Self {
             client: Arc::new(Mutex::new(client)),
@@ -438,7 +434,7 @@ impl ProxyHandler {
                         false // 成功获取信息，子进程还在运行
                     }
                     Err(e) => {
-                        info!("子进程状态检查: 已终止，原因: {}", e);
+                        info!("子进程状态检查: 已终止，原因: {e}");
                         true // 无法获取信息，子进程可能已终止
                     }
                 }

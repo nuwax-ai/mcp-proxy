@@ -1,0 +1,49 @@
+{
+  "project": {
+    "name": "文档解析器",
+    "version": "1.0.0",
+    "description": "支持多种格式的智能文档解析系统",
+    "author": "开发团队",
+    "license": "MIT"
+  },
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8087,
+    "workers": 4,
+    "timeout": 30
+  },
+  "database": {
+    "type": "sled",
+    "path": "./data/sled",
+    "cache_capacity": 1048576,
+    "compression": true
+  },
+  "parsers": {
+    "markdown": {
+      "enabled": true,
+      "extensions": ["md", "markdown"],
+      "max_file_size": 10485760
+    },
+    "word": {
+      "enabled": true,
+      "extensions": ["doc", "docx"],
+      "max_file_size": 52428800
+    },
+    "pdf": {
+      "enabled": true,
+      "extensions": ["pdf"],
+      "max_file_size": 104857600
+    }
+  },
+  "storage": {
+    "temp_dir": "./temp",
+    "max_concurrent": 10,
+    "cleanup_interval": 3600
+  },
+  "logging": {
+    "level": "info",
+    "file": "./logs/app.log",
+    "max_size": 10485760,
+    "backup_count": 5
+  }
+}

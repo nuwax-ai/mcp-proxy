@@ -1,0 +1,433 @@
+use bytes::Bytes;
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
+
+/// 音视频元数据信息
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct AudioVideoMetadata {
+    // 基础信息
+    /// 文件格式 (mp3, wav, mp4, etc.)
+    #[schema(example = "mp3")]
+    pub format: String,
+    /// 容器格式
+    #[schema(example = "mp3")]
+    pub container_format: String,
+    /// 时长（秒）
+    #[schema(example = 180.5)]
+    pub duration_seconds: f64,
+    /// 文件大小（字节）
+    #[schema(example = 3640010)]
+    pub file_size_bytes: u64,
+    
+    // 音频信息
+    /// 音频编码器
+    #[schema(example = "mp3")]
+    pub audio_codec: String,
+    /// 采样率 (Hz)
+    #[schema(example = 44100)]
+    pub sample_rate: u32,
+    /// 声道数
+    #[schema(example = 2)]
+    pub channels: u8,
+    /// 音频码率 (kbps)
+    #[schema(example = 128)]
+    pub audio_bitrate: u32,
+    
+    // 视频信息（如果是视频文件）
+    /// 是否包含视频
+    #[schema(example = false)]
+    pub has_video: bool,
+    /// 视频编码器
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub video_codec: Option<String>,
+    /// 视频宽度
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    /// 视频高度
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+    /// 视频码率 (kbps)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub video_bitrate: Option<u32>,
+    /// 帧率
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frame_rate: Option<f64>,
+    
+    // 其他元数据
+    /// 总码率 (kbps)
+    #[schema(example = 160)]
+    pub bitrate: u32,
+    /// 创建时间
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub creation_time: Option<String>,
+}
+
+/// Request structure for transcription (internal use after extracting from multipart)
+#[derive(Debug)]
+pub struct TranscriptionRequest {
+    pub audio_data: Bytes,
+    pub filename: Option<String>,
+    pub model: Option<String>,
+    pub response_format: Option<String>,
+}
+
+/// Response structure for transcription API
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TranscriptionResponse {
+    /// 完整转写结果文本（合并所有分段后的最终文本）
+    #[schema(example = "Hello, this is a test transcription.")]
+    pub text: String,
+    /// 分段级别的转写结果，包含起止时间、文本与置信度
+    #[schema(example = json!([{"start": 0.0, "end": 2.5, "text": "Hello world", "confidence": 0.95}]))]
+    pub segments: Vec<Segment>,
+    /// 自动检测到的语种（如可用）。ISO 639-1 两字母代码
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(example = "en")]
+    pub language: Option<String>,
+    /// 音频时长（秒），如可获取
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(example = 2.5)]
+    pub duration: Option<f32>,
+    /// 处理耗时（秒），从请求进入到生成结果的总时长
+    #[schema(example = 0.8)]
+    pub processing_time: f32,
+    /// 音视频元数据信息
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<AudioVideoMetadata>,
+}
+
+/// Individual segment in transcription
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct Segment {
+    /// Start time of the segment in seconds
+    #[schema(example = 0.0)]
+    pub start: f32,
+    /// End time of the segment in seconds
+    #[schema(example = 2.5)]
+    pub end: f32,
+    /// Text content of this segment
+    #[schema(example = "Hello, this is a test transcription.")]
+    pub text: String,
+    /// Confidence score for this segment (0.0-1.0)
+    #[schema(example = 0.95)]
+    pub confidence: f32,
+}
+
+/// Health check response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct HealthResponse {
+    /// Current service status
+    #[schema(example = "healthy")]
+    pub status: String,
+    /// List of currently loaded models
+    #[schema(example = json!(["base", "small"]))]
+    pub models_loaded: Vec<String>,
+    /// Service uptime in seconds
+    #[schema(example = 3600)]
+    pub uptime: u64,
+    /// Service version
+    #[schema(example = "0.1.0")]
+    pub version: String,
+}
+
+/// Models list response
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ModelsResponse {
+    /// All supported model names
+    #[schema(example = json!(["tiny", "base", "small", "medium", "large"]))]
+    pub available_models: Vec<String>,
+    /// Currently loaded models in memory
+    #[schema(example = json!(["base"]))]
+    pub loaded_models: Vec<String>,
+    /// Detailed information about each model
+    pub model_info: std::collections::HashMap<String, ModelInfo>,
+}
+
+/// Information about a specific model
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ModelInfo {
+    /// Model file size on disk
+    #[schema(example = "142 MB")]
+    pub size: String,
+    /// Memory usage when loaded
+    #[schema(example = "388 MB")]
+    pub memory_usage: String,
+    /// Current model status
+    #[schema(example = "loaded")]
+    pub status: String,
+}
+
+/// Processed audio data
+#[derive(Debug)]
+pub struct ProcessedAudio {
+    pub data: Bytes,
+    pub converted: bool,
+    pub original_format: Option<String>,
+}
+
+/// Audio format detection result
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum AudioFormat {
+    // Core audio formats (commonly supported by Symphonia)
+    Wav,
+    Mp3,
+    Flac,
+    M4a,
+    Aac,
+    Ogg,
+    Webm,
+    Opus,
+
+    // Extended audio formats (FFmpeg supported)
+    Amr,  // Adaptive Multi-Rate (mobile)
+    Wma,  // Windows Media Audio
+    Ra,   // RealAudio
+    Au,   // Sun/Unix audio
+    Aiff, // Apple's uncompressed format
+    Caf,  // Core Audio Format
+
+    // Video formats (audio extraction via FFmpeg)
+    ThreeGp, // 3GP mobile format
+    Mp4,     // MPEG-4 container
+    Mov,     // QuickTime format
+    Avi,     // Audio Video Interleave
+    Mkv,     // Matroska container
+    Flv,
+    Wmv,
+    Mpeg,
+    Mxf,
+    Unknown,
+}
+
+/// Audio metadata extracted during format detection
+#[derive(Debug, Clone)]
+pub struct AudioMetadata {
+    pub duration: Option<std::time::Duration>,
+    pub sample_rate: Option<u32>,
+    pub channels: Option<u8>,
+    pub bit_depth: Option<u8>,
+    pub bitrate: Option<u32>,
+    pub codec_info: String,
+}
+
+/// Enhanced audio format detection result with metadata
+#[derive(Debug, Clone)]
+pub struct AudioFormatResult {
+    pub format: AudioFormat,
+    pub confidence: f32,
+    pub metadata: Option<AudioMetadata>,
+    pub detection_method: DetectionMethod,
+}
+
+/// Method used for format detection
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DetectionMethod {
+    SymphoniaProbe,
+    FileExtension,
+    ContentType,
+}
+
+impl AudioFormat {
+    /// Enhanced filename-based format detection with support for extended formats
+    pub fn from_filename(filename: &str) -> Self {
+        let extension = std::path::Path::new(filename)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+
+        match extension.as_str() {
+            // Core audio formats
+            "wav" => AudioFormat::Wav,
+            "mp3" => AudioFormat::Mp3,
+            "flac" => AudioFormat::Flac,
+            "m4a" => AudioFormat::M4a,
+            "aac" => AudioFormat::Aac,
+            "ogg" => AudioFormat::Ogg,
+            "webm" => AudioFormat::Webm,
+            "opus" => AudioFormat::Opus,
+
+            // Extended audio formats
+            "amr" => AudioFormat::Amr,
+            "wma" => AudioFormat::Wma,
+            "ra" | "ram" => AudioFormat::Ra,
+            "au" | "snd" => AudioFormat::Au,
+            "aiff" | "aif" => AudioFormat::Aiff,
+            "caf" => AudioFormat::Caf,
+
+            // Video formats (audio extraction)
+            "3gp" | "3g2" => AudioFormat::ThreeGp,
+            "mp4" => AudioFormat::Mp4,
+            "mov" => AudioFormat::Mov,
+            "avi" => AudioFormat::Avi,
+            "mkv" | "mka" => AudioFormat::Mkv,
+            "flv" => AudioFormat::Flv,
+            "wmv" => AudioFormat::Wmv,
+            "mpeg" | "mpg" => AudioFormat::Mpeg,
+            "mxf" => AudioFormat::Mxf,
+
+            _ => AudioFormat::Unknown,
+        }
+    }
+
+    /// Check if format is supported for transcription
+    pub fn is_supported(&self) -> bool {
+        !matches!(self, AudioFormat::Unknown)
+    }
+
+    /// Check if format requires FFmpeg conversion to WAV
+    pub fn needs_conversion(&self) -> bool {
+        !matches!(self, AudioFormat::Wav)
+    }
+
+    /// Get string representation of the format
+    pub fn to_string(&self) -> &'static str {
+        match self {
+            AudioFormat::Wav => "wav",
+            AudioFormat::Mp3 => "mp3",
+            AudioFormat::Flac => "flac",
+            AudioFormat::M4a => "m4a",
+            AudioFormat::Aac => "aac",
+            AudioFormat::Ogg => "ogg",
+            AudioFormat::Webm => "webm",
+            AudioFormat::Opus => "opus",
+            AudioFormat::Amr => "amr",
+            AudioFormat::Wma => "wma",
+            AudioFormat::Ra => "ra",
+            AudioFormat::Au => "au",
+            AudioFormat::Aiff => "aiff",
+            AudioFormat::Caf => "caf",
+            AudioFormat::ThreeGp => "3gp",
+            AudioFormat::Mp4 => "mp4",
+            AudioFormat::Mov => "mov",
+            AudioFormat::Avi => "avi",
+            AudioFormat::Mkv => "mkv",
+            AudioFormat::Flv => "flv",
+            AudioFormat::Wmv => "wmv",
+            AudioFormat::Mpeg => "mpeg",
+            AudioFormat::Mxf => "mxf",
+            AudioFormat::Unknown => "unknown",
+        }
+    }
+
+    /// Get MIME type for the format
+    pub fn get_mime_type(&self) -> &'static str {
+        match self {
+            AudioFormat::Mp3 => "audio/mpeg",
+            AudioFormat::Wav => "audio/wav",
+            AudioFormat::Flac => "audio/flac",
+            AudioFormat::Aac => "audio/aac",
+            AudioFormat::Ogg => "audio/ogg",
+            AudioFormat::M4a => "audio/mp4",
+            AudioFormat::Webm => "audio/webm",
+            AudioFormat::Opus => "audio/opus",
+            AudioFormat::Amr => "audio/amr",
+            AudioFormat::Wma => "audio/x-ms-wma",
+            AudioFormat::Ra => "audio/vnd.rn-realaudio",
+            AudioFormat::Au => "audio/basic",
+            AudioFormat::Aiff => "audio/aiff",
+            AudioFormat::Caf => "audio/x-caf",
+            AudioFormat::ThreeGp => "audio/3gpp",
+            AudioFormat::Mp4 => "video/mp4",
+            AudioFormat::Mov => "video/quicktime",
+            AudioFormat::Avi => "video/x-msvideo",
+            AudioFormat::Mkv => "video/x-matroska",
+            AudioFormat::Flv => "video/x-flv",
+            AudioFormat::Wmv => "video/x-ms-wmv",
+            AudioFormat::Mpeg => "video/mpeg",
+            AudioFormat::Mxf => "application/mxf",
+            AudioFormat::Unknown => "application/octet-stream",
+        }
+    }
+
+    /// Get FFmpeg input format specifier
+    pub fn get_ffmpeg_input_format(&self) -> Option<&'static str> {
+        match self {
+            AudioFormat::Mp3 => Some("mp3"),
+            AudioFormat::Wav => Some("wav"),
+            AudioFormat::Flac => Some("flac"),
+            AudioFormat::Aac => Some("aac"),
+            AudioFormat::M4a => Some("m4a"),
+            AudioFormat::Ogg => Some("ogg"),
+            AudioFormat::Webm => Some("webm"),
+            AudioFormat::Opus => Some("opus"),
+            AudioFormat::Amr => Some("amr"),
+            AudioFormat::Wma => Some("asf"),
+            AudioFormat::Ra => Some("rm"),
+            AudioFormat::Au => Some("au"),
+            AudioFormat::Aiff => Some("aiff"),
+            AudioFormat::Caf => Some("caf"),
+            AudioFormat::ThreeGp => Some("3gp"),
+            AudioFormat::Mp4 => Some("mp4"),
+            AudioFormat::Mov => Some("mov"),
+            AudioFormat::Avi => Some("avi"),
+            AudioFormat::Mkv => Some("matroska"),
+            AudioFormat::Flv => Some("flv"),
+            AudioFormat::Wmv => Some("wmv"),
+            AudioFormat::Mpeg => Some("mpeg"),
+            AudioFormat::Mxf => Some("mxf"),
+            AudioFormat::Unknown => None,
+        }
+    }
+
+    /// Check if format requires FFmpeg conversion
+    pub fn requires_ffmpeg_conversion(&self) -> bool {
+        !matches!(self, AudioFormat::Wav)
+    }
+
+    /// Convert from Symphonia codec type
+    pub fn from_symphonia_codec(codec_type: symphonia::core::codecs::CodecType) -> Self {
+        // Convert codec type to string for matching since Symphonia 0.5 uses different constants
+        let codec_str = format!("{:?}", codec_type).to_lowercase();
+        
+        if codec_str.contains("pcm") || codec_str.contains("wav") {
+            AudioFormat::Wav
+        } else if codec_str.contains("mp3") || codec_str.contains("mpeg") {
+            AudioFormat::Mp3
+        } else if codec_str.contains("flac") {
+            AudioFormat::Flac
+        } else if codec_str.contains("aac") {
+            AudioFormat::Aac
+        } else if codec_str.contains("vorbis") {
+            AudioFormat::Ogg
+        } else if codec_str.contains("opus") {
+            AudioFormat::Opus
+        } else {
+            AudioFormat::Unknown
+        }
+    }
+
+    /// Get corresponding Symphonia codec type (placeholder implementation)
+    pub fn to_symphonia_codec(&self) -> Option<symphonia::core::codecs::CodecType> {
+        // For MVP, return None since we don't need reverse mapping
+        None
+    }
+}
+
+/// Model download status
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ModelDownloadStatus {
+    pub model_name: String,
+    pub status: DownloadStatus,
+    pub progress: Option<f32>,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum DownloadStatus {
+    NotStarted,
+    Downloading,
+    Completed,
+    Failed,
+    Exists,
+}
+
+/// Daemon status information
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DaemonStatus {
+    pub running: bool,
+    pub pid: Option<u32>,
+    pub uptime: Option<u64>,
+    pub memory_usage: Option<String>,
+    pub cpu_usage: Option<f32>,
+}

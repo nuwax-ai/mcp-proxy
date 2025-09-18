@@ -172,8 +172,8 @@ fn spawn_mcp_service(
             }
             Err(e) => {
                 // 设置错误状态
-                let error_msg = format!("启动MCP服务失败: {}", e);
-                error!("启动MCP服务失败[{}]: {}", mcp_id_clone, e);
+                let error_msg = format!("启动MCP服务失败: {e}");
+                error!("启动MCP服务失败[{mcp_id_clone}]: {e}");
                 get_proxy_manager().update_mcp_service_status(
                     &mcp_id_clone,
                     CheckMcpStatusResponseStatus::Error(error_msg),

@@ -40,7 +40,7 @@ impl TryFrom<String> for McpServerCommandConfig {
     type Error = anyhow::Error;
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
-        info!("mcp_server_command_config: {:?}", s);
+        info!("mcp_server_command_config: {s:?}");
         let mcp_json_server_parameters = McpJsonServerParameters::from(s);
         mcp_json_server_parameters.try_get_first_mcp_server()
     }
@@ -58,13 +58,13 @@ impl McpJsonServerParameters {
         if self.mcp_servers.len() == 1 {
             let vals = self.mcp_servers.values().next();
             if let Some(val) = vals {
-                return Ok(val.clone());
+                Ok(val.clone())
             } else {
                 error!(
                     "mcp_server_command_config: {:?}",
                     "没有找到对应的mcp_server_command_config"
                 );
-                return Err(anyhow::anyhow!("没有找到对应的mcp配置"));
+                Err(anyhow::anyhow!("没有找到对应的mcp配置"))
             }
         } else {
             error!(
@@ -131,8 +131,8 @@ impl McpRouterPath {
     //根据 mcp_id,生成对应的 sse path路径和 message path路径
     fn from_mcp_id_for_sse(mcp_id: String) -> SseMcpRouterPath {
         // 创建McpRouterPath结构
-        let sse_path = format!("{}/proxy/{}/sse", GLOBAL_SSE_MCP_ROUTES_PREFIX, mcp_id);
-        let message_path = format!("{}/proxy/{}/message", GLOBAL_SSE_MCP_ROUTES_PREFIX, mcp_id);
+        let sse_path = format!("{GLOBAL_SSE_MCP_ROUTES_PREFIX}/proxy/{mcp_id}/sse");
+        let message_path = format!("{GLOBAL_SSE_MCP_ROUTES_PREFIX}/proxy/{mcp_id}/message");
         // let message_path = "/message".to_string();
         SseMcpRouterPath {
             sse_path,
@@ -177,7 +177,7 @@ impl McpRouterPath {
 
             return Some(Self {
                 mcp_id: mcp_id.clone(),
-                base_path: format!("{}/proxy/{}", GLOBAL_SSE_MCP_ROUTES_PREFIX, mcp_id),
+                base_path: format!("{GLOBAL_SSE_MCP_ROUTES_PREFIX}/proxy/{mcp_id}"),
                 mcp_protocol_path: McpProtocolPath::SsePath(sse_mcp_router_path),
                 mcp_protocol: McpProtocol::Sse,
                 last_accessed: Instant::now(),
@@ -192,8 +192,7 @@ impl McpRouterPath {
 
             // 创建流路径
             let stream_path = format!(
-                "{}/proxy/{}/stream",
-                GLOBAL_STREAM_MCP_ROUTES_PREFIX, mcp_id
+                "{GLOBAL_STREAM_MCP_ROUTES_PREFIX}/proxy/{mcp_id}/stream"
             );
 
             return Some(Self {
@@ -218,7 +217,7 @@ impl McpRouterPath {
 
                 Self {
                     mcp_id: mcp_id.clone(),
-                    base_path: format!("{}/proxy/{}", GLOBAL_SSE_MCP_ROUTES_PREFIX, mcp_id),
+                    base_path: format!("{GLOBAL_SSE_MCP_ROUTES_PREFIX}/proxy/{mcp_id}"),
                     mcp_protocol_path: McpProtocolPath::SsePath(sse_mcp_router_path),
                     mcp_protocol: McpProtocol::Sse,
                     last_accessed: Instant::now(),
@@ -226,12 +225,11 @@ impl McpRouterPath {
             }
             McpProtocol::Stream => {
                 let stream_path: String = format!(
-                    "{}/proxy/{}/stream",
-                    GLOBAL_STREAM_MCP_ROUTES_PREFIX, mcp_id
+                    "{GLOBAL_STREAM_MCP_ROUTES_PREFIX}/proxy/{mcp_id}/stream"
                 );
                 Self {
                     mcp_id: mcp_id.clone(),
-                    base_path: format!("{}/proxy/{}", GLOBAL_STREAM_MCP_ROUTES_PREFIX, mcp_id),
+                    base_path: format!("{GLOBAL_STREAM_MCP_ROUTES_PREFIX}/proxy/{mcp_id}"),
                     mcp_protocol_path: McpProtocolPath::StreamPath(StreamMcpRouterPath {
                         stream_path,
                     }),
@@ -270,11 +268,11 @@ impl McpRouterPath {
 
 impl From<String> for McpJsonServerParameters {
     fn from(s: String) -> Self {
-        debug!("mcp_json_server_parameters: {:?}", s);
+        debug!("mcp_json_server_parameters: {s:?}");
         match serde_json::from_str::<McpJsonServerParameters>(&s) {
             Ok(mcp_json_server_parameters) => mcp_json_server_parameters,
             Err(e) => {
-                error!("mcp_json_server_parameters 解析失败: {:?}", e);
+                error!("mcp_json_server_parameters 解析失败: {e:?}");
                 McpJsonServerParameters {
                     mcp_servers: HashMap::new(),
                 }

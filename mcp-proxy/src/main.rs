@@ -49,14 +49,14 @@ async fn main() -> Result<()> {
     tracing::info!("服务启动，监听端口: {}", server_port);
 
     // 监听地址
-    let addr = format!("0.0.0.0:{}", server_port);
+    let addr = format!("0.0.0.0:{server_port}");
     let listener = TcpListener::bind(&addr).await?;
     // 构建 axum 路由
     let state = AppState::new(app_config).await;
 
     // 初始化 MCP 路由
     let app = get_router(state.clone()).await?;
-    info!("服务启动，监听地址: {}", addr);
+    info!("服务启动，监听地址: {addr}");
 
     // 启动定时任务，定期检查MCP服务状态
     tokio::spawn(start_schedule_task());
@@ -71,9 +71,9 @@ async fn main() -> Result<()> {
 
             // 记录 panic 消息
             if let Some(s) = panic_info.payload().downcast_ref::<String>() {
-                error!("Panic 原因: {}", s);
+                error!("Panic 原因: {s}");
             } else if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
-                error!("Panic 原因: {}", s);
+                error!("Panic 原因: {s}");
             } else {
                 error!("Panic 原因: 未知");
             }
@@ -86,7 +86,7 @@ async fn main() -> Result<()> {
             // 尝试获取堆栈跟踪
             error!("堆栈跟踪:");
             let backtrace = Backtrace::new();
-            error!("{:?}", backtrace);
+            error!("{backtrace:?}");
         }));
     });
 
@@ -94,7 +94,7 @@ async fn main() -> Result<()> {
     tokio::spawn(async move {
         info!("开始预热 uv/deno 环境依赖...");
         if let Err(e) = warm_up_all_envs(None, None, None, None).await {
-            error!("预热 uv/deno 环境依赖失败: {}", e);
+            error!("预热 uv/deno 环境依赖失败: {e}");
         }
         info!("预热 uv/deno 环境依赖完成");
     });
@@ -105,7 +105,7 @@ async fn main() -> Result<()> {
 
     // 运行服务器
     if let Err(e) = server.await {
-        error!("服务运行错误: {}", e);
+        error!("服务运行错误: {e}");
     }
 
     // 服务器关闭后执行清理逻辑

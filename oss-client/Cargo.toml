@@ -1,0 +1,21 @@
+[package]
+name = "oss-client"
+version = "0.1.0"
+edition = "2024"
+description = "简洁的阿里云OSS操作库"
+license = "MIT"
+
+[dependencies]
+aliyun-oss-rust-sdk = { workspace = true }
+chrono = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true, features = ["fs"] }
+tracing = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+async-trait = "0.1"
+tempfile = "3.0"
+thiserror = "2.0"
+
+[dev-dependencies]
+tokio = { workspace = true }

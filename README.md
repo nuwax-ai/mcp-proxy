@@ -2,19 +2,187 @@
 
 ## 项目简介
 
-本项目实现了一个 mcp 代理服务，用户可以通过 SSE（Server-Sent Events）协议，配置我们提供的 URL 地址，远程使用服务器提供的 mcp 功能。
+本项目包含两个主要服务：
 
-### 主要功能
+### Document Parser Service (文档解析服务)
+一个高性能的多格式文档解析服务，支持PDF、Word、Excel、PowerPoint等格式转换为结构化Markdown。
+
+**主要特性:**
+- 🔄 多引擎解析：MinerU (PDF) + MarkItDown (其他格式)
+- 🐍 智能Python环境管理：使用当前目录虚拟环境 (./venv/)
+- 📊 实时结构化处理：自动生成目录和章节
+- ☁️ OSS集成：支持阿里云对象存储
+- 🚀 异步任务处理：支持大文件批量处理
+
+### MCP Proxy Service (MCP代理服务)
+实现了一个 mcp 代理服务，用户可以通过 SSE（Server-Sent Events）协议，配置我们提供的 URL 地址，远程使用服务器提供的 mcp 功能。
+
+**主要功能:**
 - 支持通过 SSE 协议与客户端通信，实时推送数据。
 - 支持动态添加 mcp 插件：只需在 mcp 社区查找所需插件，复制对应的 JSON 配置，粘贴到本服务的配置中，即可自动加载并启用插件。
 - 每个插件配置完成后，服务器会自动启动对应的 mcp 服务，并生成可供访问的 SSE 协议 URL 地址。
 - 用户可通过该 URL 地址，直接使用远程服务器的 mcp 能力。
+
+## 🚀 Document Parser 快速开始
+
+### 1. 环境初始化
+```bash
+# 进入项目目录
+cd document-parser
+
+# 初始化虚拟环境和依赖（首次使用）
+document-parser uv-init
+
+# 检查环境状态
+document-parser check
+```
+
+## 🎯 Voice CLI 快速开始
+
+### 1. 服务配置初始化
+
+**初始化服务器配置：**
+```bash
+# 生成默认服务器配置文件 (./server-config.yml)
+voice-cli server init
+
+# 指定配置文件路径
+voice-cli server init --config ./my-server-config.yml
+
+# 强制覆盖已存在的配置文件
+voice-cli server init --force
+```
+
+**初始化集群配置：**
+```bash
+# 生成默认集群配置文件 (./cluster-config.yml)
+voice-cli cluster init
+
+# 指定配置文件路径和端口
+voice-cli cluster init --config ./my-cluster-config.yml --http-port 8081 --grpc-port 50052
+
+# 强制覆盖已存在的配置文件
+voice-cli cluster init --force
+```
+
+**初始化负载均衡器配置：**
+```bash
+# 生成默认负载均衡器配置文件 (./lb-config.yml)
+voice-cli lb init
+
+# 指定配置文件路径和端口
+voice-cli lb init --config ./my-lb-config.yml --port 8091
+
+# 强制覆盖已存在的配置文件
+voice-cli lb init --force
+```
+
+### 2. 启动服务
+
+**启动单节点服务器：**
+```bash
+# 使用默认配置启动
+voice-cli server run
+
+# 使用指定配置文件启动
+voice-cli server run --config ./server-config.yml
+```
+
+**启动集群节点：**
+```bash
+# 使用默认配置启动
+voice-cli cluster start
+
+# 使用指定配置文件启动
+voice-cli cluster start --config ./cluster-config.yml
+
+# 指定节点ID和端口
+voice-cli cluster start --config ./cluster-config.yml --node-id "node-1" --http-port 8081 --grpc-port 50052
+```
+
+**启动负载均衡器：**
+```bash
+# 使用默认配置启动
+voice-cli lb start
+
+# 使用指定配置文件启动
+voice-cli lb start --config ./lb-config.yml
+
+# 指定端口启动
+voice-cli lb start --port 8091
+```
+
+### 2. 启动服务
+```bash
+# 启动HTTP服务器
+document-parser server
+
+# 或者指定端口
+document-parser server --port 8080
+```
+
+### 3. 虚拟环境管理
+
+**激活虚拟环境:**
+```bash
+# Linux/macOS
+source ./venv/bin/activate
+
+# Windows
+.\venv\Scripts\activate
+```
+
+**手动使用工具:**
+```bash
+# 激活环境后直接使用
+mineru --help
+python -m markitdown --help
+
+# 或使用uv直接运行
+uv run mineru --help
+uv run python -m markitdown --help
+```
 
 ### 使用流程
 1. 在 mcp 社区查找并复制所需插件的 JSON 配置。
 2. 将 JSON 配置添加到本服务的插件配置中。
 3. 服务器自动加载插件并启动服务，生成对应的 SSE URL。
 4. 客户端通过该 URL 地址，即可实时获取 mcp 服务推送的数据。
+
+## 🔧 Voice CLI 配置说明
+
+### 配置文件模板
+
+**服务器配置 (server-config.yml)：**
+- 单节点语音转录服务配置
+- 支持 Whisper 模型管理
+- 音频处理设置和并发控制
+- 日志和守护进程配置
+
+**集群配置 (cluster-config.yml)：**
+- 集群节点配置，包含 gRPC 通信
+- 节点 ID、端口和任务处理设置
+- 集群元数据存储和心跳配置
+- 支持多节点协同工作
+
+**负载均衡器配置 (lb-config.yml)：**
+- 负载均衡服务配置
+- 健康检查间隔和超时设置
+
+### 高级功能
+
+**配置文件管理：**
+```bash
+# 查看生成的配置文件
+cat server-config.yml
+cat cluster-config.yml
+cat lb-config.yml
+
+# 编辑配置文件
+vim server-config.yml
+vim cluster-config.yml
+vim lb-config.yml
+```
 
 ## API 接口说明
 
@@ -199,3 +367,144 @@ cargo nextest 是一个 Rust 增强测试工具。
 ```bash
 cargo install cargo-nextest --locked
 ```
+
+## 🔧 Document Parser 故障排除
+
+### 常见问题
+
+#### 1. 虚拟环境问题
+
+**问题：虚拟环境创建失败**
+```bash
+# 检查当前目录权限
+ls -la  # Linux/macOS
+dir     # Windows
+
+# 解决方案
+chmod 755 .              # Linux/macOS 修改权限
+rm -rf ./venv            # 删除损坏的虚拟环境
+document-parser uv-init  # 重新初始化
+```
+
+## 🔧 Voice CLI 故障排除
+
+### 配置文件初始化问题
+
+**问题：配置文件已存在**
+```bash
+# 解决方案：使用 --force 参数覆盖
+voice-cli server init --force
+voice-cli cluster init --force
+voice-cli lb init --force
+```
+
+**问题：配置文件路径问题**
+```bash
+# 解决方案：指定正确的配置文件路径
+voice-cli server init --config ./my-server-config.yml
+voice-cli cluster init --config ./my-cluster-config.yml
+voice-cli lb init --config ./my-lb-config.yml
+```
+
+**问题：虚拟环境激活失败**
+```bash
+# Linux/macOS
+source ./venv/bin/activate
+
+# Windows PowerShell (如果执行策略限制)
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+.\venv\Scripts\Activate.ps1
+
+# Windows CMD
+.\venv\Scripts\activate
+```
+
+#### 2. 依赖安装问题
+
+**问题：UV工具未安装**
+```bash
+# 官方安装脚本
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 或使用包管理器
+brew install uv          # macOS
+pip install uv           # 通用方法
+```
+
+**问题：网络连接问题**
+```bash
+# 使用国内镜像源
+uv pip install -i https://pypi.tuna.tsinghua.edu.cn/simple/ mineru[core]
+
+# 设置代理（如果需要）
+export HTTP_PROXY=http://proxy:port
+export HTTPS_PROXY=http://proxy:port
+```
+
+#### 3. 诊断命令
+
+```bash
+# 完整环境检查
+document-parser check
+
+# 详细故障排除指南
+document-parser troubleshoot
+
+# 手动验证
+uv --version
+./venv/bin/python --version    # Linux/macOS
+.\venv\Scripts\python --version # Windows
+```
+
+### 环境要求
+
+- **Python**: 3.8+ (推荐 3.11+)
+- **操作系统**: Linux, macOS, Windows
+- **磁盘空间**: 至少 500MB 可用空间
+- **网络**: 需要访问 PyPI (或配置镜像源)
+- **CUDA** (可选): 用于GPU加速，支持CUDA 11.8+
+
+### Voice CLI 环境要求
+
+- **Rust**: 1.70+ (推荐 1.75+)
+- **操作系统**: Linux, macOS, Windows
+- **磁盘空间**: 至少 200MB 可用空间
+- **网络**: 需要访问 crates.io (或配置镜像源)
+
+### 目录结构
+
+```
+document-parser/
+├── venv/                    # 虚拟环境 (自动创建)
+│   ├── bin/                 # Linux/macOS 可执行文件
+│   ├── Scripts/             # Windows 可执行文件
+│   └── lib/                 # Python包
+├── logs/                    # 日志文件
+├── config.yml               # 配置文件
+└── src/                     # 源代码
+
+voice-cli/
+├── server-config.yml        # 服务器配置文件 (init 生成)
+├── cluster-config.yml       # 集群配置文件 (init 生成)
+├── lb-config.yml            # 负载均衡器配置文件 (init 生成)
+├── logs/                    # 日志文件目录
+├── models/                  # Whisper 模型存储目录
+├── cluster_metadata/        # 集群元数据存储
+├── *.pid                    # 进程 ID 文件
+└── src/                     # 源代码
+```
+
+### 获取帮助
+
+如果遇到问题：
+1. 运行 `document-parser troubleshoot` 查看详细指南
+2. 检查 `logs/` 目录中的日志文件
+3. 确保在正确的项目目录中运行命令
+4. 尝试在新目录中重新初始化环境
+
+### Voice CLI 获取帮助
+
+如果遇到问题：
+1. 运行 `voice-cli --help` 查看所有可用命令
+2. 运行 `voice-cli <command> --help` 查看特定命令的帮助
+3. 检查生成的配置文件是否正确

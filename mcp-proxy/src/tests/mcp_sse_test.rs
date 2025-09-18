@@ -4,15 +4,11 @@ mod sse_test {
     use anyhow::{Context, Result};
     use log::{error, info, warn};
     use rmcp::{
-        model::{CallToolRequestParam, ClientCapabilities, ClientInfo, Implementation}, 
+        ServiceExt,
+        model::{CallToolRequestParam, ClientCapabilities, ClientInfo, Implementation},
         transport::{
-            sse_server::SseServerConfig, 
-            SseClientTransport, 
-            SseServer, 
-            TokioChildProcess,
-            sse_client::SseClientConfig,
-        }, 
-        ServiceExt
+            SseClientTransport, sse_client::SseClientConfig,
+        },
     };
     use std::process::Command;
     use std::time::Duration;
@@ -34,21 +30,21 @@ mod sse_test {
     /// 检查服务器端口是否可访问
     async fn check_server_available() -> Result<bool> {
         let addr = get_server_url();
-        info!("正在检查服务器可用性: {}", addr);
+        info!("正在检查服务器可用性: {addr}");
 
         // 尝试简单TCP连接，增加超时设置
         match tokio::time::timeout(TCP_CONNECT_TIMEOUT, tokio::net::TcpStream::connect(&addr)).await
         {
             Ok(Ok(_)) => {
-                info!("TCP连接成功: {}", addr);
+                info!("TCP连接成功: {addr}");
                 Ok(true)
             }
             Ok(Err(e)) => {
-                error!("TCP连接失败: {}, 错误: {}", addr, e);
+                error!("TCP连接失败: {addr}, 错误: {e}");
                 Ok(false)
             }
             Err(_) => {
-                error!("TCP连接超时: {}", addr);
+                error!("TCP连接超时: {addr}");
                 Ok(false)
             }
         }
@@ -63,7 +59,7 @@ mod sse_test {
 
         // 准备URL
         let sse_url = format!("http://{}/mcp/sse/proxy/{}/sse", get_server_url(), mcp_id);
-        info!("连接SSE服务: {}", sse_url);
+        info!("连接SSE服务: {sse_url}");
 
         // 创建带有自定义header的reqwest客户端
         let mut headers = reqwest::header::HeaderMap::new();
@@ -75,7 +71,7 @@ mod sse_test {
         headers.insert("Cache-Control", "no-cache".parse()?);
         headers.insert(reqwest::header::USER_AGENT, "curl/7.87.0".parse()?);
 
-        info!("请求头: {:?}", headers);
+        info!("请求头: {headers:?}");
 
         let http_client = reqwest::Client::builder()
             .default_headers(headers)
@@ -99,7 +95,7 @@ mod sse_test {
 
     /// 检查MCP服务状态
     async fn check_mcp_status(mcp_id: &str) -> Result<bool> {
-        info!("检查MCP服务状态: ID={}", mcp_id);
+        info!("检查MCP服务状态: ID={mcp_id}");
 
         // 构建请求体
         let request_body = serde_json::json!({
@@ -108,11 +104,11 @@ mod sse_test {
             "mcpType": MCP_TYPE
         });
 
-        info!("状态检查请求体: {:?}", request_body);
+        info!("状态检查请求体: {request_body:?}");
 
         // 发送检查状态请求
         let url = format!("http://{}/mcp/sse/check_status", get_server_url());
-        info!("状态检查URL: {}", url);
+        info!("状态检查URL: {url}");
 
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
@@ -129,7 +125,7 @@ mod sse_test {
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await?;
-            error!("状态检查请求失败: 状态码={}, 响应内容: {}", status, text);
+            error!("状态检查请求失败: 状态码={status}, 响应内容: {text}");
             return Ok(false);
         }
 
@@ -145,7 +141,7 @@ mod sse_test {
 
             if status_response.status().is_success() {
                 let json_response: serde_json::Value = status_response.json().await?;
-                info!("状态检查响应: {:?}", json_response);
+                info!("状态检查响应: {json_response:?}");
 
                 if let Some(data) = json_response.get("data") {
                     if let Some(ready_status) = data.get("ready") {
@@ -174,7 +170,7 @@ mod sse_test {
             tokio::time::sleep(RETRY_INTERVAL).await;
         }
 
-        warn!("服务在规定时间内未能准备就绪 ({}次尝试后)", MAX_RETRIES);
+        warn!("服务在规定时间内未能准备就绪 ({MAX_RETRIES}次尝试后)");
         Ok(false)
     }
 
@@ -195,7 +191,7 @@ mod sse_test {
         // 创建客户端
         info!("创建客户端...");
         let client = client_info.serve(transport).await.inspect_err(|e| {
-            error!("客户端创建错误: {:?}", e);
+            error!("客户端创建错误: {e:?}");
         })?;
         info!("客户端创建成功");
 
@@ -233,11 +229,10 @@ mod sse_test {
 
         // 构建curl命令
         let curl_cmd = format!(
-            "curl -N -m 5 -H \"x-mcp-json: {}\" -H \"x-mcp-type: {}\" \"{}\"",
-            MCP_CONFIG, MCP_TYPE, url
+            "curl -N -m 5 -H \"x-mcp-json: {MCP_CONFIG}\" -H \"x-mcp-type: {MCP_TYPE}\" \"{url}\""
         );
 
-        info!("执行curl命令: {}", curl_cmd);
+        info!("执行curl命令: {curl_cmd}");
 
         // 使用timeout命令限制curl执行时间
         let output = Command::new("sh").arg("-c").arg(curl_cmd).output();
@@ -255,11 +250,11 @@ mod sse_test {
                 );
 
                 if !stderr.is_empty() {
-                    info!("curl错误输出: {}", stderr);
+                    info!("curl错误输出: {stderr}");
                 }
 
                 if !stdout.is_empty() {
-                    info!("curl标准输出: {}", stdout);
+                    info!("curl标准输出: {stdout}");
                 }
 
                 // 判断是否成功连接
@@ -272,7 +267,7 @@ mod sse_test {
                 }
             }
             Err(e) => {
-                error!("执行curl命令失败: {}", e);
+                error!("执行curl命令失败: {e}");
                 Ok(false)
             }
         }
@@ -287,7 +282,7 @@ mod sse_test {
 
         // 检查MCP服务状态
         let mcp_id = "playwright-test-id2";
-        info!("使用MCP ID: {}", mcp_id);
+        info!("使用MCP ID: {mcp_id}");
 
         // 检查服务器是否可用
         if !check_server_available().await? {
@@ -300,7 +295,7 @@ mod sse_test {
         match test_system_curl(mcp_id).await {
             Ok(true) => info!("系统curl测试成功，服务器能正确响应SSE请求"),
             Ok(false) => warn!("系统curl测试失败，但将继续测试Rust客户端"),
-            Err(e) => warn!("系统curl测试出错: {}", e),
+            Err(e) => warn!("系统curl测试出错: {e}"),
         }
 
         let is_ready = check_mcp_status(mcp_id).await?;
@@ -314,7 +309,7 @@ mod sse_test {
                     run_mcp_client_test(sse_client).await?;
                 }
                 Err(e) => {
-                    warn!("创建SSE客户端失败: {}", e);
+                    warn!("创建SSE客户端失败: {e}");
                     // 不返回错误，避免CI失败
                 }
             }
@@ -335,7 +330,7 @@ mod sse_test {
 
         // 使用不同的MCP ID
         let mcp_id = "playwright-test-id";
-        info!("使用MCP ID: {}", mcp_id);
+        info!("使用MCP ID: {mcp_id}");
 
         // 检查服务器是否可用
         if !check_server_available().await? {
@@ -352,7 +347,7 @@ mod sse_test {
                 run_mcp_client_test(sse_client).await?;
             }
             Err(e) => {
-                warn!("创建SSE客户端失败: {}", e);
+                warn!("创建SSE客户端失败: {e}");
                 // 不返回错误，避免CI失败
                 return Ok(());
             }

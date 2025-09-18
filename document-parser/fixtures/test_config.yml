@@ -1,0 +1,34 @@
+# 测试配置文件
+app:
+  name: "测试应用"
+  version: "0.1.0"
+  debug: true
+
+database:
+  host: "localhost"
+  port: 5432
+  name: "test_db"
+  user: "test_user"
+  password: "test_pass"
+
+api:
+  endpoints:
+    - path: "/api/v1/users"
+      method: "GET"
+      auth: true
+    - path: "/api/v1/users"
+      method: "POST"
+      auth: true
+    - path: "/api/v1/health"
+      method: "GET"
+      auth: false
+
+logging:
+  level: "debug"
+  format: "json"
+  output: "stdout"
+
+features:
+  cache: true
+  rate_limit: true
+  compression: false

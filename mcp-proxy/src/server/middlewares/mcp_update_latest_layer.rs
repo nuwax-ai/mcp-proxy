@@ -4,7 +4,10 @@ use axum::extract::Request;
 use log::debug;
 use tower::{Layer, Service};
 
-use crate::{get_proxy_manager, model::{AppState, McpRouterPath}};
+use crate::{
+    get_proxy_manager,
+    model::{AppState, McpRouterPath},
+};
 
 #[derive(Clone)]
 pub struct MySseRouterLayer {
@@ -55,7 +58,7 @@ where
             let mcp_router_path = McpRouterPath::from_url(&path);
             if let Some(mcp_router_path) = mcp_router_path {
                 let mcp_id = mcp_router_path.mcp_id.clone();
-                debug!("更新最后访问时间,请求访问MCP ID: {}", mcp_id);
+                debug!("更新最后访问时间,请求访问MCP ID: {mcp_id}");
                 // 更新最后访问时间
                 get_proxy_manager().update_last_accessed(&mcp_id);
             }

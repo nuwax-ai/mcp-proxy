@@ -1,0 +1,293 @@
+### Document Parser API 测试文件
+### 服务器地址
+@baseUrl = http://localhost:8087
+
+### 1. 健康检查
+GET {{baseUrl}}/health
+
+### 2. 就绪检查
+GET {{baseUrl}}/ready
+
+### 3. 获取支持的文档格式
+GET {{baseUrl}}/api/v1/documents/formats
+
+### 4. 检查解析器健康状态
+GET {{baseUrl}}/api/v1/documents/parser/health
+
+### 5. 文档上传解析 - 手动上传测试（自动提取taskId）
+# @name uploadDocument
+POST {{baseUrl}}/api/v1/documents/upload?format=PDF&enable_toc=true&max_toc_depth=3
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="file"; filename="均线为王之一：均线100分.pdf"
+Content-Type: application/pdf
+
+< ./fixtures/均线为王之一：均线100分.pdf
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+
+
+### 6. URL文档下载解析
+POST {{baseUrl}}/api/v1/documents/download
+Content-Type: application/json
+
+{
+  "url": "https://example.com/sample.pdf",
+  "format": "PDF",
+  "enable_toc": true,
+  "max_toc_depth": 3
+}
+
+### 7. OSS文档解析
+POST {{baseUrl}}/api/v1/documents/oss
+Content-Type: application/json
+
+{
+  "oss_path": "documents/sample.pdf",
+  "format": "PDF",
+  "enable_toc": true,
+  "max_toc_depth": 3
+}
+
+### 8. 生成结构化文档
+POST {{baseUrl}}/api/v1/documents/structured
+Content-Type: application/json
+
+{
+  "markdown_content": "# 标题1\n\n这是内容\n\n## 标题2\n\n更多内容",
+  "enable_toc": true,
+  "max_toc_depth": 3,
+  "enable_anchors": true
+}
+
+### 9. 查询所有任务
+GET {{baseUrl}}/api/v1/tasks
+
+### 10. 查询特定任务 (自动使用上传返回的task_id)
+GET {{baseUrl}}/api/v1/tasks/{{uploadDocument.response.body.data.task_id}}
+
+### 11. 获取任务结果概览（新接口 - 返回任务元数据和OSS信息）
+GET {{baseUrl}}/api/v1/tasks/{{uploadDocument.response.body.data.task_id}}/result
+
+### 12. 获取任务统计
+GET {{baseUrl}}/api/v1/tasks/stats
+
+### 13. 获取文档目录 (自动使用上传返回的task_id)
+GET {{baseUrl}}/api/v1/tasks/{{uploadDocument.response.body.data.task_id}}/toc
+
+### 14. 获取所有章节 (自动使用上传返回的task_id)
+GET {{baseUrl}}/api/v1/tasks/{{uploadDocument.response.body.data.task_id}}/sections
+
+### 15. 获取特定章节内容 (自动使用上传返回的task_id)
+@sectionId = section-1
+GET {{baseUrl}}/api/v1/tasks/{{uploadDocument.response.body.data.task_id}}/section/{{sectionId}}
+
+### 16. 下载Markdown结果 (自动使用上传返回的task_id)
+GET {{baseUrl}}/api/v1/tasks/{{uploadDocument.response.body.data.task_id}}/markdown/download
+
+### 17. 获取Markdown OSS URL（增强版 - 包含文件名和bucket信息）
+GET {{baseUrl}}/api/v1/tasks/{{uploadDocument.response.body.data.task_id}}/markdown/url?temp=true&expires_hours=24
+
+### 18. 解析Markdown章节 (统一接口)
+POST {{baseUrl}}/api/v1/documents/markdown/sections
+Content-Type: application/json
+
+{
+  "markdown_content": "# 第一章\n\n这是第一章的内容\n\n## 1.1 小节\n\n小节内容\n\n# 第二章\n\n第二章内容",
+  "enable_toc": true,
+  "max_toc_depth": 3
+}
+
+### 19. 获取解析器统计
+GET {{baseUrl}}/api/v1/documents/parser/stats
+
+### 22. 创建任务 (手动创建)
+POST {{baseUrl}}/api/v1/tasks
+Content-Type: application/json
+
+{
+  "source_type": "Upload",
+  "source_path": "test.pdf",
+  "format": "PDF"
+}
+
+### 23. 删除任务 (自动使用上传返回的task_id)
+DELETE {{baseUrl}}/api/v1/tasks/{{uploadDocument.response.body.data.task_id}}
+
+### 24. 清理过期任务
+POST {{baseUrl}}/api/v1/tasks/cleanup
+
+### 25. 上传文件到OSS
+POST {{baseUrl}}/api/v1/oss/upload
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="file"; filename="test-document.pdf"
+Content-Type: application/pdf
+
+< ./fixtures/均线为王之一：均线100分.pdf
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+### 26. 根据文件名获取OSS下载链接（使用默认bucket）
+GET {{baseUrl}}/api/v1/oss/download-url?file_name=uploads/test-document_20241215_120000_abc12345.pdf
+
+### 27. 根据文件名获取OSS下载链接（指定bucket）
+GET {{baseUrl}}/api/v1/oss/download-url?file_name=uploads/test-document_20241215_120000_abc12345.pdf&bucket=custom-bucket
+
+### 测试说明
+# 1. 首先运行健康检查确保服务正常
+# 2. 测试文档上传功能，task_id会自动从响应中提取
+# 3. 后续的查询、下载等操作会自动使用提取的task_id
+# 4. 测试OSS功能需要配置OSS服务
+# 5. 文件上传测试需要在支持的REST客户端中选择实际文件
+
+### 自动TaskId功能说明
+# - 使用 # @name requestName 来命名请求
+# - 后续请求可以使用 {{requestName.response.body.data.task_id}} 来引用task_id
+# - 如果需要手动指定task_id，可以使用: @taskId = your-task-id-here
+
+### 常用测试流程（自动化）
+# 1. GET /health - 检查服务状态
+# 2. GET /api/v1/documents/formats - 查看支持格式
+# 3. POST /api/v1/documents/upload - 上传文档（自动提取task_id）
+# 4. GET /api/v1/tasks/{{uploadDocument.response.body.data.task_id}} - 查询解析进度
+# 5. GET /api/v1/tasks/{{uploadDocument.response.body.data.task_id}}/markdown/download - 下载结果
+
+### 手动TaskId示例
+# @manualTaskId = 0198ad16-2051-762e-8238-172ea27ed480
+# GET {{baseUrl}}/api/v1/tasks/{{manualTaskId}}
+
+### 错误处理测试
+# 测试无效URL
+POST {{baseUrl}}/api/v1/documents/download
+Content-Type: application/json
+
+{
+  "url": "invalid-url",
+  "format": "PDF"
+}
+
+### 测试不支持的格式
+POST {{baseUrl}}/api/v1/documents/download
+Content-Type: application/json
+
+{
+  "url": "https://example.com/sample.pdf",
+  "format": "UNSUPPORTED"
+}
+
+### 测试无效的task_id
+GET {{baseUrl}}/api/v1/tasks/invalid-task-id
+
+### ========== 异步运行时修复测试流程 ==========
+### 专门用于测试修复后的异步运行时和 MinerU 后续流程
+
+### 步骤1: 创建任务（手动创建用于测试）
+# @name createTestTask
+POST {{baseUrl}}/api/v1/tasks
+Content-Type: application/json
+
+{
+  "source_type": "Upload",
+  "source_path": "均线为王之一：均线100分.pdf",
+  "format": "PDF"
+}
+
+### 步骤2: 查询任务状态（验证状态更新）
+GET {{baseUrl}}/api/v1/tasks/{{createTestTask.response.body.data.task_id}}
+
+### 步骤3: 获取任务结果概览（验证后续处理）
+GET {{baseUrl}}/api/v1/tasks/{{createTestTask.response.body.data.task_id}}/result
+
+### 步骤4: 获取文档目录（验证结构化处理）
+GET {{baseUrl}}/api/v1/tasks/{{createTestTask.response.body.data.task_id}}/toc
+
+### 步骤5: 下载 Markdown 文件（验证 OSS 上传）
+GET {{baseUrl}}/api/v1/tasks/{{createTestTask.response.body.data.task_id}}/markdown/download
+
+### ========== 测试说明 ==========
+### 1. 此测试流程用于验证任务创建和查询的完整流程
+### 2. 测试任务状态查询、结果获取、目录解析等功能
+### 3. 验证路由优化后的接口路径正确性
+### 4. 测试完整的处理链：任务创建 → 状态查询 → 结果获取 → 文件下载
+
+### ========== 异步文档解析测试流程 ==========
+### 专门针对大文件（如PDF）的异步解析测试
+### MinerU解析PDF大约需要20分钟，适合测试异步流程
+
+### 步骤1: 上传PDF文件（异步）- 自动提取taskId
+# @name uploadAsync
+POST {{baseUrl}}/api/v1/documents/upload
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="file"; filename="均线为王之一：均线100分.pdf"
+Content-Type: application/pdf
+
+< ./fixtures/均线为王之一：均线100分.pdf
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="format"
+
+pdf
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+### 步骤2: 使用自动提取的task_id查询任务状态
+GET {{baseUrl}}/api/v1/tasks/{{uploadAsync.response.body.data.task_id}}
+
+### ========== OSS 签名URL接口测试 ==========
+
+### 步骤1: 获取上传签名URL
+# @name getUploadSignUrl
+GET {{baseUrl}}/api/v1/oss/upload-sign-url?file_name=simple.md&content_type=text/markdown
+
+### 步骤2: 使用签名URL上传文件
+PUT {{getUploadSignUrl.response.body.data.upload_url}}
+Content-Type: text/markdown
+
+< ./fixtures/simple_markdown.md
+
+### 步骤3: 获取下载签名URL验证文件上传成功
+GET {{baseUrl}}/api/v1/oss/download-sign-url?file_name=simple.md
+
+### 使用说明：
+### 1. 先获取上传签名URL (4小时有效)
+### 2. 用PUT方法上传文件到签名URL  
+### 3. 获取下载签名URL验证上传成功
+### 4. 系统会自动在文件名前加上配置的子目录前缀"edu/"
+
+### 步骤3: 获取任务结果概览（包含OSS文件信息）
+GET {{baseUrl}}/api/v1/tasks/{{uploadAsync.response.body.data.task_id}}/result
+
+### 步骤4: 等待任务完成后，获取Markdown下载URL（包含OSS文件名和bucket）
+GET {{baseUrl}}/api/v1/tasks/{{uploadAsync.response.body.data.task_id}}/markdown/url
+
+### 步骤5: 直接下载Markdown文件
+GET {{baseUrl}}/api/v1/tasks/{{uploadAsync.response.body.data.task_id}}/markdown/download
+
+### 步骤6: 获取临时下载URL（有时效性）
+GET {{baseUrl}}/api/v1/tasks/{{uploadAsync.response.body.data.task_id}}/markdown/url?temp=true&expires_hours=1
+
+### ========== 新接口特性说明 ==========
+### 1. /upload 接口现在立即返回taskId，不再同步等待解析完成
+### 2. /tasks/{taskId}/result 返回任务元数据概览，包含：
+###    - 任务状态和时间信息
+###    - 文件信息（原始文件名、大小、格式）
+###    - OSS信息（bucket、文件可用性、图片数量）
+###    - 处理统计信息（处理时间等）
+### 3. /tasks/{taskId}/markdown/url 现在包含：
+###    - oss_file_name: OSS上的实际文件名（格式：原始名_时间_uid.扩展名）
+###    - oss_bucket: OSS bucket名称
+###    - 可以用这些信息调用OSS服务获取新的下载链接
+### 4. OSS服务接口：
+###    - POST /api/v1/oss/upload: 上传文件到OSS，返回文件名、bucket和4小时有效下载链接
+###    - GET /api/v1/oss/download-url: 根据OSS文件名获取4小时有效下载链接
+###      * file_name: OSS上的文件名（必选）
+###      * bucket: 指定bucket名称（可选，不指定则使用默认bucket）
+
+### ========== 推荐测试流程 ==========
+### 对于大文件（如PDF），建议按以下顺序测试：
+### 1. 先上传文件，获取taskId（立即返回）
+### 2. 定期查询任务状态，监控解析进度
+### 3. 任务完成后查看结果概览，了解文件和OSS信息
+### 4. 根据需要下载或获取OSS链接

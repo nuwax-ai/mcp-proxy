@@ -45,7 +45,7 @@ impl std::fmt::Debug for DynamicRouterService {
             .iter()
             .map(|entry| entry.key().clone())
             .collect::<Vec<_>>();
-        write!(f, "DynamicRouterService {{ routes: {:?} }}", routes)
+        write!(f, "DynamicRouterService {{ routes: {routes:?} }}")
     }
 }
 
@@ -140,10 +140,10 @@ impl ProxyHandlerManager {
             .map(|entry| entry.value().clone())
     }
 
-
     // 更新最后访问时间
     pub fn update_last_accessed(&self, mcp_id: &str) {
-        self.mcp_service_statuses.get_mut(mcp_id)
+        self.mcp_service_statuses
+            .get_mut(mcp_id)
             .iter_mut()
             .for_each(|entry| {
                 entry.value_mut().update_last_accessed();
@@ -180,16 +180,16 @@ impl ProxyHandlerManager {
         DynamicRouterService::delete_route(&base_stream_path);
 
         if let Some(status) = self.mcp_service_statuses.get_mut(mcp_id) {
-            info!("Cleaning up resources for mcp_id: {}", mcp_id,);
+            info!("Cleaning up resources for mcp_id: {mcp_id}",);
             // 取消与此 mcp_id 关联的 SseServer/command 终端的 CancellationToken
             status.cancellation_token.cancel();
-            info!("CancellationToken cancelled for mcp_id: {}", mcp_id);
+            info!("CancellationToken cancelled for mcp_id: {mcp_id}");
         }
 
         self.proxy_handlers.remove(mcp_id);
         self.mcp_service_statuses.remove(mcp_id);
 
-        info!("MCP 服务 {} 的 command 终端资源清理已触发", mcp_id);
+        info!("MCP 服务 {mcp_id} 的 command 终端资源清理已触发");
     }
 
     // 系统关闭,清理所有资源

@@ -36,7 +36,7 @@ pub async fn schedule_check_mcp_live() {
             McpType::Persistent => {
                 //检查持久化服务是否已被取消或子进程已终止
                 if cancellation_token.is_cancelled() {
-                    info!("持久化 MCP 服务 {} 已被手动取消，清理资源", mcp_id);
+                    info!("持久化 MCP 服务 {mcp_id} 已被手动取消，清理资源");
                     proxy_manager.cleanup_resources(&mcp_id).await;
                     continue;
                 }
@@ -44,7 +44,7 @@ pub async fn schedule_check_mcp_live() {
                 //检查子进程是否还在运行
                 if let Some(handler) = proxy_manager.get_proxy_handler(&mcp_id) {
                     if handler.is_terminated_async().await {
-                        info!("持久化 MCP 服务 {} 子进程异常结束，清理资源", mcp_id);
+                        info!("持久化 MCP 服务 {mcp_id} 子进程异常结束，清理资源");
                         proxy_manager.cleanup_resources(&mcp_id).await;
                     }
                 }
@@ -52,7 +52,7 @@ pub async fn schedule_check_mcp_live() {
             McpType::OneShot => {
                 //检查一次性任务是否已被取消
                 if cancellation_token.is_cancelled() {
-                    info!("一次性 MCP 任务 {} 已被手动取消，清理资源", mcp_id);
+                    info!("一次性 MCP 任务 {mcp_id} 已被手动取消，清理资源");
                     proxy_manager.cleanup_resources(&mcp_id).await;
                     continue;
                 }
@@ -60,22 +60,22 @@ pub async fn schedule_check_mcp_live() {
                 //检查子进程是否已经完成
                 if let Some(handler) = proxy_manager.get_proxy_handler(&mcp_id) {
                     if handler.is_terminated_async().await {
-                        info!("一次性 MCP 任务 {} 已完成，开始清理资源", mcp_id);
+                        info!("一次性 MCP 任务 {mcp_id} 已完成，开始清理资源");
                         proxy_manager.cleanup_resources(&mcp_id).await;
-                        info!("一次性 MCP 任务 {} 资源清理完成", mcp_id);
+                        info!("一次性 MCP 任务 {mcp_id} 资源清理完成");
                         continue;
                     }
 
                     //检查是否超过3分钟未访问
                     let idle_time = mcp_service_status.last_accessed.elapsed();
                     if idle_time > timeout_duration {
-                        info!("一次性 MCP 任务 {} 超过3分钟未被访问，自动清理资源", mcp_id);
+                        info!("一次性 MCP 任务 {mcp_id} 超过3分钟未被访问，自动清理资源");
                         proxy_manager.cleanup_resources(&mcp_id).await;
-                        info!("一次性 MCP 任务 {} 资源自动清理完成", mcp_id);
+                        info!("一次性 MCP 任务 {mcp_id} 资源自动清理完成");
                     }
                 } else {
                     //处理器已经被移除
-                    info!("一次性 MCP 任务 {} 不存在，无需清理", mcp_id);
+                    info!("一次性 MCP 任务 {mcp_id} 不存在，无需清理");
                 }
             }
         }

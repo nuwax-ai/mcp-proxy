@@ -28,11 +28,10 @@ pub async fn log_request(request: Request, next: Next) -> Result<Response, Statu
     // 对于404或其他错误，使用警告级别记录
     if status.is_client_error() || status.is_server_error() {
         warn!(
-            "请求错误: {} {} - 状态码: {} - 可能的原因: 路径不存在或服务器内部错误",
-            method, path, status
+            "请求错误: {method} {path} - 状态码: {status} - 可能的原因: 路径不存在或服务器内部错误"
         );
     } else {
-        info!("请求完成: {} {} - 状态码: {}", method, path, status);
+        info!("请求完成: {method} {path} - 状态码: {status}");
     }
 
     Ok(response)
