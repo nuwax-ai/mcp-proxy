@@ -5,6 +5,7 @@ mod mcp_update_latest_layer;
 mod request_id;
 mod request_logger;
 mod server_time;
+mod trace_middleware;
 
 use crate::model::AppState;
 use axum::Router;
@@ -14,6 +15,7 @@ use mcp_router_json::mcp_json_config_extract;
 use request_id::set_request_id;
 use request_logger::log_request;
 use server_time::ServerTimeLayer;
+use trace_middleware::trace_middleware;
 use tower::ServiceBuilder;
 use tower_http::LatencyUnit;
 use tower_http::compression::CompressionLayer;
@@ -21,6 +23,7 @@ use tower_http::trace::{DefaultOnRequest, DefaultOnResponse, TraceLayer};
 use tracing::Level;
 
 pub use mcp_update_latest_layer::MySseRouterLayer;
+pub use trace_middleware::extract_trace_id;
 
 // pub use auth::{extract_user, verify_token};
 
@@ -35,6 +38,7 @@ const SERVER_TIME_HEADER: &str = "x-server-time";
 pub fn set_layer(app: Router, state: AppState) -> Router {
     app.layer(
         ServiceBuilder::new()
+            .layer(from_fn(trace_middleware))
             .layer(from_fn(mcp_json_config_extract))
             .layer(from_fn(set_request_id))
             .layer(from_fn(log_request))

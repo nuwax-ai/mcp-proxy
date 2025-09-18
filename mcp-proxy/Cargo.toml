@@ -13,6 +13,12 @@ tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tracing-appender = { workspace = true }
+tracing-opentelemetry = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry-jaeger = { workspace = true }
+opentelemetry-semantic-conventions = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+hostname = { workspace = true }
 log = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
@@ -30,6 +36,7 @@ chrono = { workspace = true }
 tokio-stream = "0.1.17"
 backtrace = "0.3"
 tracing-futures = "0.2.5"
+rand = "0.8"
 # 执行js/ts/python代码,通过 uv/deno 命令方式执行
 run_code_rmcp = { workspace = true }
 urlencoding = "2.1.3"

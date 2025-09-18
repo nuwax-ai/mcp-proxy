@@ -30,7 +30,11 @@ tracing-appender = "=0.2.2"
 tracing-opentelemetry = "0.31"
 opentelemetry = { version = "0.30", features = ["trace"] }
 opentelemetry-jaeger = { version = "0.22", features = ["rt-tokio"] }
-opentelemetry-semantic-conventions = "0.30"
+opentelemetry-semantic-conventions = { version = "0.30", features = ["semconv_experimental"] }
+opentelemetry_sdk = "0.30"
+hostname = "0.4"
+uuid = { version = "1.18", features = ["v4", "v7"] }
+rand = "0.9"
 log = "0.4"
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde", "now"] }
@@ -68,10 +72,8 @@ reqwest = { version = "0.12", features = ["json"] }
 http = "1.3"
 aliyun-oss-rust-sdk = "0.2"
 clap = { version = "4.5", features = ["derive", "env"] }
-uuid = { version = "1.18", features = ["v7"] }
 futures = "0.3"
 run_code_rmcp = "0.0.33"
-rand = "0.9"
 derive_builder = "0.20"
 bytes = "1.0"
 base64 = "0.22"

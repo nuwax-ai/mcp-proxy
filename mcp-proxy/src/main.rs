@@ -20,7 +20,6 @@ async fn main() -> Result<()> {
     let server_port = &app_config.server.port;
 
     // 解析 RUST_LOG 环境变量
-
     let console_filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level));
 
@@ -40,10 +39,14 @@ async fn main() -> Result<()> {
         .with_writer(non_blocking)
         .with_filter(log_filter);
 
+    // 配置 OpenTelemetry
+    let telemetry_layer = tracing_opentelemetry::layer();
+
     // 初始化 tracing 订阅器
     tracing_subscriber::registry()
         .with(console_layer)
         .with(file_layer)
+        .with(telemetry_layer)
         .init();
 
     tracing::info!("服务启动，监听端口: {}", server_port);

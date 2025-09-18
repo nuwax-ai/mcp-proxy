@@ -39,6 +39,9 @@ impl ServerHandler for ProxyHandler {
                     server_info: Implementation {
                         name: peer_info.server_info.name.clone(),
                         version: peer_info.server_info.version.clone(),
+                        title: None,
+                        website_url: None,
+                        icons: None,
                     },
                     instructions: peer_info.instructions.clone(),
                     capabilities: peer_info.capabilities.clone(),
@@ -60,6 +63,9 @@ impl ServerHandler for ProxyHandler {
             server_info: Implementation {
                 name: "MCP Proxy - Service Unavailable".to_string(),
                 version: "0.1.0".to_string(),
+                title: None,
+                website_url: None,
+                icons: None,
             },
             instructions: Some("ERROR: MCP service is not available or still initializing. Please try again later.".to_string()),
             capabilities: Default::default(), // 空的能力列表，表示服务不可用
@@ -386,6 +392,9 @@ impl ProxyHandler {
                 server_info: Implementation {
                     name: peer_info.server_info.name.clone(),
                     version: peer_info.server_info.version.clone(),
+                    title: None,
+                    website_url: None,
+                    icons: None,
                 },
                 instructions: peer_info.instructions.clone(),
                 capabilities: peer_info.capabilities.clone(),
