@@ -75,6 +75,7 @@ pub async fn trace_middleware(
         component = "http_middleware",
     );
 
+  
     // 4. 如果请求中有 x-trace-id 头，也记录到日志中
     if let Some(trace_header) = request.headers().get("x-trace-id") {
         if let Ok(trace_id) = trace_header.to_str() {
@@ -134,15 +135,3 @@ pub fn trace_span_with_context(_name: &str, headers: &HeaderMap) -> Span {
     }
 }
 
-/// 为 tracing 订阅器添加 trace_id 过滤器
-pub fn setup_trace_id_logging() {
-    use tracing_subscriber::{filter::EnvFilter, fmt, prelude::*};
-
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
-
-    tracing_subscriber::registry()
-        .with(filter)
-        .with(fmt::layer())
-        .init();
-}

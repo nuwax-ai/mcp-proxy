@@ -57,7 +57,7 @@ impl Service<Request<Body>> for DynamicRouterService {
             );
         }
 
-        debug!("请求路径: {path} - TraceId: {trace_id}");
+        debug!("请求路径: {path}");
 
         // 解析路由路径
         let mcp_router_path = McpRouterPath::from_url(&path);
@@ -70,7 +70,7 @@ impl Service<Request<Body>> for DynamicRouterService {
                 span.record("mcp.id", &mcp_id);
                 span.record("mcp.base_path", &base_path);
 
-                debug!("请求访问MCP ID: {mcp_id} - TraceId: {trace_id}");
+                debug!("请求访问MCP ID: {mcp_id}");
 
                 Box::pin(async move {
                     let _guard = span.enter();
@@ -82,7 +82,7 @@ impl Service<Request<Body>> for DynamicRouterService {
 
                     // 未找到路由，尝试启动服务
                     warn!(
-                        "未找到匹配的路径,尝试启动服务:base_path={base_path},path={path} - TraceId: {trace_id}"
+                        "未找到匹配的路径,尝试启动服务:base_path={base_path},path={path}"
                     );
                     span.record("error.route_not_found", true);
 
@@ -96,12 +96,12 @@ impl Service<Request<Body>> for DynamicRouterService {
 
                     // 没有配置，无法启动服务
                     warn!(
-                        "未找到匹配的路径,且未获取到header[x-mcp-json]配置,无法启动MCP服务: {path} - TraceId: {trace_id}"
+                        "未找到匹配的路径,且未获取到header[x-mcp-json]配置,无法启动MCP服务: {path}"
                     );
                     span.record("error.mcp_config_missing", true);
 
                     let message = format!(
-                        "未找到匹配的路径,且未获取到header[x-mcp-json]配置,无法启动MCP服务: {path} - TraceId: {trace_id}"
+                        "未找到匹配的路径,且未获取到header[x-mcp-json]配置,无法启动MCP服务: {path}"
                     );
                     let http_result: HttpResult<String> = HttpResult::error("0001", &message, None);
                     span.record("http.response.status_code", 404u16);
@@ -110,10 +110,10 @@ impl Service<Request<Body>> for DynamicRouterService {
                 })
             }
             None => {
-                warn!("请求路径解析失败: {path} - TraceId: {trace_id}");
+                warn!("请求路径解析失败: {path}");
                 span.record("error.path_parse_failed", true);
 
-                let message = format!("请求路径解析失败: {path} - TraceId: {trace_id}");
+                let message = format!("请求路径解析失败: {path}");
                 let http_result: HttpResult<String> = HttpResult::error("0001", &message, None);
                 Box::pin(async move {
                     let _guard = span.enter();
@@ -127,6 +127,10 @@ impl Service<Request<Body>> for DynamicRouterService {
 }
 
 /// 使用给定的路由处理请求
+#[tracing::instrument(skip(req, router_entry), fields(
+    http.method = %req.method(),
+    http.uri = %req.uri(),
+))]
 async fn handle_request_with_router(
     req: Request<Body>,
     router_entry: axum::Router,
@@ -139,7 +143,7 @@ async fn handle_request_with_router(
     let path = uri.path();
 
     info!(
-        "[handle_request_with_router]处理请求: {} {} - TraceId: {trace_id}",
+        "[handle_request_with_router]处理请求: {} {}",
         method, path
     );
 
@@ -147,7 +151,7 @@ async fn handle_request_with_router(
     if let Some(content_type) = req.headers().get("content-type") {
         if let Ok(content_type_str) = content_type.to_str() {
             info!(
-                "[handle_request_with_router] Content-Type: {} - TraceId: {trace_id}",
+                "[handle_request_with_router] Content-Type: {}",
                 content_type_str
             );
         }
@@ -156,7 +160,7 @@ async fn handle_request_with_router(
     if let Some(content_length) = req.headers().get("content-length") {
         if let Ok(content_length_str) = content_length.to_str() {
             info!(
-                "[handle_request_with_router] Content-Length: {} - TraceId: {trace_id}",
+                "[handle_request_with_router] Content-Length: {}",
                 content_length_str
             );
         }
@@ -166,7 +170,7 @@ async fn handle_request_with_router(
     if let Some(mcp_json) = req.headers().get("x-mcp-json") {
         if let Ok(mcp_json_str) = mcp_json.to_str() {
             info!(
-                "[handle_request_with_router] MCP-JSON Header: {} - TraceId: {trace_id}",
+                "[handle_request_with_router] MCP-JSON Header: {}",
                 mcp_json_str
             );
         }
@@ -175,7 +179,7 @@ async fn handle_request_with_router(
     // 记录查询参数
     if let Some(query) = uri.query() {
         info!(
-            "[handle_request_with_router] Query: {} - TraceId: {trace_id}",
+            "[handle_request_with_router] Query: {}",
             query
         );
     }
@@ -197,7 +201,7 @@ async fn handle_request_with_router(
 
             // 记录响应头信息
             info!(
-                "[handle_request_with_router]响应状态: {}, 响应头: {response:?} - TraceId: {trace_id}",
+                "[handle_request_with_router]响应状态: {}, 响应头: {response:?}",
                 status
             );
 
@@ -206,20 +210,24 @@ async fn handle_request_with_router(
         Err(error) => {
             span.record("error.router_service_error", true);
             span.record("error.message", format!("{:?}", error));
-            error!("[handle_request_with_router]错误: {error:?} - TraceId: {trace_id}");
+            error!("[handle_request_with_router]错误: {error:?}");
             Ok(axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response())
         }
     }
 }
 
 /// 启动MCP服务并处理请求
+#[tracing::instrument(skip(req, mcp_config), fields(
+    mcp_id = %mcp_config.mcp_id,
+    mcp_type = ?mcp_config.mcp_type,
+))]
 async fn start_mcp_and_handle_request(
     req: Request<Body>,
     mcp_config: McpConfig,
 ) -> Result<Response, Infallible> {
     let request_path = req.uri().path().to_string();
     let trace_id = extract_trace_id(req.headers()).unwrap_or_else(|| "unknown".to_string());
-    debug!("请求路径: {request_path} - TraceId: {trace_id}");
+    debug!("请求路径: {request_path}");
 
     let span = tracing::info_span!(
         "start_mcp_and_handle_request",
@@ -240,7 +248,7 @@ async fn start_mcp_and_handle_request(
         span.record("mcp.startup.failed", true);
         span.record("error.mcp_startup_failed", true);
         span.record("error.message", format!("{:?}", ret));
-        warn!("MCP服务启动失败: {ret:?} - TraceId: {trace_id}");
+        warn!("MCP服务启动失败: {ret:?}");
         Ok(axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response())
     }
 }

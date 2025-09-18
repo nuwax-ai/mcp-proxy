@@ -96,7 +96,7 @@ pub async fn integrate_sse_server_with_axum(
     let client = client_info.serve(tokio_process).await?;
 
     // 创建代理处理器
-    let proxy_handler = ProxyHandler::new(client);
+    let proxy_handler = ProxyHandler::with_mcp_id(client, mcp_id.clone());
 
     // 获取全局 ProxyHandlerManager
     let proxy_manager = get_proxy_manager();
