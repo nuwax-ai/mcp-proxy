@@ -22,3 +22,19 @@ server.log
 document-parser/:memory:/*
 
 document-parser/temp/*
+models/*
+dist/
+voice-cli/temp/*
+voice-cli/cluster_metadata/*
+voice-cli/shared-voice-cli/*
+voice-cli/:memory:/*
+
+cluster_metadata
+*.pid
+
+voice-cli/build/*
+voice-cli/data/*
+voice-cli/server-config.yml
+voice-cli/server_debug.log
+voice-cli/test_audio.txt
+voice-cli/checkpoints/*

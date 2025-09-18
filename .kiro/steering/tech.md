@@ -1,3 +1,7 @@
+---
+inclusion: always
+---
+
 # Technology Stack
 
 ## Build System

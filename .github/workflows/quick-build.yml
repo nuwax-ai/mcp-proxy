@@ -1,0 +1,126 @@
+name: Quick Binary Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      binary:
+        description: 'Binary to build'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+        - voice-cli
+        - document-parser
+        - both
+      target:
+        description: 'Target architecture'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+        - x86_64-unknown-linux-gnu
+        - aarch64-unknown-linux-gnu
+        - both
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  quick-build:
+    name: Quick Build
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libssl-dev \
+            openssl \
+            ca-certificates \
+            build-essential \
+            libc6-dev \
+            libclang-dev \
+            clang \
+            cmake \
+            make \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu \
+            libc6-dev-arm64-cross
+
+      - name: Set up cross-compilation environment
+        run: |
+          echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++" >> $GITHUB_ENV
+          echo "AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar" >> $GITHUB_ENV
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-quick-build-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-quick-build-
+
+      - name: Build binaries
+        run: |
+          set -e
+          
+          # Determine which binaries to build
+          if [ "${{ inputs.binary }}" = "both" ]; then
+            BINARIES="voice-cli document-parser"
+          else
+            BINARIES="${{ inputs.binary }}"
+          fi
+          
+          # Determine which targets to build for
+          if [ "${{ inputs.target }}" = "both" ]; then
+            TARGETS="x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu"
+          else
+            TARGETS="${{ inputs.target }}"
+          fi
+          
+          # Build each combination
+          for binary in $BINARIES; do
+            for target in $TARGETS; do
+              echo "Building $binary for $target..."
+              cargo build --release --target $target --bin $binary --verbose
+              
+              # Strip binary
+              if [ "$target" = "x86_64-unknown-linux-gnu" ]; then
+                strip target/$target/release/$binary
+              else
+                aarch64-linux-gnu-strip target/$target/release/$binary
+              fi
+              
+              # Create versioned filename
+              arch=$(echo $target | cut -d'-' -f1)
+              cp target/$target/release/$binary ${binary}-${arch}-linux
+            done
+          done
+
+      - name: List built binaries
+        run: |
+          ls -la *-linux || echo "No binaries found"
+          file *-linux || echo "No binaries to check"
+
+      - name: Upload all built binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: quick-build-binaries-${{ github.run_number }}
+          path: "*-linux"
+          if-no-files-found: error
+          retention-days: 7

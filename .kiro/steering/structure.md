@@ -1,20 +1,32 @@
-# Project Structure
+---
+inclusion: always
+---
 
-## Workspace Organization
-This is a Cargo workspace with two main crates:
-- `document-parser/`: Document processing service
-- `mcp-proxy/`: MCP proxy service
+# Project Structure & Organization
 
-## Root Level Files
-- `Cargo.toml`: Workspace configuration with shared dependencies
-- `README.md`: Project documentation (Chinese)
-- `CHANGELOG.md`: Version history
-- `cliff.toml`: Changelog generation config
-- `deny.toml`: Security audit configuration
-- `_typos.toml`: Spell check configuration
-- `.pre-commit-config.yaml`: Code quality hooks
+## Workspace Architecture
+
+This is a Cargo workspace with four main crates:
+- `document-parser/`: Multi-format document processing service
+- `mcp-proxy/`: MCP protocol proxy with SSE support  
+- `voice-cli/`: Audio transcription service with Apalis task queue
+- `oss-client/`: Shared OSS storage client library
+
+**Key Principle**: No root-level implementation code - all functionality must be in workspace members.
+
+## Workspace Dependencies
+
+**Shared Dependencies**: All common dependencies are defined in workspace `Cargo.toml` and referenced with `{ workspace = true }` in member crates.
+
+**Key Shared Crates**:
+- `axum`, `tokio`: HTTP framework and async runtime
+- `serde`, `serde_json`: Serialization
+- `anyhow`, `thiserror`: Error handling
+- `tracing`: Structured logging
+- `uuid`, `chrono`: Utilities
 
 ## Document Parser Structure
+
 ```
 document-parser/
 ├── src/
@@ -76,86 +88,121 @@ document-parser/
 └── config.yml              # Default configuration
 ```
 
-## MCP Proxy Structure
+## Voice CLI Structure (Apalis-based)
+
 ```
-mcp-proxy/
+voice-cli/
 ├── src/
 │   ├── main.rs              # Application entry point
 │   ├── lib.rs               # Library exports
 │   ├── config.rs            # Configuration management
-│   ├── mcp_error.rs         # Error handling
-│   ├── client/              # MCP client implementation
+│   ├── error.rs             # Error types
+│   ├── cli/                 # CLI interface
 │   │   ├── mod.rs
-│   │   └── sse_client.rs          # SSE client
-│   ├── proxy/               # Proxy logic
+│   │   ├── model.rs               # CLI model commands
+│   │   ├── server.rs              # Server commands
+│   │   └── unified_handlers.rs    # Command handlers
+│   ├── daemon/              # Background service
 │   │   ├── mod.rs
-│   │   └── proxy_handler.rs       # Request proxying
+│   │   ├── background_service.rs  # Service abstraction
+│   │   ├── service_logging.rs     # Daemon logging
+│   │   └── services/              # Service implementations
+│   ├── models/              # Data structures
+│   │   ├── mod.rs
+│   │   ├── config.rs              # Configuration models
+│   │   ├── task.rs                # Task representation
+│   │   ├── stepped_task.rs        # Multi-step task workflow
+│   │   ├── worker.rs              # Worker configuration
+│   │   ├── request.rs             # API request models
+│   │   └── http_result.rs         # Response wrapper
 │   ├── server/              # HTTP server
 │   │   ├── mod.rs
-│   │   ├── router_layer.rs         # Route management
-│   │   ├── mcp_dynamic_router_service.rs # Dynamic routing
-│   │   ├── handlers/               # Request handlers
-│   │   │   ├── mod.rs
-│   │   │   ├── health.rs           # Health endpoints
-│   │   │   ├── mcp_add_handler.rs  # MCP service registration
-│   │   │   ├── mcp_check_status_handler.rs # Status checking
-│   │   │   ├── run_code_handler.rs # Code execution
-│   │   │   ├── delete_route_handler.rs # Route removal
-│   │   │   ├── check_mcp_is_status.rs # Service validation
-│   │   │   └── sse_server.rs       # SSE endpoints
-│   │   ├── middlewares/            # HTTP middleware
-│   │   │   ├── mod.rs
-│   │   │   ├── auth.rs             # Authentication
-│   │   │   ├── request_logger.rs   # Request logging
-│   │   │   ├── request_id.rs       # Request tracking
-│   │   │   ├── server_time.rs      # Timing middleware
-│   │   │   ├── mark_log_span.rs    # Tracing spans
-│   │   │   ├── mcp_router_json.rs  # JSON handling
-│   │   │   └── mcp_update_latest_layer.rs # State updates
-│   │   └── task/                   # Background tasks
-│   │       ├── mod.rs
-│   │       ├── mcp_start_task.rs   # Service startup
-│   │       ├── schedule_task.rs    # Task scheduling
-│   │       └── schedule_check_mcp_live.rs # Health monitoring
-│   ├── model/               # Data models
+│   │   ├── routes.rs              # Route definitions
+│   │   ├── handlers.rs            # Request handlers
+│   │   ├── middleware.rs          # HTTP middleware
+│   │   └── http_tracing.rs        # Request tracing
+│   ├── services/            # Business logic
 │   │   ├── mod.rs
-│   │   ├── app_state_model.rs      # Application state
-│   │   ├── global.rs               # Global state management
-│   │   ├── http_result.rs          # HTTP responses
-│   │   ├── mcp_check_status_model.rs # Status checking
-│   │   ├── mcp_config.rs           # MCP configuration
-│   │   └── mcp_router_model.rs     # Routing models
+│   │   ├── apalis_sqlite.rs       # Apalis SQLite backend
+│   │   ├── apalis_transcription.rs # Transcription worker
+│   │   ├── stepped_worker.rs      # Multi-step task worker
+│   │   ├── transcription_engine.rs # Core transcription logic
+│   │   ├── transcription_steps.rs # Step implementations
+│   │   ├── audio_file_manager.rs  # Audio file handling
+│   │   ├── audio_format_detector.rs # Format detection
+│   │   ├── model_service.rs       # Model management
+│   │   ├── task_store.rs          # Task persistence
+│   │   ├── task_recovery.rs       # Task recovery logic
+│   │   └── worker_pool.rs         # Worker management
+│   ├── utils/               # Utilities
+│   │   ├── mod.rs
+│   │   ├── cleanup.rs             # Resource cleanup
+│   │   └── signal_handling.rs     # Graceful shutdown
 │   └── tests/               # Unit tests
-├── benches/                 # Performance benchmarks
-├── examples/                # Usage examples
-├── fixtures/                # Test files
-├── logs/                    # Log output directory
-└── config.yml              # Default configuration
+├── tests/                   # Integration tests
+├── templates/               # Configuration templates
+└── logs/                    # Log output
 ```
 
-## Configuration Files
-- Each service has its own `config.yml` with service-specific settings
-- Environment variables override config file values
-- Logging configuration supports both console and file output
-- OSS and external service credentials via environment variables
+## Module Organization Patterns
 
-## Code Organization Patterns
-- **Handlers**: HTTP request/response logic only
-- **Services**: Business logic and orchestration
-- **Models**: Data structures and serialization
-- **Utils**: Pure functions and utilities
-- **Tests**: Co-located with source code, integration tests separate
-- **Benchmarks**: Performance testing for critical paths
+### Layer Responsibilities
+- **Handlers**: HTTP request/response logic only - no business logic
+- **Services**: Business logic and orchestration - core functionality
+- **Models**: Data structures with serde serialization - shared types
+- **Utils**: Pure functions and utilities - no state
+- **CLI**: Command-line interface - user interaction
+- **Daemon**: Background services - long-running processes
 
-## Naming Conventions
-- **Files**: snake_case (e.g., `document_handler.rs`)
-- **Modules**: snake_case matching file names
-- **Structs/Enums**: PascalCase (e.g., `DocumentTask`)
-- **Functions/Variables**: snake_case (e.g., `parse_document`)
-- **Constants**: SCREAMING_SNAKE_CASE (e.g., `APP_VERSION`)
+### File Placement Rules
+- **Unit tests**: `#[cfg(test)]` modules in same file as implementation
+- **Integration tests**: Separate `tests/` directory
+- **Benchmarks**: `benches/` directory for performance testing
+- **Examples**: `examples/` directory for usage demonstrations
+- **Fixtures**: Test data and configuration samples
 
-## Import Organization
-1. Standard library imports
-2. External crate imports (workspace dependencies first)
-3. Local crate imports (relative modules)
-4. Re-exports in mod.rs files for clean public APIs
+### State Management
+- **Shared state**: Use `Arc<DashMap<K, V>>` for concurrent access
+- **Application state**: Centralized in `app_state.rs` or similar
+- **Configuration**: YAML files with environment variable overrides
+- **Persistence**: Sled for key-value, SQLite for structured data
+
+## Code Organization Rules
+
+### Naming Conventions
+- **Files/Modules**: `snake_case` (e.g., `audio_file_manager.rs`)
+- **Structs/Enums**: `PascalCase` (e.g., `TranscriptionTask`)
+- **Functions/Variables**: `snake_case` (e.g., `process_audio_file`)
+- **Constants**: `SCREAMING_SNAKE_CASE` (e.g., `MAX_FILE_SIZE`)
+- **Traits**: `PascalCase` with descriptive names (e.g., `AudioProcessor`)
+
+### Import Organization (Required Order)
+```rust
+// 1. Standard library
+use std::collections::HashMap;
+use std::path::PathBuf;
+
+// 2. External crates (workspace deps first)
+use axum::{Json, Router};
+use serde::{Deserialize, Serialize};
+use tokio::fs;
+
+// 3. Local crate imports
+use crate::models::Task;
+use crate::services::AudioService;
+
+// 4. Re-exports in mod.rs only
+pub use self::handler::*;
+```
+
+### Module Visibility
+- Use `pub(crate)` for internal APIs
+- Public exports only in `lib.rs`
+- Avoid `pub` unless truly needed externally
+- Document all public APIs with `///` comments
+
+### Error Handling Patterns
+- **Services**: Return `Result<T, anyhow::Error>` with context
+- **Handlers**: Convert to HTTP responses with proper status codes
+- **Models**: Use `thiserror` for structured error types
+- **Never**: Use `unwrap()` or `panic!()` in production code

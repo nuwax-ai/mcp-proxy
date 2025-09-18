@@ -2,142 +2,176 @@
 inclusion: always
 ---
 
-# Rust 最佳实践规则
+# Rust Development Guidelines
 
-## 代码风格和格式化
+## Project Architecture
 
-- 使用 `cargo fmt` 格式化代码，遵循官方 Rust 代码风格
-- 使用 `cargo clippy` 进行代码检查，修复所有警告
-- 行长度限制为 100 字符
-- 使用 4 个空格缩进，不使用制表符
-- 在函数、结构体、枚举等定义前添加文档注释
+### Workspace Structure
+- **Multi-crate workspace**: `document-parser`, `mcp-proxy`, `oss-client`, `voice-cli`
+- **No root-level code**: All implementation must be in workspace members
+- **Shared dependencies**: Centralized in workspace `Cargo.toml` with `{ workspace = true }`
+- **Single binary deployment**: Zero runtime dependencies target
 
-## 命名约定
+### Module Organization
+- **Clear separation of concerns**: handlers, services, models, utils
+- **Handlers**: HTTP request/response logic only
+- **Services**: Business logic and orchestration  
+- **Models**: Data structures with serde serialization
+- **Utils**: Pure functions and utilities
+- Use `pub(crate)` for internal APIs, public exports in `lib.rs`
 
-- 使用 `snake_case` 命名变量、函数、模块
-- 使用 `PascalCase` 命名结构体、枚举、特征
-- 使用 `SCREAMING_SNAKE_CASE` 命名常量
-- 模块名应该简洁且描述性强
-- 避免使用缩写，除非是广泛认知的（如 `id`、`url`）
+## Code Style & Quality
 
-## 错误处理
+### Formatting & Linting
+- `cargo fmt` for consistent formatting (100 char line limit)
+- `cargo clippy --all-targets --all-features -- -D warnings` 
+- Document all public APIs with `///` comments
+- Use 4-space indentation, no tabs
 
-- 优先使用 `Result<T, E>` 而不是 `panic!`
-- **优先使用 `anyhow` 进行错误处理**，特别是在应用层代码中
-- 使用 `thiserror` 定义结构化的自定义错误类型，适用于库代码
-- **错误处理库选择指南：**
-  - `anyhow`：应用层错误处理，快速原型开发，错误链追踪
-  - `thiserror`：库代码，需要结构化错误类型，向上游提供明确的错误接口
-- 为自定义错误类型实现 `Display` 和 `Error` 特征
-- 在库代码中避免使用 `unwrap()` 和 `expect()`，在应用代码中谨慎使用
-- 使用 `?` 操作符进行错误传播
-- 使用 `anyhow::Context` 为错误添加上下文信息
-- 在错误信息中包含足够的调试信息，但避免暴露敏感数据
+### Naming Conventions
+- `snake_case`: variables, functions, modules, files
+- `PascalCase`: structs, enums, traits
+- `SCREAMING_SNAKE_CASE`: constants
+- Descriptive names, avoid abbreviations except common ones (`id`, `url`)
 
-## 内存管理和性能
+## Error Handling Strategy
 
-- 优先使用借用 (`&T`) 而不是拥有所有权 (`T`)
-- 避免不必要的 `clone()`，考虑使用 `Cow<T>` 或引用计数 (`Rc<T>`/`Arc<T>`)
-- 使用 `Box<T>` 存储大型数据结构
-- 在循环中避免重复分配，预分配容器容量
-- 使用 `const` 和 `static` 声明编译时常量
+### Library Selection
+- **`anyhow`**: Application-layer error handling, error chaining
+- **`thiserror`**: Library code, structured error types for public APIs
+- Always use `Result<T, E>` over `panic!`
+- Use `?` operator for error propagation
+- Add context with `anyhow::Context`
 
-## 并发和异步编程
+### Best Practices
+- Avoid `unwrap()` and `expect()` in library code
+- Include debugging info in errors without exposing sensitive data
+- Implement `Display` and `Error` traits for custom error types
 
-- 使用 `tokio` 进行异步编程，避免阻塞操作
-- 优先使用 `async/await` 语法
-- 使用 `Arc<Mutex<T>>` 或 `Arc<RwLock<T>>` 进行线程间数据共享
-- 避免在异步函数中使用 `std::sync` 的同步原语
-- 使用 `tokio::spawn` 创建并发任务
+## Async & Concurrency
 
-## 模块组织
+### Tokio Patterns
+- Use `async/await` syntax throughout
+- `tokio::spawn` for concurrent tasks
+- Avoid `std::sync` primitives in async contexts
+- Use `Arc<Mutex<T>>` or `Arc<RwLock<T>>` for shared state
 
-- **永远不要在项目根目录直接编写代码**
-- 所有代码必须在对应的子项目模块中编写
-- 每个模块应该有明确的职责
-- 使用 `pub(crate)` 限制模块内部可见性
-- 将相关功能组织在同一模块中
-- 使用 `mod.rs` 或单文件模块，保持一致性
-- 在 `lib.rs` 中重新导出公共 API
-- **Workspace 结构规范：**
-  - 根目录只包含 `Cargo.toml`、`README.md` 等配置文件
-  - 具体功能实现在各子项目模块中
-  - 子项目间通过 workspace 依赖进行引用
+### Concurrent Data Structures
+- **Use `DashMap` instead of `RwLock<HashMap>`** for concurrent maps
+- `Arc<T>` for shared immutable data
+- `tokio::sync` primitives for async coordination
 
-## 测试
+## Performance & Memory
 
-- 为每个公共函数编写单元测试
-- 使用 `#[cfg(test)]` 标记测试模块
-- 测试函数名应该描述测试场景
-- 使用 `assert_eq!`、`assert_ne!` 等宏进行断言
-- 编写集成测试验证模块间交互
+### Memory Management
+- Prefer borrowing (`&T`) over ownership (`T`)
+- Avoid unnecessary `clone()`, use `Cow<T>` or `Arc<T>`
+- Pre-allocate container capacity in loops
+- Use `Box<T>` for large stack data
 
-## 文档
+### Caching & Storage
+- `moka` for in-memory caching with TTL
+- `sled` for embedded key-value persistence
+- `sqlx` with SQLite for structured data
 
-- 为所有公共 API 编写文档注释 (`///`)
-- 使用 `cargo doc` 生成文档
-- 在文档中包含使用示例
-- 为复杂算法添加内联注释
-- 保持 README.md 更新
+## HTTP & Web Services
 
-## 依赖管理
+### Axum Patterns
+- Type-safe extractors and responses
+- Custom error response types implementing `IntoResponse`
+- `tower` middleware for cross-cutting concerns
+- Route grouping for logical API organization
 
-- **在 workspace 根目录的 `Cargo.toml` 中统一管理所有依赖版本**
-- 子项目模块的 `Cargo.toml` 中使用 `{ workspace = true }` 引用根目录版本
-- 子项目可以根据实际需要添加或调整 `features`
-- 指定具体的版本号，避免使用 `*`
-- 定期更新依赖，检查安全漏洞
-- 使用 `cargo audit` 检查已知漏洞
-- 避免引入不必要的依赖
-- **示例配置：**
-  ```toml
-  # 根目录 Cargo.toml
-  [workspace.dependencies]
-  tokio = { version = "1.0", features = ["macros", "rt"] }
-  
-  # 子项目 Cargo.toml
-  [dependencies]
-  tokio = { workspace = true, features = ["net"] }  # 可添加额外features
-  ```
+### API Design
+- OpenAPI documentation with `utoipa`
+- Structured logging for requests/responses
+- Proper HTTP status codes
+- Graceful shutdown handling
 
-## 安全性
+## Task Processing
 
-- 验证所有外部输入
-- 使用类型系统防止无效状态
-- 避免在日志中记录敏感信息
-- 使用 `secrets` 类型处理敏感数据
-- 定期运行 `cargo audit` 检查安全问题
+### Apalis Integration
+- Use `apalis` for background job processing
+- SQLite backend for task persistence
+- Implement stepped tasks for complex workflows
+- Task recovery and retry mechanisms
 
-## 特定于此项目的规则
+### Audio Processing
+- `symphonia` for audio format detection
+- `voice-toolkit` for speech-to-text operations
+- Proper cleanup of temporary audio files
 
-### MCP 代理服务器
+## Testing & Quality Assurance
 
-- 所有 HTTP 处理器应该返回适当的状态码
-- 使用结构化日志记录请求和响应
-- 实现优雅关闭机制
-- 为所有 API 端点添加 OpenAPI 文档
-- 使用中间件处理跨切面关注点（日志、认证等）
+### Test Organization
+- Unit tests with `#[cfg(test)]` modules
+- Integration tests in `tests/` directory
+- Descriptive test function names
+- Use `assert_eq!`, `assert_ne!` macros
 
-### Axum 特定
+### Quality Tools
+- `cargo nextest` for parallel test execution
+- `cargo deny` for security auditing
+- `typos` for spell checking
+- `git-cliff` for changelog generation
 
-- 使用类型安全的提取器
-- 实现自定义错误响应类型
-- 使用 `tower` 中间件进行请求处理
-- 合理使用路由分组
+## Security & Production
 
-### 异步代码执行
+### Input Validation
+- Validate all external inputs
+- Use type system to prevent invalid states
+- Sanitize data before logging
+- Handle sensitive data appropriately
 
-- 对执行的代码进行沙箱隔离
-- 设置合理的超时时间
-- 限制资源使用（内存、CPU）
-- 记录执行日志用于调试
+### Monitoring & Observability
+- Structured logging with `tracing`
+- OpenTelemetry integration for distributed tracing
+- Health check endpoints
+- Metrics collection for performance monitoring
 
-## 代码审查检查清单
+## Project-Specific Rules
 
-- [ ] 代码通过 `cargo fmt` 和 `cargo clippy` 检查
-- [ ] 所有公共函数都有文档注释
-- [ ] 错误处理得当，没有 `unwrap()` 滥用
-- [ ] 测试覆盖率足够
-- [ ] 没有内存泄漏或性能问题
-- [ ] 安全性考虑充分
-- [ ] 日志记录适当且不包含敏感信息
+### Document Processing
+- Dual-engine parsing: MinerU (PDF), MarkItDown (others)
+- Automatic format detection
+- OSS integration for file storage
+- Real-time markdown processing with TOC generation
+
+### MCP Proxy
+- SSE protocol support for real-time communication
+- Dynamic plugin configuration and loading
+- Code execution sandboxing (JS/TS/Python)
+- Service health monitoring
+
+### Voice CLI
+- Apalis-based task queue for transcription
+- Audio format detection and validation
+- Stepped task processing for complex workflows
+- Proper daemon lifecycle management
+
+## Development Workflow
+
+### Commands
+```bash
+# Development
+cargo build
+cargo test
+cargo clippy --all-targets --all-features -- -D warnings
+
+# Quality checks
+pre-commit run --all-files
+cargo deny check -d
+typos
+
+# Production build
+RUSTFLAGS="-C target-cpu=native" cargo build --release
+```
+
+### Code Review Checklist
+- [ ] Passes `cargo fmt` and `cargo clippy`
+- [ ] Public APIs documented
+- [ ] Proper error handling (no `unwrap()` abuse)
+- [ ] Tests cover new functionality
+- [ ] No performance regressions
+- [ ] Security considerations addressed
+- [ ] Logging appropriate and secure

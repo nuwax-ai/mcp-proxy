@@ -37,6 +37,81 @@ document-parser uv-init
 document-parser check
 ```
 
+## 🎯 Voice CLI 快速开始
+
+### 1. 服务配置初始化
+
+**初始化服务器配置：**
+```bash
+# 生成默认服务器配置文件 (./server-config.yml)
+voice-cli server init
+
+# 指定配置文件路径
+voice-cli server init --config ./my-server-config.yml
+
+# 强制覆盖已存在的配置文件
+voice-cli server init --force
+```
+
+**初始化集群配置：**
+```bash
+# 生成默认集群配置文件 (./cluster-config.yml)
+voice-cli cluster init
+
+# 指定配置文件路径和端口
+voice-cli cluster init --config ./my-cluster-config.yml --http-port 8081 --grpc-port 50052
+
+# 强制覆盖已存在的配置文件
+voice-cli cluster init --force
+```
+
+**初始化负载均衡器配置：**
+```bash
+# 生成默认负载均衡器配置文件 (./lb-config.yml)
+voice-cli lb init
+
+# 指定配置文件路径和端口
+voice-cli lb init --config ./my-lb-config.yml --port 8091
+
+# 强制覆盖已存在的配置文件
+voice-cli lb init --force
+```
+
+### 2. 启动服务
+
+**启动单节点服务器：**
+```bash
+# 使用默认配置启动
+voice-cli server run
+
+# 使用指定配置文件启动
+voice-cli server run --config ./server-config.yml
+```
+
+**启动集群节点：**
+```bash
+# 使用默认配置启动
+voice-cli cluster start
+
+# 使用指定配置文件启动
+voice-cli cluster start --config ./cluster-config.yml
+
+# 指定节点ID和端口
+voice-cli cluster start --config ./cluster-config.yml --node-id "node-1" --http-port 8081 --grpc-port 50052
+```
+
+**启动负载均衡器：**
+```bash
+# 使用默认配置启动
+voice-cli lb start
+
+# 使用指定配置文件启动
+voice-cli lb start --config ./lb-config.yml
+
+# 指定端口启动
+voice-cli lb start --port 8091
+```
+
 ### 2. 启动服务
 ```bash
 # 启动HTTP服务器
@@ -73,6 +148,41 @@ uv run python -m markitdown --help
 2. 将 JSON 配置添加到本服务的插件配置中。
 3. 服务器自动加载插件并启动服务，生成对应的 SSE URL。
 4. 客户端通过该 URL 地址，即可实时获取 mcp 服务推送的数据。
+
+## 🔧 Voice CLI 配置说明
+
+### 配置文件模板
+
+**服务器配置 (server-config.yml)：**
+- 单节点语音转录服务配置
+- 支持 Whisper 模型管理
+- 音频处理设置和并发控制
+- 日志和守护进程配置
+
+**集群配置 (cluster-config.yml)：**
+- 集群节点配置，包含 gRPC 通信
+- 节点 ID、端口和任务处理设置
+- 集群元数据存储和心跳配置
+- 支持多节点协同工作
+
+**负载均衡器配置 (lb-config.yml)：**
+- 负载均衡服务配置
+- 健康检查间隔和超时设置
+
+### 高级功能
+
+**配置文件管理：**
+```bash
+# 查看生成的配置文件
+cat server-config.yml
+cat cluster-config.yml
+cat lb-config.yml
+
+# 编辑配置文件
+vim server-config.yml
+vim cluster-config.yml
+vim lb-config.yml
+```
 
 ## API 接口说明
 
@@ -276,6 +386,26 @@ rm -rf ./venv            # 删除损坏的虚拟环境
 document-parser uv-init  # 重新初始化
 ```
 
+## 🔧 Voice CLI 故障排除
+
+### 配置文件初始化问题
+
+**问题：配置文件已存在**
+```bash
+# 解决方案：使用 --force 参数覆盖
+voice-cli server init --force
+voice-cli cluster init --force
+voice-cli lb init --force
+```
+
+**问题：配置文件路径问题**
+```bash
+# 解决方案：指定正确的配置文件路径
+voice-cli server init --config ./my-server-config.yml
+voice-cli cluster init --config ./my-cluster-config.yml
+voice-cli lb init --config ./my-lb-config.yml
+```
+
 **问题：虚拟环境激活失败**
 ```bash
 # Linux/macOS
@@ -334,6 +464,13 @@ uv --version
 - **网络**: 需要访问 PyPI (或配置镜像源)
 - **CUDA** (可选): 用于GPU加速，支持CUDA 11.8+
 
+### Voice CLI 环境要求
+
+- **Rust**: 1.70+ (推荐 1.75+)
+- **操作系统**: Linux, macOS, Windows
+- **磁盘空间**: 至少 200MB 可用空间
+- **网络**: 需要访问 crates.io (或配置镜像源)
+
 ### 目录结构
 
 ```
@@ -345,6 +482,16 @@ document-parser/
 ├── logs/                    # 日志文件
 ├── config.yml               # 配置文件
 └── src/                     # 源代码
+
+voice-cli/
+├── server-config.yml        # 服务器配置文件 (init 生成)
+├── cluster-config.yml       # 集群配置文件 (init 生成)
+├── lb-config.yml            # 负载均衡器配置文件 (init 生成)
+├── logs/                    # 日志文件目录
+├── models/                  # Whisper 模型存储目录
+├── cluster_metadata/        # 集群元数据存储
+├── *.pid                    # 进程 ID 文件
+└── src/                     # 源代码
 ```
 
 ### 获取帮助
@@ -354,3 +501,10 @@ document-parser/
 2. 检查 `logs/` 目录中的日志文件
 3. 确保在正确的项目目录中运行命令
 4. 尝试在新目录中重新初始化环境
+
+### Voice CLI 获取帮助
+
+如果遇到问题：
+1. 运行 `voice-cli --help` 查看所有可用命令
+2. 运行 `voice-cli <command> --help` 查看特定命令的帮助
+3. 检查生成的配置文件是否正确

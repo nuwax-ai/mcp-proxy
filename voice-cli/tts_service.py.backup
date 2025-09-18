@@ -1,0 +1,234 @@
+#!/usr/bin/env python3
+"""
+TTS服务模块 - 使用index-tts库进行文本到语音转换
+"""
+
+import os
+import sys
+import tempfile
+import asyncio
+import subprocess
+from pathlib import Path
+from typing import Optional, Dict, Any
+import logging
+
+# 配置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class TTSService:
+    """TTS服务类"""
+    
+    def __init__(self, model_path: Optional[str] = None):
+        """
+        初始化TTS服务
+        
+        Args:
+            model_path: TTS模型路径，如果为None则使用默认模型
+        """
+        self.model_path = model_path
+        self.model = None
+        self._setup_environment()
+        
+    def _setup_environment(self):
+        """设置Python环境"""
+        try:
+            # 尝试导入index-tts
+            import index_tts
+            logger.info("index-tts imported successfully")
+            self.index_tts = index_tts
+        except ImportError as e:
+            logger.error(f"Failed to import index-tts: {e}")
+            raise RuntimeError("index-tts not available. Please install with: uv add index-tts")
+    
+    def load_model(self, model_name: str = "default"):
+        """
+        加载TTS模型
+        
+        Args:
+            model_name: 模型名称
+        """
+        try:
+            if self.model_path:
+                model_path = Path(self.model_path) / model_name
+            else:
+                model_path = None
+                
+            # 这里需要根据index-tts的实际API来调整
+            self.model = self.index_tts.load_model(model_name, model_path)
+            logger.info(f"TTS model loaded: {model_name}")
+        except Exception as e:
+            logger.error(f"Failed to load TTS model: {e}")
+            raise
+    
+    def synthesize_sync(
+        self,
+        text: str,
+        output_path: str,
+        model: Optional[str] = None,
+        speed: float = 1.0,
+        pitch: int = 0,
+        volume: float = 1.0,
+        format: str = "mp3"
+    ) -> Dict[str, Any]:
+        """
+        同步语音合成
+        
+        Args:
+            text: 要合成的文本
+            output_path: 输出文件路径
+            model: 模型名称
+            speed: 语速 (0.5-2.0)
+            pitch: 音调 (-20到20)
+            volume: 音量 (0.5-2.0)
+            format: 输出格式
+            
+        Returns:
+            包含合成结果的字典
+        """
+        try:
+            # 确保模型已加载
+            if self.model is None:
+                self.load_model(model or "default")
+            
+            # 验证参数
+            if not text.strip():
+                raise ValueError("Text cannot be empty")
+            
+            if not (0.5 <= speed <= 2.0):
+                raise ValueError("Speed must be between 0.5 and 2.0")
+            
+            if not (-20 <= pitch <= 20):
+                raise ValueError("Pitch must be between -20 and 20")
+            
+            if not (0.5 <= volume <= 2.0):
+                raise ValueError("Volume must be between 0.5 and 2.0")
+            
+            # 确保输出目录存在
+            output_dir = Path(output_path).parent
+            output_dir.mkdir(parents=True, exist_ok=True)
+            
+            # 调用index-tts进行合成
+            # 注意：这里需要根据index-tts的实际API来调整
+            result = self.model.synthesize(
+                text=text,
+                output_path=output_path,
+                speed=speed,
+                pitch=pitch,
+                volume=volume,
+                format=format
+            )
+            
+            # 检查输出文件是否存在
+            if not Path(output_path).exists():
+                raise FileNotFoundError(f"Output file not created: {output_path}")
+            
+            file_size = Path(output_path).stat().st_size
+            
+            return {
+                "success": True,
+                "output_path": output_path,
+                "file_size": file_size,
+                "duration": result.get("duration", 0),
+                "text_length": len(text),
+                "parameters": {
+                    "speed": speed,
+                    "pitch": pitch,
+                    "volume": volume,
+                    "format": format
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"TTS synthesis failed: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "output_path": None,
+                "file_size": 0
+            }
+    
+    async def synthesize_async(
+        self,
+        text: str,
+        output_path: str,
+        model: Optional[str] = None,
+        speed: float = 1.0,
+        pitch: int = 0,
+        volume: float = 1.0,
+        format: str = "mp3"
+    ) -> Dict[str, Any]:
+        """
+        异步语音合成
+        
+        Args:
+            text: 要合成的文本
+            output_path: 输出文件路径
+            model: 模型名称
+            speed: 语速
+            pitch: 音调
+            volume: 音量
+            format: 输出格式
+            
+        Returns:
+            包含合成结果的字典
+        """
+        # 在线程池中执行同步合成
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            self.synthesize_sync,
+            text, output_path, model, speed, pitch, volume, format
+        )
+        return result
+
+def main():
+    """命令行接口"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="TTS Service CLI")
+    parser.add_argument("text", help="Text to synthesize")
+    parser.add_argument("--output", "-o", help="Output file path")
+    parser.add_argument("--model", "-m", help="Model name")
+    parser.add_argument("--speed", "-s", type=float, default=1.0, help="Speech speed (0.5-2.0)")
+    parser.add_argument("--pitch", "-p", type=int, default=0, help="Pitch (-20 to 20)")
+    parser.add_argument("--volume", "-v", type=float, default=1.0, help="Volume (0.5-2.0)")
+    parser.add_argument("--format", "-f", default="mp3", help="Output format")
+    
+    args = parser.parse_args()
+    
+    # 如果没有指定输出路径，使用临时文件
+    if not args.output:
+        with tempfile.NamedTemporaryFile(suffix=f".{args.format}", delete=False) as f:
+            args.output = f.name
+    
+    try:
+        # 初始化TTS服务
+        tts_service = TTSService()
+        
+        # 执行合成
+        result = tts_service.synthesize_sync(
+            text=args.text,
+            output_path=args.output,
+            model=args.model,
+            speed=args.speed,
+            pitch=args.pitch,
+            volume=args.volume,
+            format=args.format
+        )
+        
+        if result["success"]:
+            print(f"Synthesis completed successfully!")
+            print(f"Output file: {result['output_path']}")
+            print(f"File size: {result['file_size']} bytes")
+            print(f"Duration: {result['duration']} seconds")
+        else:
+            print(f"Synthesis failed: {result['error']}")
+            sys.exit(1)
+            
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()

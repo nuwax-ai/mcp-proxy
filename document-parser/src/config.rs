@@ -1166,7 +1166,9 @@ pub fn get_global_config() -> &'static AppConfig {
 
 /// 获取全局文件大小配置
 pub fn get_global_file_size_config() -> &'static GlobalFileSizeConfig {
-    &get_global_config().file_size_config
+    let max_file_sieze = &get_global_config().file_size_config;
+    info!("全局文件大小配置: {:?}", max_file_sieze);
+    max_file_sieze
 }
 
 /// 便捷函数：获取指定用途的文件大小限制

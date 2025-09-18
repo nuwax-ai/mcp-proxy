@@ -1,0 +1,107 @@
+[package]
+name = "voice-cli"
+version = "0.1.0"
+edition = "2024"
+authors = ["soddy <your.email@example.com>"]
+description = "Speech-to-text HTTP service with CLI interface"
+license = "MIT"
+
+[[bin]]
+name = "voice-cli"
+path = "src/main.rs"
+
+[dependencies]
+# Web framework and HTTP handling
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+
+# OpenAPI documentation generation
+utoipa = { workspace = true, features = ["axum_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { workspace = true, features = ["axum"] }
+
+# Async runtime
+tokio = { version = "1", features = [
+    "macros",
+    "net",
+    "rt",
+    "rt-multi-thread",
+    "signal",
+] }
+tokio-util = { workspace = true }
+
+# CLI argument parsing
+clap = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+
+# Configuration management
+config = { version = "0.15", features = ["yaml", "json", "toml"] }
+
+# Logging and tracing
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+tracing-opentelemetry = { workspace = true }
+opentelemetry = { workspace = true, features = ["trace"] }
+opentelemetry-jaeger = { workspace = true, features = ["rt-tokio"] }
+opentelemetry-semantic-conventions = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# HTTP client for model downloads
+reqwest = { version = "0.12", features = ["json", "stream"] }
+
+# Time handling
+chrono = { workspace = true, features = ["serde"] }
+
+# Utilities
+bytes = "1.0"
+futures = { workspace = true }
+uuid = { workspace = true, features = ["v4","v7"] }
+base64 = "0.22"
+tempfile = "3.0"
+dirs = "6.0"
+url = "2.5"
+
+# Embedded database for task persistence
+# sled = { version = "0.34", features = ["compression"] }  # Disabled due to zstd dependency conflict
+
+
+# Audio format detection with Symphonia
+symphonia = { workspace = true }
+bincode = { workspace = true }
+dashmap = { workspace = true }
+infer = "0.19"
+
+# FFmpeg command wrapper
+ffmpeg-sidecar = "2.2"
+
+# Task queue and persistence for async processing
+apalis = { version = "0.7", features = ["tracing", "limit", "timeout", "catch-panic", "retry", "filter"] }
+apalis-sql = { version = "0.7", features = ["sqlite"] }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
+
+
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["winuser", "processthreadsapi"] }
+
+[dependencies.voice-toolkit]
+workspace = true
+
+[dev-dependencies]
+tempfile = "3.0"
+
+
+[features]
+default = []
+# 方便通过 `-p voice-cli --features <name>` 启用/切换后端
+cuda = ["voice-toolkit/cuda"]
+metal = ["voice-toolkit/metal"]
+vulkan = ["voice-toolkit/vulkan"]
