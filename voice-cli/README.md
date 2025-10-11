@@ -33,7 +33,7 @@ git clone https://github.com/your-org/mcp-proxy
 cd mcp-proxy
 
 # 构建 voice-cli
-cargo build --release -p voice-cli
+cargo build --release -p voice-cli --features=cuda
 
 # 二进制文件位置
 ls target/release/voice-cli
