@@ -89,15 +89,16 @@ impl TranscriptionEngine {
             timeout_duration,
             // Use spawn_blocking for CPU-intensive Whisper transcription
             // This moves the blocking operation to a separate thread pool
-            tokio::task::spawn_blocking(move || {
+            tokio::task::spawn_blocking(move || -> Result<TranscriptionResult, String> {
                 // Create a new runtime within the blocking thread
                 let rt = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
-                    .expect("Failed to create runtime for Whisper transcription");
+                    .map_err(|e| format!("Failed to create runtime for Whisper transcription: {}", e))?;
 
                 rt.block_on(async {
                     stt::transcribe_file_with_transcriber(&transcriber, &audio_path).await
+                        .map_err(|e| e.to_string())
                 })
             }),
         )
