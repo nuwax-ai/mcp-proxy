@@ -776,9 +776,18 @@ async fn extract_transcription_request_streaming(
 
     // 探测文件真实格式
     let extension = match AudioFormatDetector::detect_format_from_path(&temp_file_path) {
-        Ok(file_type) => file_type.extension().to_lowercase(),
+        Ok(Some(file_type)) => file_type.extension().to_lowercase(),
+        Ok(None) => {
+            warn!("[Task {}] 无法检测音频文件格式，尝试使用文件扩展名", task_id);
+            // 尝试使用文件扩展名作为后备
+            if let Some(ext) = temp_file_path.extension().and_then(|e| e.to_str()) {
+                ext.to_lowercase()
+            } else {
+                "bin".to_string()
+            }
+        },
         Err(_) => {
-            warn!("[Task {}] 无法检测音频文件格式，使用默认扩展名", task_id);
+            warn!("[Task {}] 检测文件格式时出错，使用默认扩展名", task_id);
             "bin".to_string()
         }
     };

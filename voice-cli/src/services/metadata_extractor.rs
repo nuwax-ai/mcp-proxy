@@ -236,7 +236,7 @@ impl MetadataExtractor {
         };
         
         // 尝试使用现有的 AudioFormatDetector 获取音频信息
-        if let Ok(format_type) = crate::services::AudioFormatDetector::detect_format_from_path(file_path) {
+        if let Ok(Some(format_type)) = crate::services::AudioFormatDetector::detect_format_from_path(file_path) {
             metadata.format = format_type.extension().to_string();
             metadata.audio_codec = format_type.mime_type().to_string();
         }

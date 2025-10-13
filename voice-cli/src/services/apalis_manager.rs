@@ -1688,7 +1688,16 @@ async fn detect_and_rename_audio_file(
     let format_result = AudioFormatDetector::detect_format_from_path(file_path)
         .map_err(|e| format!("检测文件格式失败: {}", e))?;
 
-    let detected_extension = format_result.extension().to_lowercase();
+    let detected_extension = if let Some(format_type) = format_result {
+        format_type.extension().to_lowercase()
+    } else {
+        // 如果无法检测格式，使用文件扩展名作为后备
+        if let Some(extension) = file_path.extension().and_then(|ext| ext.to_str()) {
+            extension.to_lowercase()
+        } else {
+            return Err(format!("无法检测文件格式且文件无扩展名: {:?}", file_path).into());
+        }
+    };
     info!("[Task {}] 检测到文件格式: {}", task_id, detected_extension);
 
     // 获取当前文件扩展名

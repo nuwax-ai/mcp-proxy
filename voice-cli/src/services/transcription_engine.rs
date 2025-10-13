@@ -87,13 +87,33 @@ impl TranscriptionEngine {
         let timeout_duration = std::time::Duration::from_secs(timeout_secs);
         let result = tokio::time::timeout(
             timeout_duration,
-            stt::transcribe_file_with_transcriber(&transcriber, &audio_path),
+            // Use spawn_blocking for CPU-intensive Whisper transcription
+            // This moves the blocking operation to a separate thread pool
+            tokio::task::spawn_blocking(move || {
+                // Create a new runtime within the blocking thread
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("Failed to create runtime for Whisper transcription");
+
+                rt.block_on(async {
+                    stt::transcribe_file_with_transcriber(&transcriber, &audio_path).await
+                })
+            }),
         )
         .await
         .map_err(|_| VoiceCliError::TranscriptionTimeout(timeout_secs))?
-        .map_err(|e| VoiceCliError::TranscriptionFailed(e.to_string()))?;
+        .map_err(|e| {
+            if e.is_panic() {
+                VoiceCliError::TranscriptionFailed("Whisper transcription panicked".to_string())
+            } else if e.is_cancelled() {
+                VoiceCliError::TranscriptionFailed("Whisper transcription was cancelled".to_string())
+            } else {
+                VoiceCliError::TranscriptionFailed(format!("Whisper transcription join error: {}", e))
+            }
+        })?;
 
-        Ok(result)
+        Ok(result.map_err(|e| VoiceCliError::TranscriptionFailed(e.to_string()))?)
     }
 
     /// Get the default model name from configuration

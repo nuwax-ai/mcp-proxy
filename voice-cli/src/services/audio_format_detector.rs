@@ -19,10 +19,9 @@ pub struct AudioFormatDetector;
 impl AudioFormatDetector {
 
     /// Detect audio format using infer library (magic number detection)
-    pub fn detect_format_from_path(path: &Path) -> anyhow::Result<Type> {
+    pub fn detect_format_from_path(path: &Path) -> anyhow::Result<Option<Type>> {
         let kind = infer::get_from_path(path)
-            .expect("file read successfully")
-            .expect("file type is known");
+            .expect("file read successfully");
         Ok(kind)
     }
 
