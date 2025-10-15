@@ -1,6 +1,6 @@
 use axum::{
     extract::Request,
-    http::{HeaderMap, Method, Uri},
+    http::{HeaderMap, Method, Uri, HeaderValue, header::CONNECTION},
     middleware::Next,
     response::Response,
     body::Body,
@@ -8,6 +8,20 @@ use axum::{
 use std::time::Instant;
 use tracing::{error, info, warn};
 use serde_json::Value;
+
+/// Connection: close 中间件
+/// 为所有HTTP响应添加 Connection: close 头，禁用长连接
+pub async fn connection_close_middleware(request: Request, next: Next) -> Response {
+    let mut response = next.run(request).await;
+
+    // 设置 Connection: close 响应头（使用框架常量）
+    response.headers_mut().insert(
+        CONNECTION,
+        HeaderValue::from_static("close")
+    );
+
+    response
+}
 
 /// HTTP请求日志中间件
 /// 记录HTTP请求的详细信息，包括方法、路径、查询参数、headers等
@@ -376,20 +390,21 @@ mod tests {
             HeaderName::from_static("x-forwarded-for"),
             HeaderValue::from_static("192.168.1.1, 10.0.0.1"),
         );
-        
+
         assert_eq!(extract_client_ip(&headers), "192.168.1.1");
-        
+
         // Test with x-real-ip
         let mut headers = HeaderMap::new();
         headers.insert(
             HeaderName::from_static("x-real-ip"),
             HeaderValue::from_static("203.0.113.1"),
         );
-        
+
         assert_eq!(extract_client_ip(&headers), "203.0.113.1");
-        
+
         // Test with no IP headers
         let headers = HeaderMap::new();
         assert_eq!(extract_client_ip(&headers), "unknown");
     }
-}
+
+    }

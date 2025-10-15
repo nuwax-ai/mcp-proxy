@@ -1,7 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(cargo check:*)",
+      "Bash(cargo test:*)",
+      "Bash(cargo run:*)",
+      "Bash(chmod:*)",
+      "Bash(./test_connection_close.sh:*)",
+      "Bash(/Volumes/soddy/git_workspace/mcp-proxy/test_connection_close.sh)"
     ],
     "deny": [],
     "ask": []

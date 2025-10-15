@@ -7,7 +7,7 @@ use tower_http::trace::TraceLayer;
 use tracing::info;
 
 use crate::server::http_tracing::basic_tracing_middleware;
-use crate::server::middleware::request_logging_middleware;
+use crate::server::middleware::{request_logging_middleware, connection_close_middleware};
 
 /// 与 mcp-proxy 风格一致的统一挂载接口
 /// 建议路由构建完成后统一调用该函数挂载层
@@ -28,6 +28,7 @@ where
 
     app.layer(
         ServiceBuilder::new()
+            .layer(from_fn(connection_close_middleware))
             .layer(from_fn(basic_tracing_middleware))
             .layer(from_fn(request_logging_middleware))
             .layer(DefaultBodyLimit::max(max_file_size))
