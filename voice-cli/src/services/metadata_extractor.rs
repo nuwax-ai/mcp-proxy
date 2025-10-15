@@ -1,8 +1,8 @@
 use crate::VoiceCliError;
-use std::path::Path;
-use std::fs::Metadata;
 use serde::{Deserialize, Serialize};
-use tokio::fs;
+use std::fs::Metadata;
+use std::path::Path;
+use tokio::{fs, task};
 use tracing::{debug, info, warn};
 
 /// 音视频元数据信息
@@ -90,132 +90,149 @@ impl MetadataExtractor {
     /// 使用 FFmpeg 提取详细元数据
     async fn extract_with_ffmpeg(file_path: &Path) -> Result<AudioVideoMetadata, VoiceCliError> {
         use ffmpeg_sidecar::command::FfmpegCommand;
-        
+
         debug!("使用 FFmpeg 提取元数据: {:?}", file_path);
-        
-        let mut metadata = AudioVideoMetadata::default();
-        
-        // 使用 FfmpegCommand 获取文件信息
-        let mut child = FfmpegCommand::new()
-            .arg("-i")
-            .arg(file_path.to_str().unwrap_or_default())
-            .arg("-hide_banner")
-            .spawn()
-            .map_err(|e| VoiceCliError::Storage(format!("FFmpeg 执行失败: {}", e)))?;
-        
-        // 等待命令完成
-        let _exit_status = child.wait()
-            .map_err(|e| VoiceCliError::Storage(format!("FFmpeg 执行失败: {}", e)))?;
-        
-        // 使用传统方法获取输出（因为 ffmpeg-sidecar 主要用于处理媒体流，不是元数据提取）
-        let output = std::process::Command::new("ffmpeg")
-            .args([
-                "-i", file_path.to_str().unwrap_or_default(),
-                "-hide_banner",
-                "-f", "null",
-                "-"
-            ])
-            .output()
-            .map_err(|e| VoiceCliError::Storage(format!("FFmpeg 执行失败: {}", e)))?;
-        
-        // 解析 stderr 输出中的元数据信息
-        let stderr_output = String::from_utf8_lossy(&output.stderr);
-        
-        // 解析输出中的元数据信息
-        for line in stderr_output.lines() {
-            if line.contains("Duration:") {
-                // 解析时长: Duration: 00:00:01.60, start: 0.000000, bitrate: 705 kb/s
-                if let Some(duration_part) = line.split("Duration: ").nth(1) {
-                    if let Some(duration_str) = duration_part.split(',').next() {
-                        let parts: Vec<&str> = duration_str.split(':').collect();
-                        if parts.len() == 3 {
-                            let hours: f64 = parts[0].parse().unwrap_or(0.0);
-                            let minutes: f64 = parts[1].parse().unwrap_or(0.0);
-                            let seconds: f64 = parts[2].parse().unwrap_or(0.0);
-                            metadata.duration_seconds = hours * 3600.0 + minutes * 60.0 + seconds;
+
+        let file_path_buf = file_path.to_path_buf();
+
+        let metadata = task::spawn_blocking(move || -> Result<AudioVideoMetadata, VoiceCliError> {
+            let mut metadata = AudioVideoMetadata::default();
+            let file_path_str = file_path_buf.to_string_lossy().to_string();
+
+            // 使用 FfmpegCommand 获取文件信息
+            let mut child = FfmpegCommand::new()
+                .arg("-i")
+                .arg(&file_path_str)
+                .arg("-hide_banner")
+                .spawn()
+                .map_err(|e| VoiceCliError::Storage(format!("FFmpeg 执行失败: {}", e)))?;
+
+            // 等待命令完成（在阻塞线程中执行）
+            let _exit_status = child
+                .wait()
+                .map_err(|e| VoiceCliError::Storage(format!("FFmpeg 执行失败: {}", e)))?;
+
+            // 使用传统方法获取输出（因为 ffmpeg-sidecar 主要用于处理媒体流，不是元数据提取）
+            let output = std::process::Command::new("ffmpeg")
+                .args([
+                    "-i",
+                    &file_path_str,
+                    "-hide_banner",
+                    "-f",
+                    "null",
+                    "-",
+                ])
+                .output()
+                .map_err(|e| VoiceCliError::Storage(format!("FFmpeg 执行失败: {}", e)))?;
+
+            // 解析 stderr 输出中的元数据信息
+            let stderr_output = String::from_utf8_lossy(&output.stderr);
+
+            // 解析输出中的元数据信息
+            for line in stderr_output.lines() {
+                if line.contains("Duration:") {
+                    // 解析时长: Duration: 00:00:01.60, start: 0.000000, bitrate: 705 kb/s
+                    if let Some(duration_part) = line.split("Duration: ").nth(1) {
+                        if let Some(duration_str) = duration_part.split(',').next() {
+                            let parts: Vec<&str> = duration_str.split(':').collect();
+                            if parts.len() == 3 {
+                                let hours: f64 = parts[0].parse().unwrap_or(0.0);
+                                let minutes: f64 = parts[1].parse().unwrap_or(0.0);
+                                let seconds: f64 = parts[2].parse().unwrap_or(0.0);
+                                metadata.duration_seconds =
+                                    hours * 3600.0 + minutes * 60.0 + seconds;
+                            }
+                        }
+                    }
+                }
+
+                if line.contains("Audio:") {
+                    // 解析音频信息: Stream #0:0: Audio: pcm_f32le, 22050 Hz, mono, fltp, 705 kb/s
+                    let audio_info = line.split("Audio: ").nth(1).unwrap_or("");
+                    let parts: Vec<&str> = audio_info.split(',').collect();
+
+                    if let Some(codec) = parts.first() {
+                        metadata.audio_codec = codec.trim().to_string();
+                    }
+
+                    for part in parts {
+                        if part.contains("Hz") {
+                            if let Some(rate_str) = part.split("Hz").next() {
+                                metadata.sample_rate = rate_str.trim().parse().unwrap_or(0);
+                            }
+                        }
+                        if part.contains("mono") {
+                            metadata.channels = 1;
+                        }
+                        if part.contains("stereo") {
+                            metadata.channels = 2;
+                        }
+                        if part.contains("kb/s") {
+                            if let Some(bitrate_str) = part.split("kb/s").next() {
+                                metadata.audio_bitrate = bitrate_str.trim().parse().unwrap_or(0);
+                            }
+                        }
+                    }
+                }
+
+                if line.contains("Video:") {
+                    // 解析视频信息: Stream #0:1: Video: h264, yuv420p, 1280x720, 24 fps, 1992 kb/s
+                    metadata.has_video = true;
+                    let video_info = line.split("Video: ").nth(1).unwrap_or("");
+                    let parts: Vec<&str> = video_info.split(',').collect();
+
+                    if let Some(codec) = parts.first() {
+                        metadata.video_codec = Some(codec.trim().to_string());
+                    }
+
+                    for part in parts {
+                        if part.contains('x') {
+                            let resolution_parts: Vec<&str> = part.trim().split('x').collect();
+                            if resolution_parts.len() == 2 {
+                                metadata.width = resolution_parts[0].trim().parse().ok();
+                                metadata.height = resolution_parts[1].trim().parse().ok();
+                            }
+                        }
+                        if part.contains("fps") {
+                            if let Some(fps_str) = part.split("fps").next() {
+                                metadata.frame_rate = fps_str.trim().parse().ok();
+                            }
+                        }
+                        if part.contains("kb/s") {
+                            if let Some(bitrate_str) = part.split("kb/s").next() {
+                                metadata.video_bitrate =
+                                    Some(bitrate_str.trim().parse().unwrap_or(0));
+                            }
                         }
                     }
                 }
             }
-            
-            if line.contains("Audio:") {
-                // 解析音频信息: Stream #0:0: Audio: pcm_f32le, 22050 Hz, mono, fltp, 705 kb/s
-                let audio_info = line.split("Audio: ").nth(1).unwrap_or("");
-                let parts: Vec<&str> = audio_info.split(',').collect();
-                
-                if parts.len() > 0 {
-                    metadata.audio_codec = parts[0].trim().to_string();
-                }
-                
-                for part in parts {
-                    if part.contains("Hz") {
-                        if let Some(rate_str) = part.split("Hz").next() {
-                            metadata.sample_rate = rate_str.trim().parse().unwrap_or(0);
-                        }
-                    }
-                    if part.contains("mono") {
-                        metadata.channels = 1;
-                    }
-                    if part.contains("stereo") {
-                        metadata.channels = 2;
-                    }
-                    if part.contains("kb/s") {
-                        if let Some(bitrate_str) = part.split("kb/s").next() {
-                            metadata.audio_bitrate = bitrate_str.trim().parse().unwrap_or(0);
-                        }
-                    }
-                }
+
+            // 获取文件大小
+            if let Ok(file_meta) = std::fs::metadata(&file_path_buf) {
+                metadata.file_size_bytes = file_meta.len();
             }
-            
-            if line.contains("Video:") {
-                // 解析视频信息: Stream #0:1: Video: h264, yuv420p, 1280x720, 24 fps, 1992 kb/s
-                metadata.has_video = true;
-                let video_info = line.split("Video: ").nth(1).unwrap_or("");
-                let parts: Vec<&str> = video_info.split(',').collect();
-                
-                if parts.len() > 0 {
-                    metadata.video_codec = Some(parts[0].trim().to_string());
-                }
-                
-                for part in parts {
-                    if part.contains("x") {
-                        let resolution_parts: Vec<&str> = part.trim().split('x').collect();
-                        if resolution_parts.len() == 2 {
-                            metadata.width = resolution_parts[0].trim().parse().ok();
-                            metadata.height = resolution_parts[1].trim().parse().ok();
-                        }
-                    }
-                    if part.contains("fps") {
-                        if let Some(fps_str) = part.split("fps").next() {
-                            metadata.frame_rate = fps_str.trim().parse().ok();
-                        }
-                    }
-                    if part.contains("kb/s") {
-                        if let Some(bitrate_str) = part.split("kb/s").next() {
-                            metadata.video_bitrate = Some(bitrate_str.trim().parse().unwrap_or(0));
-                        }
-                    }
-                }
+
+            // 如果没有从输出中获取到码率，计算总码率
+            if metadata.bitrate == 0
+                && metadata.duration_seconds > 0.0
+                && metadata.file_size_bytes > 0
+            {
+                let total_bits = metadata.file_size_bytes as f64 * 8.0;
+                metadata.bitrate = (total_bits / metadata.duration_seconds / 1000.0) as u32;
             }
-        }
-        
-        // 获取文件大小
-        if let Ok(file_meta) = fs::metadata(file_path).await {
-            metadata.file_size_bytes = file_meta.len();
-        }
-        
-        // 如果没有从输出中获取到码率，计算总码率
-        if metadata.bitrate == 0 && metadata.duration_seconds > 0.0 && metadata.file_size_bytes > 0 {
-            let total_bits = metadata.file_size_bytes as f64 * 8.0;
-            metadata.bitrate = (total_bits / metadata.duration_seconds / 1000.0) as u32;
-        }
-        
-        // 根据文件扩展名设置格式
-        if let Some(extension) = file_path.extension().and_then(|ext| ext.to_str()) {
-            metadata.format = extension.to_lowercase();
-            metadata.container_format = extension.to_lowercase();
-        }
-        
+
+            // 根据文件扩展名设置格式
+            if let Some(extension) = file_path_buf.extension().and_then(|ext| ext.to_str()) {
+                metadata.format = extension.to_lowercase();
+                metadata.container_format = extension.to_lowercase();
+            }
+
+            Ok(metadata)
+        })
+        .await
+        .map_err(|e| VoiceCliError::Storage(format!("FFmpeg 阻塞任务失败: {}", e)))??;
+
         info!("FFmpeg 元数据提取完成: {:?}", metadata);
         Ok(metadata)
     }

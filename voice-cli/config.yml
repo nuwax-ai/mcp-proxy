@@ -4,7 +4,7 @@ server:
   # Server binding address (0.0.0.0 for all interfaces)
   host: "0.0.0.0"
   # Server port
-  port: 8080
+  port: 8087
   # Maximum file size for uploads (in bytes) - 200MB default
   max_file_size: 209715200
   # Enable CORS for web browser access
@@ -12,7 +12,7 @@ server:
 
 whisper:
   # Default model to use for transcription
-  default_model: "base"
+  default_model: "large-v3"
   # Directory to store whisper models
   models_dir: "./models"
   # Automatically download models when needed
