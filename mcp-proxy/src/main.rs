@@ -2,7 +2,7 @@ mod config;
 use anyhow::Result;
 use backtrace::Backtrace;
 use log::{error, info, warn};
-use mcp_proxy::{AppConfig, AppState, get_proxy_manager, get_router, start_schedule_task};
+use mcp_proxy::{AppConfig, AppState, get_proxy_manager, get_router, start_schedule_task, log_service_info, init_tracer_provider};
 use run_code_rmcp::warm_up_all_envs;
 use tokio::net::TcpListener;
 use tokio::signal;
@@ -39,6 +39,9 @@ async fn main() -> Result<()> {
         .with_writer(non_blocking)
         .with_filter(log_filter);
 
+    // 初始化 OpenTelemetry tracer provider
+    init_tracer_provider("mcp-proxy", "0.1.0")?;
+    
     // 配置 OpenTelemetry
     let telemetry_layer = tracing_opentelemetry::layer();
 
@@ -49,6 +52,8 @@ async fn main() -> Result<()> {
         .with(telemetry_layer)
         .init();
 
+    // 记录服务信息
+    log_service_info("mcp-proxy", "0.1.0")?;
     tracing::info!("服务启动，监听端口: {}", server_port);
 
     // 监听地址

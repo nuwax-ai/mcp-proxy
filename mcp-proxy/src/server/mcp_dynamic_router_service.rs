@@ -33,7 +33,7 @@ impl Service<Request<Body>> for DynamicRouterService {
         let headers = req.headers().clone();
 
         // 提取 trace_id
-        let trace_id = extract_trace_id(&headers).unwrap_or_else(|| "unknown".to_string());
+        let trace_id = extract_trace_id();
 
         // 创建根 span
         let span = tracing::info_span!(
@@ -136,7 +136,7 @@ async fn handle_request_with_router(
     router_entry: axum::Router,
 ) -> Result<Response, Infallible> {
     // 获取匹配路径的Router，并处理请求
-    let trace_id = extract_trace_id(req.headers()).unwrap_or_else(|| "unknown".to_string());
+    let trace_id = extract_trace_id();
 
     let method = req.method().clone();
     let uri = req.uri().clone();
@@ -226,7 +226,7 @@ async fn start_mcp_and_handle_request(
     mcp_config: McpConfig,
 ) -> Result<Response, Infallible> {
     let request_path = req.uri().path().to_string();
-    let trace_id = extract_trace_id(req.headers()).unwrap_or_else(|| "unknown".to_string());
+    let trace_id = extract_trace_id();
     debug!("请求路径: {request_path}");
 
     let span = tracing::info_span!(
