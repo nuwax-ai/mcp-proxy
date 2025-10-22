@@ -185,6 +185,9 @@ mod sse_test {
             client_info: Implementation {
                 name: "test sse client".to_string(),
                 version: "0.0.1".to_string(),
+                icons: None,
+                title: None,
+                website_url: None,
             },
         };
 

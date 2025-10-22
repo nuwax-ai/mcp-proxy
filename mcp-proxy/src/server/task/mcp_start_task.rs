@@ -2,7 +2,7 @@ use crate::{
     DynamicRouterService, ProxyHandler, get_proxy_manager,
     model::{
         CheckMcpStatusResponseStatus, McpConfig, McpProtocolPath, McpRouterPath,
-        McpServerCommandConfig, McpServiceStatus, McpType,
+        McpServerCommandConfig, McpServerConfig, McpServiceStatus, McpType,
     },
 };
 
@@ -14,7 +14,7 @@ use rmcp::{
     transport::streamable_http_server::{
         StreamableHttpService, session::local::LocalSessionManager,
     },
-    transport::{SseServer, TokioChildProcess, sse_server::SseServerConfig},
+    transport::{SseClientTransport, SseServer, TokioChildProcess, sse_server::SseServerConfig},
 };
 use tokio::process::Command;
 
@@ -32,7 +32,7 @@ pub async fn mcp_start_task(
         .clone()
         .expect("mcp_json_config is required");
 
-    let mcp_server_config = McpServerCommandConfig::try_from(mcp_json_config)?;
+    let mcp_server_config = McpServerConfig::try_from(mcp_json_config)?;
 
     // 使用新的集成方法，而不是单独启动 SSE 服务
     integrate_sse_server_with_axum(
@@ -45,40 +45,12 @@ pub async fn mcp_start_task(
 
 // 创建一个新函数，将 SseServer 与 axum 路由集成
 pub async fn integrate_sse_server_with_axum(
-    mcp_config: McpServerCommandConfig,
+    mcp_config: McpServerConfig,
     mcp_router_path: McpRouterPath,
     mcp_type: McpType,
 ) -> Result<(axum::Router, tokio_util::sync::CancellationToken)> {
     let base_path = mcp_router_path.base_path.clone();
     let mcp_id = mcp_router_path.mcp_id.clone();
-
-    // 创建子进程命令
-    let mut command = Command::new(&mcp_config.command);
-
-    // 正确处理Option<Vec<String>>
-    if let Some(args) = &mcp_config.args {
-        command.args(args);
-    }
-
-    // 正确处理Option<HashMap<String, String>>
-    if let Some(env_vars) = &mcp_config.env {
-        for (key, value) in env_vars {
-            command.env(key, value);
-        }
-    }
-
-    // 记录命令执行信息，方便调试
-    log_command_details(&mcp_config, &mcp_router_path);
-
-    // 创建子进程
-    let tokio_process = TokioChildProcess::new(command)?;
-
-    // 记录子进程已启动的信息
-    info!(
-        "子进程已启动，MCP ID: {}, 类型: {:?}",
-        mcp_router_path.mcp_id,
-        mcp_type.clone()
-    );
 
     // 创建客户端信息
     let client_info = ClientInfo {
@@ -92,8 +64,52 @@ pub async fn integrate_sse_server_with_axum(
         ..Default::default()
     };
 
-    // 创建客户端服务
-    let client = client_info.serve(tokio_process).await?;
+    // 根据配置类型创建不同的客户端服务
+    let client = match &mcp_config {
+        McpServerConfig::Command(cmd_config) => {
+            // 创建子进程命令
+            let mut command = Command::new(&cmd_config.command);
+
+            // 正确处理Option<Vec<String>>
+            if let Some(args) = &cmd_config.args {
+                command.args(args);
+            }
+
+            // 正确处理Option<HashMap<String, String>>
+            if let Some(env_vars) = &cmd_config.env {
+                for (key, value) in env_vars {
+                    command.env(key, value);
+                }
+            }
+
+            // 记录命令执行信息，方便调试
+            log_command_details(cmd_config, &mcp_router_path);
+
+            info!(
+                "子进程已启动，MCP ID: {}, 类型: {:?}",
+                mcp_router_path.mcp_id,
+                mcp_type.clone()
+            );
+
+            // 创建子进程传输并创建客户端服务
+            let tokio_process = TokioChildProcess::new(command)?;
+            client_info.serve(tokio_process).await?
+        }
+        McpServerConfig::Url(url_config) => {
+            // 对于URL配置，创建SSE客户端传输
+            info!("创建SSE客户端连接到: {}", url_config.url);
+
+            info!(
+                "SSE客户端已启动，MCP ID: {}, 类型: {:?}",
+                mcp_router_path.mcp_id,
+                mcp_type.clone()
+            );
+
+            // 创建SSE客户端传输并创建客户端服务
+            let sse_transport = SseClientTransport::start(url_config.url.clone()).await?;
+            client_info.serve(sse_transport).await?
+        }
+    };
 
     // 创建代理处理器
     let proxy_handler = ProxyHandler::with_mcp_id(client, mcp_id.clone());
@@ -114,11 +130,11 @@ pub async fn integrate_sse_server_with_axum(
             // 使用随机端口，让 axum 来管理; 这里不使用这个地址绑定,只需要对应的router
             let addr: String = "0.0.0.0:0".to_string();
 
-            // 创建SSE配置
+            // 创建SSE配置 - 使用相对路径（相对于注册的 base_path）
             let config = SseServerConfig {
                 bind: addr.parse()?,
-                sse_path: sse_path.sse_path.clone(),
-                post_path: sse_path.message_path.clone(),
+                sse_path: "/sse".to_string(),  // 相对于 base_path 的路径
+                post_path: "/message".to_string(),  // 相对于 base_path 的路径
                 ct: tokio_util::sync::CancellationToken::new(),
                 sse_keep_alive: None,
             };
@@ -155,7 +171,18 @@ pub async fn integrate_sse_server_with_axum(
     proxy_manager.add_mcp_service_status_and_proxy(mcp_service_status, Some(proxy_handler));
 
     // 注册路由到全局路由表
+    info!("注册路由: base_path={}, mcp_id={}", base_path, mcp_id);
+    info!("SSE路径配置: sse_path={}, post_path={}", 
+          match &mcp_router_path.mcp_protocol_path {
+              McpProtocolPath::SsePath(sse_path) => &sse_path.sse_path,
+              _ => "N/A"
+          },
+          match &mcp_router_path.mcp_protocol_path {
+              McpProtocolPath::SsePath(sse_path) => &sse_path.message_path,
+              _ => "N/A"
+          });
     DynamicRouterService::register_route(&base_path, router.clone());
+    info!("路由注册完成: base_path={}", base_path);
 
     // 返回路由和取消令牌
     Ok((router, ct))
@@ -173,10 +200,7 @@ fn log_command_details(mcp_config: &McpServerCommandConfig, mcp_router_path: &Mc
 
     // 打印环境变量
     if let Some(env_vars) = &mcp_config.env {
-        let env_vars: Vec<String> = env_vars
-            .iter()
-            .map(|(k, v)| format!("{k}={v}"))
-            .collect();
+        let env_vars: Vec<String> = env_vars.iter().map(|(k, v)| format!("{k}={v}")).collect();
         if !env_vars.is_empty() {
             debug!("环境变量: {}", env_vars.join(", "));
         }

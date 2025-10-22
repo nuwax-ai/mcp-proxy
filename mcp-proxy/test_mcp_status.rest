@@ -19,6 +19,17 @@ Content-Type: application/json
 }
 
 
+### 测试检查百度OCR MCP服务状态
+POST http://localhost:8086/mcp/sse/check_status
+Content-Type: application/json
+
+{
+  "mcpId": "baidu-ocr-test-id2",
+  "mcpJsonConfig": "{\"mcpServers\":{\"ocr_edu\":{\"url\":\"https://aip.baidubce.com/mcp/image_recognition/sse?Authorization=Bearer%20bce-v3/ALTAK-zX2w0VFXauTMxEf5BypEl/1835f7e1886946688b132e9187392d9fee8f3c06\"}}}",
+  "mcpType": "OneShot"
+}
+
+
 ### 测试检查context7
 POST http://localhost:8086/mcp/sse/check_status
 Content-Type: application/json
@@ -99,4 +110,340 @@ Content-Type: application/json
   "mcpId": "error-test",
   "mcpJsonConfig": "{\"mcpServers\": {\"error\": {\"command\": \"/not/exist/command\", \"args\": [], \"env\": {}}}}",
   "mcpType": "OneShot"
+}
+
+### ========== 百度OCR MCP服务测试 ==========
+
+### 1. 首先检查百度OCR MCP服务状态（确保服务已启动）
+# @name checkBaiduOcrStatus
+POST http://localhost:8086/mcp/sse/check_status
+Content-Type: application/json
+
+{
+  "mcpId": "baidu-ocr-test-id2",
+  "mcpJsonConfig": "{\"mcpServers\":{\"ocr_edu\":{\"url\":\"https://aip.baidubce.com/mcp/image_recognition/sse?Authorization=Bearer%20bce-v3/ALTAK-zX2w0VFXauTMxEf5BypEl/1835f7e1886946688b132e9187392d9fee8f3c06\"}}}",
+  "mcpType": "OneShot"
+}
+
+### 提取百度OCR服务的信息
+@baidu_mcp_id = baidu-ocr-test-id2
+@baidu_ready = {{checkBaiduOcrStatus.response.body.data.ready}}
+@baidu_status = {{checkBaiduOcrStatus.response.body.data.status}}
+
+### 2. 测试获取百度OCR MCP服务的工具列表
+# @name getBaiduOcrTools
+POST http://localhost:8086/mcp/sse/proxy/{{baidu_mcp_id}}/message
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": "tools_001",
+  "method": "tools/list",
+  "params": {}
+}
+
+### 3. 测试获取百度OCR MCP服务的资源列表
+# @name getBaiduOcrResources
+POST http://localhost:8086/mcp/sse/proxy/{{baidu_mcp_id}}/message
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": "resources_001",
+  "method": "resources/list",
+  "params": {}
+}
+
+### 4. 测试获取百度OCR MCP服务的提示列表
+# @name getBaiduOcrPrompts
+POST http://localhost:8086/mcp/sse/proxy/{{baidu_mcp_id}}/message
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": "prompts_001",
+  "method": "prompts/list",
+  "params": {}
+}
+
+### 5. 测试调用百度OCR工具 - 通用文字识别
+# @name callBaiduOcrGeneral
+POST http://localhost:8086/mcp/sse/proxy/{{baidu_mcp_id}}/message
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": "ocr_general_001",
+  "method": "tools/call",
+  "params": {
+    "name": "general_basic",
+    "arguments": {
+      "image": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCdABmX/9k="
+    }
+  }
+}
+
+### 6. 测试调用百度OCR工具 - 身份证识别
+# @name callBaiduOcrIdCard
+POST http://localhost:8086/mcp/sse/proxy/{{baidu_mcp_id}}/message
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": "ocr_idcard_001",
+  "method": "tools/call",
+  "params": {
+    "name": "idcard",
+    "arguments": {
+      "image": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCdABmX/9k=",
+      "id_card_side": "front"
+    }
+  }
+}
+
+### 7. 测试调用百度OCR工具 - 银行卡识别
+# @name callBaiduOcrBankCard
+POST http://localhost:8086/mcp/sse/proxy/{{baidu_mcp_id}}/message
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": "ocr_bankcard_001",
+  "method": "tools/call",
+  "params": {
+    "name": "bankcard",
+    "arguments": {
+      "image": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCdABmX/9k="
+    }
+  }
+}
+
+### 8. 测试调用百度OCR工具 - 驾驶证识别
+# @name callBaiduOcrDriverLicense
+POST http://localhost:8086/mcp/sse/proxy/{{baidu_mcp_id}}/message
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": "ocr_driver_001",
+  "method": "tools/call",
+  "params": {
+    "name": "driving_license",
+    "arguments": {
+      "image": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCdABmX/9k="
+    }
+  }
+}
+
+### 9. 测试调用百度OCR工具 - 营业执照识别
+# @name callBaiduOcrBusinessLicense
+POST http://localhost:8086/mcp/sse/proxy/{{baidu_mcp_id}}/message
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": "ocr_business_001",
+  "method": "tools/call",
+  "params": {
+    "name": "business_license",
+    "arguments": {
+      "image": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCdABmX/9k="
+    }
+  }
+}
+
+### 10. 测试调用百度OCR工具 - 表格识别
+# @name callBaiduOcrTable
+POST http://localhost:8086/mcp/sse/proxy/{{baidu_mcp_id}}/message
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": "ocr_table_001",
+  "method": "tools/call",
+  "params": {
+    "name": "table",
+    "arguments": {
+      "image": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCdABmX/9k="
+    }
+  }
+}
+
+### 11. 测试获取百度OCR服务信息
+# @name getBaiduOcrServerInfo
+POST http://localhost:8086/mcp/sse/proxy/{{baidu_mcp_id}}/message
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": "server_info_001",
+  "method": "initialize",
+  "params": {
+    "protocolVersion": "2024-11-05",
+    "capabilities": {
+      "roots": {
+        "listChanged": true
+      },
+      "sampling": {}
+    },
+    "clientInfo": {
+      "name": "test-client",
+      "version": "1.0.0"
+    }
+  }
+}
+
+### 12. 测试ping百度OCR服务
+# @name pingBaiduOcrService
+POST http://localhost:8086/mcp/sse/proxy/{{baidu_mcp_id}}/message
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": "ping_001",
+  "method": "ping",
+  "params": {}
+}
+
+### ========== 百度OCR SSE连接测试 ==========
+
+### 13. SSE连接测试（在浏览器中打开以下URL来测试实时连接）
+# 打开浏览器访问: http://localhost:8086/mcp/sse/proxy/baidu-ocr-test-id2/sse
+# 这将建立SSE连接，你可以看到实时的消息流
+
+### ========== 使用真实图片的测试示例 ==========
+
+### 14. 使用真实图片进行通用文字识别测试
+# 注意：请将下面的base64字符串替换为你的真实图片的base64编码
+# @name callBaiduOcrRealImage
+POST http://localhost:8086/mcp/sse/proxy/{{baidu_mcp_id}}/message
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": "ocr_real_001",
+  "method": "tools/call",
+  "params": {
+    "name": "general_basic",
+    "arguments": {
+      "image": "请将此处替换为真实图片的base64编码",
+      "language_type": "CHN_ENG",
+      "detect_direction": "true",
+      "detect_language": "true",
+      "probability": "true"
+    }
+  }
+}
+
+### 15. 测试错误处理 - 无效的工具名称
+# @name testInvalidTool
+POST http://localhost:8086/mcp/sse/proxy/{{baidu_mcp_id}}/message
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": "error_test_001",
+  "method": "tools/call",
+  "params": {
+    "name": "invalid_tool_name",
+    "arguments": {}
+  }
+}
+
+### 16. 测试错误处理 - 无效的图片数据
+# @name testInvalidImage
+POST http://localhost:8086/mcp/sse/proxy/{{baidu_mcp_id}}/message
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": "error_test_002",
+  "method": "tools/call",
+  "params": {
+    "name": "general_basic",
+    "arguments": {
+      "image": "invalid_base64_data"
+    }
+  }
+}
+### ===
+======= 调试百度OCR服务问题 ==========
+
+### 调试1: 重新检查百度OCR服务状态并获取正确路径
+# @name debugBaiduOcrStatus
+POST http://localhost:8086/mcp/sse/check_status
+Content-Type: application/json
+
+{
+  "mcpId": "baidu-ocr-test-id2",
+  "mcpJsonConfig": "{\"mcpServers\":{\"ocr_edu\":{\"url\":\"https://aip.baidubce.com/mcp/image_recognition/sse?Authorization=Bearer%20bce-v3/ALTAK-zX2w0VFXauTMxEf5BypEl/1835f7e1886946688b132e9187392d9fee8f3c06\"}}}",
+  "mcpType": "OneShot"
+}
+
+### 提取调试信息
+@debug_ready = {{debugBaiduOcrStatus.response.body.data.ready}}
+@debug_status = {{debugBaiduOcrStatus.response.body.data.status}}
+@debug_message = {{debugBaiduOcrStatus.response.body.data.message}}
+
+### 调试2: 测试简单的初始化请求（不需要sessionId）
+# @name debugInitialize
+POST http://localhost:8086/mcp/sse/proxy/baidu-ocr-test-id2/message
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": "init_001",
+  "method": "initialize",
+  "params": {
+    "protocolVersion": "2024-11-05",
+    "capabilities": {
+      "roots": {
+        "listChanged": true
+      },
+      "sampling": {}
+    },
+    "clientInfo": {
+      "name": "test-client",
+      "version": "1.0.0"
+    }
+  }
+}
+
+### 调试3: 测试带sessionId的请求
+# @name debugWithSessionId
+POST http://localhost:8086/mcp/sse/proxy/baidu-ocr-test-id2/message?sessionId=test-session-001
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": "tools_with_session_001",
+  "method": "tools/list",
+  "params": {}
+}
+
+### 调试4: 测试不同的路径格式
+# @name debugAlternatePath
+POST http://localhost:8086/mcp/sse/proxy/baidu-ocr-test-id2/message
+Content-Type: application/json
+x-session-id: test-session-001
+
+{
+  "jsonrpc": "2.0",
+  "id": "tools_header_session_001",
+  "method": "tools/list",
+  "params": {
+    "sessionId": "test-session-001"
+  }
+}
+
+### 调试5: 检查服务器是否正确处理URL配置
+# @name debugUrlConfig
+POST http://localhost:8086/mcp/sse/proxy/baidu-ocr-test-id2/message
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": "ping_debug_001",
+  "method": "ping",
+  "params": {}
 }
