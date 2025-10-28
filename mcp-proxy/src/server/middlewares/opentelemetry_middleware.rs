@@ -9,7 +9,7 @@ use opentelemetry::{
     Context,
 };
 use std::time::Instant;
-use tracing::{info_span, Instrument};
+use tracing::{Instrument, debug_span, info_span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use super::{REQUEST_ID_HEADER, SERVER_TIME_HEADER};
@@ -38,7 +38,7 @@ pub async fn opentelemetry_tracing_middleware(
         .unwrap_or("unknown");
 
     // 创建 OpenTelemetry span
-    let span = info_span!(
+    let span = debug_span!(
         "http_request",
         otel.name = format!("{} {}", method, uri).as_str(),
         otel.kind = "server",
