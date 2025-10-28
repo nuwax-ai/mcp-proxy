@@ -75,10 +75,13 @@ async fn main() -> Result<()> {
 
     // 启动日志清理任务，定期清理超过配置天数的日志文件
     let log_path = log_path.clone();
+
+    info!("开始清理旧日志文件,路径: {log_path}, 保留天数: {retain_days}");
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3600)); // 每小时执行一次
         loop {
             interval.tick().await;
+            info!("清理旧日志文件start,路径: {log_path}, 保留天数: {retain_days}");
             if let Err(e) = clean_old_logs(&log_path, retain_days).await {
                 warn!("清理旧日志文件失败: {}", e);
             }
@@ -157,6 +160,7 @@ async fn clean_old_logs(log_path: &str, retain_days: u32) -> Result<()> {
 
     let log_dir = Path::new(log_path);
     if !log_dir.exists() {
+        info!("清理旧日志文件,路径: {log_path} 不存在");
         return Ok(());
     }
 
@@ -192,6 +196,6 @@ async fn clean_old_logs(log_path: &str, retain_days: u32) -> Result<()> {
             }
         }
     }
-    
+    info!("清理旧日志文件完成");
     Ok(())
 }
