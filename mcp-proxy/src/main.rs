@@ -75,10 +75,15 @@ async fn main() -> Result<()> {
 
     // 启动日志清理任务，定期清理超过配置天数的日志文件
     let log_path = log_path.clone();
-
-    info!("开始清理旧日志文件,路径: {log_path}, 保留天数: {retain_days}");
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3600)); // 每小时执行一次
+        // 先执行一次清理
+        info!("清理旧日志文件start,路径: {log_path}, 保留天数: {retain_days}");
+        if let Err(e) = clean_old_logs(&log_path, retain_days).await {
+            warn!("清理旧日志文件失败: {}", e);
+        }
+
+        // 每小时执行一次
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3600));
         loop {
             interval.tick().await;
             info!("清理旧日志文件start,路径: {log_path}, 保留天数: {retain_days}");
@@ -170,25 +175,20 @@ async fn clean_old_logs(log_path: &str, retain_days: u32) -> Result<()> {
         let entry = entry?;
         let path = entry.path();
         
-        // 只处理日志文件（文件名包含日期）
-        if path.is_file() && path.extension().map_or(false, |ext| ext == "log") {
+        // 只处理日志文件（文件名包含日期 log.YYYY-MM-DD）
+        if path.is_file() {
             if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
                 // 尝试从文件名中提取日期（格式: log.YYYY-MM-DD）
                     if let Some(date_str) = file_name.strip_prefix("log.") {
-                        if chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d").is_ok() {
-                            // 获取文件的修改时间
-                            if let Ok(metadata) = fs::metadata(&path) {
-                                if let Ok(modified_time) = metadata.modified() {
-                                    let modified_duration = std::time::SystemTime::now().duration_since(modified_time).unwrap_or_default();
-                                    let file_age_days = modified_duration.as_secs() / 86400;
-                                    
-                                    if file_age_days > retain_days as u64 {
-                                        if let Err(e) = fs::remove_file(&path) {
-                                            warn!("删除旧日志文件失败: {:?}, 错误: {}", path, e);
-                                        } else {
-                                            log::debug!("已删除旧日志文件: {:?} (超过{}天)", path, retain_days);
-                                        }
-                                    }
+                        if let Ok(file_date) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
+                            // 基于文件名中的日期判断是否过期
+                            let today = chrono::Local::now().date_naive();
+                            let age_days = (today - file_date).num_days();
+                            if age_days > retain_days as i64 {
+                                if let Err(e) = fs::remove_file(&path) {
+                                    warn!("删除旧日志文件失败: {:?}, 错误: {}", path, e);
+                                } else {
+                                    log::debug!("已删除旧日志文件: {:?} (文件日期: {}, 超过{}天)", path, file_date, retain_days);
                                 }
                             }
                         }
