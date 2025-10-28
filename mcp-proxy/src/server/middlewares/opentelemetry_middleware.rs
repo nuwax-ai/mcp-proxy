@@ -93,8 +93,8 @@ pub async fn opentelemetry_tracing_middleware(
             headers.insert(SERVER_TIME_HEADER, time_header);
         }
         
-        // 记录请求完成日志
-        tracing::info!(
+        // 记录请求完成日志（改为 debug 级别，减少日志量）
+        tracing::debug!(
             method = %method,
             uri = %uri,
             status = %status_code,
@@ -138,6 +138,7 @@ pub fn extract_trace_id() -> String {
 /// 支持标准的 OpenTelemetry 传播头：
 /// - traceparent (W3C Trace Context)
 /// - x-trace-id (自定义)
+#[allow(dead_code)]
 pub fn extract_trace_from_headers(headers: &HeaderMap) -> Option<String> {
     // 尝试从 W3C Trace Context 中提取
     if let Some(traceparent) = headers.get("traceparent") {

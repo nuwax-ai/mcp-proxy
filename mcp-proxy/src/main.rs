@@ -15,13 +15,15 @@ async fn main() -> Result<()> {
     // 配置日志
     let app_config = AppConfig::load_config()?;
     app_config.log_path_init()?;
-    let log_level = &app_config.log.level;
-    let log_path = &app_config.log.path;
-    let server_port = &app_config.server.port;
+    let log_level = app_config.log.level.clone();
+    let log_path = app_config.log.path.clone();
+    let server_port = app_config.server.port;
+    let retain_days = app_config.log.retain_days;
 
     // 解析 RUST_LOG 环境变量
+    let log_level_for_console = log_level.clone();
     let console_filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level));
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level_for_console));
 
     // 使用 tracing-subscriber 初始化日志记录器
     let console_layer = tracing_subscriber::fmt::layer()
@@ -29,7 +31,8 @@ async fn main() -> Result<()> {
         .with_writer(std::io::stdout)
         .with_filter(console_filter);
     // 日志写入到文件
-    let file_appender = tracing_appender::rolling::daily(log_path, "log");
+    let log_path_for_file = log_path.clone();
+    let file_appender = tracing_appender::rolling::daily(log_path_for_file, "log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     let log_filter =
@@ -69,6 +72,19 @@ async fn main() -> Result<()> {
     // 启动定时任务，定期检查MCP服务状态
     tokio::spawn(start_schedule_task());
     info!("MCP服务状态检查定时任务已启动");
+
+    // 启动日志清理任务，定期清理超过配置天数的日志文件
+    let log_path = log_path.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3600)); // 每小时执行一次
+        loop {
+            interval.tick().await;
+            if let Err(e) = clean_old_logs(&log_path, retain_days).await {
+                warn!("清理旧日志文件失败: {}", e);
+            }
+        }
+    });
+    info!("日志清理任务已启动（保留最近{}天的日志）", retain_days);
 
     // 注册关闭处理函数，确保在程序退出前执行清理
     tokio::spawn(async move {
@@ -132,4 +148,50 @@ async fn main() -> Result<()> {
 // 监听多种终止信号
 async fn shutdown_signal() {
     signal::ctrl_c().await.expect("无法安装Ctrl+C处理器");
+}
+
+/// 清理超过指定天数的日志文件
+async fn clean_old_logs(log_path: &str, retain_days: u32) -> Result<()> {
+    use std::fs;
+    use std::path::Path;
+
+    let log_dir = Path::new(log_path);
+    if !log_dir.exists() {
+        return Ok(());
+    }
+
+    let entries = fs::read_dir(log_dir)?;
+    
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        
+        // 只处理日志文件（文件名包含日期）
+        if path.is_file() && path.extension().map_or(false, |ext| ext == "log") {
+            if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+                // 尝试从文件名中提取日期（格式: log.YYYY-MM-DD）
+                    if let Some(date_str) = file_name.strip_prefix("log.") {
+                        if chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d").is_ok() {
+                            // 获取文件的修改时间
+                            if let Ok(metadata) = fs::metadata(&path) {
+                                if let Ok(modified_time) = metadata.modified() {
+                                    let modified_duration = std::time::SystemTime::now().duration_since(modified_time).unwrap_or_default();
+                                    let file_age_days = modified_duration.as_secs() / 86400;
+                                    
+                                    if file_age_days > retain_days as u64 {
+                                        if let Err(e) = fs::remove_file(&path) {
+                                            warn!("删除旧日志文件失败: {:?}, 错误: {}", path, e);
+                                        } else {
+                                            log::debug!("已删除旧日志文件: {:?} (超过{}天)", path, retain_days);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+            }
+        }
+    }
+    
+    Ok(())
 }

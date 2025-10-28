@@ -26,6 +26,14 @@ pub struct LogConfig {
     pub level: String,
     /// The path to the log file
     pub path: String,
+    /// The number of days to retain log files (default: 5)
+    #[serde(default = "default_retain_days")]
+    pub retain_days: u32,
+}
+
+/// Default log retention days
+fn default_retain_days() -> u32 {
+    5
 }
 
 #[allow(dead_code)]
