@@ -134,7 +134,19 @@ This is a Rust workspace implementing an MCP (Model Context Protocol) proxy syst
 
 **Logging**: Structured logging with `tracing` and `tracing-subscriber`. Daily log rotation with `tracing-appender`.
 
-**FFmpeg Integration**: Lightweight FFmpeg command execution via `ffmpeg-sidecar` for media metadata extraction.
+**FFmpeg Integration**: Lightweight FFmpeg command execution via `ffmpeg-sidecar` for media metadata extraction. System FFmpeg installation required but provides graceful fallback.
+
+**Python Integration**: Both `document-parser` and `voice-cli` use Python services with `uv` for dependency management and virtual environment handling:
+- Automatic virtual environment creation in `./venv/`
+- uv package manager for fast Python dependency installation
+- CUDA GPU acceleration support (optional)
+- Graceful degradation if Python/uv unavailable
+
+**Task Queue & Persistence**: Voice services use `apalis` for background task processing:
+- SQLite-based persistence for task state tracking
+- Task retry mechanisms with exponential backoff
+- Support for task prioritization and status monitoring
+- Worker management with resource limits
 
 ### Configuration System
 
@@ -148,13 +160,40 @@ All services use hierarchical configuration:
 
 **Code Organization**: Strict workspace structure - no code in root directory. All implementation in sub-crates with clear module boundaries.
 
-**Error Handling**: Prefer `anyhow` for application code, `thiserror` for libraries. Avoid `unwrap()` except in tests. Use `?` operator for error propagation.
+**Formatting & Linting**: 
+- Line length: 100 characters
+- 4-space indentation (no tabs)
+- Always run `cargo fmt` and `cargo clippy` before commits
+- Use `cargo audit` to check for security vulnerabilities
+- Use `typos-cli` to check spelling
 
-**Concurrency**: Use `tokio` for async, `Arc<Mutex<T>>` or `Arc<RwLock<T>>` for shared state. Avoid blocking operations in async contexts.
+**Error Handling**: 
+- Prefer `anyhow` for application code, `thiserror` for libraries
+- Avoid `unwrap()` except in tests
+- Use `?` operator for error propagation
+- Add contextual error messages with `anyhow::Context`
+- Never include sensitive data in error messages
 
-**Memory Management**: Prefer borrowing over ownership. Use `dashmap` for concurrent hashmaps instead of `Arc<RwLock<HashMap<_, _>>>`.
+**Concurrency**: 
+- Use `tokio` for async, `Arc<Mutex<T>>` or `Arc<RwLock<T>>` for shared state
+- Avoid blocking operations in async contexts
+- Use `tokio::spawn` for creating concurrent tasks
 
-**Testing**: Unit tests alongside implementation code. Integration tests where appropriate. Use `assert_eq!`, `assert_ne!` for assertions.
+**Memory Management**: 
+- Prefer borrowing over ownership
+- **Use `dashmap` for concurrent hashmaps** instead of `Arc<RwLock<HashMap<_, _>>>` (dashmap provides atomic operations and is more efficient)
+- Avoid unnecessary `clone()`, consider `Cow<T>` or reference counting
+
+**Testing**: 
+- Unit tests alongside implementation code
+- Integration tests where appropriate
+- Use `assert_eq!`, `assert_ne!` for assertions
+- Run specific tests: `cargo test <test_name> -p <crate>`
+
+**Documentation**:
+- All public APIs must have documentation comments (`///`)
+- Include usage examples in complex API documentation
+- Keep README.md and other docs updated
 
 ## Cursor Rules Summary
 
@@ -183,10 +222,67 @@ All services use hierarchical configuration:
 
 The project uses a sophisticated Makefile with Docker buildx for cross-platform compilation:
 
+### Docker Build Commands
+```bash
+# Check Docker buildx availability
+make check-buildx
+
+# Setup buildx builder (if needed)
+make setup-buildx
+
+# Build document-parser for specific platforms
+make build-document-parser-x86_64
+make build-document-parser-arm64
+make build-document-parser-multi
+
+# Build voice-cli for specific platforms
+make build-voice-cli-x86_64
+make build-voice-cli-arm64
+make build-voice-cli-multi
+
+# Build all components
+make build-all-x86_64
+make build-all-arm64
+make build-all-multi
+
+# Build and run Docker runtime image
+make build-image
+make run
+```
+
+**Build System Features**:
 - **Docker-based builds**: All compilation happens in containers for consistency
 - **Multi-platform support**: Linux x86_64 and ARM64 targets
 - **Export targets**: Separate build and runtime stages
 - **Automated dependency installation**: Python and Rust dependencies managed in containers
+- **Output directory**: `./dist/` contains all built binaries organized by platform
+
+## Service-Specific Architecture Details
+
+### Document Parser (`document-parser/`)
+- **Core Structure**: `app_state.rs`, `config.rs`, `main.rs`, `lib.rs`
+- **Submodules**: `handlers/`, `middleware/`, `models/`, `parsers/`, `processors/`, `services/`, `tests/`, `utils/`
+- **Python Integration**: MinerU for PDF parsing, MarkItDown for other formats
+- **Virtual Environment**: Auto-managed in `./venv/`, activated via `source ./venv/bin/activate`
+- **Server**: Axum-based HTTP server with multipart file upload support
+- **Configuration**: YAML/JSON/TOML support with environment variable overrides
+
+### Voice CLI (`voice-cli/`)
+- **Core Components**:
+  - `services/`: Model management, transcription engine, TTS service, task queue
+  - `server/`: HTTP handlers, routes, middleware configuration
+  - `models/`: Request/response data structures
+- **Whisper Integration**: Model download and management via `voice-toolkit`
+- **TTS Service**: Python-based with `uv` dependency management
+- **FFmpeg**: Metadata extraction via `ffmpeg-sidecar`
+- **Apalis**: Async task processing with SQLite persistence
+
+### MCP Proxy (`mcp-proxy/`)
+- **Core Structure**: `config.rs`, `lib.rs`, `main.rs`, `mcp_error.rs`
+- **Submodules**: `client/`, `model/`, `proxy/`, `server/`, `tests/`
+- **SSE Protocol**: Real-time communication via Server-Sent Events
+- **Plugin System**: Dynamic MCP service loading and management
+- **HTTP API**: REST endpoints for service management and status checks
 
 ## Common Patterns
 
@@ -199,3 +295,71 @@ The project uses a sophisticated Makefile with Docker buildx for cross-platform 
 **Python Integration**: Both document-parser and voice-cli use Python services with uv for dependency management and virtual environment handling.
 
 **Configuration Management**: Hierarchical configuration with environment variable overrides and command-line argument integration.
+
+## Single Test Execution Examples
+```bash
+# Run tests for specific crate
+cargo test -p mcp-proxy
+cargo test -p voice-cli
+cargo test -p document-parser
+
+# Run specific test
+cargo test test_extract_basic_metadata -p voice-cli
+cargo test <test_name> -p mcp-proxy
+
+# Run tests in release mode
+cargo test --release -p mcp-proxy
+
+# Run library tests only (excluding integration tests)
+cargo test --lib -p voice-cli
+
+# Run tests with output
+cargo test -p mcp-proxy -- --nocapture
+```
+
+## Python/uv Environment Management
+
+### For Document Parser:
+```bash
+cd document-parser
+# Initialize Python environment (creates ./venv/)
+cargo run --bin document-parser -- uv-init
+
+# Check environment status
+cargo run --bin document-parser -- check
+
+# Start server
+cargo run --bin document-parser -- server
+
+# Troubleshoot issues
+cargo run --bin document-parser -- troubleshoot
+```
+
+### For Voice CLI TTS:
+```bash
+cd voice-cli
+# Install uv package manager
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install Python dependencies
+uv sync
+
+# Run TTS service directly
+python3 tts_service.py --help
+```
+
+## Dependencies Management
+
+All dependencies are managed centrally in the workspace `Cargo.toml`:
+- Sub-crates use `{ workspace = true }` for dependency references
+- Specific versions (no `*` wildcards)
+- Centralized feature flags
+- Regular security audits with `cargo audit`
+
+Key workspace dependencies:
+- `rmcp`: MCP protocol implementation with SSE support
+- `tokio`: Async runtime
+- `axum`: Web framework with tower middleware
+- `tracing`: Structured logging
+- `apalis`: Async task queue
+- `dashmap`: Concurrent hashmap (preferred over `Arc<RwLock<HashMap>>`)

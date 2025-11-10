@@ -1,6 +1,6 @@
 server:
   # The port to listen on for incoming connections
-  port: 8087
+  port: 8085
 # The log level to use
 log:
   level: debug
