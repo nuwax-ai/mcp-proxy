@@ -31,7 +31,7 @@ Content-Type: application/json
 
 
 ### 测试检查context7
-POST http://localhost:8086/mcp/sse/check_status
+POST http://localhost:8087/mcp/sse/check_status
 Content-Type: application/json
 
 {

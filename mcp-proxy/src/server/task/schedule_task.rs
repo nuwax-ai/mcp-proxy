@@ -46,7 +46,7 @@ pub async fn start_schedule_task() {
                 .await
                 {
                     Ok(_) => {
-                        info!("MCP服务状态检查完成");
+                        debug!("MCP服务状态检查完成");
                     }
                     Err(_) => {
                         warn!("MCP服务状态检查任务超时");

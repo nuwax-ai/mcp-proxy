@@ -71,7 +71,8 @@ pub async fn run_code_handler(
         }
     };
     //打印结果
-    info!("run_code_handler result:{:?}", &data);
+    info!("run_code_handler result:{:?}", &result.success);
+    debug!("run_code_handler result:{:?}", &data);
     //返回结果,使用 RunCodeHttpResult 封装执行结果
     let run_code_http_result = RunCodeHttpResult {
         data,
