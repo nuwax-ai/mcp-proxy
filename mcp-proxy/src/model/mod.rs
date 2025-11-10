@@ -13,6 +13,7 @@ pub use mcp_check_status_model::{
 };
 pub use mcp_config::{McpConfig, McpType};
 pub use mcp_router_model::{
-    AddRouteParams, GLOBAL_SSE_MCP_ROUTES_PREFIX, GLOBAL_STREAM_MCP_ROUTES_PREFIX, McpProtocol,
-    McpProtocolPath, McpRouterPath, McpServerConfig, McpServerCommandConfig, SseServerSettings,
+    AddRouteParams, GLOBAL_SSE_MCP_ROUTES_PREFIX, GLOBAL_STREAM_MCP_ROUTES_PREFIX,
+    McpJsonServerParameters, McpProtocol, McpProtocolPath, McpRouterPath, McpServerCommandConfig,
+    McpServerConfig, McpServerUrlConfig, SseServerSettings,
 };

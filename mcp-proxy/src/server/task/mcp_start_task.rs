@@ -1,12 +1,12 @@
 use crate::{
     DynamicRouterService, ProxyHandler, get_proxy_manager,
     model::{
-        CheckMcpStatusResponseStatus, McpConfig, McpProtocolPath, McpRouterPath,
+        CheckMcpStatusResponseStatus, McpConfig, McpProtocol, McpProtocolPath, McpRouterPath,
         McpServerCommandConfig, McpServerConfig, McpServiceStatus, McpType,
     },
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use log::{debug, info};
 use rmcp::{
     ServiceExt,
@@ -109,6 +109,33 @@ pub async fn integrate_sse_server_with_axum(
             let sse_transport = SseClientTransport::start(url_config.url.clone()).await?;
             client_info.serve(sse_transport).await?
         }
+        McpServerConfig::Url(url_config) => {
+            // 根据协议类型创建不同的客户端传输
+            match mcp_router_path.mcp_protocol {
+                McpProtocol::Sse => {
+                    // SSE 协议 - 创建 SSE 客户端传输
+                    info!("创建SSE客户端连接到: {}", url_config.url);
+
+                    let sse_transport = SseClientTransport::start(url_config.url.clone()).await?;
+                    client_info.serve(sse_transport).await?
+                }
+                McpProtocol::Stream => {
+                    // Streamable 协议 - 暂时使用 SSE 传输作为占位
+                    info!("创建Streamable HTTP客户端连接到: {}", url_config.url);
+
+                    // TODO: 未来使用真正的 Streamable 传输
+                    let sse_transport = SseClientTransport::start(url_config.url.clone()).await?;
+
+                    info!(
+                        "Streamable HTTP客户端已启动，MCP ID: {}, 类型: {:?}",
+                        mcp_router_path.mcp_id,
+                        mcp_type.clone()
+                    );
+
+                    client_info.serve(sse_transport).await?
+                }
+            }
+        }
     };
 
     // 创建代理处理器
@@ -133,8 +160,8 @@ pub async fn integrate_sse_server_with_axum(
             // 创建SSE配置 - 使用相对路径（相对于注册的 base_path）
             let config = SseServerConfig {
                 bind: addr.parse()?,
-                sse_path: "/sse".to_string(),  // 相对于 base_path 的路径
-                post_path: "/message".to_string(),  // 相对于 base_path 的路径
+                sse_path: "/sse".to_string(), // 相对于 base_path 的路径
+                post_path: "/message".to_string(), // 相对于 base_path 的路径
                 ct: tokio_util::sync::CancellationToken::new(),
                 sse_keep_alive: None,
             };
@@ -172,15 +199,17 @@ pub async fn integrate_sse_server_with_axum(
 
     // 注册路由到全局路由表
     info!("注册路由: base_path={}, mcp_id={}", base_path, mcp_id);
-    info!("SSE路径配置: sse_path={}, post_path={}", 
-          match &mcp_router_path.mcp_protocol_path {
-              McpProtocolPath::SsePath(sse_path) => &sse_path.sse_path,
-              _ => "N/A"
-          },
-          match &mcp_router_path.mcp_protocol_path {
-              McpProtocolPath::SsePath(sse_path) => &sse_path.message_path,
-              _ => "N/A"
-          });
+    info!(
+        "SSE路径配置: sse_path={}, post_path={}",
+        match &mcp_router_path.mcp_protocol_path {
+            McpProtocolPath::SsePath(sse_path) => &sse_path.sse_path,
+            _ => "N/A",
+        },
+        match &mcp_router_path.mcp_protocol_path {
+            McpProtocolPath::SsePath(sse_path) => &sse_path.message_path,
+            _ => "N/A",
+        }
+    );
     DynamicRouterService::register_route(&base_path, router.clone());
     info!("路由注册完成: base_path={}", base_path);
 

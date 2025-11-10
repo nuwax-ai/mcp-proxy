@@ -44,10 +44,38 @@ pub struct McpServerCommandConfig {
     pub env: Option<HashMap<String, String>>,
 }
 
-//mcp的URL配置（用于SSE协议）
+//mcp的URL配置（用于Streamable/SSE协议）
 #[derive(Debug, Deserialize, Clone)]
 pub struct McpServerUrlConfig {
     pub url: String,
+
+    // 认证配置
+    pub auth_token: Option<String>,
+    pub headers: Option<HashMap<String, String>>,
+
+    // 连接配置
+    pub timeout_secs: Option<u64>,
+    pub connect_timeout_secs: Option<u64>,
+
+    // 重试配置
+    pub max_retries: Option<usize>,
+    pub retry_min_backoff_ms: Option<u64>,
+    pub retry_max_backoff_ms: Option<u64>,
+}
+
+impl Default for McpServerUrlConfig {
+    fn default() -> Self {
+        Self {
+            url: String::new(),
+            auth_token: None,
+            headers: None,
+            timeout_secs: Some(30),
+            connect_timeout_secs: Some(5),
+            max_retries: Some(3),
+            retry_min_backoff_ms: Some(100),
+            retry_max_backoff_ms: Some(5000),
+        }
+    }
 }
 
 impl TryFrom<String> for McpServerConfig {
@@ -59,10 +87,17 @@ impl TryFrom<String> for McpServerConfig {
         mcp_json_server_parameters.try_get_first_mcp_server()
     }
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
+#[serde(untagged)]
+pub enum McpServerInnerConfig {
+    Command(McpServerCommandConfig),
+    Url(McpServerUrlConfig),
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct McpJsonServerParameters {
     #[serde(rename = "mcpServers")]
-    pub mcp_servers: HashMap<String, McpServerConfig>,
+    pub mcp_servers: HashMap<String, McpServerInnerConfig>,
 }
 
 impl McpJsonServerParameters {
@@ -72,7 +107,10 @@ impl McpJsonServerParameters {
         if self.mcp_servers.len() == 1 {
             let vals = self.mcp_servers.values().next();
             if let Some(val) = vals {
-                Ok(val.clone())
+                match val {
+                    McpServerInnerConfig::Command(cmd) => Ok(McpServerConfig::Command(cmd.clone())),
+                    McpServerInnerConfig::Url(url) => Ok(McpServerConfig::Url(url.clone())),
+                }
             } else {
                 error!("mcp_server_config: {:?}", "没有找到对应的mcp_server_config");
                 Err(anyhow::anyhow!("没有找到对应的mcp配置"))
@@ -316,7 +354,7 @@ mod tests {
             .expect("baidu-map should exist");
 
         match baidu {
-            McpServerConfig::Command(cmd_config) => {
+            McpServerInnerConfig::Command(cmd_config) => {
                 assert_eq!(cmd_config.command, "npx");
                 assert_eq!(
                     cmd_config.args,
@@ -335,7 +373,7 @@ mod tests {
                     "xxx"
                 );
             }
-            McpServerConfig::Url(_) => {
+            McpServerInnerConfig::Url(_) => {
                 panic!("Expected command config, got URL config");
             }
         }
