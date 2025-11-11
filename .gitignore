@@ -38,3 +38,5 @@ voice-cli/server-config.yml
 voice-cli/server_debug.log
 voice-cli/test_audio.txt
 voice-cli/checkpoints/*
+mcp-proxy/tmp/rust-sdk/*
+mcp-proxy/tmp/test.log
