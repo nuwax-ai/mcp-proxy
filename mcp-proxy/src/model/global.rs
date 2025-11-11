@@ -1,6 +1,6 @@
 use axum::Router;
 use dashmap::DashMap;
-use log::info;
+use log::{debug, info};
 use once_cell::sync::Lazy;
 use std::sync::Arc;
 use tokio::time::Instant;
@@ -25,17 +25,37 @@ pub struct DynamicRouterService(pub McpProtocol);
 impl DynamicRouterService {
     // 注册动态 handler
     pub fn register_route(path: &str, handler: Router) {
+        debug!("=== 注册路由 ===");
+        debug!("注册路径: {}", path);
         GLOBAL_ROUTES.insert(path.to_string(), handler);
+        debug!("=== 注册路由完成 ===");
     }
 
     // 删除动态 handler
     pub fn delete_route(path: &str) {
+        debug!("=== 删除路由 ===");
+        debug!("删除路径: {}", path);
         GLOBAL_ROUTES.remove(path);
+        debug!("=== 删除路由完成 ===");
     }
 
     // 获取动态 handler
     pub fn get_route(path: &str) -> Option<Router> {
-        GLOBAL_ROUTES.get(path).map(|entry| entry.value().clone())
+        let result = GLOBAL_ROUTES.get(path).map(|entry| entry.value().clone());
+        if result.is_some() {
+            debug!("get_route('{}') = Some(Router)", path);
+        } else {
+            debug!("get_route('{}') = None", path);
+        }
+        result
+    }
+
+    // 获取所有已注册的路由（debug用）
+    pub fn get_all_routes() -> Vec<String> {
+        GLOBAL_ROUTES
+            .iter()
+            .map(|entry| entry.key().clone())
+            .collect()
     }
 }
 

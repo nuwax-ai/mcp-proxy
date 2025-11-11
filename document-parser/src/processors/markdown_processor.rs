@@ -44,11 +44,11 @@ impl MarkdownProcessorConfig {
     /// 使用全局配置创建Markdown处理器配置
     pub fn with_global_config() -> Self {
         // 安全地获取大文档阈值，如果全局配置未初始化则使用默认值
-        let large_document_threshold =
-            match std::panic::catch_unwind(get_large_document_threshold) {
-                Ok(threshold) => threshold as usize,
-                Err(_) => 10 * 1024 * 1024, // 默认10MB
-            };
+        let large_document_threshold = match std::panic::catch_unwind(get_large_document_threshold)
+        {
+            Ok(threshold) => threshold as usize,
+            Err(_) => 10 * 1024 * 1024, // 默认10MB
+        };
 
         Self {
             enable_toc: true,
@@ -1120,8 +1120,6 @@ impl Default for MarkdownProcessor {
 mod tests {
     use super::*;
     use crate::services::{ImageProcessor, ImageProcessorConfig};
-    
-    
 
     #[tokio::test]
     async fn test_markdown_processor_basic() {

@@ -471,9 +471,7 @@ impl MarkItDownParser {
         progress_callback(MarkItDownProgress {
             stage: ProcessingStage::Completed,
             progress: 100.0,
-            message: format!(
-                "解析完成，耗时: {processing_time:?}，字数: {word_count}"
-            ),
+            message: format!("解析完成，耗时: {processing_time:?}，字数: {word_count}"),
             elapsed_time: processing_time,
             current_file: Some(file_path.to_string()),
         });
@@ -660,7 +658,8 @@ impl MarkItDownParser {
                     }
                 }
             }
-        }).await;
+        })
+        .await;
 
         // 清理任务
         stdout_task.abort();

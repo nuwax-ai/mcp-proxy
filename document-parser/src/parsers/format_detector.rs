@@ -108,7 +108,8 @@ impl FormatDetector {
         // 安全地获取文件大小限制，如果全局配置未初始化则使用默认值
         let max_file_size = std::panic::catch_unwind(|| {
             get_file_size_limit(&FileSizePurpose::FormatDetector).bytes()
-        }).unwrap_or(100 * 1024 * 1024);
+        })
+        .unwrap_or(100 * 1024 * 1024);
 
         Self {
             custom_mappings: HashMap::new(),
@@ -904,7 +905,8 @@ impl SecurityConfig {
         // 安全地获取文件大小限制，如果全局配置未初始化则使用默认值
         let max_allowed_size = std::panic::catch_unwind(|| {
             get_file_size_limit(&FileSizePurpose::FormatDetector).bytes()
-        }).unwrap_or(100 * 1024 * 1024);
+        })
+        .unwrap_or(100 * 1024 * 1024);
 
         Self {
             enable_size_check: true,

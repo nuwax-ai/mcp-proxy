@@ -1,8 +1,6 @@
 #[cfg(test)]
 mod task_management_integration_tests {
-    use crate::models::{
-        AsyncTranscriptionTask, Config, TaskManagementConfig, TaskStatus,
-    };
+    use crate::models::{AsyncTranscriptionTask, Config, TaskManagementConfig, TaskStatus};
     use std::path::PathBuf;
     use std::sync::Arc;
     use tempfile::TempDir;

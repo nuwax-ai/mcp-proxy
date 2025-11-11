@@ -42,8 +42,8 @@ impl RequestValidator {
 
     /// 验证URL格式
     pub fn validate_url(url_str: &str) -> Result<Url, AppError> {
-        let url = Url::parse(url_str)
-            .map_err(|e| AppError::Validation(format!("无效的URL格式: {e}")))?;
+        let url =
+            Url::parse(url_str).map_err(|e| AppError::Validation(format!("无效的URL格式: {e}")))?;
 
         // 检查协议
         if !matches!(url.scheme(), "http" | "https") {
@@ -65,8 +65,8 @@ impl RequestValidator {
 
     /// 验证URL格式（仅验证，不返回解析后的URL）
     pub fn validate_url_format(url_str: &str) -> Result<(), AppError> {
-        let _url = Url::parse(url_str)
-            .map_err(|e| AppError::Validation(format!("无效的URL格式: {e}")))?;
+        let _url =
+            Url::parse(url_str).map_err(|e| AppError::Validation(format!("无效的URL格式: {e}")))?;
 
         // 检查协议
         if !url_str.starts_with("http://") && !url_str.starts_with("https://") {
@@ -143,9 +143,7 @@ impl RequestValidator {
 
         let sort_by = sort_by.unwrap_or("created_at");
         if !allowed_sort_fields.contains(sort_by) {
-            return Err(AppError::Validation(format!(
-                "不支持的排序字段: {sort_by}"
-            )));
+            return Err(AppError::Validation(format!("不支持的排序字段: {sort_by}")));
         }
 
         let sort_order = sort_order.unwrap_or("desc");

@@ -1,6 +1,6 @@
+use crate::VoiceCliError;
 use crate::models::Config;
 use crate::services::ModelService;
-use crate::VoiceCliError;
 use tracing::{error, info, warn};
 
 pub async fn handle_model_download(config: &Config, model_name: &str) -> crate::Result<()> {
@@ -181,10 +181,10 @@ pub async fn ensure_default_model(config: &Config) -> crate::Result<()> {
         );
         handle_model_download(config, &config.whisper.default_model).await?;
     } else {
-        return Err(VoiceCliError::ModelNotFound(
-            format!("No models found and auto_download is disabled. Please run: voice-cli model download {}", 
-                   config.whisper.default_model)
-        ));
+        return Err(VoiceCliError::ModelNotFound(format!(
+            "No models found and auto_download is disabled. Please run: voice-cli model download {}",
+            config.whisper.default_model
+        )));
     }
 
     Ok(())

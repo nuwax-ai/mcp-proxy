@@ -25,7 +25,7 @@ pub fn mime_type_to_extension(content_type: &str) -> &'static str {
         "audio/x-m4a" => "m4a",
         "audio/x-mpeg" => "mp3",
         "audio/x-ogg" => "ogg",
-        
+
         // 视频类型
         "video/mp4" => "mp4",
         "video/webm" => "webm",
@@ -38,7 +38,7 @@ pub fn mime_type_to_extension(content_type: &str) -> &'static str {
         "video/3gpp2" => "3g2",
         "video/mpeg" => "mpeg",
         "video/x-mpeg" => "mpeg",
-        
+
         // 其他所有类型统一使用 bin 扩展名
         _ => {
             // 对于非音视频类型，直接使用默认扩展名，不输出警告日志
@@ -123,20 +123,21 @@ pub fn extension_to_mime_type(extension: &str) -> &'static str {
 /// 智能获取文件扩展名（优先使用 MIME 类型，回退到 URL 扩展名）
 pub fn get_file_extension(content_type: &str, url: &str) -> &'static str {
     let extension = mime_type_to_extension(content_type);
-    
+
     // 如果得到的是默认扩展名，尝试从 URL 中获取更精确的扩展名
     if extension == "bin" {
         if let Some(url_extension) = extract_extension_from_url(url) {
             return url_extension;
         }
     }
-    
+
     extension
 }
 
 /// 检查是否为支持的音频格式
 pub fn is_supported_audio_format(mime_type: &str) -> bool {
-    matches!(mime_type,
+    matches!(
+        mime_type,
         "audio/mpeg" |      // MP3
         "audio/wav" |       // WAV
         "audio/flac" |      // FLAC
@@ -150,13 +151,14 @@ pub fn is_supported_audio_format(mime_type: &str) -> bool {
         "audio/vnd.wave" |  // WAV (alternative)
         "audio/x-aiff" |    // AIFF
         "audio/aiff" |      // AIFF (alternative)
-        "audio/x-caf"       // CAF
+        "audio/x-caf" // CAF
     )
 }
 
 /// 检查是否为支持的视频格式
 pub fn is_supported_video_format(mime_type: &str) -> bool {
-    matches!(mime_type,
+    matches!(
+        mime_type,
         "video/mp4" |        // MP4
         "video/webm" |       // WebM
         "video/x-matroska" | // MKV
@@ -167,7 +169,7 @@ pub fn is_supported_video_format(mime_type: &str) -> bool {
         "video/3gpp" |       // 3GP
         "video/3gpp2" |      // 3G2
         "video/mpeg" |       // MPEG
-        "video/x-mpeg"       // MPEG (alternative)
+        "video/x-mpeg" // MPEG (alternative)
     )
 }
 
@@ -193,9 +195,18 @@ mod tests {
 
     #[test]
     fn test_extract_extension_from_url() {
-        assert_eq!(extract_extension_from_url("https://example.com/test.mp3"), Some("mp3"));
-        assert_eq!(extract_extension_from_url("https://example.com/test.wav"), Some("wav"));
-        assert_eq!(extract_extension_from_url("https://example.com/test?format=mp3"), None);
+        assert_eq!(
+            extract_extension_from_url("https://example.com/test.mp3"),
+            Some("mp3")
+        );
+        assert_eq!(
+            extract_extension_from_url("https://example.com/test.wav"),
+            Some("wav")
+        );
+        assert_eq!(
+            extract_extension_from_url("https://example.com/test?format=mp3"),
+            None
+        );
         assert_eq!(extract_extension_from_url("invalid-url"), None);
     }
 
@@ -204,14 +215,26 @@ mod tests {
         assert_eq!(extension_to_mime_type("mp3"), "audio/mpeg");
         assert_eq!(extension_to_mime_type("wav"), "audio/wav");
         assert_eq!(extension_to_mime_type("mp4"), "video/mp4");
-        assert_eq!(extension_to_mime_type("unknown"), "application/octet-stream");
+        assert_eq!(
+            extension_to_mime_type("unknown"),
+            "application/octet-stream"
+        );
     }
 
     #[test]
     fn test_get_file_extension() {
-        assert_eq!(get_file_extension("audio/mpeg", "https://example.com/test.mp3"), "mp3");
-        assert_eq!(get_file_extension("unknown/type", "https://example.com/test.wav"), "wav");
-        assert_eq!(get_file_extension("unknown/type", "https://example.com/test"), "bin");
+        assert_eq!(
+            get_file_extension("audio/mpeg", "https://example.com/test.mp3"),
+            "mp3"
+        );
+        assert_eq!(
+            get_file_extension("unknown/type", "https://example.com/test.wav"),
+            "wav"
+        );
+        assert_eq!(
+            get_file_extension("unknown/type", "https://example.com/test"),
+            "bin"
+        );
     }
 
     #[test]
@@ -219,11 +242,11 @@ mod tests {
         assert!(is_supported_audio_format("audio/mpeg"));
         assert!(is_supported_audio_format("audio/wav"));
         assert!(!is_supported_audio_format("video/mp4"));
-        
+
         assert!(is_supported_video_format("video/mp4"));
         assert!(is_supported_video_format("video/webm"));
         assert!(!is_supported_video_format("audio/mpeg"));
-        
+
         assert!(is_supported_media_format("audio/mpeg"));
         assert!(is_supported_media_format("video/mp4"));
         assert!(!is_supported_media_format("unknown/type"));

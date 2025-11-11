@@ -1,11 +1,11 @@
 use anyhow::Result;
 use log::{debug, info};
-use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, CONTENT_TYPE};
+use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
 
 use crate::model::McpProtocol;
 
 /// 自动检测 MCP 服务的协议类型
-/// 
+///
 /// 通过发送探测请求来判断服务支持的协议：
 /// 1. 先尝试 Streamable HTTP 协议（发送带有特定 Accept 头的请求）
 /// 2. 如果失败，尝试 SSE 协议
@@ -30,7 +30,7 @@ pub async fn detect_mcp_protocol(url: &str) -> Result<McpProtocol> {
 }
 
 /// 检测是否为 Streamable HTTP 协议
-/// 
+///
 /// Streamable HTTP 协议的特征：
 /// - 需要 Accept: application/json, text/event-stream 头
 /// - 返回 200 OK 或 406 Not Acceptable（如果缺少正确的 Accept 头）
@@ -65,13 +65,7 @@ async fn is_streamable_http(url: &str) -> bool {
         "params": {}
     });
 
-    match client
-        .post(url)
-        .headers(headers)
-        .json(&body)
-        .send()
-        .await
-    {
+    match client.post(url).headers(headers).json(&body).send().await {
         Ok(response) => {
             let status = response.status();
             let headers = response.headers();
@@ -118,7 +112,7 @@ async fn is_streamable_http(url: &str) -> bool {
 }
 
 /// 检测是否为 SSE 协议
-/// 
+///
 /// SSE 协议的特征：
 /// - 通常是 GET 请求到特定的 SSE 端点
 /// - 响应头包含 content-type: text/event-stream

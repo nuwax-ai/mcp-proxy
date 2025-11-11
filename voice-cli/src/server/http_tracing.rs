@@ -1,6 +1,6 @@
-use axum::{extract::Request, middleware::Next, response::Response};
 use axum::body::Body;
-use tracing::{info_span, Instrument};
+use axum::{extract::Request, middleware::Next, response::Response};
+use tracing::{Instrument, info_span};
 use uuid::Uuid;
 
 /// 基本追踪中间件
@@ -8,10 +8,10 @@ use uuid::Uuid;
 pub async fn basic_tracing_middleware(request: Request, next: Next) -> Response {
     // 获取或生成追踪ID
     let tid = get_or_generate_trace_id(&request);
-    
+
     // 在移动 request 之前先获取 URI 信息
     let is_health_check = request.uri().path() == "/health";
-    
+
     // 创建请求span
     let span = info_span!(
         "http_request",
@@ -23,14 +23,18 @@ pub async fn basic_tracing_middleware(request: Request, next: Next) -> Response 
 
     // 在span中执行请求处理
     let response = next.run(request).instrument(span).await;
-    
+
     // 健康检查不处理
     if is_health_check {
         return response;
     }
 
     // 仅当响应是 HttpResult（通过扩展标记判断）才注入 tid
-    if response.extensions().get::<crate::models::HttpResultMarker>().is_some() {
+    if response
+        .extensions()
+        .get::<crate::models::HttpResultMarker>()
+        .is_some()
+    {
         return add_tid_to_response(response, tid).await;
     }
 

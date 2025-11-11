@@ -2,7 +2,10 @@ mod config;
 use anyhow::Result;
 use backtrace::Backtrace;
 use log::{error, info, warn};
-use mcp_proxy::{AppConfig, AppState, get_proxy_manager, get_router, start_schedule_task, log_service_info, init_tracer_provider};
+use mcp_proxy::{
+    AppConfig, AppState, get_proxy_manager, get_router, init_tracer_provider, log_service_info,
+    start_schedule_task,
+};
 use run_code_rmcp::warm_up_all_envs;
 use tokio::net::TcpListener;
 use tokio::signal;
@@ -44,7 +47,7 @@ async fn main() -> Result<()> {
 
     // 初始化 OpenTelemetry tracer provider
     init_tracer_provider("mcp-proxy", "0.1.0")?;
-    
+
     // 配置 OpenTelemetry
     let telemetry_layer = tracing_opentelemetry::layer();
 
@@ -170,29 +173,34 @@ async fn clean_old_logs(log_path: &str, retain_days: u32) -> Result<()> {
     }
 
     let entries = fs::read_dir(log_dir)?;
-    
+
     for entry in entries {
         let entry = entry?;
         let path = entry.path();
-        
+
         // 只处理日志文件（文件名包含日期 log.YYYY-MM-DD）
         if path.is_file() {
             if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
                 // 尝试从文件名中提取日期（格式: log.YYYY-MM-DD）
-                    if let Some(date_str) = file_name.strip_prefix("log.") {
-                        if let Ok(file_date) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
-                            // 基于文件名中的日期判断是否过期
-                            let today = chrono::Local::now().date_naive();
-                            let age_days = (today - file_date).num_days();
-                            if age_days > retain_days as i64 {
-                                if let Err(e) = fs::remove_file(&path) {
-                                    warn!("删除旧日志文件失败: {:?}, 错误: {}", path, e);
-                                } else {
-                                    log::debug!("已删除旧日志文件: {:?} (文件日期: {}, 超过{}天)", path, file_date, retain_days);
-                                }
+                if let Some(date_str) = file_name.strip_prefix("log.") {
+                    if let Ok(file_date) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
+                        // 基于文件名中的日期判断是否过期
+                        let today = chrono::Local::now().date_naive();
+                        let age_days = (today - file_date).num_days();
+                        if age_days > retain_days as i64 {
+                            if let Err(e) = fs::remove_file(&path) {
+                                warn!("删除旧日志文件失败: {:?}, 错误: {}", path, e);
+                            } else {
+                                log::debug!(
+                                    "已删除旧日志文件: {:?} (文件日期: {}, 超过{}天)",
+                                    path,
+                                    file_date,
+                                    retain_days
+                                );
                             }
                         }
                     }
+                }
             }
         }
     }

@@ -180,7 +180,7 @@ async fn main() -> Result<()> {
         Ok(cuda_info) => {
             let recommended_device = if cuda_info.available && !cuda_info.devices.is_empty() {
                 // 选择显存最大的设备作为推荐设备
-                
+
                 cuda_info
                     .devices
                     .iter()

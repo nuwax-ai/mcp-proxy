@@ -1520,7 +1520,7 @@ impl EnvironmentManager {
             ));
         }
 
-         issues
+        issues
     }
 
     /// 生成虚拟环境问题的恢复建议
@@ -1714,9 +1714,7 @@ impl EnvironmentManager {
         } else if error_message.contains("超时") {
             "Python命令执行超时。检查系统负载或Python安装是否正常".to_string()
         } else {
-            format!(
-                "Python环境问题: {error_message}。请检查Python安装并确保可以正常执行"
-            )
+            format!("Python环境问题: {error_message}。请检查Python安装并确保可以正常执行")
         }
     }
 
@@ -2229,7 +2227,8 @@ impl EnvironmentManager {
         let venv_info = String::from_utf8_lossy(&venv_output.stdout);
         let lines: Vec<&str> = venv_info.trim().split('\n').collect();
 
-        let virtual_env_active = lines.first()
+        let virtual_env_active = lines
+            .first()
             .and_then(|line| line.parse::<bool>().ok())
             .unwrap_or(false);
 
@@ -4737,8 +4736,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_cross_platform_environment_variables() {
-        
-
         let temp_dir = tempfile::TempDir::new().unwrap();
         let manager = EnvironmentManager::new(
             "python3".to_string(),

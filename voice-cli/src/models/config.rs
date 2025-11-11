@@ -135,7 +135,6 @@ pub struct TtsConfig {
     pub timeout_seconds: u64,
 }
 
-
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -268,8 +267,6 @@ impl Default for TtsConfig {
     }
 }
 
-
-
 impl Config {
     pub fn load(config_path: &PathBuf) -> crate::Result<Self> {
         let config_content = std::fs::read_to_string(config_path).map_err(|e| {
@@ -352,8 +349,6 @@ impl Config {
             tracing::info!("Applied environment override: VOICE_CLI_PORT = {}", port);
         }
 
-
-
         // Max file size override
         if let Ok(size_str) = std::env::var("VOICE_CLI_MAX_FILE_SIZE") {
             let size = size_str.parse::<usize>().map_err(|_| {
@@ -388,9 +383,6 @@ impl Config {
                 cors_enabled
             );
         }
-
-
-
 
         // Logging configuration overrides
         if let Ok(level) = std::env::var("VOICE_CLI_LOG_LEVEL") {
@@ -501,7 +493,6 @@ impl Config {
             );
         }
 
-
         // Daemon configuration overrides
         if let Ok(work_dir) = std::env::var("VOICE_CLI_WORK_DIR") {
             if work_dir.trim().is_empty() {
@@ -528,7 +519,6 @@ impl Config {
                 pid_file
             );
         }
-
 
         if let Ok(max_tasks_str) = std::env::var("VOICE_CLI_MAX_CONCURRENT_TASKS") {
             let max_tasks = max_tasks_str.parse::<usize>().map_err(|_| {
@@ -593,7 +583,6 @@ impl Config {
                 sled_path
             );
         }
-
 
         Ok(())
     }
@@ -712,8 +701,6 @@ impl Config {
             ));
         }
 
-
         Ok(())
     }
-
 }

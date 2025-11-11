@@ -2,7 +2,7 @@
 
 set -e
 
-MCP_ID="test-sse-complete"
+MCP_ID="test-sse-stream"
 BASE_URL="http://localhost:8085"
 
 echo "=== 1. 创建服务 ==="

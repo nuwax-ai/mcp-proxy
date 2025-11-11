@@ -1,7 +1,7 @@
 use crate::VoiceCliError;
 use axum::{
-    response::{IntoResponse, Response},
     Json,
+    response::{IntoResponse, Response},
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -146,14 +146,22 @@ impl<T> From<VoiceCliError> for HttpResult<T> {
             }
             VoiceCliError::Model(msg) => Self::system_error(format!("Model error: {}", msg)),
             VoiceCliError::Daemon(msg) => Self::system_error(format!("Daemon error: {}", msg)),
-            VoiceCliError::ConfigRs(err) => Self::system_error(format!("Configuration error: {}", err)),
+            VoiceCliError::ConfigRs(err) => {
+                Self::system_error(format!("Configuration error: {}", err))
+            }
             VoiceCliError::Storage(msg) => Self::system_error(format!("Storage error: {}", msg)),
-            VoiceCliError::TaskManagementDisabled => Self::system_error("Task management is disabled".to_string()),
+            VoiceCliError::TaskManagementDisabled => {
+                Self::system_error("Task management is disabled".to_string())
+            }
             VoiceCliError::NotFound(msg) => Self::task_not_found(msg),
             VoiceCliError::Network(msg) => Self::system_error(format!("Network error: {}", msg)),
-            VoiceCliError::Initialization(msg) => Self::system_error(format!("Initialization error: {}", msg)),
+            VoiceCliError::Initialization(msg) => {
+                Self::system_error(format!("Initialization error: {}", msg))
+            }
             VoiceCliError::TtsError(msg) => Self::processing_failed(format!("TTS error: {}", msg)),
-            VoiceCliError::InvalidInput(msg) => Self::unsupported_format(format!("Invalid input: {}", msg)),
+            VoiceCliError::InvalidInput(msg) => {
+                Self::unsupported_format(format!("Invalid input: {}", msg))
+            }
             VoiceCliError::Io(msg) => Self::system_error(format!("I/O error: {}", msg)),
         }
     }

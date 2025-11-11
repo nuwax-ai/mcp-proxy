@@ -28,9 +28,7 @@ impl ServiceType {
 
     /// 获取所有支持的服务类型
     pub fn all() -> &'static [ServiceType] {
-        &[
-            ServiceType::Server,
-        ]
+        &[ServiceType::Server]
     }
 }
 
@@ -92,4 +90,3 @@ pub struct ConfigChangeNotification {
     pub new_config: Config,
     pub changed_at: SystemTime,
 }
-

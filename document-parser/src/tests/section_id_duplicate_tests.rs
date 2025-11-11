@@ -8,9 +8,7 @@
 
 use crate::{
     error::AppError,
-    models::{
-        StructuredDocument, StructuredSection,
-    },
+    models::{StructuredDocument, StructuredSection},
     processors::MarkdownProcessor,
     tests::test_helpers::{create_test_app_state, safe_init_global_config},
 };

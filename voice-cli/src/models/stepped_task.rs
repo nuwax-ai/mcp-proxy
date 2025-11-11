@@ -10,7 +10,7 @@ use crate::models::AudioFormat;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AsyncTranscriptionTask {
     pub task_id: String,
-    pub audio_file_path: PathBuf, // Path to the audio file on disk
+    pub audio_file_path: PathBuf,  // Path to the audio file on disk
     pub original_filename: String, // Original filename from upload
     pub model: Option<String>,
     pub response_format: Option<String>,
@@ -194,8 +194,16 @@ impl std::fmt::Display for TaskError {
             TaskError::StorageError { operation, message } => {
                 write!(f, "存储错误 ({}): {}", operation, message)
             }
-            TaskError::TimeoutError { stage, timeout_duration } => {
-                write!(f, "超时错误 ({}): {} 秒", stage.step_name(), timeout_duration.as_secs())
+            TaskError::TimeoutError {
+                stage,
+                timeout_duration,
+            } => {
+                write!(
+                    f,
+                    "超时错误 ({}): {} 秒",
+                    stage.step_name(),
+                    timeout_duration.as_secs()
+                )
             }
             TaskError::CancellationRequested => {
                 write!(f, "任务已被取消")
@@ -259,7 +267,11 @@ impl From<voice_toolkit::stt::TranscriptionResult> for SerializableTranscription
     fn from(result: voice_toolkit::stt::TranscriptionResult) -> Self {
         Self {
             text: result.text,
-            segments: result.segments.into_iter().map(|s| SerializableSegment::from_voice_toolkit_segment(s)).collect(),
+            segments: result
+                .segments
+                .into_iter()
+                .map(|s| SerializableSegment::from_voice_toolkit_segment(s))
+                .collect(),
             language: result.language,
             audio_duration: result.audio_duration,
         }
@@ -281,7 +293,7 @@ impl SerializableSegment {
     pub fn from_voice_toolkit_segment(segment: voice_toolkit::stt::TranscriptionSegment) -> Self {
         Self {
             start_time: segment.start_time * 1000, // Convert seconds to milliseconds (assuming start_time is in seconds as u64)
-            end_time: segment.end_time * 1000,     // Convert seconds to milliseconds (assuming end_time is in seconds as u64)
+            end_time: segment.end_time * 1000, // Convert seconds to milliseconds (assuming end_time is in seconds as u64)
             text: segment.text,
             confidence: segment.confidence,
         }
@@ -304,7 +316,7 @@ impl From<SerializableTranscriptionResult> for crate::models::TranscriptionRespo
                 .collect(),
             language: result.language,
             duration: Some(result.audio_duration as f32 / 1000.0), // Convert from ms to seconds
-            processing_time: 0.0, // Will be set by the handler
+            processing_time: 0.0,                                  // Will be set by the handler
             metadata: None,
         }
     }

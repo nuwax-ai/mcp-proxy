@@ -16,8 +16,14 @@ mod config_template_tests {
         assert!(server_template.contains("daemon:"), "应该包含daemon配置");
 
         // Server模板不应该包含cluster配置
-        assert!(!server_template.contains("cluster:"), "server模板不应该包含cluster配置");
-        assert!(!server_template.contains("load_balancer:"), "server模板不应该包含load_balancer配置");
+        assert!(
+            !server_template.contains("cluster:"),
+            "server模板不应该包含cluster配置"
+        );
+        assert!(
+            !server_template.contains("load_balancer:"),
+            "server模板不应该包含load_balancer配置"
+        );
 
         println!(
             "✅ Server配置模板包含所有必要的配置项，长度: {} 字节",
@@ -38,10 +44,22 @@ mod config_template_tests {
                 println!("✅ Server配置模板YAML格式有效");
 
                 // 验证关键配置节点存在
-                assert!(yaml_value.get("server").is_some(), "server模板应该有server配置节点");
-                assert!(yaml_value.get("whisper").is_some(), "server模板应该有whisper配置节点");
-                assert!(yaml_value.get("logging").is_some(), "server模板应该有logging配置节点");
-                assert!(yaml_value.get("daemon").is_some(), "server模板应该有daemon配置节点");
+                assert!(
+                    yaml_value.get("server").is_some(),
+                    "server模板应该有server配置节点"
+                );
+                assert!(
+                    yaml_value.get("whisper").is_some(),
+                    "server模板应该有whisper配置节点"
+                );
+                assert!(
+                    yaml_value.get("logging").is_some(),
+                    "server模板应该有logging配置节点"
+                );
+                assert!(
+                    yaml_value.get("daemon").is_some(),
+                    "server模板应该有daemon配置节点"
+                );
             }
             Err(e) => {
                 panic!("Server配置模板YAML格式无效: {}", e);

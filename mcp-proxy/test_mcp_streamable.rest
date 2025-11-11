@@ -18,7 +18,7 @@ POST http://localhost:8085/mcp/sse/check_status
 Content-Type: application/json
 
 {
-  "mcpId": "test-sse-to-stream-auto",
+  "mcpId": "test-streamable-service",
   "mcpJsonConfig": "{\"mcpServers\": {\"test-service\": {\"url\": \"http://127.0.0.1:8000/mcp\"}}}",
   "mcpType": "Persistent"
 }
@@ -36,7 +36,7 @@ Content-Type: application/json
 }
 
 ### 2a. 获取 SSE 连接（自动检测版本）
-GET http://localhost:8085/mcp/sse/proxy/test-sse-to-stream-auto/sse
+GET http://localhost:8085/mcp/sse/proxy/test-streamable-service/sse
 Accept: text/event-stream
 
 ### 2b. 获取 SSE 连接（手动指定版本）
@@ -45,7 +45,7 @@ Accept: text/event-stream
 
 ### 3. 发送 initialize 消息（需要先从 SSE 响应中获取 sessionId）
 # 替换 {sessionId} 为实际的 session ID
-POST http://localhost:8085/mcp/sse/proxy/test-sse-to-stream-auto/message?sessionId={sessionId}
+POST http://localhost:8085/mcp/sse/proxy/test-streamable-service/message?sessionId={sessionId}
 Content-Type: application/json
 
 {
@@ -63,7 +63,7 @@ Content-Type: application/json
 }
 
 ### 4. 列出可用工具
-POST http://localhost:8085/mcp/sse/proxy/test-sse-to-stream-auto/message?sessionId={sessionId}
+POST http://localhost:8085/mcp/sse/proxy/test-streamable-service/message?sessionId={sessionId}
 Content-Type: application/json
 
 {
@@ -124,7 +124,7 @@ Accept: application/json, text/event-stream
 ### ========================================
 
 ### 8a. 清理 SSE 服务（自动检测）
-DELETE http://localhost:8085/mcp/config/delete/test-sse-to-stream-auto
+DELETE http://localhost:8085/mcp/config/delete/test-streamable-service
 Content-Type: application/json
 
 {}

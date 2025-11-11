@@ -1,8 +1,8 @@
-use crate::services::ModelService;
 use crate::VoiceCliError;
+use crate::services::ModelService;
+use dashmap::DashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use dashmap::DashMap;
 
 // Reuse an already-loaded WhisperTranscriber to avoid reloading the model
 use voice_toolkit::stt::{self, TranscriptionResult, WhisperConfig, WhisperTranscriber};
@@ -94,10 +94,13 @@ impl TranscriptionEngine {
                 let rt = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
-                    .map_err(|e| format!("Failed to create runtime for Whisper transcription: {}", e))?;
+                    .map_err(|e| {
+                        format!("Failed to create runtime for Whisper transcription: {}", e)
+                    })?;
 
                 rt.block_on(async {
-                    stt::transcribe_file_with_transcriber(&transcriber, &audio_path).await
+                    stt::transcribe_file_with_transcriber(&transcriber, &audio_path)
+                        .await
                         .map_err(|e| e.to_string())
                 })
             }),
@@ -108,9 +111,14 @@ impl TranscriptionEngine {
             if e.is_panic() {
                 VoiceCliError::TranscriptionFailed("Whisper transcription panicked".to_string())
             } else if e.is_cancelled() {
-                VoiceCliError::TranscriptionFailed("Whisper transcription was cancelled".to_string())
+                VoiceCliError::TranscriptionFailed(
+                    "Whisper transcription was cancelled".to_string(),
+                )
             } else {
-                VoiceCliError::TranscriptionFailed(format!("Whisper transcription join error: {}", e))
+                VoiceCliError::TranscriptionFailed(format!(
+                    "Whisper transcription join error: {}",
+                    e
+                ))
             }
         })?;
 
@@ -143,10 +151,7 @@ impl TranscriptionEngine {
         .map_err(|e| VoiceCliError::AudioConversionFailed(format!("Task join error: {}", e)))?
         .map_err(|e| VoiceCliError::AudioConversionFailed(e.to_string()))?;
 
-        self
-            .transcribe_compatible_audio(model_name, &compatible.path, timeout_secs)
+        self.transcribe_compatible_audio(model_name, &compatible.path, timeout_secs)
             .await
     }
 }
-
-

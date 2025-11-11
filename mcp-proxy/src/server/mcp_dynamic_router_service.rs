@@ -32,6 +32,11 @@ impl Service<Request<Body>> for DynamicRouterService {
         let method = req.method().clone();
         let headers = req.headers().clone();
 
+        // DEBUG: 详细路径解析日志
+        debug!("=== 路径解析开始 ===");
+        debug!("原始请求路径: {}", path);
+        debug!("路径包含的通配符参数: {:?}", req.extensions());
+
         // 提取 trace_id
         let trace_id = extract_trace_id();
 
@@ -70,20 +75,40 @@ impl Service<Request<Body>> for DynamicRouterService {
                 span.record("mcp.id", &mcp_id);
                 span.record("mcp.base_path", &base_path);
 
-                debug!("请求访问MCP ID: {mcp_id}");
+                debug!("=== 路径解析结果 ===");
+                debug!("解析出的mcp_id: {}", mcp_id);
+                debug!("解析出的base_path: {}", base_path);
+                debug!("请求路径: {} vs base_path: {}", path, base_path);
+                debug!("=== 路径解析结束 ===");
 
                 Box::pin(async move {
                     let _guard = span.enter();
 
                     // 先尝试查找已注册的路由
+                    debug!("=== 路由查找过程 ===");
+                    debug!("查找base_path: '{}'", base_path);
+
                     if let Some(router_entry) = DynamicRouterService::get_route(&base_path) {
+                        debug!(
+                            "✅ 找到已注册的路由: base_path={}, path={}",
+                            base_path, path
+                        );
+                        debug!("=== 路由查找结束(成功) ===");
                         return handle_request_with_router(req, router_entry).await;
+                    } else {
+                        debug!(
+                            "❌ 未找到已注册的路由: base_path='{}', path='{}'",
+                            base_path, path
+                        );
+
+                        // 显示所有已注册的路由
+                        let all_routes = DynamicRouterService::get_all_routes();
+                        debug!("当前已注册的路由: {:?}", all_routes);
+                        debug!("=== 路由查找结束(失败) ===");
                     }
 
                     // 未找到路由，尝试启动服务
-                    warn!(
-                        "未找到匹配的路径,尝试启动服务:base_path={base_path},path={path}"
-                    );
+                    warn!("未找到匹配的路径,尝试启动服务:base_path={base_path},path={path}");
                     span.record("error.route_not_found", true);
 
                     // 从请求扩展中获取MCP配置
@@ -142,10 +167,7 @@ async fn handle_request_with_router(
     let uri = req.uri().clone();
     let path = uri.path();
 
-    info!(
-        "[handle_request_with_router]处理请求: {} {}",
-        method, path
-    );
+    info!("[handle_request_with_router]处理请求: {} {}", method, path);
 
     // 记录请求头中的关键信息
     if let Some(content_type) = req.headers().get("content-type") {
@@ -178,10 +200,7 @@ async fn handle_request_with_router(
 
     // 记录查询参数
     if let Some(query) = uri.query() {
-        info!(
-            "[handle_request_with_router] Query: {}",
-            query
-        );
+        info!("[handle_request_with_router] Query: {}", query);
     }
 
     let span = tracing::info_span!(

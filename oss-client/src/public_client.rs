@@ -508,7 +508,6 @@ mod tests {
         );
         let client = PublicOssClient::new(config).unwrap();
 
-
         let url = client
             .generate_public_download_url("test/file.txt")
             .unwrap();
@@ -532,7 +531,6 @@ mod tests {
         );
         let client = PublicOssClient::new(config).unwrap();
 
-
         let url = client.generate_public_access_url("test/image.jpg").unwrap();
         // 验证URL包含正确的路径，但域名可能被替换为自定义域名
         assert!(url.contains("edu/test/image.jpg"));
@@ -553,7 +551,6 @@ mod tests {
             crate::config::defaults::UPLOAD_DIRECTORY.to_string(),
         );
         let client = PublicOssClient::new(config).unwrap();
-
 
         let keys = vec!["doc1.pdf", "doc2.pdf", "image.jpg"];
         let urls = client.generate_public_urls_batch(&keys).unwrap();

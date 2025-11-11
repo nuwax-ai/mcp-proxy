@@ -8,13 +8,15 @@ import sseclient
 import threading
 import time
 
-MCP_ID = "test-streamable-new"
+MCP_ID = "test-sse-stream"
 BASE_URL = "http://localhost:8085"
 SSE_URL = f"{BASE_URL}/mcp/sse/proxy/{MCP_ID}/sse"
-MESSAGE_URL = f"{BASE_URL}/mcp/sse/proxy/{MCP_ID}/message"
+MESSAGE_URL_TEMPLATE = f"{BASE_URL}/mcp/sse/proxy/{MCP_ID}/message"
+MESSAGE_URL = None  # 将在获取 sessionId 后设置
 
 def listen_sse():
     """监听 SSE 事件"""
+    global MESSAGE_URL
     print("=== 开始监听 SSE 连接 ===")
     try:
         response = requests.get(SSE_URL, headers={'Accept': 'text/event-stream'}, stream=True)
@@ -24,6 +26,11 @@ def listen_sse():
             print(f"\n收到 SSE 事件:")
             print(f"  Event: {event.event}")
             print(f"  Data: {event.data}")
+            
+            # 如果是 endpoint 事件，提取 sessionId
+            if event.event == "endpoint":
+                MESSAGE_URL = f"{BASE_URL}{event.data}"
+                print(f"  ✅ 获取到 MESSAGE_URL: {MESSAGE_URL}")
             
             # 尝试解析 JSON
             try:
@@ -63,12 +70,23 @@ def send_message(msg_id, method, params=None):
         print(f"发送消息错误: {e}")
 
 def main():
+    global MESSAGE_URL
     # 启动 SSE 监听线程
     sse_thread = threading.Thread(target=listen_sse, daemon=True)
     sse_thread.start()
     
-    # 等待 SSE 连接建立
-    time.sleep(2)
+    # 等待 SSE 连接建立并获取 sessionId
+    print("等待获取 sessionId...")
+    timeout = time.time() + 10
+    while MESSAGE_URL is None and time.time() < timeout:
+        time.sleep(0.5)
+    
+    if MESSAGE_URL is None:
+        print("❌ 未能获取 sessionId，退出")
+        return
+    
+    print(f"✅ 已获取 MESSAGE_URL: {MESSAGE_URL}")
+    time.sleep(1)
     
     # 发送 initialize 消息
     send_message("msg-1", "initialize", {

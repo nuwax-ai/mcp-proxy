@@ -1,8 +1,7 @@
 use crate::config::{FileSizePurpose, get_global_file_size_config};
 use crate::error::AppError;
 use crate::models::{
-    DocumentFormat, OssData, ParserEngine, StructuredDocument, TaskError,
-    TaskStatus,
+    DocumentFormat, OssData, ParserEngine, StructuredDocument, TaskError, TaskStatus,
 };
 use chrono::{DateTime, Duration, Utc};
 use derive_builder::Builder;

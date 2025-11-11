@@ -3,8 +3,10 @@ use crate::models::{
     AsyncTranscriptionTask, ProcessingStage, TaskError, TaskManagementConfig, TaskStatsResponse,
     TaskStatus, TranscriptionResponse,
 };
+use crate::services::{
+    AudioFileManager, AudioFormatDetector, MetadataExtractor, ModelService, TranscriptionEngine,
+};
 use crate::utils::{get_file_extension, is_supported_media_format};
-use crate::services::{AudioFileManager, AudioFormatDetector, MetadataExtractor, ModelService, TranscriptionEngine};
 use apalis::layers::WorkerBuilderExt;
 use apalis::layers::retry::RetryPolicy;
 use apalis::prelude::*;
@@ -122,11 +124,14 @@ impl StepContext {
     ) -> Result<(), Error> {
         let result_json = serde_json::to_string(result)
             .map_err(|e| Error::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>))?;
-        
+
         let metadata_json = metadata
             .as_ref()
-            .map(|m| serde_json::to_string(m)
-                .map_err(|e| Error::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>)))
+            .map(|m| {
+                serde_json::to_string(m).map_err(|e| {
+                    Error::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+                })
+            })
             .transpose()?;
 
         sqlx::query(
@@ -636,21 +641,21 @@ impl LockFreeApalisManager {
             let result_json: String = row
                 .try_get("result")
                 .map_err(|e| VoiceCliError::Storage(format!("获取结果字段失败: {}", e)))?;
-            
+
             let mut result: TranscriptionResponse = serde_json::from_str(&result_json)
                 .map_err(|e| VoiceCliError::Storage(format!("解析任务结果失败: {}", e)))?;
-            
+
             // 尝试获取元数据
-            let metadata_json: Option<String> = row
-                .try_get("metadata")
-                .unwrap_or(None);
-            
+            let metadata_json: Option<String> = row.try_get("metadata").unwrap_or(None);
+
             if let Some(meta_json) = metadata_json {
-                if let Ok(metadata) = serde_json::from_str::<crate::models::request::AudioVideoMetadata>(&meta_json) {
+                if let Ok(metadata) =
+                    serde_json::from_str::<crate::models::request::AudioVideoMetadata>(&meta_json)
+                {
                     result.metadata = Some(metadata);
                 }
             }
-            
+
             Ok(Some(result))
         } else {
             Ok(None)
@@ -665,11 +670,14 @@ impl LockFreeApalisManager {
     ) -> Result<(), VoiceCliError> {
         let result_json = serde_json::to_string(result)
             .map_err(|e| VoiceCliError::Storage(format!("序列化任务结果失败: {}", e)))?;
-        
-        let metadata_json = result.metadata
+
+        let metadata_json = result
+            .metadata
             .as_ref()
-            .map(|m| serde_json::to_string(m)
-                .map_err(|e| VoiceCliError::Storage(format!("序列化元数据失败: {}", e))))
+            .map(|m| {
+                serde_json::to_string(m)
+                    .map_err(|e| VoiceCliError::Storage(format!("序列化元数据失败: {}", e)))
+            })
             .transpose()?;
 
         sqlx::query(
@@ -1340,10 +1348,7 @@ async fn transcription_step(
             })
         }
         Err(e) => {
-            warn!(
-                "[Task {}] 提取元数据失败: {}",
-                task.task_id, e
-            );
+            warn!("[Task {}] 提取元数据失败: {}", task.task_id, e);
             None
         }
     };
@@ -1351,23 +1356,26 @@ async fn transcription_step(
     // 执行转录，使用配置中的默认模型
     let default_model = ctx.transcription_engine.default_model();
     let model = task.model.as_deref().unwrap_or(default_model);
-    
+
     // 首先检查文件是否有音频流
-    let has_audio = check_file_has_audio_stream(&task.processed_audio_path).await
+    let has_audio = check_file_has_audio_stream(&task.processed_audio_path)
+        .await
         .map_err(|e| {
             Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::new(
                 std::io::ErrorKind::Other,
                 format!("检查音频流失败: {}", e),
             ))))
         })?;
-    
+
     if !has_audio {
-        return Err(Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "文件不包含音频流，无法进行转录".to_string(),
-        )))));
+        return Err(Error::Abort(std::sync::Arc::new(Box::new(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "文件不包含音频流，无法进行转录".to_string(),
+            ),
+        ))));
     }
-    
+
     let transcription_result = ctx
         .transcription_engine
         .transcribe_with_conversion(
@@ -1427,19 +1435,22 @@ async fn transcription_step(
 /// 检查文件是否包含音频流
 async fn check_file_has_audio_stream(file_path: &Path) -> Result<bool, VoiceCliError> {
     use std::process::Command;
-    
+
     // 使用 ffprobe 检查文件是否有音频流
     let output = Command::new("ffprobe")
         .args([
-            "-v", "quiet",
+            "-v",
+            "quiet",
             "-show_streams",
-            "-select_streams", "a",
-            "-of", "csv=p=0",
+            "-select_streams",
+            "a",
+            "-of",
+            "csv=p=0",
             file_path.to_str().unwrap_or("invalid_path"),
         ])
         .output()
         .map_err(|e| VoiceCliError::AudioConversionFailed(format!("执行 ffprobe 失败: {}", e)))?;
-    
+
     // 如果输出为空，则没有音频流
     Ok(!output.stdout.is_empty())
 }
@@ -1469,10 +1480,7 @@ async fn result_formatting_step(
             metadata.duration_seconds
         )
     } else {
-        format!(
-            "转录了 {} 个字符",
-            task.transcription_result.text.len()
-        )
+        format!("转录了 {} 个字符", task.transcription_result.text.len())
     };
 
     ctx.save_task_status(
@@ -1625,7 +1633,7 @@ async fn download_audio_from_url(
         .unwrap_or("application/octet-stream");
 
     let extension = get_file_extension(content_type, url);
-    
+
     // 检查是否为支持的媒体格式
     if !is_supported_media_format(content_type) {
         warn!(
@@ -1766,7 +1774,6 @@ async fn update_task_file_path_in_db(
     info!("[Task {}] 数据库文件路径已更新: {}", task_id, file_path_str);
     Ok(())
 }
-
 
 #[cfg(test)]
 mod tests {

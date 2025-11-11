@@ -63,6 +63,14 @@ pub async fn run_code_handler(
         }
     };
 
+    if !result.success {
+        let error_message = result
+            .error
+            .as_deref()
+            .unwrap_or("run_code_handler执行失败但未提供错误信息");
+        error!("run_code_handler执行返回失败: {error_message}");
+    }
+
     let data = match serde_json::to_value(&result) {
         Ok(data) => data,
         Err(e) => {

@@ -677,7 +677,7 @@ impl TaskQueueService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tempfile::TempDir;
 

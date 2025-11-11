@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod config_validation_tests {
     use crate::models::{
-        AudioProcessingConfig, Config, DaemonConfig,
-        LoggingConfig, ServerConfig, TaskManagementConfig, WhisperConfig, WorkersConfig,
+        AudioProcessingConfig, Config, DaemonConfig, LoggingConfig, ServerConfig,
+        TaskManagementConfig, WhisperConfig, WorkersConfig,
     };
     use std::path::PathBuf;
     use tempfile::TempDir;
@@ -70,9 +70,11 @@ mod config_validation_tests {
         assert!(result.is_err());
 
         let error = result.unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("Server port must be between 1 and 65535"));
+        assert!(
+            error
+                .to_string()
+                .contains("Server port must be between 1 and 65535")
+        );
     }
 
     #[test]
@@ -96,9 +98,11 @@ mod config_validation_tests {
         assert!(result.is_err());
 
         let error = result.unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("Max file size must be greater than 0"));
+        assert!(
+            error
+                .to_string()
+                .contains("Max file size must be greater than 0")
+        );
     }
 
     #[test]
@@ -122,9 +126,11 @@ mod config_validation_tests {
         assert!(result.is_err());
 
         let error = result.unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("Models directory cannot be empty"));
+        assert!(
+            error
+                .to_string()
+                .contains("Models directory cannot be empty")
+        );
     }
 
     #[test]
@@ -136,9 +142,11 @@ mod config_validation_tests {
         assert!(result.is_err());
 
         let error = result.unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("Transcription workers must be greater than 0"));
+        assert!(
+            error
+                .to_string()
+                .contains("Transcription workers must be greater than 0")
+        );
     }
 
     #[test]
@@ -204,9 +212,11 @@ mod config_validation_tests {
         assert!(result.is_err());
 
         let error = result.unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("Max log files must be greater than 0"));
+        assert!(
+            error
+                .to_string()
+                .contains("Max log files must be greater than 0")
+        );
     }
 
     #[test]

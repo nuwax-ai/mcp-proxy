@@ -420,7 +420,6 @@ pub trait PerformanceOptimizable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
 
     #[tokio::test]
     async fn test_performance_optimizer_creation() {

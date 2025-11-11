@@ -1,7 +1,5 @@
 use crate::error::AppError;
-use crate::handlers::response::{
-    ApiResponse, BatchOperationResponse, TaskOperationResponse,
-};
+use crate::handlers::response::{ApiResponse, BatchOperationResponse, TaskOperationResponse};
 use crate::handlers::validation::RequestValidator;
 use crate::models::{
     DocumentFormat, DocumentTask, HttpResult, ParserEngine, SourceType, TaskStatus,
@@ -741,8 +739,7 @@ pub async fn cleanup_expired_tasks(
     match state.task_service.cleanup_expired_tasks().await {
         Ok(count) => {
             info!("清理过期任务完成，删除了 {} 个任务", count);
-            ApiResponse::message(format!("清理过期任务完成，删除了 {count} 个任务"))
-                .into_response()
+            ApiResponse::message(format!("清理过期任务完成，删除了 {count} 个任务")).into_response()
         }
         Err(e) => {
             error!("清理过期任务失败: {}", e);

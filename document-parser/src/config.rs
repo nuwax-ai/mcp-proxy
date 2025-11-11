@@ -295,15 +295,13 @@ impl ConfigBuilder {
 }
 
 /// CUDA环境状态
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct CudaStatus {
     pub available: bool,
     pub version: Option<String>,
     pub device_count: usize,
     pub recommended_device: Option<String>,
 }
-
 
 /// 应用配置
 #[derive(Debug, Clone, Deserialize)]
@@ -477,15 +475,13 @@ pub struct MinerUConfig {
 }
 
 /// 质量级别
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Default)]
 pub enum QualityLevel {
     Fast,
     #[default]
     Balanced,
     HighQuality,
 }
-
 
 fn default_batch_size() -> usize {
     1
@@ -1246,7 +1242,7 @@ pub fn get_global_cuda_status_clone() -> CudaStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     use std::env;
     use tempfile::TempDir;
 

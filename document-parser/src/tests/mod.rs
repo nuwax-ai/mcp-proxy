@@ -47,8 +47,6 @@ pub mod test_helpers {
             .expect("Failed to create test app state")
     }
 
-
-
     /// 创建用于文件大小测试的应用状态
     pub async fn create_test_app_state_for_file_size_test(
         max_mb: u64,
@@ -262,7 +260,6 @@ pub mod test_helpers {
 "#
         .to_string()
     }
-
 
     /// 创建测试用的任务ID
     pub fn create_test_task_id() -> String {

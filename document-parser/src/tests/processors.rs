@@ -5,16 +5,12 @@ use uuid::Uuid;
 
 use crate::{
     error::AppError,
-    models::{
-        DocumentFormat, DocumentTask, ParserEngine, SourceType,
-    },
+    models::{DocumentFormat, DocumentTask, ParserEngine, SourceType},
     parsers::DualEngineParser,
     parsers::parser_trait::DocumentParser,
     processors::MarkdownProcessor,
     services::ImageProcessorConfig,
-    tests::test_helpers::{
-        create_test_config, safe_init_global_config,
-    },
+    tests::test_helpers::{create_test_config, safe_init_global_config},
 };
 use tempfile;
 
@@ -834,7 +830,6 @@ mod integration_processor_tests {
 #[cfg(test)]
 mod comprehensive_processor_tests {
     use super::*;
-    
 
     #[tokio::test]
     async fn test_markdown_processor_comprehensive() {
@@ -1060,7 +1055,6 @@ Text content here.
         safe_init_global_config();
 
         use crate::services::ImageProcessor;
-        
 
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let processor = ImageProcessor::new(ImageProcessorConfig::default(), None);
@@ -1082,7 +1076,6 @@ Text content here.
         safe_init_global_config();
 
         use crate::services::ImageProcessor;
-        
 
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let processor = ImageProcessor::new(ImageProcessorConfig::default(), None);
@@ -1110,7 +1103,6 @@ Text content here.
         safe_init_global_config();
 
         use crate::services::ImageProcessor;
-        
 
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let processor = ImageProcessor::new(ImageProcessorConfig::default(), None);
@@ -1213,9 +1205,8 @@ mod processor_performance_tests {
             let processor_clone: std::sync::Arc<MarkdownProcessor> =
                 std::sync::Arc::clone(&processor);
             let handle = tokio::spawn(async move {
-                let markdown = format!(
-                    "# Document {i}\nContent for document {i}.\n## Section\nMore content."
-                );
+                let markdown =
+                    format!("# Document {i}\nContent for document {i}.\n## Section\nMore content.");
 
                 processor_clone.process_markdown(&markdown).await
             });
@@ -1282,7 +1273,6 @@ mod processor_error_handling_tests {
         safe_init_global_config();
 
         use crate::services::ImageProcessor;
-        
 
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let processor = ImageProcessor::new(ImageProcessorConfig::default(), None);
@@ -1338,7 +1328,6 @@ mod processor_error_handling_tests {
         safe_init_global_config();
 
         use crate::services::ImageProcessor;
-        
 
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let processor = ImageProcessor::new(ImageProcessorConfig::default(), None);

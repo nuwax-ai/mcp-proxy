@@ -1,7 +1,7 @@
-use std::path::PathBuf;
-use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use utoipa::ToSchema;
 
 /// TTS同步请求
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -163,8 +163,16 @@ impl std::fmt::Display for TtsTaskError {
             TtsTaskError::StorageError { operation, message } => {
                 write!(f, "存储错误 ({}): {}", operation, message)
             }
-            TtsTaskError::TimeoutError { stage, timeout_duration } => {
-                write!(f, "超时错误 ({}): {} 秒", stage.step_name(), timeout_duration.num_seconds())
+            TtsTaskError::TimeoutError {
+                stage,
+                timeout_duration,
+            } => {
+                write!(
+                    f,
+                    "超时错误 ({}): {} 秒",
+                    stage.step_name(),
+                    timeout_duration.num_seconds()
+                )
             }
             TtsTaskError::CancellationRequested => {
                 write!(f, "任务已被取消")

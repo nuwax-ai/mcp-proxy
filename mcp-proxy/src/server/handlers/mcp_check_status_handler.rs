@@ -1,19 +1,18 @@
 use anyhow::Result;
-use axum::{extract::State, http::uri::Uri, Json};
+use axum::{Json, extract::State, http::uri::Uri};
 use log::{error, info};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 
 use crate::{
-    get_proxy_manager,
+    AppError, get_proxy_manager,
     model::{
         AppState, CheckMcpStatusRequestParams, CheckMcpStatusResponseParams,
         CheckMcpStatusResponseStatus, HttpResult, McpConfig, McpProtocol, McpRouterPath,
         McpServerConfig, McpServiceStatus, McpType,
     },
     server::{detect_mcp_protocol, mcp_start_task},
-    AppError,
 };
 
 /// 创建响应结果的辅助函数
@@ -159,7 +158,7 @@ pub async fn check_mcp_status_handler_stream(
 }
 
 /// 异步启动MCP服务
-/// 
+///
 /// # 参数
 /// - `mcp_id`: MCP服务的唯一标识
 /// - `mcp_json_config`: MCP服务的JSON配置

@@ -191,8 +191,6 @@ mod property_tests {
 /// Test utilities for generating test data
 pub mod generators {
     use super::*;
-    
-    
 
     /// Generate a valid test DocumentTask
     pub fn generate_test_document_task() -> DocumentTask {

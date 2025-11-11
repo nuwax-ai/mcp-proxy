@@ -1,5 +1,5 @@
-use crate::models::{Config, DownloadStatus, ModelDownloadStatus, ModelInfo};
 use crate::VoiceCliError;
+use crate::models::{Config, DownloadStatus, ModelDownloadStatus, ModelInfo};
 use reqwest::Client;
 use std::path::{Path, PathBuf};
 use tokio::fs;
@@ -311,8 +311,10 @@ impl ModelService {
 
             // Allow 20% size difference to accommodate different versions
             if size_diff_percent > 20.0 {
-                warn!("Model file size differs significantly from expected: actual={} bytes, expected={} bytes, diff={:.1}%", 
-                      actual_size, expected_size, size_diff_percent);
+                warn!(
+                    "Model file size differs significantly from expected: actual={} bytes, expected={} bytes, diff={:.1}%",
+                    actual_size, expected_size, size_diff_percent
+                );
                 // Don't fail validation, just warn - the file might still be valid
             }
         }

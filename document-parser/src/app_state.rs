@@ -154,8 +154,8 @@ impl AppState {
         }
 
         // 打开数据库
-        let db = sled::open(db_path)
-            .map_err(|e| AppError::Database(format!("无法打开数据库: {e}")))?;
+        let db =
+            sled::open(db_path).map_err(|e| AppError::Database(format!("无法打开数据库: {e}")))?;
 
         // 设置缓存容量（Sled 0.34版本不支持set_cache_capacity方法）
         // db.set_cache_capacity(config.storage.sled.cache_capacity);

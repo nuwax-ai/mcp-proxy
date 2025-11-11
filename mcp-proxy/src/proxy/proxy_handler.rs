@@ -33,6 +33,8 @@ impl ServerHandler for ProxyHandler {
         }
 
         // 如果缓存为空，尝试动态获取
+        // 使用 try_lock 而不是 lock，避免阻塞
+        // peer_info() 是同步方法，可以安全调用
         let client = self.client.clone();
         if let Ok(guard) = client.try_lock() {
             if let Some(peer_info) = guard.peer_info() {
@@ -452,9 +454,15 @@ impl ProxyHandler {
 
     //检查 mcp服务是否正常,尝试调用 list_tools 方法,如果成功返回结果,则认为成功
     pub async fn is_mcp_server_ready(&self) -> bool {
-        let client = self.client.clone();
-        let guard = client.lock().await;
-        (guard.list_tools(None).await).is_ok()
+        // 使用 try_lock 避免在定时检查时阻塞正常的业务请求
+        // 如果无法获取锁，说明正在处理其他请求，假设服务正常
+        match self.client.try_lock() {
+            Ok(guard) => (guard.list_tools(None).await).is_ok(),
+            Err(_) => {
+                debug!("is_mcp_server_ready: 无法获取锁，假设服务正常");
+                true
+            }
+        }
     }
 
     /// 检查子进程是否已经终止

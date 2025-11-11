@@ -558,9 +558,9 @@ impl LogFilter for ModuleFilter {
                 .denied_modules
                 .iter()
                 .any(|m| entry.module.starts_with(m))
-            {
-                return false;
-            }
+        {
+            return false;
+        }
 
         if !self.allowed_modules.is_empty() {
             return self

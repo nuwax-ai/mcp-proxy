@@ -1,7 +1,7 @@
-pub mod signal_handling;
 pub mod cleanup;
-pub mod task_id;
 pub mod mime_types;
+pub mod signal_handling;
+pub mod task_id;
 
 use crate::VoiceCliError;
 use crate::models::Config;
@@ -11,23 +11,17 @@ use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{EnvFilter, prelude::*};
 
 // Re-export signal handling components
+pub use cleanup::perform_shutdown_cleanup;
+pub use mime_types::{
+    extension_to_mime_type, extract_extension_from_url, get_file_extension,
+    infer_mime_type_from_path, is_supported_audio_format, is_supported_media_format,
+    is_supported_video_format, mime_type_to_extension,
+};
 pub use signal_handling::{
     create_combined_shutdown_signal, create_service_shutdown_signal, create_shutdown_signal,
     handle_system_signals,
 };
-pub use cleanup::perform_shutdown_cleanup;
-pub use task_id::{generate_task_id};
-pub use mime_types::{
-    mime_type_to_extension,
-    extract_extension_from_url,
-    infer_mime_type_from_path,
-    extension_to_mime_type,
-    get_file_extension,
-    is_supported_audio_format,
-    is_supported_video_format,
-    is_supported_media_format,
-};
-
+pub use task_id::generate_task_id;
 
 /// Initialize logging based on configuration
 /// The guard is stored globally to ensure logging stays active

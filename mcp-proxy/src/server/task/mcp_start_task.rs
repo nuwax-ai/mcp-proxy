@@ -155,15 +155,20 @@ pub async fn integrate_sse_server_with_axum(
     let proxy_handler_for_sse = proxy_handler_clone.clone();
     let proxy_handler_for_stream = proxy_handler_clone.clone();
 
-    //区分协议,如果是sse 协议,使用: SseServer
-    //如果是stream 协议,使用: StreamableHttpServer
-    let (router, ct) = match &mcp_router_path.mcp_protocol_path {
-        McpProtocolPath::SsePath(sse_path) => {
-            // 创建 SseServer
-            // 使用随机端口，让 axum 来管理; 这里不使用这个地址绑定,只需要对应的router
+    // 根据客户端协议和后端协议创建服务器（支持协议转换）
+    // 支持三种模式：
+    // 1. client=SSE, backend=SSE (透明代理)
+    // 2. client=Stream, backend=Stream (透明代理)
+    // 3. client=SSE, backend=Stream (协议转换) - 关键功能
+    let (router, ct) = match (mcp_router_path.mcp_protocol.clone(), backend_protocol) {
+        // SSE 客户端协议
+        (McpProtocol::Sse, McpProtocol::Sse) => {
+            // 模式1: SSE -> SSE (透明代理)
             let addr: String = "0.0.0.0:0".to_string();
-
-            // 创建SSE配置 - 使用完整路径，这样就不需要在路由层做路径重写
+            let sse_path = match &mcp_router_path.mcp_protocol_path {
+                McpProtocolPath::SsePath(sse_path) => sse_path,
+                _ => unreachable!(),
+            };
             let config = SseServerConfig {
                 bind: addr.parse()?,
                 sse_path: sse_path.sse_path.clone(),
@@ -171,21 +176,60 @@ pub async fn integrate_sse_server_with_axum(
                 ct: tokio_util::sync::CancellationToken::new(),
                 sse_keep_alive: None,
             };
+
+            debug!(
+                "创建SSE服务器，配置: bind={}, sse_path={}, post_path={}",
+                config.bind, config.sse_path, config.post_path
+            );
+
             let (sse_server, router) = SseServer::new(config);
             let ct = sse_server.with_service(move || proxy_handler_for_sse.clone());
-
             (router, ct)
         }
-        McpProtocolPath::StreamPath(_stream_path) => {
-            // 使用 rmcp 库的 StreamableHttpService，就像官方示例一样
+        (McpProtocol::Sse, McpProtocol::Stream) => {
+            // 模式3: SSE -> Streamable HTTP (协议转换)
+            // 对外提供SSE接口，内部转换为Streamable HTTP
+            let addr: String = "0.0.0.0:0".to_string();
+            let sse_path = match &mcp_router_path.mcp_protocol_path {
+                McpProtocolPath::SsePath(sse_path) => sse_path,
+                _ => unreachable!(),
+            };
+            let config = SseServerConfig {
+                bind: addr.parse()?,
+                sse_path: sse_path.sse_path.clone(),
+                post_path: sse_path.message_path.clone(),
+                ct: tokio_util::sync::CancellationToken::new(),
+                sse_keep_alive: None,
+            };
+
+            debug!(
+                "创建SSE服务器(协议转换)，配置: bind={}, sse_path={}, post_path={}",
+                config.bind, config.sse_path, config.post_path
+            );
+
+            let (sse_server, router) = SseServer::new(config);
+            let ct = sse_server.with_service(move || proxy_handler_for_stream.clone());
+            (router, ct)
+        }
+        (McpProtocol::Stream, McpProtocol::Stream) => {
+            // 模式2: Stream -> Stream (透明代理)
             let service = StreamableHttpService::new(
                 move || Ok(proxy_handler_for_stream.clone()),
                 LocalSessionManager::default().into(),
                 Default::default(),
             );
-            
-            // Stream 协议直接使用根路径，不需要额外的 /mcp 前缀
-            // 因为 base_path 已经包含了完整路径
+            let router = axum::Router::new().fallback_service(service);
+            let ct = tokio_util::sync::CancellationToken::new();
+            (router, ct)
+        }
+        (McpProtocol::Stream, McpProtocol::Sse) => {
+            // 模式4: Streamable HTTP -> SSE (协议转换)
+            // 对外提供Streamable HTTP接口，内部连接到SSE后端
+            let service = StreamableHttpService::new(
+                move || Ok(proxy_handler_for_sse.clone()),
+                LocalSessionManager::default().into(),
+                Default::default(),
+            );
             let router = axum::Router::new().fallback_service(service);
             let ct = tokio_util::sync::CancellationToken::new();
             (router, ct)
@@ -207,6 +251,17 @@ pub async fn integrate_sse_server_with_axum(
     // 添加 MCP 服务状态到全局管理器,以及 proxy_handler 的透明代理
     proxy_manager.add_mcp_service_status_and_proxy(mcp_service_status, Some(proxy_handler));
 
+    // 为SSE协议添加基础路径处理
+    // 支持直接访问基础路径，自动重定向到正确的子路径
+    let router = if matches!(mcp_router_path.mcp_protocol, McpProtocol::Sse) {
+        // 使用fallback处理器来匹配基础路径
+        let modified_router = router.fallback(base_path_fallback_handler);
+        info!("基础路径处理器已添加, 基础路径: {}", base_path);
+        modified_router
+    } else {
+        router
+    };
+
     // 注册路由到全局路由表
     info!("注册路由: base_path={}, mcp_id={}", base_path, mcp_id);
     info!(
@@ -225,6 +280,47 @@ pub async fn integrate_sse_server_with_axum(
 
     // 返回路由和取消令牌
     Ok((router, ct))
+}
+
+// 基础路径处理器 - 支持直接访问基础路径，自动重定向到正确的子路径
+#[axum::debug_handler]
+async fn base_path_fallback_handler(
+    method: axum::http::Method,
+    uri: axum::http::Uri,
+) -> impl axum::response::IntoResponse {
+    let path = uri.path();
+    info!("基础路径处理器: {} {}", method, path);
+
+    match method {
+        axum::http::Method::GET => {
+            // GET请求重定向到 /sse
+            let redirect_uri = format!("{}/sse", path);
+            info!("重定向到: {}", redirect_uri);
+            (
+                axum::http::StatusCode::FOUND,
+                [("Location", redirect_uri)],
+                "Redirecting to SSE endpoint".to_string(),
+            )
+        }
+        axum::http::Method::POST => {
+            // POST请求重定向到 /message
+            let redirect_uri = format!("{}/message", path);
+            info!("重定向到: {}", redirect_uri);
+            (
+                axum::http::StatusCode::FOUND,
+                [("Location", redirect_uri)],
+                "Redirecting to message endpoint".to_string(),
+            )
+        }
+        _ => {
+            // 其他方法返回405 Method Not Allowed
+            (
+                axum::http::StatusCode::METHOD_NOT_ALLOWED,
+                [("Allow", "GET, POST".to_string())],
+                "Only GET and POST methods are allowed".to_string(),
+            )
+        }
+    }
 }
 
 // 提取记录命令详情的函数
