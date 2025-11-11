@@ -28,6 +28,14 @@ pub struct SseServerSettings {
     pub bind_addr: SocketAddr,
     pub keep_alive: Option<Duration>,
 }
+//mcp的配置，支持命令行和URL两种方式
+#[derive(Debug, Deserialize, Clone)]
+#[serde(untagged)]
+pub enum McpServerConfig {
+    Command(McpServerCommandConfig),
+    Url(McpServerUrlConfig),
+}
+
 //mcp的命令行配置
 #[derive(Debug, Deserialize, Clone)]
 pub struct McpServerCommandConfig {
@@ -36,34 +44,75 @@ pub struct McpServerCommandConfig {
     pub env: Option<HashMap<String, String>>,
 }
 
-impl TryFrom<String> for McpServerCommandConfig {
+//mcp的URL配置（用于Streamable/SSE协议）
+#[derive(Debug, Deserialize, Clone)]
+pub struct McpServerUrlConfig {
+    pub url: String,
+
+    // 认证配置
+    pub auth_token: Option<String>,
+    pub headers: Option<HashMap<String, String>>,
+
+    // 连接配置
+    pub timeout_secs: Option<u64>,
+    pub connect_timeout_secs: Option<u64>,
+
+    // 重试配置
+    pub max_retries: Option<usize>,
+    pub retry_min_backoff_ms: Option<u64>,
+    pub retry_max_backoff_ms: Option<u64>,
+}
+
+impl Default for McpServerUrlConfig {
+    fn default() -> Self {
+        Self {
+            url: String::new(),
+            auth_token: None,
+            headers: None,
+            timeout_secs: Some(30),
+            connect_timeout_secs: Some(5),
+            max_retries: Some(3),
+            retry_min_backoff_ms: Some(100),
+            retry_max_backoff_ms: Some(5000),
+        }
+    }
+}
+
+impl TryFrom<String> for McpServerConfig {
     type Error = anyhow::Error;
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
-        info!("mcp_server_command_config: {s:?}");
+        info!("mcp_server_config: {s:?}");
         let mcp_json_server_parameters = McpJsonServerParameters::from(s);
         mcp_json_server_parameters.try_get_first_mcp_server()
     }
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
+#[serde(untagged)]
+pub enum McpServerInnerConfig {
+    Command(McpServerCommandConfig),
+    Url(McpServerUrlConfig),
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct McpJsonServerParameters {
     #[serde(rename = "mcpServers")]
-    pub mcp_servers: HashMap<String, McpServerCommandConfig>,
+    pub mcp_servers: HashMap<String, McpServerInnerConfig>,
 }
 
 impl McpJsonServerParameters {
     //check里面的hashmap是否只有一个,如果没问题,尝试返回第一个
-    pub fn try_get_first_mcp_server(&self) -> Result<McpServerCommandConfig> {
+    pub fn try_get_first_mcp_server(&self) -> Result<McpServerConfig> {
         debug!("mcp_servers: {:?}", &self.mcp_servers);
         if self.mcp_servers.len() == 1 {
             let vals = self.mcp_servers.values().next();
             if let Some(val) = vals {
-                Ok(val.clone())
+                match val {
+                    McpServerInnerConfig::Command(cmd) => Ok(McpServerConfig::Command(cmd.clone())),
+                    McpServerInnerConfig::Url(url) => Ok(McpServerConfig::Url(url.clone())),
+                }
             } else {
-                error!(
-                    "mcp_server_command_config: {:?}",
-                    "没有找到对应的mcp_server_command_config"
-                );
+                error!("mcp_server_config: {:?}", "没有找到对应的mcp_server_config");
                 Err(anyhow::anyhow!("没有找到对应的mcp配置"))
             }
         } else {
@@ -191,13 +240,11 @@ impl McpRouterPath {
                 McpRouterPath::extract_mcp_id(path_without_prefix, "/proxy/", &["/stream"])?;
 
             // 创建流路径
-            let stream_path = format!(
-                "{GLOBAL_STREAM_MCP_ROUTES_PREFIX}/proxy/{mcp_id}/stream"
-            );
+            let stream_path = format!("{GLOBAL_STREAM_MCP_ROUTES_PREFIX}/proxy/{mcp_id}");
 
             return Some(Self {
                 mcp_id: mcp_id.clone(),
-                base_path: GLOBAL_STREAM_MCP_ROUTES_PREFIX.to_string(),
+                base_path: format!("{GLOBAL_STREAM_MCP_ROUTES_PREFIX}/proxy/{mcp_id}"),
                 mcp_protocol_path: McpProtocolPath::StreamPath(StreamMcpRouterPath { stream_path }),
                 mcp_protocol: McpProtocol::Stream,
                 last_accessed: Instant::now(),
@@ -224,9 +271,8 @@ impl McpRouterPath {
                 }
             }
             McpProtocol::Stream => {
-                let stream_path: String = format!(
-                    "{GLOBAL_STREAM_MCP_ROUTES_PREFIX}/proxy/{mcp_id}/stream"
-                );
+                let stream_path: String =
+                    format!("{GLOBAL_STREAM_MCP_ROUTES_PREFIX}/proxy/{mcp_id}");
                 Self {
                     mcp_id: mcp_id.clone(),
                     base_path: format!("{GLOBAL_STREAM_MCP_ROUTES_PREFIX}/proxy/{mcp_id}"),
@@ -306,23 +352,31 @@ mod tests {
             .mcp_servers
             .get("baidu-map")
             .expect("baidu-map should exist");
-        assert_eq!(baidu.command, "npx");
-        assert_eq!(
-            baidu.args,
-            Some(vec![
-                "-y".to_string(),
-                "@baidumap/mcp-server-baidu-map".to_string()
-            ])
-        );
-        assert_eq!(
-            baidu
-                .env
-                .as_ref()
-                .unwrap()
-                .get("BAIDU_MAP_API_KEY")
-                .unwrap(),
-            "xxx"
-        );
+
+        match baidu {
+            McpServerInnerConfig::Command(cmd_config) => {
+                assert_eq!(cmd_config.command, "npx");
+                assert_eq!(
+                    cmd_config.args,
+                    Some(vec![
+                        "-y".to_string(),
+                        "@baidumap/mcp-server-baidu-map".to_string()
+                    ])
+                );
+                assert_eq!(
+                    cmd_config
+                        .env
+                        .as_ref()
+                        .unwrap()
+                        .get("BAIDU_MAP_API_KEY")
+                        .unwrap(),
+                    "xxx"
+                );
+            }
+            McpServerInnerConfig::Url(_) => {
+                panic!("Expected command config, got URL config");
+            }
+        }
     }
 
     #[test]
@@ -332,27 +386,32 @@ mod tests {
         "#;
         let params = McpJsonServerParameters::from(json.to_string());
         println!("params.len: {:?}", params.mcp_servers.len());
-        let mcp_server_parameters = params.try_get_first_mcp_server()?;
-        assert_eq!(
-            mcp_server_parameters.command,
-            "/Users/soddy/go/bin/go-mcp-mysql"
-        );
-        assert_eq!(
-            mcp_server_parameters.args,
-            Some(vec![
-                "--host".to_string(),
-                "192.168.1.12".to_string(),
-                "--user".to_string(),
-                "agent_platform_test".to_string(),
-                "--pass".to_string(),
-                "SRJG7NdiwKGDkmPs".to_string(),
-                "--port".to_string(),
-                "3306".to_string(),
-                "--db".to_string(),
-                "agent_platform_test".to_string()
-            ])
-        );
-        assert_eq!(mcp_server_parameters.env, Some(HashMap::new()));
+        let mcp_server_config = params.try_get_first_mcp_server()?;
+
+        match mcp_server_config {
+            McpServerConfig::Command(cmd_config) => {
+                assert_eq!(cmd_config.command, "/Users/soddy/go/bin/go-mcp-mysql");
+                assert_eq!(
+                    cmd_config.args,
+                    Some(vec![
+                        "--host".to_string(),
+                        "192.168.1.12".to_string(),
+                        "--user".to_string(),
+                        "agent_platform_test".to_string(),
+                        "--pass".to_string(),
+                        "SRJG7NdiwKGDkmPs".to_string(),
+                        "--port".to_string(),
+                        "3306".to_string(),
+                        "--db".to_string(),
+                        "agent_platform_test".to_string()
+                    ])
+                );
+                assert_eq!(cmd_config.env, Some(HashMap::new()));
+            }
+            McpServerConfig::Url(_) => {
+                panic!("Expected command config, got URL config");
+            }
+        }
 
         Ok(())
     }
@@ -372,17 +431,52 @@ mod tests {
         }"#;
 
         let params = McpJsonServerParameters::from(json.to_string());
-        let mcp_server_parameters = params.try_get_first_mcp_server()?;
+        let mcp_server_config = params.try_get_first_mcp_server()?;
 
-        assert_eq!(mcp_server_parameters.command, "npx");
-        assert_eq!(
-            mcp_server_parameters.args,
-            Some(vec![
-                "@playwright/mcp@latest".to_string(),
-                "--headless".to_string()
-            ])
-        );
-        assert_eq!(mcp_server_parameters.env, None);
+        match mcp_server_config {
+            McpServerConfig::Command(cmd_config) => {
+                assert_eq!(cmd_config.command, "npx");
+                assert_eq!(
+                    cmd_config.args,
+                    Some(vec![
+                        "@playwright/mcp@latest".to_string(),
+                        "--headless".to_string()
+                    ])
+                );
+                assert_eq!(cmd_config.env, None);
+            }
+            McpServerConfig::Url(_) => {
+                panic!("Expected command config, got URL config");
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_stdio_server_parameters_from_url_json() -> Result<()> {
+        let json = r#"{
+            "mcpServers": {
+                "ocr_edu": {
+                    "url": "https://aip.baidubce.com/mcp/image_recognition/sse?Authorization=Bearer%20bce-v3/ALTAK-zX2w0VFXauTMxEf5BypEl/1835f7e1886946688b132e9187392d9fee8f3c06"
+                }
+            }
+        }"#;
+
+        let params = McpJsonServerParameters::from(json.to_string());
+        let mcp_server_config = params.try_get_first_mcp_server()?;
+
+        match mcp_server_config {
+            McpServerConfig::Url(url_config) => {
+                assert_eq!(
+                    url_config.url,
+                    "https://aip.baidubce.com/mcp/image_recognition/sse?Authorization=Bearer%20bce-v3/ALTAK-zX2w0VFXauTMxEf5BypEl/1835f7e1886946688b132e9187392d9fee8f3c06"
+                );
+            }
+            McpServerConfig::Command(_) => {
+                panic!("Expected URL config, got command config");
+            }
+        }
 
         Ok(())
     }

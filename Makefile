@@ -95,6 +95,12 @@ run:
 	@echo "🚀 运行 document-parser..."
 	docker run --rm -p 8080:8080 $(IMAGE_NAME):latest
 
+# 启动 mcp-proxy
+.PHONY: run-mcp-proxy
+run-mcp-proxy:
+	@echo "🚀 启动 mcp-proxy..."
+	cargo run --bin mcp-proxy 2>&1 | tee /Volumes/soddygo/git_work/mcp-proxy/mcp-proxy/tmp/test.log
+
 # 检查 Docker buildx 是否可用
 .PHONY: check-buildx
 check-buildx:
@@ -150,6 +156,7 @@ help:
 	@echo ""
 	@echo "  🚀 运行命令:"
 	@echo "    make run                            - 运行 document-parser Docker 镜像"
+	@echo "    make run-mcp-proxy                  - 启动 mcp-proxy 并输出日志到 tmp/test.log"
 	@echo ""
 	@echo "  🛠️ 工具命令:"
 	@echo "    make check-buildx                   - 检查 Docker buildx 状态"

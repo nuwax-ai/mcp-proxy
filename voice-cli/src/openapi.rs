@@ -1,6 +1,6 @@
 use crate::models::{
     AsyncTaskResponse, CancelResponse, DeleteResponse, HealthResponse, ModelInfo, ModelsResponse,
-    RetryResponse, Segment, TaskPriority, TaskStatsResponse, TaskStatus, TaskStatusResponse, 
+    RetryResponse, Segment, TaskPriority, TaskStatsResponse, TaskStatus, TaskStatusResponse,
     TranscriptionResponse,
 };
 use crate::server::handlers;

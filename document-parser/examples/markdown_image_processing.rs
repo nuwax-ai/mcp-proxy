@@ -3,9 +3,7 @@ use document_parser::models::ImageInfo;
 use document_parser::parsers::DualEngineParser;
 use document_parser::processors::MarkdownProcessor;
 use document_parser::processors::markdown_processor::MarkdownProcessorConfig;
-use document_parser::services::{
-    DocumentService, ImageProcessor, TaskService,
-};
+use document_parser::services::{DocumentService, ImageProcessor, TaskService};
 use std::sync::Arc;
 use tokio::fs;
 

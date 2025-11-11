@@ -131,14 +131,13 @@ impl MinerUParser {
         };
 
         // 尝试从全局配置获取MinerU配置，如果失败则使用默认值
-        let (backend, device) =
-            match std::panic::catch_unwind(crate::config::get_global_config) {
-                Ok(global_config) => (
-                    global_config.mineru.backend.clone(),
-                    global_config.mineru.device.clone(),
-                ),
-                Err(_) => ("pipeline".to_string(), "cpu".to_string()),
-            };
+        let (backend, device) = match std::panic::catch_unwind(crate::config::get_global_config) {
+            Ok(global_config) => (
+                global_config.mineru.backend.clone(),
+                global_config.mineru.device.clone(),
+            ),
+            Err(_) => ("pipeline".to_string(), "cpu".to_string()),
+        };
 
         let config = MinerUConfig {
             python_path: python_path.to_string_lossy().to_string(),
@@ -393,9 +392,7 @@ impl MinerUParser {
         progress_callback(ParseProgress {
             stage: ParseStage::Completed,
             progress: 100.0,
-            message: format!(
-                "解析完成，耗时: {processing_time:?}，字数: {word_count}"
-            ),
+            message: format!("解析完成，耗时: {processing_time:?}，字数: {word_count}"),
             elapsed_time: processing_time,
         });
 

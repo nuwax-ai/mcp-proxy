@@ -12,22 +12,22 @@ pub use http_result::*;
 
 // Request module exports (for HTTP API)
 pub use request::{
-    AudioFormat, AudioFormatResult, DaemonStatus, DetectionMethod, DownloadStatus, HealthResponse,
-    ModelDownloadStatus, ModelInfo, ModelsResponse, ProcessedAudio, Segment, TranscriptionResponse,
-    AudioMetadata, TranscriptionRequest,
+    AudioFormat, AudioFormatResult, AudioMetadata, DaemonStatus, DetectionMethod, DownloadStatus,
+    HealthResponse, ModelDownloadStatus, ModelInfo, ModelsResponse, ProcessedAudio, Segment,
+    TranscriptionRequest, TranscriptionResponse,
 };
 
 // Stepped task module exports
 pub use stepped_task::{
     AsyncTranscriptionTask, AudioProcessedTask, ProcessingStage, ProcessingStageInfo,
-    ProgressDetails, SerializableSegment, SerializableTranscriptionResult, TaskError,
-    TaskPriority, TaskStatus, TranscriptionCompletedTask,
+    ProgressDetails, SerializableSegment, SerializableTranscriptionResult, TaskError, TaskPriority,
+    TaskStatus, TranscriptionCompletedTask,
 };
 
 // TTS module exports
 pub use tts::{
-    TtsSyncRequest, TtsAsyncRequest, TtsTaskResponse, TtsProcessingStage, TtsTaskStatus,
-    TtsProgressDetails, TtsTaskError, TaskPriority as TtsTaskPriority,
+    TaskPriority as TtsTaskPriority, TtsAsyncRequest, TtsProcessingStage, TtsProgressDetails,
+    TtsSyncRequest, TtsTaskError, TtsTaskResponse, TtsTaskStatus,
 };
 
 // 简化的任务响应类型

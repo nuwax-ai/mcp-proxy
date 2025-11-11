@@ -1,8 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::utils::environment_manager::{
-        EnvironmentManager, EnvironmentStatus,
-    };
+    use crate::utils::environment_manager::{EnvironmentManager, EnvironmentStatus};
 
     #[tokio::test]
     async fn test_virtual_env_status_reporting() {

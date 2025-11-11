@@ -18,7 +18,7 @@ pub struct AudioVideoMetadata {
     /// 文件大小（字节）
     #[schema(example = 3640010)]
     pub file_size_bytes: u64,
-    
+
     // 音频信息
     /// 音频编码器
     #[schema(example = "mp3")]
@@ -32,7 +32,7 @@ pub struct AudioVideoMetadata {
     /// 音频码率 (kbps)
     #[schema(example = 128)]
     pub audio_bitrate: u32,
-    
+
     // 视频信息（如果是视频文件）
     /// 是否包含视频
     #[schema(example = false)]
@@ -52,7 +52,7 @@ pub struct AudioVideoMetadata {
     /// 帧率
     #[serde(skip_serializing_if = "Option::is_none")]
     pub frame_rate: Option<f64>,
-    
+
     // 其他元数据
     /// 总码率 (kbps)
     #[schema(example = 160)]
@@ -379,7 +379,7 @@ impl AudioFormat {
     pub fn from_symphonia_codec(codec_type: symphonia::core::codecs::CodecType) -> Self {
         // Convert codec type to string for matching since Symphonia 0.5 uses different constants
         let codec_str = format!("{:?}", codec_type).to_lowercase();
-        
+
         if codec_str.contains("pcm") || codec_str.contains("wav") {
             AudioFormat::Wav
         } else if codec_str.contains("mp3") || codec_str.contains("mpeg") {

@@ -3,8 +3,6 @@ pub mod tts;
 
 pub use tts::TtsAction;
 
-
-
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -85,7 +83,6 @@ pub enum ModelAction {
         model_name: String,
     },
 }
-
 
 // Daemon mode is no longer supported
 // Use foreground mode with shell scripts for background operation

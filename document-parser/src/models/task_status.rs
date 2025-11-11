@@ -370,7 +370,7 @@ impl TaskStatus {
                 desc
             }
             TaskStatus::Completed {
-                completed_at:_,
+                completed_at: _,
                 processing_time,
                 result_summary,
             } => {
@@ -382,7 +382,7 @@ impl TaskStatus {
             }
             TaskStatus::Failed {
                 error,
-                failed_at:_,
+                failed_at: _,
                 retry_count,
                 is_recoverable,
             } => {
@@ -396,7 +396,7 @@ impl TaskStatus {
                 desc
             }
             TaskStatus::Cancelled {
-                cancelled_at:_,
+                cancelled_at: _,
                 reason,
             } => {
                 let mut desc = "任务已取消".to_string();

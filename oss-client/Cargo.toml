@@ -13,9 +13,9 @@ serde = { workspace = true }
 tokio = { workspace = true, features = ["fs"] }
 tracing = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
-async-trait = "0.1"
-tempfile = "3.0"
-thiserror = "2.0"
+async-trait = { workspace = true }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

@@ -1,12 +1,12 @@
+use crate::models::Config;
+use crate::openapi;
+use crate::server::handlers;
+use crate::server::middleware_config::set_layer;
 use axum::{
-    routing::{delete, get, post},
     Router,
+    routing::{delete, get, post},
 };
 use std::sync::Arc;
-use crate::models::Config;
-use crate::server::handlers;
-use crate::openapi;
-use crate::server::middleware_config::set_layer;
 
 /// Create routes for the server
 pub async fn create_routes(config: Arc<Config>) -> crate::Result<Router> {
@@ -17,7 +17,7 @@ pub async fn create_routes(config: Arc<Config>) -> crate::Result<Router> {
 /// Create routes with pre-created AppState
 pub async fn create_routes_with_state(shared_state: handlers::AppState) -> crate::Result<Router> {
     let config = shared_state.config.clone();
-    
+
     let app = Router::new()
         // Health check endpoint
         .route("/health", get(handlers::health_handler))
@@ -51,7 +51,10 @@ fn task_routes() -> Router<handlers::AppState> {
         // Task submission
         .route("/transcribe", post(handlers::async_transcribe_handler))
         // URL-based task submission
-        .route("/transcribeFromUrl", post(handlers::transcribe_from_url_handler))
+        .route(
+            "/transcribeFromUrl",
+            post(handlers::transcribe_from_url_handler),
+        )
         // TTS task submission
         .route("/tts", post(handlers::tts_async_handler))
         // Task status and management

@@ -6,9 +6,7 @@ mod sse_test {
     use rmcp::{
         ServiceExt,
         model::{CallToolRequestParam, ClientCapabilities, ClientInfo, Implementation},
-        transport::{
-            SseClientTransport, sse_client::SseClientConfig,
-        },
+        transport::{SseClientTransport, sse_client::SseClientConfig},
     };
     use std::process::Command;
     use std::time::Duration;
@@ -185,6 +183,9 @@ mod sse_test {
             client_info: Implementation {
                 name: "test sse client".to_string(),
                 version: "0.0.1".to_string(),
+                icons: None,
+                title: None,
+                website_url: None,
             },
         };
 

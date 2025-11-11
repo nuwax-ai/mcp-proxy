@@ -1,8 +1,8 @@
-use crate::models::Config;
-use crate::services::{LockFreeApalisManager, ModelService};
 use crate::VoiceCliError;
-use apalis_sql::sqlite::SqliteStorage;
+use crate::models::Config;
 use crate::services::TranscriptionTask;
+use crate::services::{LockFreeApalisManager, ModelService};
+use apalis_sql::sqlite::SqliteStorage;
 use std::sync::Arc;
 use std::time::SystemTime;
 use tracing::info;
@@ -23,13 +23,14 @@ impl AppState {
 
         // 初始化无锁 Apalis 管理器
         info!("初始化无锁 Apalis 任务管理器");
-        let (manager, storage) = LockFreeApalisManager::new(
-            config.task_management.clone(),
-            model_service.clone(),
-        ).await?;
+        let (manager, storage) =
+            LockFreeApalisManager::new(config.task_management.clone(), model_service.clone())
+                .await?;
 
         // 启动 worker
-        manager.start_worker(storage.clone(), model_service.clone()).await?;
+        manager
+            .start_worker(storage.clone(), model_service.clone())
+            .await?;
 
         let apalis_storage = Some(storage);
 

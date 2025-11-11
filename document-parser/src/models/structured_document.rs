@@ -6,29 +6,29 @@ use std::collections::HashMap;
 use utoipa::ToSchema;
 
 /// 统一结构化文档
-/// 
+///
 /// 表示一个完整的结构化文档，包含文档的基本信息、目录结构、性能指标等。
 /// 支持快速查找和索引功能，适用于大型文档的高效处理。
 #[derive(Debug, Clone, Serialize, Deserialize, Default, ToSchema)]
 pub struct StructuredDocument {
     /// 文档处理任务的唯一标识符
     pub task_id: String,
-    
+
     /// 文档的标题或名称
     pub document_title: String,
-    
+
     /// 文档的目录结构，包含所有章节和子章节
     pub toc: Vec<StructuredSection>,
-    
+
     /// 文档中章节的总数量
     pub total_sections: usize,
-    
+
     /// 文档最后更新的时间戳（UTC时区）
     pub last_updated: DateTime<Utc>,
-    
+
     /// 文档的总字数统计（可选）
     pub word_count: Option<usize>,
-    
+
     /// 文档处理所需的时间（可选，格式如 "2.5s"）
     pub processing_time: Option<String>,
 
@@ -37,12 +37,12 @@ pub struct StructuredDocument {
     /// 序列化时跳过此字段
     #[serde(skip)]
     section_index: HashMap<String, usize>, // ID -> index mapping for O(1) lookup
-    
+
     /// 章节层级到索引列表的映射，用于按层级快速检索
     /// 序列化时跳过此字段
     #[serde(skip)]
     level_index: HashMap<u8, Vec<usize>>, // Level -> indices mapping
-    
+
     /// 标记索引是否已构建，避免重复构建索引
     /// 序列化时跳过此字段
     #[serde(skip)]
@@ -50,38 +50,38 @@ pub struct StructuredDocument {
 }
 
 /// 结构化章节
-/// 
+///
 /// 表示文档中的一个章节或段落，支持嵌套的层级结构。
 /// 包含内容、元数据和性能优化字段，适用于大型内容的处理。
 #[derive(Debug, Clone, Serialize, Deserialize, Default, ToSchema)]
 pub struct StructuredSection {
     /// 章节的唯一标识符，通常基于标题生成
     pub id: String,
-    
+
     /// 章节的标题或名称
     pub title: String,
-    
+
     /// 章节的层级深度，1表示顶级章节，2表示二级章节，以此类推
     pub level: u8,
-    
+
     /// 章节的正文内容
     pub content: String,
-    
+
     /// 子章节列表，支持无限层级的嵌套结构
     /// 当为空时序列化时会被跳过，避免空数组的序列化
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     #[schema(no_recursion)]
     pub children: Vec<Box<StructuredSection>>,
-    
+
     /// 标记章节是否已被编辑过（可选）
     pub is_edited: Option<bool>,
-    
+
     /// 章节的字数统计（可选）
     pub word_count: Option<usize>,
-    
+
     /// 章节在原文中的起始位置（可选，用于定位和引用）
     pub start_pos: Option<usize>,
-    
+
     /// 章节在原文中的结束位置（可选，用于定位和引用）
     pub end_pos: Option<usize>,
 
@@ -90,7 +90,7 @@ pub struct StructuredSection {
     /// 序列化时跳过此字段
     #[serde(skip)]
     content_hash: Option<u64>, // For change detection
-    
+
     /// 标记内容是否超过阈值，用于性能优化策略
     /// 序列化时跳过此字段
     #[serde(skip)]
@@ -730,9 +730,7 @@ impl StructuredDocument {
             }
             Ok(changed)
         } else {
-            Err(AppError::Validation(format!(
-                "未找到章节ID: {section_id}"
-            )))
+            Err(AppError::Validation(format!("未找到章节ID: {section_id}")))
         }
     }
 

@@ -1,6 +1,6 @@
+use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use config::ConfigError;
 use serde_json::json;
 use thiserror::Error;
@@ -146,7 +146,9 @@ impl IntoResponse for VoiceCliError {
             VoiceCliError::ConfigRs(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             VoiceCliError::TaskManagementDisabled => (StatusCode::BAD_REQUEST, self.to_string()),
             VoiceCliError::NotFound(_) => (StatusCode::NOT_FOUND, self.to_string()),
-            VoiceCliError::Initialization(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
+            VoiceCliError::Initialization(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, self.to_string())
+            }
             VoiceCliError::TtsError(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
             VoiceCliError::InvalidInput(_) => (StatusCode::BAD_REQUEST, self.to_string()),
             VoiceCliError::Io(_) => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
@@ -161,6 +163,4 @@ impl IntoResponse for VoiceCliError {
     }
 }
 
-
 pub type Result<T> = std::result::Result<T, VoiceCliError>;
-

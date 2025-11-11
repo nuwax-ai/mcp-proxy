@@ -1,0 +1,12 @@
+### 测试运行脚本接口 (默认超时 180 秒)
+# @name runCodeWithLog
+POST http://localhost:8085/api/run_code_with_log
+Content-Type: application/json
+
+{
+  "engine_type": "js",
+  "uid": "run_code_timeout_test",
+  "code": "export default async function main() { console.log('start timeout test'); await new Promise(r => setTimeout(r, 200000)); return { status: 'should timeout' }; }",
+  "json_param": {}
+}
+

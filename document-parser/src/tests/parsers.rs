@@ -277,7 +277,6 @@ mod mineru_parser_tests {
         assert_eq!(parser.config().python_path, config.mineru.python_path);
     }
 
-
     #[tokio::test]
     async fn test_mineru_parse_invalid_file() {
         let config = create_real_environment_test_config();
@@ -349,7 +348,6 @@ mod mineru_parser_tests {
 #[cfg(test)]
 mod markitdown_parser_tests {
     use super::*;
-
 
     #[tokio::test]
     async fn test_markitdown_parse_invalid_file() {

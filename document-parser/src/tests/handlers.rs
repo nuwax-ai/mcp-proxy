@@ -12,7 +12,6 @@ use crate::models::*;
 #[cfg(test)]
 mod document_handler_tests {
     use super::*;
-    
 
     #[tokio::test]
     async fn test_upload_document_success() {
@@ -589,12 +588,7 @@ mod response_format_tests {
 #[cfg(test)]
 mod comprehensive_handler_tests {
     use super::*;
-    use axum::{
-        body::Body,
-        http::Request,
-    };
-    
-    
+    use axum::{body::Body, http::Request};
 
     #[tokio::test]
     async fn test_document_upload_validation() {
@@ -933,7 +927,6 @@ mod comprehensive_handler_tests {
 #[cfg(test)]
 mod handler_integration_tests {
     use super::*;
-    
 
     #[tokio::test]
     async fn test_complete_document_processing_workflow() {

@@ -17,81 +17,81 @@ use tracing::{error, info, warn};
 use utoipa::ToSchema;
 
 /// Markdown处理请求参数
-/// 
+///
 /// 用于配置Markdown文档处理的各项参数，支持自定义TOC生成、锚点设置、缓存等选项。
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct MarkdownProcessRequest {
     /// 是否启用目录（Table of Contents）生成
     /// 当设置为true时，会自动解析文档标题并生成层级目录结构
     pub enable_toc: Option<bool>,
-    
+
     /// 目录的最大深度限制
     /// 控制生成的目录层级数量，避免过深的嵌套结构
     pub max_toc_depth: Option<usize>,
-    
+
     /// 是否启用锚点（Anchor）功能
     /// 为每个标题生成锚点链接，便于文档内部导航
     pub enable_anchors: Option<bool>,
-    
+
     /// 是否启用缓存功能
     /// 缓存处理结果以提高重复请求的响应速度
     pub enable_cache: Option<bool>,
 }
 
 /// Markdown URL响应
-/// 
+///
 /// 表示Markdown文档处理完成后的访问链接信息，包含临时URL、文件元数据等。
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct MarkdownUrlResponse {
     /// 文档的访问URL，可以是临时链接或永久链接
     pub url: String,
-    
+
     /// 文档处理任务的唯一标识符
     pub task_id: String,
-    
+
     /// 标记URL是否为临时链接
     /// true表示临时链接，false表示永久链接
     pub temporary: bool,
-    
+
     /// 临时URL的过期时间（小时）
     /// 仅当temporary为true时有效，None表示永不过期
     pub expires_in_hours: Option<u64>,
-    
+
     /// 文档文件的大小（字节）
     pub file_size: Option<u64>,
-    
+
     /// 文档的MIME类型，如 "text/markdown"、"application/pdf" 等
     pub content_type: String,
-    
+
     /// 存储在OSS中的文件名
     /// 用于OSS存储系统的文件标识
     pub oss_file_name: Option<String>,
-    
+
     /// OSS存储桶名称
     /// 指定文档存储的OSS存储桶
     pub oss_bucket: Option<String>,
 }
 
 /// 同步处理响应
-/// 
+///
 /// 表示Markdown文档同步处理完成后的结果，包含结构化文档和性能指标。
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct SectionsSyncResponse {
     /// 处理完成的结构化文档对象
     /// 包含完整的文档结构、目录和内容信息
     pub document: StructuredDocument,
-    
+
     /// 文档处理耗时（毫秒）
     /// 用于性能监控和优化参考
     pub processing_time_ms: u64,
-    
+
     /// 文档的总字数统计
     /// 可选字段，用于内容分析和统计
     pub word_count: Option<usize>,
 }
 
 /// 下载参数
-/// 
+///
 /// 用于配置文档下载行为的参数，支持临时URL生成、格式选择等选项。
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct DownloadParams {
@@ -99,17 +99,17 @@ pub struct DownloadParams {
     /// 当设置为true时，生成有时效性的临时下载链接
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temp: Option<bool>,
-    
+
     /// 临时URL过期时间（小时）
     /// 控制临时下载链接的有效期，仅在temp为true时生效
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires_hours: Option<u64>,
-    
+
     /// 是否强制重新生成URL
     /// 忽略缓存，强制生成新的下载链接
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub force_regenerate: Option<bool>,
-    
+
     /// 下载格式
     /// 指定文档的下载格式，如 "pdf"、"docx"、"html" 等
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -117,22 +117,22 @@ pub struct DownloadParams {
 }
 
 /// 流式下载配置
-/// 
+///
 /// 用于配置大文件流式下载的参数，优化内存使用和传输性能。
 #[derive(Debug, Clone)]
 pub struct StreamingConfig {
     /// 每个数据块的大小（字节）
     /// 控制流式传输时每个数据块的大小，影响内存使用和网络效率
     pub chunk_size: usize,
-    
+
     /// 缓冲区大小（字节）
     /// 用于临时存储传输数据的缓冲区容量
     pub buffer_size: usize,
-    
+
     /// 是否启用压缩
     /// 在传输过程中启用数据压缩，减少网络带宽使用
     pub enable_compression: bool,
-    
+
     /// 支持的最大文件大小（字节）
     /// 超过此大小的文件将使用流式下载，避免内存溢出
     pub max_file_size: u64,
@@ -233,8 +233,6 @@ async fn process_markdown_content(
 
 /// 处理Markdown multipart上传
 async fn process_markdown_multipart(multipart: &mut Multipart) -> Result<String, AppError> {
-    
-
     let max_markdown_size =
         get_file_size_limit(&FileSizePurpose::ContentValidation).bytes() as usize;
     let mut content: Option<String> = None;
@@ -771,10 +769,8 @@ pub async fn get_markdown_url(
             }
             Err(e) => {
                 error!("生成临时URL失败: task_id={}, error={}", task_id, e);
-                ApiResponse::internal_error::<MarkdownUrlResponse>(&format!(
-                    "生成下载URL失败: {e}"
-                ))
-                .into_response()
+                ApiResponse::internal_error::<MarkdownUrlResponse>(&format!("生成下载URL失败: {e}"))
+                    .into_response()
             }
         }
     } else {
@@ -945,10 +941,8 @@ fn build_range_response(
                     let mut range_headers = headers;
                     range_headers.insert(
                         header::CONTENT_RANGE,
-                        header::HeaderValue::from_str(&format!(
-                            "bytes {start}-{end}/{total_len}"
-                        ))
-                        .unwrap_or(header::HeaderValue::from_static("bytes */*")),
+                        header::HeaderValue::from_str(&format!("bytes {start}-{end}/{total_len}"))
+                            .unwrap_or(header::HeaderValue::from_static("bytes */*")),
                     );
                     range_headers.insert(
                         header::CONTENT_LENGTH,

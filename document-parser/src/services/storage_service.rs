@@ -272,12 +272,8 @@ impl StorageService {
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 Ok(())
             }
-            Err(TransactionError::Abort(e)) => {
-                Err(AppError::Database(format!("事务中止: {e:?}")))
-            }
-            Err(TransactionError::Storage(e)) => {
-                Err(AppError::Database(format!("存储错误: {e}")))
-            }
+            Err(TransactionError::Abort(e)) => Err(AppError::Database(format!("事务中止: {e:?}"))),
+            Err(TransactionError::Storage(e)) => Err(AppError::Database(format!("存储错误: {e}"))),
         }
     }
 
@@ -529,8 +525,7 @@ impl StorageService {
 
         // 遍历所有任务
         for result in self.tasks_tree.scan_prefix(TASK_PREFIX.as_bytes()) {
-            let (_, data) =
-                result.map_err(|e| AppError::Database(format!("扫描任务失败: {e}")))?;
+            let (_, data) = result.map_err(|e| AppError::Database(format!("扫描任务失败: {e}")))?;
 
             let task: DocumentTask = serde_json::from_slice(&data)
                 .map_err(|e| AppError::Database(format!("反序列化任务失败: {e}")))?;
@@ -572,8 +567,7 @@ impl StorageService {
 
         // 统计任务数量和大小
         for result in self.tasks_tree.scan_prefix(TASK_PREFIX.as_bytes()) {
-            let (_, data) =
-                result.map_err(|e| AppError::Database(format!("扫描任务失败: {e}")))?;
+            let (_, data) = result.map_err(|e| AppError::Database(format!("扫描任务失败: {e}")))?;
             total_tasks += 1;
             total_size_bytes += data.len() as u64;
         }
@@ -694,8 +688,7 @@ impl StorageService {
         let mut expired_tasks = Vec::new();
 
         for result in self.tasks_tree.scan_prefix(TASK_PREFIX.as_bytes()) {
-            let (_, data) =
-                result.map_err(|e| AppError::Database(format!("扫描任务失败: {e}")))?;
+            let (_, data) = result.map_err(|e| AppError::Database(format!("扫描任务失败: {e}")))?;
 
             let task: DocumentTask = serde_json::from_slice(&data)
                 .map_err(|e| AppError::Database(format!("反序列化任务失败: {e}")))?;
@@ -840,8 +833,7 @@ impl StorageService {
         // 导出所有任务
         let mut tasks = Vec::new();
         for result in self.tasks_tree.scan_prefix(TASK_PREFIX.as_bytes()) {
-            let (_, data) =
-                result.map_err(|e| AppError::Database(format!("扫描任务失败: {e}")))?;
+            let (_, data) = result.map_err(|e| AppError::Database(format!("扫描任务失败: {e}")))?;
             let task: DocumentTask = serde_json::from_slice(&data)
                 .map_err(|e| AppError::Database(format!("反序列化任务失败: {e}")))?;
             tasks.push(task);

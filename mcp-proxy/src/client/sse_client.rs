@@ -1,5 +1,5 @@
 use http::HeaderName;
-use rmcp::transport::{stdio, SseClientTransport};
+use rmcp::transport::{SseClientTransport, stdio};
 /**
  * Create a local server that proxies requests to a remote server over SSE.
  */

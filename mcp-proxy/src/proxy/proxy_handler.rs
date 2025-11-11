@@ -33,6 +33,8 @@ impl ServerHandler for ProxyHandler {
         }
 
         // 如果缓存为空，尝试动态获取
+        // 使用 try_lock 而不是 lock，避免阻塞
+        // peer_info() 是同步方法，可以安全调用
         let client = self.client.clone();
         if let Ok(guard) = client.try_lock() {
             if let Some(peer_info) = guard.peer_info() {
@@ -141,8 +143,7 @@ impl ServerHandler for ProxyHandler {
                         // 记录工具调用结果，这些结果会通过 SSE 推送给客户端
                         info!(
                             "[call_tool] 工具调用结果 - MCP ID: {}, 工具: {}",
-                            self.mcp_id,
-                            request.name
+                            self.mcp_id, request.name
                         );
 
                         debug!("Tool call succeeded");
@@ -229,8 +230,7 @@ impl ServerHandler for ProxyHandler {
                         // 记录资源读取结果，这些结果会通过 SSE 推送给客户端
                         info!(
                             "[read_resource] 资源读取结果 - MCP ID: {}, URI: {}",
-                            self.mcp_id,
-                            request.uri
+                            self.mcp_id, request.uri
                         );
 
                         debug!("Proxying read_resource response for {}", request.uri);
@@ -431,17 +431,17 @@ impl ProxyHandler {
 
         // Create a ServerInfo object that forwards the server's capabilities
         let cached_info = peer_info.map(|peer_info| ServerInfo {
-                protocol_version: peer_info.protocol_version.clone(),
-                server_info: Implementation {
-                    name: peer_info.server_info.name.clone(),
-                    version: peer_info.server_info.version.clone(),
-                    title: None,
-                    website_url: None,
-                    icons: None,
-                },
-                instructions: peer_info.instructions.clone(),
-                capabilities: peer_info.capabilities.clone(),
-            });
+            protocol_version: peer_info.protocol_version.clone(),
+            server_info: Implementation {
+                name: peer_info.server_info.name.clone(),
+                version: peer_info.server_info.version.clone(),
+                title: None,
+                website_url: None,
+                icons: None,
+            },
+            instructions: peer_info.instructions.clone(),
+            capabilities: peer_info.capabilities.clone(),
+        });
 
         Self {
             client: Arc::new(Mutex::new(client)),
@@ -452,9 +452,15 @@ impl ProxyHandler {
 
     //检查 mcp服务是否正常,尝试调用 list_tools 方法,如果成功返回结果,则认为成功
     pub async fn is_mcp_server_ready(&self) -> bool {
-        let client = self.client.clone();
-        let guard = client.lock().await;
-        (guard.list_tools(None).await).is_ok()
+        // 使用 try_lock 避免在定时检查时阻塞正常的业务请求
+        // 如果无法获取锁，说明正在处理其他请求，假设服务正常
+        match self.client.try_lock() {
+            Ok(guard) => (guard.list_tools(None).await).is_ok(),
+            Err(_) => {
+                debug!("is_mcp_server_ready: 无法获取锁，假设服务正常");
+                true
+            }
+        }
     }
 
     /// 检查子进程是否已经终止

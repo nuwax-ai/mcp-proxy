@@ -11,9 +11,9 @@
 
 #[cfg(test)]
 mod tests {
+    use crate::AppState;
     use crate::models::{DocumentFormat, DocumentTask, SourceType, TaskStatus};
     use crate::utils::environment_manager::EnvironmentManager;
-    use crate::AppState;
     use std::path::{Path, PathBuf};
     use tempfile::TempDir;
     use tokio::fs;
@@ -120,7 +120,8 @@ mod tests {
 
             // 创建pyvenv.cfg文件
             let pyvenv_cfg =
-                "home = /usr/bin\ninclude-system-site-packages = false\nversion = 3.9.0\n".to_string();
+                "home = /usr/bin\ninclude-system-site-packages = false\nversion = 3.9.0\n"
+                    .to_string();
             fs::write(venv_path.join("pyvenv.cfg"), pyvenv_cfg).await?;
 
             Ok(())
@@ -646,9 +647,7 @@ mod tests {
             }
             Err(e) => {
                 // 清理可能因权限问题失败，这在某些测试环境中是预期的
-                println!(
-                    "Cleanup failed (may be expected in test environment): {e}"
-                );
+                println!("Cleanup failed (may be expected in test environment): {e}");
             }
         }
 

@@ -1,22 +1,22 @@
 //! Shared signal handling utilities
-//! 
+//!
 //! This module provides unified signal handling for background services,
 //! eliminating duplicate signal handling code across different services.
 
 use tokio::signal;
-use tracing::{info, error, debug};
+use tracing::{debug, error, info};
 
 /// Create a unified shutdown signal handler that listens to multiple sources
-/// 
+///
 /// This function provides consistent signal handling across all services:
-/// - Ctrl+C (SIGINT) 
+/// - Ctrl+C (SIGINT)
 /// - SIGTERM (on Unix platforms)
 /// - Manual shutdown signals
-/// 
+///
 /// # Example
 /// ```rust
 /// use voice_cli::utils::signal_handling::create_shutdown_signal;
-/// 
+///
 /// let shutdown_signal = create_shutdown_signal();
 /// tokio::select! {
 ///     _ = service_work => {},
@@ -30,7 +30,7 @@ pub async fn create_shutdown_signal() {
 }
 
 /// Handle system signals for graceful shutdown
-/// 
+///
 /// This provides the core signal handling logic used by all services.
 /// Separated into its own function for reusability and testing.
 pub async fn handle_system_signals() {
@@ -44,7 +44,7 @@ pub async fn handle_system_signals() {
 
     #[cfg(unix)]
     let terminate = async {
-        use tokio::signal::unix::{signal, SignalKind};
+        use tokio::signal::unix::{SignalKind, signal};
         match signal(SignalKind::terminate()) {
             Ok(mut stream) => {
                 stream.recv().await;
@@ -66,22 +66,22 @@ pub async fn handle_system_signals() {
 }
 
 /// Create a combined shutdown signal that listens to both system signals and manual channels
-/// 
+///
 /// This is useful for services that need to respond to both system signals (Ctrl+C, SIGTERM)
 /// and programmatic shutdown requests via channels.
-/// 
+///
 /// # Arguments
 /// * `manual_shutdown` - A future that completes when manual shutdown is requested
-/// 
+///
 /// # Example
 /// ```rust
 /// use voice_cli::utils::signal_handling::create_combined_shutdown_signal;
-/// 
+///
 /// let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
 /// let shutdown_signal = create_combined_shutdown_signal(async {
 ///     shutdown_rx.await.ok();
 /// });
-/// 
+///
 /// tokio::select! {
 ///     _ = service_work => {},
 ///     _ = shutdown_signal => {
@@ -89,7 +89,7 @@ pub async fn handle_system_signals() {
 ///     }
 /// }
 /// ```
-pub async fn create_combined_shutdown_signal<F>(manual_shutdown: F) 
+pub async fn create_combined_shutdown_signal<F>(manual_shutdown: F)
 where
     F: std::future::Future<Output = ()>,
 {
@@ -104,16 +104,16 @@ where
 }
 
 /// Create a shutdown signal with service-specific logging
-/// 
+///
 /// This provides service-specific logging messages for better debugging.
-/// 
+///
 /// # Arguments
 /// * `service_name` - Name of the service for logging context
-/// 
+///
 /// # Example
 /// ```rust
 /// use voice_cli::utils::signal_handling::create_service_shutdown_signal;
-/// 
+///
 /// let shutdown_signal = create_service_shutdown_signal("http-server");
 /// tokio::select! {
 ///     _ = service_work => {},
@@ -131,7 +131,7 @@ pub async fn create_service_shutdown_signal(service_name: &str) {
 
     #[cfg(unix)]
     let terminate = async {
-        use tokio::signal::unix::{signal, SignalKind};
+        use tokio::signal::unix::{SignalKind, signal};
         match signal(SignalKind::terminate()) {
             Ok(mut stream) => {
                 stream.recv().await;
@@ -155,45 +155,43 @@ pub async fn create_service_shutdown_signal(service_name: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::time::{timeout, Duration};
-    
+    use tokio::time::{Duration, timeout};
+
     #[tokio::test]
     async fn test_signal_handling_timeout() {
         // Test that the signal handlers don't hang indefinitely
-        let result = timeout(
-            Duration::from_millis(100),
-            create_shutdown_signal()
-        ).await;
-        
+        let result = timeout(Duration::from_millis(100), create_shutdown_signal()).await;
+
         // Should timeout since no signals are sent
         assert!(result.is_err());
     }
-    
+
     #[tokio::test]
     async fn test_combined_shutdown_manual() {
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
-        
+
         // Start the combined signal handler
         let signal_future = create_combined_shutdown_signal(async move {
             rx.await.ok();
         });
-        
+
         // Send manual shutdown signal
         let _ = tx.send(());
-        
+
         // Should complete quickly due to manual signal
         let result = timeout(Duration::from_millis(100), signal_future).await;
         assert!(result.is_ok());
     }
-    
+
     #[tokio::test]
     async fn test_service_shutdown_signal_timeout() {
         // Test service-specific signal handling
         let result = timeout(
             Duration::from_millis(100),
-            create_service_shutdown_signal("test-service")
-        ).await;
-        
+            create_service_shutdown_signal("test-service"),
+        )
+        .await;
+
         // Should timeout since no signals are sent
         assert!(result.is_err());
     }

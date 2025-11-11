@@ -1,0 +1,37 @@
+### 调试路由问题
+
+### 1. 检查服务状态
+# @name checkStatus
+POST http://localhost:8086/mcp/sse/check_status
+Content-Type: application/json
+
+{
+  "mcpId": "debug-test-id",
+  "mcpJsonConfig": "{\"mcpServers\":{\"test\":{\"url\":\"https://aip.baidubce.com/mcp/image_recognition/sse?Authorization=Bearer%20bce-v3/ALTAK-zX2w0VFXauTMxEf5BypEl/1835f7e1886946688b132e9187392d9fee8f3c06\"}}}",
+  "mcpType": "OneShot"
+}
+
+### 2. 测试 SSE 连接
+GET http://localhost:8086/mcp/sse/proxy/debug-test-id/sse?sessionId=debug-session
+Accept: text/event-stream
+
+### 3. 测试 Message 路径
+POST http://localhost:8086/mcp/sse/proxy/debug-test-id/message?sessionId=debug-session
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": "debug_001",
+  "method": "ping",
+  "params": {}
+}
+
+### 4. 测试命令行配置对比
+POST http://localhost:8086/mcp/sse/check_status
+Content-Type: application/json
+
+{
+  "mcpId": "command-test-id",
+  "mcpJsonConfig": "{\"mcpServers\":{\"test\":{\"command\":\"echo\",\"args\":[\"hello\"],\"env\":{}}}}",
+  "mcpType": "OneShot"
+}

@@ -4,10 +4,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::sync::RwLock;
 use tracing::{info, instrument, warn};
-use tracing_subscriber::{
-    EnvFilter, Registry,
-    util::SubscriberInitExt,
-};
+use tracing_subscriber::{EnvFilter, Registry, util::SubscriberInitExt};
 use uuid::Uuid;
 
 /// 日志级别
@@ -46,8 +43,7 @@ impl From<&str> for LogLevel {
 }
 
 /// 关联ID管理器
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CorrelationContext {
     pub request_id: Option<String>,
     pub task_id: Option<String>,
@@ -56,7 +52,6 @@ pub struct CorrelationContext {
     pub trace_id: Option<String>,
     pub span_id: Option<String>,
 }
-
 
 impl CorrelationContext {
     pub fn new() -> Self {
@@ -462,8 +457,7 @@ impl EnhancedLoggingSystem {
     #[instrument(skip(config))]
     pub fn init(config: LoggingConfig) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let guards = Vec::new();
-        let layers: Vec<Box<dyn tracing_subscriber::Layer<Registry> + Send + Sync>> =
-            Vec::new();
+        let layers: Vec<Box<dyn tracing_subscriber::Layer<Registry> + Send + Sync>> = Vec::new();
 
         // 设置环境过滤器
         let env_filter = EnvFilter::try_from_default_env()

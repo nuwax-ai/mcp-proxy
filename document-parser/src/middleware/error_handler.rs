@@ -102,9 +102,7 @@ impl RateLimiter {
         let now = SystemTime::now();
         let mut requests = self.requests.lock().unwrap();
 
-        let client_requests = requests
-            .entry(client_ip.to_string())
-            .or_default();
+        let client_requests = requests.entry(client_ip.to_string()).or_default();
 
         // 清理过期的请求记录
         client_requests.retain(|&time| {

@@ -1,5 +1,5 @@
-use crate::models::Config;
 use crate::VoiceCliError;
+use crate::models::Config;
 use config::{Config as ConfigRs, Environment, File};
 use serde::Deserialize;
 use std::path::PathBuf;
@@ -8,15 +8,15 @@ use std::path::PathBuf;
 fn create_default_config_source() -> Result<ConfigRs, VoiceCliError> {
     // Create a temporary config with defaults
     let default_config = Config::default();
-    
+
     // Serialize to YAML and then parse back as config source
     let yaml_content = serde_yaml::to_string(&default_config)?;
-    
+
     // Create config from YAML content
     let config_rs = ConfigRs::builder()
         .add_source(File::from_str(&yaml_content, config::FileFormat::Yaml))
         .build()?;
-    
+
     Ok(config_rs)
 }
 
@@ -73,8 +73,8 @@ impl ConfigRsLoader {
             }
         } else if let Some(service_type) = service_type {
             // Try to load service-specific default config
-            let default_config_path = std::env::current_dir()?
-                .join(service_type.default_config_filename());
+            let default_config_path =
+                std::env::current_dir()?.join(service_type.default_config_filename());
             if default_config_path.exists() {
                 config_rs = config_rs.add_source(File::from(default_config_path));
             }
@@ -91,11 +91,10 @@ impl ConfigRsLoader {
 
         // 4. Build the config and debug what's being loaded
         let built_config = config_rs.build()?;
-        
-        
+
         // 5. Deserialize the built config
         let mut config: Config = built_config.try_deserialize()?;
-        
+
         // 6. Apply CLI overrides (highest priority)
         Self::apply_cli_overrides(&mut config, cli_overrides);
 
@@ -153,14 +152,14 @@ impl ConfigRsLoader {
     /// Manually merge environment variable overrides (config-rs adds underscore prefix)
     fn merge_environment_overrides(_config: &mut Config, _built_config: &ConfigRs) {
         use config::ValueKind;
-        
+
         // Check if there are any underscore-prefixed values from environment variables
         if let ValueKind::Table(cache) = &_built_config.cache.kind {
             for (key, value) in cache {
                 if key.starts_with('_') {
                     // This is an environment variable override
                     let clean_key = &key[1..]; // Remove the underscore prefix
-                    
+
                     // Handle specific environment variable overrides
                     // Add environment variable overrides here as needed
                     let _ = clean_key; // Avoid unused variable warning

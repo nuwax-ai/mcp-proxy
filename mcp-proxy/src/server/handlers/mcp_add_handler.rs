@@ -4,7 +4,7 @@ use log::{debug, error};
 use tracing::instrument;
 use uuid::Uuid;
 
-use crate::model::{AddRouteParams, HttpResult, McpProtocolPath, McpServerCommandConfig, McpType};
+use crate::model::{AddRouteParams, HttpResult, McpProtocolPath, McpServerConfig, McpType};
 use crate::model::{AppState, McpRouterPath};
 use crate::server::task::integrate_sse_server_with_axum;
 use serde_json::json;
@@ -35,15 +35,18 @@ pub async fn add_route_handler(
         let mcp_plugin_json = params.mcp_json_config;
         // 将mcp_plugin_json转换为 McpJsonServerParameters 结构体
         let mcp_server_config =
-            McpServerCommandConfig::try_from(mcp_plugin_json).expect("解析 MCP 配置失败");
+            McpServerConfig::try_from(mcp_plugin_json).expect("解析 MCP 配置失败");
 
         let mcp_type = params.mcp_type.unwrap_or(McpType::default());
 
         // 使用新的集成方法，而不是单独启动 SSE 服务
+        // 在 add_route_handler 中，客户端协议和后端协议相同
+        let backend_protocol = mcp_router_path.mcp_protocol.clone();
         match integrate_sse_server_with_axum(
             mcp_server_config.clone(),
             mcp_router_path.clone(),
             mcp_type.clone(),
+            backend_protocol,
         )
         .await
         {

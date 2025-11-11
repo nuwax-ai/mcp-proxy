@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod config_env_tests {
     use crate::models::Config;
-    use std::env;
-    use tempfile::TempDir;
-    use std::sync::{Mutex, OnceLock};
     use std::collections::HashMap;
+    use std::env;
+    use std::sync::{Mutex, OnceLock};
+    use tempfile::TempDir;
 
     // Safe environment variable testing using static state
     static TEST_ENV_LOCK: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
@@ -17,12 +17,12 @@ mod config_env_tests {
     fn safe_set_env_var(key: &str, value: &str) {
         let lock = get_test_env_lock();
         let mut env_state = lock.lock().unwrap();
-        
+
         // Store the original value if this is the first time setting this var
         if !env_state.contains_key(key) {
             env_state.insert(key.to_string(), env::var(key).ok());
         }
-        
+
         // This is still technically unsafe, but we'll wrap it in unsafe block
         // and document that tests should run serially to avoid race conditions
         unsafe {
@@ -34,12 +34,12 @@ mod config_env_tests {
     fn safe_remove_env_var(key: &str) {
         let lock = get_test_env_lock();
         let mut env_state = lock.lock().unwrap();
-        
+
         // Store the original value if this is the first time touching this var
         if !env_state.contains_key(key) {
             env_state.insert(key.to_string(), env::var(key).ok());
         }
-        
+
         unsafe {
             env::remove_var(key);
         }
@@ -75,11 +75,15 @@ mod config_env_tests {
     fn restore_original_env_vars() {
         let lock = get_test_env_lock();
         let env_state = lock.lock().unwrap();
-        
+
         for (key, original_value) in env_state.iter() {
             match original_value {
-                Some(value) => unsafe { env::set_var(key, value); },
-                None => unsafe { env::remove_var(key); },
+                Some(value) => unsafe {
+                    env::set_var(key, value);
+                },
+                None => unsafe {
+                    env::remove_var(key);
+                },
             }
         }
     }

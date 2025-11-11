@@ -1,5 +1,7 @@
 use crate::VoiceCliError;
-use crate::models::{TtsAsyncRequest, TtsTaskStatus, TtsProcessingStage, TtsTaskError, TtsProgressDetails};
+use crate::models::{
+    TtsAsyncRequest, TtsProcessingStage, TtsProgressDetails, TtsTaskError, TtsTaskStatus,
+};
 use apalis::prelude::*;
 use apalis_sql::sqlite::SqliteStorage;
 use chrono::{DateTime, Utc};
@@ -42,7 +44,10 @@ pub struct TtsTaskManager {
 
 impl TtsTaskManager {
     /// 创建新的TTS任务管理器
-    pub async fn new(database_url: &str, max_concurrent_tasks: usize) -> Result<Self, VoiceCliError> {
+    pub async fn new(
+        database_url: &str,
+        max_concurrent_tasks: usize,
+    ) -> Result<Self, VoiceCliError> {
         info!("初始化TTS任务管理器 - 数据库: {}", database_url);
 
         // 创建SQLite存储
@@ -51,10 +56,8 @@ impl TtsTaskManager {
             .connect(database_url)
             .await
             .map_err(|e| VoiceCliError::Storage(format!("连接SQLite失败: {}", e)))?;
-        
-        let storage = Arc::new(RwLock::new(
-            SqliteStorage::new(pool)
-        ));
+
+        let storage = Arc::new(RwLock::new(SqliteStorage::new(pool)));
 
         // 创建任务表
         Self::create_tables_if_not_exists(&storage).await?;
@@ -66,10 +69,12 @@ impl TtsTaskManager {
     }
 
     /// 创建必要的表
-    async fn create_tables_if_not_exists(storage: &Arc<RwLock<SqliteStorage<TtsTask>>>) -> Result<(), VoiceCliError> {
+    async fn create_tables_if_not_exists(
+        storage: &Arc<RwLock<SqliteStorage<TtsTask>>>,
+    ) -> Result<(), VoiceCliError> {
         let guard = storage.read().await;
         let pool = guard.pool();
-        
+
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS tts_tasks (
@@ -125,7 +130,7 @@ impl TtsTaskManager {
         // 保存任务到数据库
         let guard = self.storage.read().await;
         let pool = guard.pool();
-        
+
         sqlx::query(
             r#"
             INSERT INTO tts_tasks (
@@ -154,10 +159,13 @@ impl TtsTaskManager {
     }
 
     /// 获取任务状态
-    pub async fn get_task_status(&self, task_id: &str) -> Result<Option<TtsTaskStatus>, VoiceCliError> {
+    pub async fn get_task_status(
+        &self,
+        task_id: &str,
+    ) -> Result<Option<TtsTaskStatus>, VoiceCliError> {
         let guard = self.storage.read().await;
         let pool = guard.pool();
-        
+
         let row = sqlx::query(
             "SELECT status, updated_at, result_path, file_size, duration_seconds, error_message, retry_count FROM tts_tasks WHERE task_id = ?"
         )
@@ -177,7 +185,9 @@ impl TtsTaskManager {
                 let retry_count: i32 = row.get("retry_count");
 
                 let status = match status_str.as_str() {
-                    "pending" => TtsTaskStatus::Pending { queued_at: updated_at },
+                    "pending" => TtsTaskStatus::Pending {
+                        queued_at: updated_at,
+                    },
                     "processing" => TtsTaskStatus::Processing {
                         stage: TtsProcessingStage::VoiceSynthesis,
                         started_at: updated_at,
@@ -190,7 +200,9 @@ impl TtsTaskManager {
                         }),
                     },
                     "completed" => {
-                        if let (Some(path), Some(size), Some(duration)) = (result_path, file_size, duration_seconds) {
+                        if let (Some(path), Some(size), Some(duration)) =
+                            (result_path, file_size, duration_seconds)
+                        {
                             TtsTaskStatus::Completed {
                                 completed_at: updated_at,
                                 processing_time: updated_at.signed_duration_since(updated_at), // 这里应该用创建时间
@@ -199,7 +211,9 @@ impl TtsTaskManager {
                                 duration_seconds: duration as f32,
                             }
                         } else {
-                            return Err(VoiceCliError::Storage("完成的任务缺少结果信息".to_string()));
+                            return Err(VoiceCliError::Storage(
+                                "完成的任务缺少结果信息".to_string(),
+                            ));
                         }
                     }
                     "failed" => {
@@ -219,7 +233,12 @@ impl TtsTaskManager {
                         cancelled_at: updated_at,
                         reason: None,
                     },
-                    _ => return Err(VoiceCliError::Storage(format!("未知的任务状态: {}", status_str))),
+                    _ => {
+                        return Err(VoiceCliError::Storage(format!(
+                            "未知的任务状态: {}",
+                            status_str
+                        )));
+                    }
                 };
 
                 Ok(Some(status))
@@ -229,7 +248,11 @@ impl TtsTaskManager {
     }
 
     /// 更新任务状态
-    pub async fn update_task_status(&self, task_id: &str, status: TtsTaskStatus) -> Result<(), VoiceCliError> {
+    pub async fn update_task_status(
+        &self,
+        task_id: &str,
+        status: TtsTaskStatus,
+    ) -> Result<(), VoiceCliError> {
         let guard = self.storage.read().await;
         let pool = guard.pool();
         let updated_at = Utc::now();
@@ -237,9 +260,18 @@ impl TtsTaskManager {
         let (status_str, result_path, file_size, duration_seconds, error_message) = match status {
             TtsTaskStatus::Pending { .. } => ("pending", None, None, None, None),
             TtsTaskStatus::Processing { .. } => ("processing", None, None, None, None),
-            TtsTaskStatus::Completed { audio_file_path, file_size, duration_seconds, .. } => {
-                ("completed", Some(audio_file_path), Some(file_size as i64), Some(duration_seconds as f64), None)
-            }
+            TtsTaskStatus::Completed {
+                audio_file_path,
+                file_size,
+                duration_seconds,
+                ..
+            } => (
+                "completed",
+                Some(audio_file_path),
+                Some(file_size as i64),
+                Some(duration_seconds as f64),
+                None,
+            ),
             TtsTaskStatus::Failed { error, .. } => {
                 ("failed", None, None, None, Some(error.to_string()))
             }
@@ -269,7 +301,7 @@ impl TtsTaskManager {
 
         // TODO: 实现实际的任务处理逻辑
         // 这里应该启动一个后台worker来处理TTS任务队列
-        
+
         Ok(())
     }
 
@@ -277,7 +309,7 @@ impl TtsTaskManager {
     pub async fn get_stats(&self) -> Result<TtsTaskStats, VoiceCliError> {
         let guard = self.storage.read().await;
         let pool = guard.pool();
-        
+
         let row = sqlx::query(
             r#"
             SELECT 
