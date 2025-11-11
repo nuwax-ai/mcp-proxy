@@ -297,35 +297,57 @@ async fn base_path_fallback_handler(
         // SSE协议处理
         match method {
             axum::http::Method::GET => {
-                // 检查Accept头
-                let accept_header = headers.get("accept");
-                if let Some(accept) = accept_header {
-                    let accept_str = accept.to_str().unwrap_or("");
-                    if accept_str.contains("text/event-stream") {
-                        // 正确的Accept头，重定向到 /sse
-                        let redirect_uri = format!("{}/sse", path);
-                        info!("SSE重定向到: {}", redirect_uri);
+                // 从路径中提取 MCP ID
+                let mcp_id = path.split("/sse/proxy/").nth(1);
+
+                if let Some(mcp_id) = mcp_id {
+                    // 检查MCP服务是否存在
+                    let proxy_manager = get_proxy_manager();
+                    if proxy_manager.get_mcp_service_status(mcp_id).is_none() {
+                        // MCP服务不存在
                         (
-                            axum::http::StatusCode::FOUND,
-                            [("Location", redirect_uri.to_string())],
-                            "Redirecting to SSE endpoint".to_string(),
+                            axum::http::StatusCode::NOT_FOUND,
+                            [("Content-Type", "text/plain".to_string())],
+                            format!("MCP service '{}' not found", mcp_id).to_string(),
                         )
                     } else {
-                        // Accept头不正确
-                        (
-                            axum::http::StatusCode::BAD_REQUEST,
-                            [("Content-Type", "text/plain".to_string())],
-                            "SSE error: Invalid Accept header, expected 'text/event-stream'"
-                                .to_string(),
-                        )
+                        // MCP服务存在，检查Accept头
+                        let accept_header = headers.get("accept");
+                        if let Some(accept) = accept_header {
+                            let accept_str = accept.to_str().unwrap_or("");
+                            if accept_str.contains("text/event-stream") {
+                                // 正确的Accept头，重定向到 /sse
+                                let redirect_uri = format!("{}/sse", path);
+                                info!("SSE重定向到: {}", redirect_uri);
+                                (
+                                    axum::http::StatusCode::FOUND,
+                                    [("Location", redirect_uri.to_string())],
+                                    "Redirecting to SSE endpoint".to_string(),
+                                )
+                            } else {
+                                // Accept头不正确
+                                (
+                                    axum::http::StatusCode::BAD_REQUEST,
+                                    [("Content-Type", "text/plain".to_string())],
+                                    "SSE error: Invalid Accept header, expected 'text/event-stream'".to_string(),
+                                )
+                            }
+                        } else {
+                            // 没有Accept头
+                            (
+                                axum::http::StatusCode::BAD_REQUEST,
+                                [("Content-Type", "text/plain".to_string())],
+                                "SSE error: Missing Accept header, expected 'text/event-stream'"
+                                    .to_string(),
+                            )
+                        }
                     }
                 } else {
-                    // 没有Accept头
+                    // 无法从路径中提取MCP ID
                     (
                         axum::http::StatusCode::BAD_REQUEST,
                         [("Content-Type", "text/plain".to_string())],
-                        "SSE error: Missing Accept header, expected 'text/event-stream'"
-                            .to_string(),
+                        "SSE error: Invalid SSE path".to_string(),
                     )
                 }
             }
