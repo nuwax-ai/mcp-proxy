@@ -240,11 +240,11 @@ impl McpRouterPath {
                 McpRouterPath::extract_mcp_id(path_without_prefix, "/proxy/", &["/stream"])?;
 
             // 创建流路径
-            let stream_path = format!("{GLOBAL_STREAM_MCP_ROUTES_PREFIX}/proxy/{mcp_id}/stream");
+            let stream_path = format!("{GLOBAL_STREAM_MCP_ROUTES_PREFIX}/proxy/{mcp_id}");
 
             return Some(Self {
                 mcp_id: mcp_id.clone(),
-                base_path: GLOBAL_STREAM_MCP_ROUTES_PREFIX.to_string(),
+                base_path: format!("{GLOBAL_STREAM_MCP_ROUTES_PREFIX}/proxy/{mcp_id}"),
                 mcp_protocol_path: McpProtocolPath::StreamPath(StreamMcpRouterPath { stream_path }),
                 mcp_protocol: McpProtocol::Stream,
                 last_accessed: Instant::now(),
@@ -272,7 +272,7 @@ impl McpRouterPath {
             }
             McpProtocol::Stream => {
                 let stream_path: String =
-                    format!("{GLOBAL_STREAM_MCP_ROUTES_PREFIX}/proxy/{mcp_id}/stream");
+                    format!("{GLOBAL_STREAM_MCP_ROUTES_PREFIX}/proxy/{mcp_id}");
                 Self {
                     mcp_id: mcp_id.clone(),
                     base_path: format!("{GLOBAL_STREAM_MCP_ROUTES_PREFIX}/proxy/{mcp_id}"),

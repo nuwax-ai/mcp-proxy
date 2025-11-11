@@ -6,7 +6,7 @@ use crate::{
     },
 };
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use log::{debug, info};
 use rmcp::{
     ServiceExt,
@@ -177,11 +177,13 @@ pub async fn integrate_sse_server_with_axum(
             (router, ct)
         }
         McpProtocolPath::StreamPath(_stream_path) => {
+            // 使用 rmcp 库的 StreamableHttpService，就像官方示例一样
             let service = StreamableHttpService::new(
                 move || Ok(proxy_handler_for_stream.clone()),
                 LocalSessionManager::default().into(),
                 Default::default(),
             );
+            
             // Stream 协议直接使用根路径，不需要额外的 /mcp 前缀
             // 因为 base_path 已经包含了完整路径
             let router = axum::Router::new().fallback_service(service);

@@ -1,29 +1,55 @@
 ### 测试说明
 # 本地启动了一个 Streamable HTTP MCP 服务: http://0.0.0.0:8000/mcp
-# 通过 SSE 接口透明代理使用该服务
+# 
+# 重要：请求参数说明
+# - mcpProtocol: 此参数不存在！会被忽略
+# - backendProtocol: 指定后端服务的协议（可选，支持自动检测）
+# - 客户端协议由请求路径决定：
+#   - /mcp/sse/check_status → SSE 客户端协议
+#   - /mcp/stream/check_status → Stream 客户端协议
 
-### 1. 检查服务状态 - 使用 Stream 协议连接远程 Streamable 服务
+### ========================================
+### 方案 A：SSE 客户端 + Streamable HTTP 后端（协议转换）
+### ========================================
+
+### 1a. 检查服务状态 - 自动检测后端协议（推荐）
+# 客户端使用 SSE 协议，后端自动检测为 Streamable HTTP
 POST http://localhost:8085/mcp/sse/check_status
 Content-Type: application/json
 
 {
-  "mcpId": "test-streamable-service",
+  "mcpId": "test-sse-to-stream-auto",
   "mcpJsonConfig": "{\"mcpServers\": {\"test-service\": {\"url\": \"http://127.0.0.1:8000/mcp\"}}}",
-  "mcpType": "Persistent",
-  "mcpProtocol": "Stream"
+  "mcpType": "Persistent"
 }
 
-### 2. 获取 SSE 连接
-# 注意: mcpId 需要与上面 check_status 中的 mcpId 保持一致
-GET http://localhost:8085/mcp/sse/proxy/test-streamable-service/sse
-Accept: text/event-stream
-
-### 3. 发送消息到 MCP 服务
-# 在新标签页或终端中运行，模拟客户端发送消息
-POST http://localhost:8085/mcp/sse/proxy/test-streamable-service/message
+### 1b. 检查服务状态 - 手动指定后端协议
+# 客户端使用 SSE 协议，手动指定后端为 Streamable HTTP
+POST http://localhost:8085/mcp/sse/check_status
 Content-Type: application/json
 
 {
+  "mcpId": "test-sse-to-stream-manual",
+  "mcpJsonConfig": "{\"mcpServers\": {\"test-service\": {\"url\": \"http://127.0.0.1:8000/mcp\"}}}",
+  "mcpType": "Persistent",
+  "backendProtocol": "Stream"
+}
+
+### 2a. 获取 SSE 连接（自动检测版本）
+GET http://localhost:8085/mcp/sse/proxy/test-sse-to-stream-auto/sse
+Accept: text/event-stream
+
+### 2b. 获取 SSE 连接（手动指定版本）
+GET http://localhost:8085/mcp/sse/proxy/test-sse-to-stream-manual/sse
+Accept: text/event-stream
+
+### 3. 发送 initialize 消息（需要先从 SSE 响应中获取 sessionId）
+# 替换 {sessionId} 为实际的 session ID
+POST http://localhost:8085/mcp/sse/proxy/test-sse-to-stream-auto/message?sessionId={sessionId}
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
   "id": "msg-1",
   "method": "initialize",
   "params": {
@@ -37,30 +63,80 @@ Content-Type: application/json
 }
 
 ### 4. 列出可用工具
-POST http://localhost:8085/mcp/sse/proxy/test-streamable-service/message
+POST http://localhost:8085/mcp/sse/proxy/test-sse-to-stream-auto/message?sessionId={sessionId}
 Content-Type: application/json
 
 {
+  "jsonrpc": "2.0",
   "id": "msg-2",
   "method": "tools/list",
   "params": {}
 }
 
-### 5. 调用工具 (根据实际可用的工具调整)
-POST http://localhost:8085/mcp/sse/proxy/test-streamable-service/message
+### ========================================
+### 方案 B：Streamable HTTP 客户端 + Streamable HTTP 后端（透明代理）
+### ========================================
+
+### 5. 检查服务状态 - Stream 到 Stream（自动检测）
+# 客户端和后端都使用 Streamable HTTP 协议
+POST http://localhost:8085/mcp/stream/check_status
 Content-Type: application/json
 
 {
-  "id": "msg-3",
-  "method": "tools/call",
+  "mcpId": "test-stream-to-stream",
+  "mcpJsonConfig": "{\"mcpServers\": {\"test-service\": {\"url\": \"http://127.0.0.1:8000/mcp\"}}}",
+  "mcpType": "Persistent"
+}
+
+### 6. 发送 Streamable HTTP 请求 - initialize
+POST http://localhost:8085/mcp/stream/proxy/test-stream-to-stream
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{
+  "jsonrpc": "2.0",
+  "id": "msg-1",
+  "method": "initialize",
   "params": {
-    "name": "your-tool-name",
-    "arguments": {}
+    "protocolVersion": "2024-11-05",
+    "capabilities": {},
+    "clientInfo": {
+      "name": "test-client",
+      "version": "1.0.0"
+    }
   }
 }
 
-### 6. 清理服务
-DELETE http://localhost:8085/mcp/config/delete/test-streamable-service
+### 7. 列出可用工具
+POST http://localhost:8085/mcp/stream/proxy/test-stream-to-stream
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{
+  "jsonrpc": "2.0",
+  "id": "msg-2",
+  "method": "tools/list",
+  "params": {}
+}
+
+### ========================================
+### 清理服务
+### ========================================
+
+### 8a. 清理 SSE 服务（自动检测）
+DELETE http://localhost:8085/mcp/config/delete/test-sse-to-stream-auto
+Content-Type: application/json
+
+{}
+
+### 8b. 清理 SSE 服务（手动指定）
+DELETE http://localhost:8085/mcp/config/delete/test-sse-to-stream-manual
+Content-Type: application/json
+
+{}
+
+### 8c. 清理 Stream 服务
+DELETE http://localhost:8085/mcp/config/delete/test-stream-to-stream
 Content-Type: application/json
 
 {}
