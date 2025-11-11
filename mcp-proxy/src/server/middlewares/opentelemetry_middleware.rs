@@ -51,7 +51,9 @@ pub async fn opentelemetry_tracing_middleware(request: Request, next: Next) -> R
 
     // 设置 OpenTelemetry 属性
     let otel_cx = Context::current();
-    span.set_parent(otel_cx);
+    if let Err(error) = span.set_parent(otel_cx) {
+        tracing::warn!(target: "telemetry", %method, %uri, ?error, "failed to attach OpenTelemetry parent context");
+    }
 
     // 获取 trace_id
     let trace_id = span.context().span().span_context().trace_id().to_string();
