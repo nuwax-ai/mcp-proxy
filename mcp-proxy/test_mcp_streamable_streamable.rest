@@ -1,0 +1,95 @@
+### 测试说明
+# 本地启动了一个 Streamable HTTP MCP 服务: http://0.0.0.0:8000/mcp
+#
+# 重要：请求参数说明
+# - mcpProtocol: 此参数不存在！会被忽略
+# - backendProtocol: 指定后端服务的协议（可选，支持自动检测）
+# - 客户端协议由请求路径决定：
+#   - /mcp/sse/check_status → SSE 客户端协议
+#   - /mcp/stream/check_status → Stream 客户端协议
+
+### ========================================
+### 测试 Streamable HTTP 客户端 + Streamable HTTP 后端（透明代理）
+### ========================================
+
+### 1. 检查服务状态 - Stream 到 Stream（自动检测）
+# 客户端和后端都使用 Streamable HTTP 协议
+POST http://localhost:8085/mcp/stream/check_status
+Content-Type: application/json
+
+{
+  "mcpId": "test-streamable-streamable-service",
+  "mcpJsonConfig": "{\"mcpServers\": {\"test-service\": {\"url\": \"http://127.0.0.1:8000/mcp\"}}}",
+  "mcpType": "Persistent"
+}
+
+### 2. 发送 Streamable HTTP 请求 - initialize
+# 直接向基础路径发送 POST 请求，系统会自动重定向到正确的端点
+POST http://localhost:8085/mcp/stream/proxy/test-streamable-service
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{
+  "jsonrpc": "2.0",
+  "id": "msg-1",
+  "method": "initialize",
+  "params": {
+    "protocolVersion": "2024-11-05",
+    "capabilities": {},
+    "clientInfo": {
+      "name": "test-client",
+      "version": "1.0.0"
+    }
+  }
+}
+
+### 3. 列出可用工具
+# 继续使用同一个连接发送后续请求
+POST http://localhost:8085/mcp/stream/proxy/test-streamable-service
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{
+  "jsonrpc": "2.0",
+  "id": "msg-2",
+  "method": "tools/list",
+  "params": {}
+}
+
+### 4. 调用工具（示例）
+# 假设有工具可用，这里是调用工具的示例
+POST http://localhost:8085/mcp/stream/proxy/test-streamable-service
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{
+  "jsonrpc": "2.0",
+  "id": "msg-3",
+  "method": "tools/call",
+  "params": {
+    "name": "example-tool",
+    "arguments": {}
+  }
+}
+
+### 5. 获取服务器信息
+POST http://localhost:8085/mcp/stream/proxy/test-streamable-service
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{
+  "jsonrpc": "2.0",
+  "id": "msg-4",
+  "method": "server/info",
+  "params": {}
+}
+
+### ========================================
+### 清理服务
+### ========================================
+
+### 6. 清理 Stream 服务
+DELETE http://localhost:8085/mcp/config/delete/test-streamable-service
+Content-Type: application/json
+
+{}

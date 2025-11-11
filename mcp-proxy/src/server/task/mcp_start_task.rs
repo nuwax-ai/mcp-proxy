@@ -251,12 +251,12 @@ pub async fn integrate_sse_server_with_axum(
     // 添加 MCP 服务状态到全局管理器,以及 proxy_handler 的透明代理
     proxy_manager.add_mcp_service_status_and_proxy(mcp_service_status, Some(proxy_handler));
 
-    // 为SSE协议添加基础路径处理
+    // 为SSE和Stream协议添加基础路径处理
     // 支持直接访问基础路径，自动重定向到正确的子路径
     let router = if matches!(mcp_router_path.mcp_protocol, McpProtocol::Sse) {
         // 使用fallback处理器来匹配基础路径
         let modified_router = router.fallback(base_path_fallback_handler);
-        info!("基础路径处理器已添加, 基础路径: {}", base_path);
+        info!("SSE基础路径处理器已添加, 基础路径: {}", base_path);
         modified_router
     } else {
         router
@@ -287,39 +287,102 @@ pub async fn integrate_sse_server_with_axum(
 async fn base_path_fallback_handler(
     method: axum::http::Method,
     uri: axum::http::Uri,
+    headers: axum::http::HeaderMap,
 ) -> impl axum::response::IntoResponse {
     let path = uri.path();
     info!("基础路径处理器: {} {}", method, path);
 
-    match method {
-        axum::http::Method::GET => {
-            // GET请求重定向到 /sse
-            let redirect_uri = format!("{}/sse", path);
-            info!("重定向到: {}", redirect_uri);
-            (
-                axum::http::StatusCode::FOUND,
-                [("Location", redirect_uri)],
-                "Redirecting to SSE endpoint".to_string(),
-            )
+    // 判断是SSE还是Stream协议
+    if path.contains("/sse/proxy/") {
+        // SSE协议处理
+        match method {
+            axum::http::Method::GET => {
+                // 检查Accept头
+                let accept_header = headers.get("accept");
+                if let Some(accept) = accept_header {
+                    let accept_str = accept.to_str().unwrap_or("");
+                    if accept_str.contains("text/event-stream") {
+                        // 正确的Accept头，重定向到 /sse
+                        let redirect_uri = format!("{}/sse", path);
+                        info!("SSE重定向到: {}", redirect_uri);
+                        (
+                            axum::http::StatusCode::FOUND,
+                            [("Location", redirect_uri.to_string())],
+                            "Redirecting to SSE endpoint".to_string(),
+                        )
+                    } else {
+                        // Accept头不正确
+                        (
+                            axum::http::StatusCode::BAD_REQUEST,
+                            [("Content-Type", "text/plain".to_string())],
+                            "SSE error: Invalid Accept header, expected 'text/event-stream'"
+                                .to_string(),
+                        )
+                    }
+                } else {
+                    // 没有Accept头
+                    (
+                        axum::http::StatusCode::BAD_REQUEST,
+                        [("Content-Type", "text/plain".to_string())],
+                        "SSE error: Missing Accept header, expected 'text/event-stream'"
+                            .to_string(),
+                    )
+                }
+            }
+            axum::http::Method::POST => {
+                // POST请求重定向到 /message
+                let redirect_uri = format!("{}/message", path);
+                info!("SSE重定向到: {}", redirect_uri);
+                (
+                    axum::http::StatusCode::FOUND,
+                    [("Location", redirect_uri.to_string())],
+                    "Redirecting to message endpoint".to_string(),
+                )
+            }
+            _ => {
+                // 其他方法返回405 Method Not Allowed
+                (
+                    axum::http::StatusCode::METHOD_NOT_ALLOWED,
+                    [("Allow", "GET, POST".to_string())],
+                    "Only GET and POST methods are allowed".to_string(),
+                )
+            }
         }
-        axum::http::Method::POST => {
-            // POST请求重定向到 /message
-            let redirect_uri = format!("{}/message", path);
-            info!("重定向到: {}", redirect_uri);
-            (
-                axum::http::StatusCode::FOUND,
-                [("Location", redirect_uri)],
-                "Redirecting to message endpoint".to_string(),
-            )
+    } else if path.contains("/stream/proxy/") {
+        // Stream协议处理 - 直接返回成功，不重定向
+        match method {
+            axum::http::Method::GET => {
+                // GET请求返回服务器信息
+                (
+                    axum::http::StatusCode::OK,
+                    [("Content-Type", "application/json".to_string())],
+                    r#"{"jsonrpc":"2.0","result":{"info":"Streamable MCP Server","version":"1.0"}}"#.to_string(),
+                )
+            }
+            axum::http::Method::POST => {
+                // POST请求返回成功，让StreamableHttpService处理
+                (
+                    axum::http::StatusCode::OK,
+                    [("Content-Type", "application/json".to_string())],
+                    r#"{"jsonrpc":"2.0","result":{"message":"Stream request received","protocol":"streamable-http"}}"#.to_string(),
+                )
+            }
+            _ => {
+                // 其他方法返回405 Method Not Allowed
+                (
+                    axum::http::StatusCode::METHOD_NOT_ALLOWED,
+                    [("Allow", "GET, POST".to_string())],
+                    "Only GET and POST methods are allowed".to_string(),
+                )
+            }
         }
-        _ => {
-            // 其他方法返回405 Method Not Allowed
-            (
-                axum::http::StatusCode::METHOD_NOT_ALLOWED,
-                [("Allow", "GET, POST".to_string())],
-                "Only GET and POST methods are allowed".to_string(),
-            )
-        }
+    } else {
+        // 未知协议
+        (
+            axum::http::StatusCode::BAD_REQUEST,
+            [("Content-Type", "text/plain".to_string())],
+            "Unknown protocol or path".to_string(),
+        )
     }
 }
 

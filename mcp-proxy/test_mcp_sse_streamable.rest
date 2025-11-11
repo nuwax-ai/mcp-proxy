@@ -18,7 +18,7 @@ POST http://localhost:8085/mcp/sse/check_status
 Content-Type: application/json
 
 {
-  "mcpId": "test-streamable-service",
+  "mcpId": "test-sse-streamable-service",
   "mcpJsonConfig": "{\"mcpServers\": {\"test-service\": {\"url\": \"http://127.0.0.1:8000/mcp\"}}}",
   "mcpType": "Persistent"
 }
