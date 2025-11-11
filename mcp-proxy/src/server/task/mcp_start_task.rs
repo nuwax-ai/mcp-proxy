@@ -96,20 +96,6 @@ pub async fn integrate_sse_server_with_axum(
             client_info.serve(tokio_process).await?
         }
         McpServerConfig::Url(url_config) => {
-            // 对于URL配置，创建SSE客户端传输
-            info!("创建SSE客户端连接到: {}", url_config.url);
-
-            info!(
-                "SSE客户端已启动，MCP ID: {}, 类型: {:?}",
-                mcp_router_path.mcp_id,
-                mcp_type.clone()
-            );
-
-            // 创建SSE客户端传输并创建客户端服务
-            let sse_transport = SseClientTransport::start(url_config.url.clone()).await?;
-            client_info.serve(sse_transport).await?
-        }
-        McpServerConfig::Url(url_config) => {
             // 根据协议类型创建不同的客户端传输
             match mcp_router_path.mcp_protocol {
                 McpProtocol::Sse => {
