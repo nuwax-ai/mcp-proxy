@@ -2,7 +2,7 @@ use axum::response::{IntoResponse, Response};
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
 
-use super::McpType;
+use super::{McpProtocol, McpType};
 
 //check mcp服务状态的请求参数
 #[derive(Deserialize, Debug, Clone)]
@@ -16,6 +16,10 @@ pub struct CheckMcpStatusRequestParams {
     //mcp类型,必须有,默认:OneShot
     #[serde(rename = "mcpType", default = "default_mcp_type")]
     pub mcp_type: McpType,
+    //后端MCP服务的协议类型（可选），用于指定连接到后端服务时使用的协议
+    //如果不指定，则使用客户端协议（由路由路径决定）
+    #[serde(rename = "backendProtocol")]
+    pub backend_protocol: Option<McpProtocol>,
 }
 
 //默认的mcp类型

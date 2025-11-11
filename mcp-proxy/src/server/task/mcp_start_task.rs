@@ -14,7 +14,10 @@ use rmcp::{
     transport::streamable_http_server::{
         StreamableHttpService, session::local::LocalSessionManager,
     },
-    transport::{SseClientTransport, SseServer, TokioChildProcess, sse_server::SseServerConfig},
+    transport::{
+        SseClientTransport, SseServer, TokioChildProcess, sse_server::SseServerConfig,
+        streamable_http_client::StreamableHttpClientTransport,
+    },
 };
 use tokio::process::Command;
 
@@ -23,9 +26,11 @@ pub async fn mcp_start_task(
     mcp_config: McpConfig,
 ) -> Result<(axum::Router, tokio_util::sync::CancellationToken)> {
     let mcp_id = mcp_config.mcp_id.clone();
-    let mcp_protocol = mcp_config.mcp_protocol.clone();
+    let backend_protocol = mcp_config.mcp_protocol.clone();
+    let client_protocol = mcp_config.client_protocol.clone();
 
-    let mcp_router_path: McpRouterPath = McpRouterPath::new(mcp_id, mcp_protocol);
+    // 使用客户端协议创建路由路径（决定暴露的API接口）
+    let mcp_router_path: McpRouterPath = McpRouterPath::new(mcp_id, client_protocol);
 
     let mcp_json_config = mcp_config
         .mcp_json_config
@@ -34,11 +39,12 @@ pub async fn mcp_start_task(
 
     let mcp_server_config = McpServerConfig::try_from(mcp_json_config)?;
 
-    // 使用新的集成方法，而不是单独启动 SSE 服务
+    // 使用新的集成方法，传递后端协议用于连接远程服务
     integrate_sse_server_with_axum(
         mcp_server_config.clone(),
         mcp_router_path.clone(),
         mcp_config.mcp_type,
+        backend_protocol,
     )
     .await
 }
@@ -48,6 +54,7 @@ pub async fn integrate_sse_server_with_axum(
     mcp_config: McpServerConfig,
     mcp_router_path: McpRouterPath,
     mcp_type: McpType,
+    backend_protocol: McpProtocol,
 ) -> Result<(axum::Router, tokio_util::sync::CancellationToken)> {
     let base_path = mcp_router_path.base_path.clone();
     let mcp_id = mcp_router_path.mcp_id.clone();
@@ -96,29 +103,42 @@ pub async fn integrate_sse_server_with_axum(
             client_info.serve(tokio_process).await?
         }
         McpServerConfig::Url(url_config) => {
-            // 根据协议类型创建不同的客户端传输
-            match mcp_router_path.mcp_protocol {
+            // 根据后端协议类型创建不同的客户端传输
+            info!(
+                "连接到远程MCP服务: {}, 后端协议: {:?}, 客户端协议: {:?}",
+                url_config.url, backend_protocol, mcp_router_path.mcp_protocol
+            );
+
+            match backend_protocol {
                 McpProtocol::Sse => {
                     // SSE 协议 - 创建 SSE 客户端传输
-                    info!("创建SSE客户端连接到: {}", url_config.url);
+                    info!("使用SSE协议连接到: {}", url_config.url);
 
                     let sse_transport = SseClientTransport::start(url_config.url.clone()).await?;
                     client_info.serve(sse_transport).await?
                 }
                 McpProtocol::Stream => {
-                    // Streamable 协议 - 暂时使用 SSE 传输作为占位
-                    info!("创建Streamable HTTP客户端连接到: {}", url_config.url);
+                    // Streamable 协议 - 创建 Streamable HTTP 客户端传输
+                    info!("使用Streamable HTTP协议连接到: {}", url_config.url);
 
-                    // TODO: 未来使用真正的 Streamable 传输
-                    let sse_transport = SseClientTransport::start(url_config.url.clone()).await?;
+                    // 使用默认方式创建传输，rmcp 库会自动处理 Accept 头和会话管理
+                    let transport = StreamableHttpClientTransport::from_uri(url_config.url.clone());
 
                     info!(
-                        "Streamable HTTP客户端已启动，MCP ID: {}, 类型: {:?}",
+                        "Streamable HTTP传输已创建，开始建立连接，MCP ID: {}, 类型: {:?}",
                         mcp_router_path.mcp_id,
                         mcp_type.clone()
                     );
 
-                    client_info.serve(sse_transport).await?
+                    // serve 会建立连接并完成初始化握手
+                    let client = client_info.serve(transport).await?;
+
+                    info!(
+                        "Streamable HTTP客户端连接成功，MCP ID: {}",
+                        mcp_router_path.mcp_id
+                    );
+
+                    client
                 }
             }
         }
@@ -143,11 +163,11 @@ pub async fn integrate_sse_server_with_axum(
             // 使用随机端口，让 axum 来管理; 这里不使用这个地址绑定,只需要对应的router
             let addr: String = "0.0.0.0:0".to_string();
 
-            // 创建SSE配置 - 使用相对路径（相对于注册的 base_path）
+            // 创建SSE配置 - 使用完整路径，这样就不需要在路由层做路径重写
             let config = SseServerConfig {
                 bind: addr.parse()?,
-                sse_path: "/sse".to_string(), // 相对于 base_path 的路径
-                post_path: "/message".to_string(), // 相对于 base_path 的路径
+                sse_path: sse_path.sse_path.clone(),
+                post_path: sse_path.message_path.clone(),
                 ct: tokio_util::sync::CancellationToken::new(),
                 sse_keep_alive: None,
             };
@@ -162,7 +182,9 @@ pub async fn integrate_sse_server_with_axum(
                 LocalSessionManager::default().into(),
                 Default::default(),
             );
-            let router = axum::Router::new().nest_service("/mcp", service);
+            // Stream 协议直接使用根路径，不需要额外的 /mcp 前缀
+            // 因为 base_path 已经包含了完整路径
+            let router = axum::Router::new().fallback_service(service);
             let ct = tokio_util::sync::CancellationToken::new();
             (router, ct)
         }

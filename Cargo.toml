@@ -8,12 +8,13 @@ resolver = "2"
 mcp-proxy = { path = "mcp-proxy" }
 oss-client = { path = "oss-client" }
 
-rmcp = { version = "0.8", features = [
+rmcp = { path = "../rust-sdk/crates/rmcp", features = [
     "server",
     "client",
     "transport-sse-server",
     "transport-sse-client",
     "transport-streamable-http-client",
+    "transport-streamable-http-client-reqwest",
     "transport-streamable-http-server",
     "transport-child-process",
     "transport-io",
