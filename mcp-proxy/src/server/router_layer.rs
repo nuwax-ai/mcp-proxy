@@ -1,5 +1,6 @@
 use axum::{
     Router,
+    extract::DefaultBodyLimit,
     routing::{delete, get, post},
 };
 use http::Method;
@@ -68,6 +69,7 @@ pub async fn get_router(state: AppState) -> Result<Router, AppError> {
             post(check_mcp_status_handler_stream),
         )
         .route("/api/run_code_with_log", post(run_code_handler))
+        .layer(DefaultBodyLimit::max(20 * 1024 * 1024))
         .layer(cors);
 
     // 创建基本路由

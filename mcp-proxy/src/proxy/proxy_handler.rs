@@ -143,8 +143,7 @@ impl ServerHandler for ProxyHandler {
                         // 记录工具调用结果，这些结果会通过 SSE 推送给客户端
                         info!(
                             "[call_tool] 工具调用结果 - MCP ID: {}, 工具: {}",
-                            self.mcp_id,
-                            request.name
+                            self.mcp_id, request.name
                         );
 
                         debug!("Tool call succeeded");
@@ -231,8 +230,7 @@ impl ServerHandler for ProxyHandler {
                         // 记录资源读取结果，这些结果会通过 SSE 推送给客户端
                         info!(
                             "[read_resource] 资源读取结果 - MCP ID: {}, URI: {}",
-                            self.mcp_id,
-                            request.uri
+                            self.mcp_id, request.uri
                         );
 
                         debug!("Proxying read_resource response for {}", request.uri);
@@ -433,17 +431,17 @@ impl ProxyHandler {
 
         // Create a ServerInfo object that forwards the server's capabilities
         let cached_info = peer_info.map(|peer_info| ServerInfo {
-                protocol_version: peer_info.protocol_version.clone(),
-                server_info: Implementation {
-                    name: peer_info.server_info.name.clone(),
-                    version: peer_info.server_info.version.clone(),
-                    title: None,
-                    website_url: None,
-                    icons: None,
-                },
-                instructions: peer_info.instructions.clone(),
-                capabilities: peer_info.capabilities.clone(),
-            });
+            protocol_version: peer_info.protocol_version.clone(),
+            server_info: Implementation {
+                name: peer_info.server_info.name.clone(),
+                version: peer_info.server_info.version.clone(),
+                title: None,
+                website_url: None,
+                icons: None,
+            },
+            instructions: peer_info.instructions.clone(),
+            capabilities: peer_info.capabilities.clone(),
+        });
 
         Self {
             client: Arc::new(Mutex::new(client)),
