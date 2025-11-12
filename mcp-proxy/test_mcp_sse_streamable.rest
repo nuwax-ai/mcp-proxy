@@ -35,6 +35,17 @@ Content-Type: application/json
   "backendProtocol": "Stream"
 }
 
+### 1c. 检查服务状态 - 复杂配置测试
+# 使用完整的 MCP 配置，包含认证、超时、重试等参数
+POST http://localhost:8085/mcp/sse/check_status
+Content-Type: application/json
+
+{
+  "mcpId": "test-sse-complex-config",
+  "mcpJsonConfig": "{\"mcpServers\": {\"test-service\": {\"url\": \"http://127.0.0.1:8000/mcp\", \"auth_token\": \"Bearer token...\", \"headers\": {\"X-Custom-Header\": \"value\"}, \"timeout_secs\": 30, \"connect_timeout_secs\": 5, \"max_retries\": 3, \"retry_min_backoff_ms\": 100, \"retry_max_backoff_ms\": 5000}}}",
+  "mcpType": "Persistent"
+}
+
 ### 2a. 获取 SSE 连接（自动检测版本）
 GET http://localhost:8085/mcp/sse/proxy/test-streamable-service/sse
 Accept: text/event-stream
@@ -135,7 +146,13 @@ Content-Type: application/json
 
 {}
 
-### 8c. 清理 Stream 服务
+### 8c. 清理 SSE 服务（复杂配置）
+DELETE http://localhost:8085/mcp/config/delete/test-sse-complex-config
+Content-Type: application/json
+
+{}
+
+### 8d. 清理 Stream 服务
 DELETE http://localhost:8085/mcp/config/delete/test-stream-to-stream
 Content-Type: application/json
 
