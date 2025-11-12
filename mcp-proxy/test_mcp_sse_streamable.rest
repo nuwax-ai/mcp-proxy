@@ -41,8 +41,8 @@ POST http://localhost:8085/mcp/sse/check_status
 Content-Type: application/json
 
 {
-  "mcpId": "test-sse-complex-config",
-  "mcpJsonConfig": "{\"mcpServers\": {\"test-service\": {\"url\": \"http://127.0.0.1:8000/mcp\", \"auth_token\": \"Bearer token...\", \"headers\": {\"X-Custom-Header\": \"value\"}, \"timeout_secs\": 30, \"connect_timeout_secs\": 5, \"max_retries\": 3, \"retry_min_backoff_ms\": 100, \"retry_max_backoff_ms\": 5000}}}",
+  "mcpId": "test-sse-complex-config2",
+  "mcpJsonConfig": "{\"mcpServers\": {\"test-service\": {\"type\": \"http\", \"url\": \"http://127.0.0.1:8000/mcp\", \"auth_token\": \"Bearer token...\", \"headers\": {\"X-Custom-Header\": \"value\"}, \"time\": 30, \"connect_timeout_secs\": 5, \"max_retries\": 3, \"retry_min_backoff_ms\": 100, \"retry_max_backoff_ms\": 5000}}}",
   "mcpType": "Persistent"
 }
 
