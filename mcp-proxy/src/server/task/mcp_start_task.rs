@@ -1,5 +1,5 @@
 use crate::{
-    DynamicRouterService, ProxyHandler, get_proxy_manager,
+    AppError, DynamicRouterService, ProxyHandler, get_proxy_manager,
     model::{
         CheckMcpStatusResponseStatus, McpConfig, McpProtocol, McpProtocolPath, McpRouterPath,
         McpServerCommandConfig, McpServerConfig, McpServiceStatus, McpType,
@@ -26,11 +26,11 @@ pub async fn mcp_start_task(
     mcp_config: McpConfig,
 ) -> Result<(axum::Router, tokio_util::sync::CancellationToken)> {
     let mcp_id = mcp_config.mcp_id.clone();
-    let backend_protocol = mcp_config.mcp_protocol.clone();
     let client_protocol = mcp_config.client_protocol.clone();
 
     // 使用客户端协议创建路由路径（决定暴露的API接口）
-    let mcp_router_path: McpRouterPath = McpRouterPath::new(mcp_id, client_protocol);
+    let mcp_router_path: McpRouterPath =
+        McpRouterPath::new(mcp_id, client_protocol).map_err(|e| AppError::McpServerError(e))?;
 
     let mcp_json_config = mcp_config
         .mcp_json_config
@@ -39,12 +39,11 @@ pub async fn mcp_start_task(
 
     let mcp_server_config = McpServerConfig::try_from(mcp_json_config)?;
 
-    // 使用新的集成方法，传递后端协议用于连接远程服务
+    // 使用新的集成方法，后端协议在函数内部解析
     integrate_sse_server_with_axum(
         mcp_server_config.clone(),
         mcp_router_path.clone(),
         mcp_config.mcp_type,
-        backend_protocol,
     )
     .await
 }
@@ -54,10 +53,58 @@ pub async fn integrate_sse_server_with_axum(
     mcp_config: McpServerConfig,
     mcp_router_path: McpRouterPath,
     mcp_type: McpType,
-    backend_protocol: McpProtocol,
 ) -> Result<(axum::Router, tokio_util::sync::CancellationToken)> {
     let base_path = mcp_router_path.base_path.clone();
     let mcp_id = mcp_router_path.mcp_id.clone();
+
+    // 根据MCP服务器配置解析后端协议
+    let backend_protocol = match &mcp_config {
+        // 命令行配置：使用 stdio 协议
+        McpServerConfig::Command(_) => McpProtocol::Stdio,
+        // URL配置：解析 type 字段或自动检测
+        McpServerConfig::Url(url_config) => {
+            // 首先检查 type 字段
+            if let Some(type_str) = &url_config.r#type {
+                // 尝试解析 type 字段
+                match type_str.parse::<McpProtocol>() {
+                    Ok(protocol) => {
+                        debug!("使用配置中指定的协议类型: {} -> {:?}", type_str, protocol);
+                        protocol
+                    }
+                    Err(_) => {
+                        // 如果解析失败，自动检测协议
+                        debug!("协议类型 '{}' 无法识别，开始自动检测协议", type_str);
+                        let detected_protocol = crate::server::detect_mcp_protocol(&url_config.url)
+                            .await
+                            .map_err(|e| {
+                                anyhow::anyhow!(
+                                    "协议类型 '{}' 不可识别，且自动检测失败: {}",
+                                    type_str,
+                                    e
+                                )
+                            })?;
+                        debug!(
+                            "自动检测到协议类型: {:?}（原始配置: '{}'）",
+                            detected_protocol, type_str
+                        );
+                        detected_protocol
+                    }
+                }
+            } else {
+                // 没有指定 type 字段，自动检测协议
+                debug!("未指定 type 字段，自动检测协议");
+                let detected_protocol = crate::server::detect_mcp_protocol(&url_config.url)
+                    .await
+                    .map_err(|e| anyhow::anyhow!("自动检测协议失败: {}", e))?;
+                detected_protocol
+            }
+        }
+    };
+
+    debug!(
+        "MCP ID: {}, 客户端协议: {:?}, 后端协议: {:?}",
+        mcp_id, mcp_router_path.mcp_protocol, backend_protocol
+    );
 
     // 创建客户端信息
     let client_info = ClientInfo {
@@ -110,6 +157,10 @@ pub async fn integrate_sse_server_with_axum(
             );
 
             match backend_protocol {
+                McpProtocol::Stdio => {
+                    // URL 配置不应该出现 Stdio 协议
+                    return Err(anyhow::anyhow!("URL 配置的 MCP 服务不能使用 Stdio 协议"));
+                }
                 McpProtocol::Sse => {
                     // SSE 协议 - 创建 SSE 客户端传输
                     info!("使用SSE协议连接到: {}", url_config.url);
@@ -150,20 +201,17 @@ pub async fn integrate_sse_server_with_axum(
     // 获取全局 ProxyHandlerManager
     let proxy_manager = get_proxy_manager();
 
-    // 注册代理处理器
-    let proxy_handler_clone: ProxyHandler = proxy_handler.clone();
-    let proxy_handler_for_sse = proxy_handler_clone.clone();
-    let proxy_handler_for_stream = proxy_handler_clone.clone();
+    // 注册代理处理器（ProxyHandler 内部已使用 Arc，clone 非常轻量）
+    let proxy_handler_clone = proxy_handler.clone();
 
     // 根据客户端协议和后端协议创建服务器（支持协议转换）
     // 支持三种模式：
-    // 1. client=SSE, backend=SSE (透明代理)
-    // 2. client=Stream, backend=Stream (透明代理)
-    // 3. client=SSE, backend=Stream (协议转换) - 关键功能
-    let (router, ct) = match (mcp_router_path.mcp_protocol.clone(), backend_protocol) {
-        // SSE 客户端协议
-        (McpProtocol::Sse, McpProtocol::Sse) => {
-            // 模式1: SSE -> SSE (透明代理)
+    // 根据客户端协议（主导）创建路由：决定对外暴露的 API 接口类型
+    let (router, ct) = match mcp_router_path.mcp_protocol.clone() {
+        // ================ 客户端使用 SSE 协议 ================
+        McpProtocol::Sse => {
+            // 对外提供 SSE 接口
+            // 协议转换由 proxy_handler_clone 自动处理
             let addr: String = "0.0.0.0:0".to_string();
             let sse_path = match &mcp_router_path.mcp_protocol_path {
                 McpProtocolPath::SsePath(sse_path) => sse_path,
@@ -183,38 +231,16 @@ pub async fn integrate_sse_server_with_axum(
             );
 
             let (sse_server, router) = SseServer::new(config);
-            let ct = sse_server.with_service(move || proxy_handler_for_sse.clone());
+            let ct = sse_server.with_service(move || proxy_handler_clone.clone());
             (router, ct)
         }
-        (McpProtocol::Sse, McpProtocol::Stream) => {
-            // 模式3: SSE -> Streamable HTTP (协议转换)
-            // 对外提供SSE接口，内部转换为Streamable HTTP
-            let addr: String = "0.0.0.0:0".to_string();
-            let sse_path = match &mcp_router_path.mcp_protocol_path {
-                McpProtocolPath::SsePath(sse_path) => sse_path,
-                _ => unreachable!(),
-            };
-            let config = SseServerConfig {
-                bind: addr.parse()?,
-                sse_path: sse_path.sse_path.clone(),
-                post_path: sse_path.message_path.clone(),
-                ct: tokio_util::sync::CancellationToken::new(),
-                sse_keep_alive: None,
-            };
 
-            debug!(
-                "创建SSE服务器(协议转换)，配置: bind={}, sse_path={}, post_path={}",
-                config.bind, config.sse_path, config.post_path
-            );
-
-            let (sse_server, router) = SseServer::new(config);
-            let ct = sse_server.with_service(move || proxy_handler_for_stream.clone());
-            (router, ct)
-        }
-        (McpProtocol::Stream, McpProtocol::Stream) => {
-            // 模式2: Stream -> Stream (透明代理)
+        // ================ 客户端使用 Streamable HTTP 协议 ================
+        McpProtocol::Stream => {
+            // 对外提供 Streamable HTTP 接口
+            // 内部协议转换由 proxy_handler_clone 自动处理
             let service = StreamableHttpService::new(
-                move || Ok(proxy_handler_for_stream.clone()),
+                move || Ok(proxy_handler_clone.clone()),
                 LocalSessionManager::default().into(),
                 Default::default(),
             );
@@ -222,17 +248,12 @@ pub async fn integrate_sse_server_with_axum(
             let ct = tokio_util::sync::CancellationToken::new();
             (router, ct)
         }
-        (McpProtocol::Stream, McpProtocol::Sse) => {
-            // 模式4: Streamable HTTP -> SSE (协议转换)
-            // 对外提供Streamable HTTP接口，内部连接到SSE后端
-            let service = StreamableHttpService::new(
-                move || Ok(proxy_handler_for_sse.clone()),
-                LocalSessionManager::default().into(),
-                Default::default(),
-            );
-            let router = axum::Router::new().fallback_service(service);
-            let ct = tokio_util::sync::CancellationToken::new();
-            (router, ct)
+
+        // 不应该出现的情况
+        McpProtocol::Stdio => {
+            return Err(anyhow::anyhow!(
+                "客户端协议不能是 Stdio。McpRouterPath::new 不支持创建 Stdio 协议的路由路径"
+            ));
         }
     };
 

@@ -1,10 +1,12 @@
 use axum::Router;
 use dashmap::DashMap;
-use log::{debug, info};
+use log::{debug, error, info};
 use once_cell::sync::Lazy;
 use std::sync::Arc;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
+
+use anyhow::Result;
 
 use crate::ProxyHandler;
 
@@ -189,18 +191,27 @@ impl ProxyHandlerManager {
     }
 
     // 清理资源,根据 mcp_id 清理资源
-    pub async fn cleanup_resources(&self, mcp_id: &str) {
-        let mcp_sse_router_path = McpRouterPath::new(mcp_id.to_string(), McpProtocol::Sse);
+    pub async fn cleanup_resources(&self, mcp_id: &str) -> Result<()> {
+        // 创建路径以构建要删除的路由路径
+        let mcp_sse_router_path = McpRouterPath::new(mcp_id.to_string(), McpProtocol::Sse)
+            .map_err(|e| {
+                anyhow::anyhow!("Failed to create SSE router path for {}: {}", mcp_id, e)
+            })?;
         let base_sse_path = mcp_sse_router_path.base_path;
 
-        let mcp_stream_router_path = McpRouterPath::new(mcp_id.to_string(), McpProtocol::Stream);
+        let mcp_stream_router_path = McpRouterPath::new(mcp_id.to_string(), McpProtocol::Stream)
+            .map_err(|e| {
+                anyhow::anyhow!("Failed to create Stream router path for {}: {}", mcp_id, e)
+            })?;
         let base_stream_path = mcp_stream_router_path.base_path;
-        // 移除相关资源
+
+        // 移除相关路由
         DynamicRouterService::delete_route(&base_sse_path);
         DynamicRouterService::delete_route(&base_stream_path);
 
+        // 取消取消令牌并移除资源
         if let Some(status) = self.mcp_service_statuses.get_mut(mcp_id) {
-            info!("Cleaning up resources for mcp_id: {mcp_id}",);
+            info!("Cleaning up resources for mcp_id: {mcp_id}");
             // 取消与此 mcp_id 关联的 SseServer/command 终端的 CancellationToken
             status.cancellation_token.cancel();
             info!("CancellationToken cancelled for mcp_id: {mcp_id}");
@@ -209,14 +220,23 @@ impl ProxyHandlerManager {
         self.proxy_handlers.remove(mcp_id);
         self.mcp_service_statuses.remove(mcp_id);
 
-        info!("MCP 服务 {mcp_id} 的 command 终端资源清理已触发");
+        info!("MCP 服务 {mcp_id} 的资源清理已完成");
+        Ok(())
     }
 
     // 系统关闭,清理所有资源
-    pub async fn cleanup_all_resources(&self) {
+    pub async fn cleanup_all_resources(&self) -> Result<()> {
         for mcp_service_entry in self.mcp_service_statuses.iter() {
-            self.cleanup_resources(mcp_service_entry.key()).await;
+            if let Err(e) = self.cleanup_resources(mcp_service_entry.key()).await {
+                error!(
+                    "Failed to cleanup resources for {}: {}",
+                    mcp_service_entry.key(),
+                    e
+                );
+                // 继续清理其他资源，不中断整个清理过程
+            }
         }
+        Ok(())
     }
 }
 

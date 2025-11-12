@@ -147,7 +147,9 @@ async fn main() -> Result<()> {
     info!("服务器已关闭，开始清理资源...");
 
     // 清理所有SSE服务
-    get_proxy_manager().cleanup_all_resources().await;
+    if let Err(e) = get_proxy_manager().cleanup_all_resources().await {
+        error!("清理资源时出错: {}", e);
+    }
 
     // 等待一小段时间确保所有资源都被清理
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;

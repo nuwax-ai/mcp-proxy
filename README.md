@@ -1,4 +1,4 @@
-# RMCP-PROXY 
+# RMCP-PROXY
 
 ## 项目简介
 
@@ -15,13 +15,536 @@
 - 🚀 异步任务处理：支持大文件批量处理
 
 ### MCP Proxy Service (MCP代理服务)
-实现了一个 mcp 代理服务，用户可以通过 SSE（Server-Sent Events）协议，配置我们提供的 URL 地址，远程使用服务器提供的 mcp 功能。
+实现了一个 mcp 代理服务，用户可以通过 SSE（Server-Sent Events）协议或 Streamable HTTP 协议，配置我们提供的 URL 地址，远程使用服务器提供的 mcp 功能。
 
 **主要功能:**
-- 支持通过 SSE 协议与客户端通信，实时推送数据。
-- 支持动态添加 mcp 插件：只需在 mcp 社区查找所需插件，复制对应的 JSON 配置，粘贴到本服务的配置中，即可自动加载并启用插件。
-- 每个插件配置完成后，服务器会自动启动对应的 mcp 服务，并生成可供访问的 SSE 协议 URL 地址。
-- 用户可通过该 URL 地址，直接使用远程服务器的 mcp 能力。
+- 支持通过 SSE 协议与客户端通信，实时推送数据
+- 支持 Streamable HTTP 协议，实现高效的双向通信
+- 支持动态添加 mcp 插件：只需在 mcp 社区查找所需插件，复制对应的 JSON 配置，粘贴到本服务的配置中，即可自动加载并启用插件
+- 支持协议转换：可以将 SSE 后端转换为 Streamable HTTP 前端，反之亦然
+- 支持自动协议检测：根据 URL 路径和配置自动识别协议类型
+- 每个插件配置完成后，服务器会自动启动对应的 mcp 服务，并生成可供访问的 URL 地址
+- 支持持续运行和一次性任务两种模式
+
+## 🎯 MCP Proxy 快速开始
+
+### 1. 启动 MCP 代理服务
+
+```bash
+# 启动 MCP 代理服务器（默认端口 8080）
+mcp-proxy
+
+# 指定端口启动
+mcp-proxy --port 8080
+
+# 或使用标准方式启动
+cd mcp-proxy
+cargo run --bin mcp-proxy
+```
+
+### 2. 添加 MCP 服务
+
+**添加 SSE MCP 服务：**
+```bash
+curl -X POST http://localhost:8080/mcp/sse/add_route \
+  -H "Content-Type: application/json" \
+  -d '{
+    "mcp_json_config": "{\"mcpServers\": {\"playwright\": {\"command\": \"npx\", \"args\": [\"@playwright/mcp@latest\", \"--headless\"]}}}",
+    "mcp_type": "Persistent"
+  }'
+```
+
+**添加 Streamable HTTP MCP 服务：**
+```bash
+curl -X POST http://localhost:8080/mcp/stream/add_route \
+  -H "Content-Type: application/json" \
+  -d '{
+    "mcp_json_config": "{\"mcpServers\": {\"example\": {\"url\": \"https://example.com/mcp\", \"type\": \"stream\"}}}",
+    "mcp_type": "Persistent"
+  }'
+```
+
+### 3. 检查 MCP 服务状态
+
+```bash
+curl -X POST http://localhost:8080/mcp/sse/check_status \
+  -H "Content-Type: application/json" \
+  -d '{
+    "mcpId": "服务ID",
+    "mcpJsonConfig": "MCP JSON 配置",
+    "mcpType": "OneShot"
+  }'
+```
+
+### 4. 连接 MCP 服务
+
+**SSE 协议连接：**
+```
+http://localhost:8080/mcp/sse/proxy/{mcpId}/sse
+```
+
+**Streamable HTTP 协议连接：**
+```
+http://localhost:8080/mcp/stream/proxy/{mcpId}
+```
+
+### 5. 删除 MCP 服务
+
+```bash
+curl -X DELETE http://localhost:8080/mcp/{mcpId}
+```
+
+## 🔧 MCP Proxy API 详细说明
+
+### 1. 添加 MCP 服务接口
+
+#### SSE 服务
+```
+POST http://localhost:8080/mcp/sse/add_route
+Content-Type: application/json
+```
+
+#### Streamable HTTP 服务
+```
+POST http://localhost:8080/mcp/stream/add_route
+Content-Type: application/json
+```
+
+**请求参数：**
+```json
+{
+  "mcp_json_config": "MCP服务的JSON配置字符串",
+  "mcp_type": "Persistent"  // 或 "OneShot"
+}
+```
+
+**支持的 MCP 配置格式：**
+
+*命令行配置：*
+```json
+{
+  "mcpServers": {
+    "my-service": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest", "--headless"],
+      "env": {
+        "API_KEY": "your-api-key"
+      }
+    }
+  }
+}
+```
+
+*URL 配置（SSE）：*
+```json
+{
+  "mcpServers": {
+    "my-service": {
+      "url": "https://example.com/mcp/sse",
+      "type": "sse",
+      "headers": {
+        "Authorization": "Bearer your-token"
+      }
+    }
+  }
+}
+```
+
+*URL 配置（Streamable HTTP）：*
+```json
+{
+  "mcpServers": {
+    "my-service": {
+      "url": "https://example.com/mcp",
+      "type": "stream",  // 或 "http"
+      "headers": {
+        "Authorization": "Bearer your-token"
+      }
+    }
+  }
+}
+```
+
+*URL 配置（自动检测）：*
+```json
+{
+  "mcpServers": {
+    "my-service": {
+      "url": "https://example.com/mcp"
+      // 不指定 type 字段，系统将自动检测
+    }
+  }
+}
+```
+
+**响应示例：**
+```json
+{
+  "success": true,
+  "data": {
+    "mcp_id": "abc123",
+    "sse_path": "/mcp/sse/proxy/abc123/sse",
+    "message_path": "/mcp/sse/proxy/abc123/message",
+    "mcp_type": "Persistent"
+  }
+}
+```
+
+### 2. MCP 服务状态检查接口
+
+```
+POST http://localhost:8080/mcp/sse/check_status
+POST http://localhost:8080/mcp/stream/check_status
+Content-Type: application/json
+```
+
+**请求参数：**
+```json
+{
+  "mcpId": "服务唯一标识符",
+  "mcpJsonConfig": "MCP服务的JSON配置",
+  "mcpType": "Persistent",  // 或 "OneShot"
+  "backendProtocol": "sse"  // 可选，指定后端协议
+}
+```
+
+**响应示例：**
+```json
+{
+  "success": true,
+  "data": {
+    "ready": true,
+    "status": "READY",  // READY | PENDING | ERROR
+    "message": null
+  }
+}
+```
+
+### 3. SSE 协议连接接口
+
+建立 SSE 连接后，客户端可以：
+- 接收实时事件推送
+- 发送 MCP 消息请求
+
+**SSE 端点：**
+```
+GET http://localhost:8080/mcp/sse/proxy/{mcpId}/sse
+```
+
+**消息发送端点：**
+```
+POST http://localhost:8080/mcp/sse/proxy/{mcpId}/message
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": "msg_123",
+  "method": "tools/list",
+  "params": {}
+}
+```
+
+### 4. Streamable HTTP 协议连接接口
+
+**Streamable HTTP 端点：**
+```
+GET  http://localhost:8080/mcp/stream/proxy/{mcpId}  # 获取服务信息
+POST http://localhost:8080/mcp/stream/proxy/{mcpId}  # 发送消息
+Content-Type: application/json
+```
+
+**请求示例：**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "msg_123",
+  "method": "tools/list",
+  "params": {}
+}
+```
+
+### 5. 删除 MCP 服务接口
+
+```
+DELETE http://localhost:8080/mcp/{mcpId}
+```
+
+**响应示例：**
+```json
+{
+  "success": true,
+  "data": {
+    "mcp_id": "abc123",
+    "message": "已删除路由: abc123"
+  }
+}
+```
+
+## 🔧 MCP Proxy 协议支持
+
+### 支持的协议类型
+
+| 协议类型 | 前端支持 | 后端支持 | 别名 | 说明 |
+|---------|---------|---------|------|------|
+| **Stdio** | ❌ | ✅ | - | 标准输入输出，用于命令行启动的服务 |
+| **SSE** | ✅ | ✅ | - | Server-Sent Events，单向实时通信 |
+| **Streamable HTTP** | ✅ | ✅ | `http`, `stream` | 高效的双向通信协议 |
+
+### 协议转换
+
+MCP Proxy 支持在不同协议之间进行转换：
+
+- **SSE → Streamable**：将 SSE 后端服务转换为 Streamable HTTP 前端
+- **Streamable → SSE**：将 Streamable HTTP 后端服务转换为 SSE 前端
+- **Stdio → SSE**：将命令行启动的服务转换为 SSE 前端
+- **Stdio → Streamable**：将命令行启动的服务转换为 Streamable HTTP 前端
+
+### 自动协议检测
+
+当 URL 配置中未指定 `type` 字段时，系统会自动检测协议：
+
+```json
+{
+  "mcpServers": {
+    "my-service": {
+      "url": "https://example.com/mcp/sse"
+      // 系统将自动检测为 SSE 协议
+    }
+  }
+}
+```
+
+如果检测失败，可以显式指定类型：
+```json
+{
+  "mcpServers": {
+    "my-service": {
+      "url": "https://example.com/mcp",
+      "type": "sse"  // 显式指定协议
+    }
+  }
+}
+```
+
+## 🎯 MCP Proxy 使用场景
+
+### 场景 1：远程 MCP 服务代理
+
+假设你有一个运行在远程服务器上的 MCP 服务：
+```json
+{
+  "mcpServers": {
+    "remote-service": {
+      "url": "https://remote-server.com/mcp/sse",
+      "type": "sse"
+    }
+  }
+}
+```
+
+通过 MCP Proxy，你可以：
+1. 将其暴露为本地 SSE 端点
+2. 转换为 Streamable HTTP 协议
+3. 添加认证、限流等中间件
+
+### 场景 2：本地命令服务代理
+
+将本地命令行工具包装为网络服务：
+```json
+{
+  "mcpServers": {
+    "local-db": {
+      "command": "go-mcp-mysql",
+      "args": ["--host", "localhost", "--user", "root"]
+    }
+  }
+}
+```
+
+### 场景 3：协议转换桥接
+
+连接使用不同协议的 MCP 服务：
+```json
+{
+  "mcpServers": {
+    "bridge": {
+      "url": "https://sse-service.com/mcp",
+      "type": "sse"
+    }
+  }
+}
+```
+
+客户端可以使用 Streamable HTTP 协议连接，系统自动处理协议转换。
+
+## 🔧 MCP Proxy 故障排除
+
+### 常见问题
+
+#### 1. 服务启动失败
+
+**问题：端口被占用**
+```bash
+# 错误信息
+Error: bind error: Address already in use
+```
+
+**解决方案：**
+```bash
+# 使用其他端口
+mcp-proxy --port 8081
+
+# 或查找占用端口的进程
+lsof -i :8080  # Linux/macOS
+netstat -ano | findstr :8080  # Windows
+```
+
+#### 2. MCP 服务添加失败
+
+**问题：JSON 配置格式错误**
+```bash
+# 错误信息
+Failed to parse MCP config: ...
+```
+
+**解决方案：**
+- 检查 JSON 语法是否正确
+- 确保 `mcpServers` 字段存在且格式正确
+- 使用在线 JSON 验证工具检查
+
+**正确格式：**
+```json
+{
+  "mcpServers": {
+    "service-name": {
+      "command": "npx",
+      "args": ["@playwright/mcp@latest"]
+    }
+  }
+}
+```
+
+#### 3. 协议检测失败
+
+**问题：无法自动检测协议**
+```
+Error: 自动检测协议失败: ...
+```
+
+**解决方案：**
+1. 显式指定协议类型：
+```json
+{
+  "mcpServers": {
+    "my-service": {
+      "url": "https://example.com/mcp",
+      "type": "sse"  // 显式指定
+    }
+  }
+}
+```
+
+2. 检查 URL 是否可访问：
+```bash
+curl -I https://example.com/mcp
+```
+
+#### 4. SSE 连接问题
+
+**问题：SSE 连接断开**
+```bash
+# 检查服务端日志
+tail -f logs/mcp-proxy.log
+```
+
+**解决方案：**
+- 确保客户端正确处理 `text/event-stream` MIME 类型
+- 检查网络连接稳定性
+- 调整 SSE keep-alive 设置
+
+#### 5. Streamable HTTP 连接问题
+
+**问题：消息发送失败**
+```bash
+# 检查响应状态码和错误信息
+```
+
+**解决方案：**
+- 确保请求体符合 JSON-RPC 2.0 格式
+- 检查 `Content-Type: application/json` 头部
+- 验证服务端点是否正确
+
+### 环境要求
+
+- **Rust**: 1.70+ (推荐 1.75+)
+- **操作系统**: Linux, macOS, Windows
+- **磁盘空间**: 至少 100MB 可用空间
+- **网络**: 需要访问远程 MCP 服务
+
+### 目录结构
+
+```
+mcp-proxy/
+├── logs/                    # 日志文件
+├── Cargo.toml              # 项目配置
+├── src/                    # 源代码
+│   ├── main.rs            # 主入口
+│   ├── model/             # 数据模型
+│   ├── server/            # 服务器实现
+│   └── lib.rs             # 库入口
+└── README.md              # 说明文档
+```
+
+## 🔧 MCP Proxy 配置说明
+
+### 命令行参数
+
+```bash
+# 查看所有可用选项
+mcp-proxy --help
+
+# 常用选项
+--port <PORT>              # 指定服务端口 (默认: 8080)
+--host <HOST>              # 指定绑定地址 (默认: 0.0.0.0)
+--log-level <LEVEL>        # 日志级别 (trace, debug, info, warn, error)
+--workers <NUM>            # 工作线程数 (默认: CPU 核数)
+```
+
+### 环境变量
+
+```bash
+# MCP_PROXY_PORT          # 服务端口
+# MCP_PROXY_HOST          # 绑定地址
+# MCP_PROXY_LOG_LEVEL     # 日志级别
+# RUST_LOG                # Rust 日志级别
+```
+
+### MCP 服务类型
+
+#### Persistent（持久服务）
+- 服务启动后持续运行
+- 适用于需要长期运行的服务（如数据库、API 服务）
+- 手动删除或服务器关闭时停止
+
+#### OneShot（一次性任务）
+- 服务执行完成后自动停止
+- 适用于短期任务（如脚本执行、数据处理）
+- 3分钟未访问自动清理
+
+### 日志配置
+
+默认日志位置：`./logs/mcp-proxy.log`
+
+**日志级别说明：**
+- `debug`: 详细的调试信息
+- `info`: 一般信息记录（推荐）
+- `warn`: 警告信息
+- `error`: 错误信息
+
+**日志轮转：**
+- 每天自动轮转日志文件
+- 保留最近7天的日志
+- 压缩旧日志文件
 
 ## 🚀 Document Parser 快速开始
 

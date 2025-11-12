@@ -49,7 +49,9 @@ pub async fn check_mcp_status_handler(
         match status {
             CheckMcpStatusResponseStatus::Error(error_msg) => {
                 // 如果有错误状态，返回错误信息,另外删除掉 ERROR 的记录,方便下次检查状态,重新启动服务
-                proxy_manager.cleanup_resources(&params.mcp_id).await;
+                if let Err(e) = proxy_manager.cleanup_resources(&params.mcp_id).await {
+                    error!("Failed to cleanup resources for {}: {}", params.mcp_id, e);
+                }
                 // 返回错误信息
                 return create_response(
                     false,
@@ -95,35 +97,11 @@ pub async fn check_mcp_status_handler(
         return create_response(ready_status, status, None);
     } else {
         // 如果服务不存在,则取 mcp_json_config 中的配置,生成mcp透明代理服务
-        // 使用 backend_protocol（如果指定）或自动检测
-        let backend_protocol = if let Some(protocol) = params.backend_protocol.clone() {
-            protocol
-        } else {
-            // 尝试从配置中提取 URL 并自动检测协议
-            match try_detect_backend_protocol(&params.mcp_json_config).await {
-                Ok(detected) => {
-                    info!(
-                        "自动检测到后端协议: {:?} for MCP ID: {}",
-                        detected, params.mcp_id
-                    );
-                    detected
-                }
-                Err(e) => {
-                    info!(
-                        "无法自动检测后端协议，使用客户端协议: {:?}, 错误: {}",
-                        mcp_protocol, e
-                    );
-                    mcp_protocol.clone()
-                }
-            }
-        };
-
         spawn_mcp_service(
             &params.mcp_id,
             params.mcp_json_config,
             params.mcp_type,
             mcp_protocol.clone(),
-            backend_protocol,
         )?;
 
         // 返回 PENDING 状态,表示服务正在启动
@@ -164,13 +142,11 @@ pub async fn check_mcp_status_handler_stream(
 /// - `mcp_json_config`: MCP服务的JSON配置
 /// - `mcp_type`: MCP服务类型（OneShot或Persistent）
 /// - `client_protocol`: 客户端使用的协议（决定暴露的API接口类型）
-/// - `backend_protocol`: 连接后端服务使用的协议（决定如何连接到远程MCP服务）
 fn spawn_mcp_service(
     mcp_id: &str,
     mcp_json_config: String,
     mcp_type: McpType,
     client_protocol: McpProtocol,
-    backend_protocol: McpProtocol,
 ) -> Result<(), AppError> {
     let mcp_id = mcp_id.to_string();
 
@@ -178,10 +154,12 @@ fn spawn_mcp_service(
     let proxy_manager = get_proxy_manager();
 
     // 设置初始化状态 - 使用客户端协议创建路由路径
+    let mcp_router_path = McpRouterPath::new(mcp_id.clone(), client_protocol.clone())
+        .map_err(|e| AppError::McpServerError(e))?;
     let mcp_service_status = McpServiceStatus::new(
         mcp_id.clone(),
         mcp_type.clone(),
-        McpRouterPath::new(mcp_id.clone(), client_protocol.clone()),
+        mcp_router_path,
         CancellationToken::new(), // This will be the single cancellation_token
         CheckMcpStatusResponseStatus::Pending,
     );
@@ -190,13 +168,12 @@ fn spawn_mcp_service(
     //异步添加 mcp 透明代理服务
     let mcp_id_clone = mcp_id.clone();
 
-    // 使用客户端协议和后端协议创建配置
-    let mcp_config: McpConfig = McpConfig::new_with_protocols(
+    // 使用客户端协议创建配置
+    let mcp_config: McpConfig = McpConfig::new(
         mcp_id_clone.clone(),
         Some(mcp_json_config),
         mcp_type,
         client_protocol,
-        backend_protocol,
     );
     tokio::spawn(async move {
         match mcp_start_task(mcp_config).await {
@@ -218,25 +195,4 @@ fn spawn_mcp_service(
     });
 
     Ok(())
-}
-
-/// 尝试从 MCP JSON 配置中提取 URL 并自动检测后端协议
-async fn try_detect_backend_protocol(mcp_json_config: &str) -> Result<McpProtocol, AppError> {
-    // 解析配置
-    let mcp_server_config = McpServerConfig::try_from(mcp_json_config.to_string())
-        .map_err(|e| AppError::McpServerError(anyhow::anyhow!("解析 MCP 配置失败: {}", e)))?;
-
-    // 只有 URL 配置才需要检测协议
-    match mcp_server_config {
-        McpServerConfig::Url(url_config) => {
-            // 调用协议检测函数
-            detect_mcp_protocol(&url_config.url)
-                .await
-                .map_err(|e| AppError::McpServerError(anyhow::anyhow!("协议检测失败: {}", e)))
-        }
-        McpServerConfig::Command(_) => {
-            // 命令行方式启动的服务，默认使用 SSE 协议（stdio 传输）
-            Ok(McpProtocol::Sse)
-        }
-    }
 }

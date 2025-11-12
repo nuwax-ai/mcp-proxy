@@ -1,12 +1,18 @@
 use axum::{extract::Path, response::IntoResponse};
 
-use crate::{get_proxy_manager, model::HttpResult};
+use crate::{AppError, get_proxy_manager, model::HttpResult};
+use anyhow::Result;
 use serde_json::json;
 
 // #[axum::debug_handler]
-pub async fn delete_route_handler(Path(mcp_id): Path<String>) -> impl IntoResponse {
+pub async fn delete_route_handler(
+    Path(mcp_id): Path<String>,
+) -> Result<impl IntoResponse, AppError> {
     // 删除动态路由,以及清理资源
-    get_proxy_manager().cleanup_resources(&mcp_id).await;
+    get_proxy_manager()
+        .cleanup_resources(&mcp_id)
+        .await
+        .map_err(|e| AppError::McpServerError(e))?;
 
     // 返回成功信息
     let data = json!({
@@ -14,5 +20,5 @@ pub async fn delete_route_handler(Path(mcp_id): Path<String>) -> impl IntoRespon
         "message": format!("已删除路由: {}", mcp_id)
     });
 
-    HttpResult::success(data, None)
+    Ok(HttpResult::success(data, None))
 }

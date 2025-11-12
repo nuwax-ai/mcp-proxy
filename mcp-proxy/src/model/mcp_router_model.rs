@@ -44,17 +44,68 @@ pub struct McpServerCommandConfig {
     pub env: Option<HashMap<String, String>>,
 }
 
+/// MCP URL 协议类型枚举
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum McpUrlProtocolType {
+    /// Stdio 协议（本地命令启动）
+    #[serde(rename = "stdio")]
+    Stdio,
+    /// Server-Sent Events 协议
+    #[serde(rename = "sse")]
+    Sse,
+    /// Streamable HTTP 协议（别名 http）
+    #[serde(rename = "http")]
+    Http,
+    /// Streamable HTTP 协议（别名 stream）
+    #[serde(rename = "stream")]
+    Stream,
+}
+
+impl std::str::FromStr for McpUrlProtocolType {
+    type Err = String;
+
+    fn from_str(type_str: &str) -> Result<Self, Self::Err> {
+        match type_str {
+            "sse" => Ok(McpUrlProtocolType::Sse),
+            "http" | "stream" => Ok(McpUrlProtocolType::Stream),
+            _ => Err(format!("Unsupported protocol type: {}", type_str)),
+        }
+    }
+}
+
+impl McpUrlProtocolType {
+    /// 判断是否为 Streamable HTTP 协议（包括 http 和 stream）
+    pub fn is_streamable(&self) -> bool {
+        matches!(self, McpUrlProtocolType::Http | McpUrlProtocolType::Stream)
+    }
+
+    /// 获取对应的 McpProtocol 枚举
+    pub fn to_mcp_protocol(&self) -> super::McpProtocol {
+        match self {
+            McpUrlProtocolType::Stdio => super::McpProtocol::Stdio,
+            McpUrlProtocolType::Sse => super::McpProtocol::Sse,
+            McpUrlProtocolType::Http | McpUrlProtocolType::Stream => super::McpProtocol::Stream,
+        }
+    }
+}
+
 //mcp的URL配置（用于Streamable/SSE协议）
 #[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "snake_case")]
 pub struct McpServerUrlConfig {
     pub url: String,
+
+    // 协议类型（可选，字符串格式）
+    #[serde(default, rename = "type")]
+    pub r#type: Option<String>,
+    pub disabled: Option<bool>,
+    pub timeout: Option<u64>,
 
     // 认证配置
     pub auth_token: Option<String>,
     pub headers: Option<HashMap<String, String>>,
 
     // 连接配置
-    pub timeout_secs: Option<u64>,
     pub connect_timeout_secs: Option<u64>,
 
     // 重试配置
@@ -63,13 +114,24 @@ pub struct McpServerUrlConfig {
     pub retry_max_backoff_ms: Option<u64>,
 }
 
+impl McpServerUrlConfig {
+    /// 获取协议类型，如果未指定或不是 "sse"，则返回 None（需要自动检测）
+    pub fn get_protocol_type(&self) -> Option<McpUrlProtocolType> {
+        self.r#type
+            .as_ref()
+            .and_then(|type_str| type_str.parse::<McpUrlProtocolType>().ok())
+    }
+}
+
 impl Default for McpServerUrlConfig {
     fn default() -> Self {
         Self {
             url: String::new(),
+            r#type: None,
+            disabled: None,
+            timeout: None,
             auth_token: None,
             headers: None,
-            timeout_secs: Some(30),
             connect_timeout_secs: Some(5),
             max_retries: Some(3),
             retry_min_backoff_ms: Some(100),
@@ -149,8 +211,25 @@ pub enum McpProtocolPath {
 //定义 mcp 协议枚举
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum McpProtocol {
+    Stdio,
     Sse,
     Stream,
+}
+
+impl std::str::FromStr for McpProtocol {
+    type Err = String;
+
+    fn from_str(type_str: &str) -> Result<Self, Self::Err> {
+        match type_str {
+            "stdio" => Ok(McpProtocol::Stdio),
+            "sse" => Ok(McpProtocol::Sse),
+            "http" | "stream" => Ok(McpProtocol::Stream),
+            _ => Err(format!(
+                "不支持的协议类型: {}, 支持的类型: sse, http, stream, stdio",
+                type_str
+            )),
+        }
+    }
 }
 
 //sse 协议下,需要有2个path: sse 和 message
@@ -255,25 +334,25 @@ impl McpRouterPath {
         None
     }
 
-    pub fn new(mcp_id: String, mcp_protocol: McpProtocol) -> Self {
+    pub fn new(mcp_id: String, mcp_protocol: McpProtocol) -> Result<Self, anyhow::Error> {
         match mcp_protocol {
             McpProtocol::Sse => {
                 //使用全局变量的前缀定义: sse 和 stream
                 // 创建McpRouterPath结构
                 let sse_mcp_router_path = McpRouterPath::from_mcp_id_for_sse(mcp_id.clone());
 
-                Self {
+                Ok(Self {
                     mcp_id: mcp_id.clone(),
                     base_path: format!("{GLOBAL_SSE_MCP_ROUTES_PREFIX}/proxy/{mcp_id}"),
                     mcp_protocol_path: McpProtocolPath::SsePath(sse_mcp_router_path),
                     mcp_protocol: McpProtocol::Sse,
                     last_accessed: Instant::now(),
-                }
+                })
             }
             McpProtocol::Stream => {
                 let stream_path: String =
                     format!("{GLOBAL_STREAM_MCP_ROUTES_PREFIX}/proxy/{mcp_id}");
-                Self {
+                Ok(Self {
                     mcp_id: mcp_id.clone(),
                     base_path: format!("{GLOBAL_STREAM_MCP_ROUTES_PREFIX}/proxy/{mcp_id}"),
                     mcp_protocol_path: McpProtocolPath::StreamPath(StreamMcpRouterPath {
@@ -281,7 +360,13 @@ impl McpRouterPath {
                     }),
                     mcp_protocol: McpProtocol::Stream,
                     last_accessed: Instant::now(),
-                }
+                })
+            }
+            McpProtocol::Stdio => {
+                // Stdio 协议不支持通过此方法创建路由路径
+                Err(anyhow::anyhow!(
+                    "McpRouterPath::new 不支持 Stdio 协议。Stdio 协议仅用于命令行启动的 MCP 服务，不提供 HTTP 路由接口"
+                ))
             }
         }
     }
@@ -479,5 +564,162 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    #[test]
+    fn test_url_config_with_type_field() -> Result<()> {
+        let json = r#"{
+            "mcpServers": {
+                "amap-amap-test": {
+                    "url": "https://mcp.amap.com/sse",
+                    "disabled": false,
+                    "timeout": 60,
+                    "type": "sse",
+                    "headers": {
+                        "Authorization": "Bearer 12121221"
+                    }
+                }
+            }
+        }"#;
+
+        let params = McpJsonServerParameters::from(json.to_string());
+        let mcp_server_config = params.try_get_first_mcp_server()?;
+
+        match mcp_server_config {
+            McpServerConfig::Url(url_config) => {
+                assert_eq!(url_config.url, "https://mcp.amap.com/sse");
+                assert_eq!(url_config.disabled, Some(false));
+                assert_eq!(url_config.timeout, Some(60));
+                assert_eq!(url_config.r#type, Some("sse".to_string()));
+                assert_eq!(
+                    url_config.get_protocol_type(),
+                    Some(McpUrlProtocolType::Sse)
+                );
+                assert!(
+                    url_config
+                        .headers
+                        .as_ref()
+                        .unwrap()
+                        .contains_key("Authorization")
+                );
+            }
+            McpServerConfig::Command(_) => {
+                panic!("Expected URL config, got command config");
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_url_config_with_stream_type() -> Result<()> {
+        let json = r#"{
+            "mcpServers": {
+                "streamable-service": {
+                    "url": "https://example.com/mcp",
+                    "type": "stream"
+                }
+            }
+        }"#;
+
+        let params = McpJsonServerParameters::from(json.to_string());
+        let mcp_server_config = params.try_get_first_mcp_server()?;
+
+        match mcp_server_config {
+            McpServerConfig::Url(url_config) => {
+                assert_eq!(url_config.url, "https://example.com/mcp");
+                assert_eq!(url_config.r#type, Some("stream".to_string()));
+                assert_eq!(url_config.get_protocol_type(), None); // 非 "sse" 值返回 None
+            }
+            McpServerConfig::Command(_) => {
+                panic!("Expected URL config, got command config");
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_url_config_with_http_type() -> Result<()> {
+        let json = r#"{
+            "mcpServers": {
+                "http-service": {
+                    "url": "https://example.com/mcp",
+                    "type": "http"
+                }
+            }
+        }"#;
+
+        let params = McpJsonServerParameters::from(json.to_string());
+        let mcp_server_config = params.try_get_first_mcp_server()?;
+
+        match mcp_server_config {
+            McpServerConfig::Url(url_config) => {
+                assert_eq!(url_config.url, "https://example.com/mcp");
+                assert_eq!(url_config.r#type, Some("http".to_string()));
+                assert_eq!(url_config.get_protocol_type(), None); // 非 "sse" 值返回 None
+            }
+            McpServerConfig::Command(_) => {
+                panic!("Expected URL config, got command config");
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_url_protocol_type_conversion() {
+        // 测试 FromStr trait
+        assert_eq!(
+            "sse".parse::<McpUrlProtocolType>(),
+            Ok(McpUrlProtocolType::Sse)
+        );
+        assert_eq!(
+            "http".parse::<McpUrlProtocolType>(),
+            Ok(McpUrlProtocolType::Stream)
+        );
+        assert_eq!(
+            "stream".parse::<McpUrlProtocolType>(),
+            Ok(McpUrlProtocolType::Stream)
+        );
+        assert!("stdio".parse::<McpUrlProtocolType>().is_err());
+
+        // 测试 is_streamable 方法
+        assert!(McpUrlProtocolType::Http.is_streamable());
+        assert!(McpUrlProtocolType::Stream.is_streamable());
+        assert!(!McpUrlProtocolType::Sse.is_streamable());
+        assert!(!McpUrlProtocolType::Stdio.is_streamable());
+
+        // 测试 to_mcp_protocol 方法
+        assert_eq!(
+            McpUrlProtocolType::Sse.to_mcp_protocol(),
+            super::McpProtocol::Sse
+        );
+        assert_eq!(
+            McpUrlProtocolType::Stdio.to_mcp_protocol(),
+            super::McpProtocol::Stdio
+        );
+        assert_eq!(
+            McpUrlProtocolType::Http.to_mcp_protocol(),
+            super::McpProtocol::Stream
+        );
+        assert_eq!(
+            McpUrlProtocolType::Stream.to_mcp_protocol(),
+            super::McpProtocol::Stream
+        );
+    }
+
+    #[test]
+    fn test_mcp_protocol_from_str() {
+        // 测试有效的协议类型
+        assert_eq!("stdio".parse::<McpProtocol>(), Ok(McpProtocol::Stdio));
+        assert_eq!("sse".parse::<McpProtocol>(), Ok(McpProtocol::Sse));
+        assert_eq!("http".parse::<McpProtocol>(), Ok(McpProtocol::Stream));
+        assert_eq!("stream".parse::<McpProtocol>(), Ok(McpProtocol::Stream));
+
+        // 测试无效的协议类型
+        assert!("invalid".parse::<McpProtocol>().is_err());
+        assert!("tcp".parse::<McpProtocol>().is_err());
+        assert!("".parse::<McpProtocol>().is_err());
     }
 }

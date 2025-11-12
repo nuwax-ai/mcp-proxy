@@ -1,6 +1,6 @@
 use crate::get_proxy_manager;
 use crate::model::{CheckMcpStatusResponseStatus, McpType};
-use log::info;
+use log::{error, info};
 use tokio::time::Duration;
 
 //定期检查 全局动态router里的 短时 mcp服务,如果超过3分钟,没有被访问,则认为服务已经结束,则清理资源
@@ -27,7 +27,9 @@ pub async fn schedule_check_mcp_live() {
         if let CheckMcpStatusResponseStatus::Error(_) =
             mcp_service_status.check_mcp_status_response_status
         {
-            proxy_manager.cleanup_resources(&mcp_id).await;
+            if let Err(e) = proxy_manager.cleanup_resources(&mcp_id).await {
+                error!("Failed to cleanup resources for {}: {}", mcp_id, e);
+            }
             continue;
         }
 
@@ -37,7 +39,9 @@ pub async fn schedule_check_mcp_live() {
                 //检查持久化服务是否已被取消或子进程已终止
                 if cancellation_token.is_cancelled() {
                     info!("持久化 MCP 服务 {mcp_id} 已被手动取消，清理资源");
-                    proxy_manager.cleanup_resources(&mcp_id).await;
+                    if let Err(e) = proxy_manager.cleanup_resources(&mcp_id).await {
+                        error!("Failed to cleanup resources for {}: {}", mcp_id, e);
+                    }
                     continue;
                 }
 
@@ -45,7 +49,9 @@ pub async fn schedule_check_mcp_live() {
                 if let Some(handler) = proxy_manager.get_proxy_handler(&mcp_id) {
                     if handler.is_terminated_async().await {
                         info!("持久化 MCP 服务 {mcp_id} 子进程异常结束，清理资源");
-                        proxy_manager.cleanup_resources(&mcp_id).await;
+                        if let Err(e) = proxy_manager.cleanup_resources(&mcp_id).await {
+                            error!("Failed to cleanup resources for {}: {}", mcp_id, e);
+                        }
                     }
                 }
             }
@@ -53,7 +59,9 @@ pub async fn schedule_check_mcp_live() {
                 //检查一次性任务是否已被取消
                 if cancellation_token.is_cancelled() {
                     info!("一次性 MCP 任务 {mcp_id} 已被手动取消，清理资源");
-                    proxy_manager.cleanup_resources(&mcp_id).await;
+                    if let Err(e) = proxy_manager.cleanup_resources(&mcp_id).await {
+                        error!("Failed to cleanup resources for {}: {}", mcp_id, e);
+                    }
                     continue;
                 }
 
@@ -61,7 +69,9 @@ pub async fn schedule_check_mcp_live() {
                 if let Some(handler) = proxy_manager.get_proxy_handler(&mcp_id) {
                     if handler.is_terminated_async().await {
                         info!("一次性 MCP 任务 {mcp_id} 已完成，开始清理资源");
-                        proxy_manager.cleanup_resources(&mcp_id).await;
+                        if let Err(e) = proxy_manager.cleanup_resources(&mcp_id).await {
+                            error!("Failed to cleanup resources for {}: {}", mcp_id, e);
+                        }
                         info!("一次性 MCP 任务 {mcp_id} 资源清理完成");
                         continue;
                     }
@@ -70,7 +80,9 @@ pub async fn schedule_check_mcp_live() {
                     let idle_time = mcp_service_status.last_accessed.elapsed();
                     if idle_time > timeout_duration {
                         info!("一次性 MCP 任务 {mcp_id} 超过3分钟未被访问，自动清理资源");
-                        proxy_manager.cleanup_resources(&mcp_id).await;
+                        if let Err(e) = proxy_manager.cleanup_resources(&mcp_id).await {
+                            error!("Failed to cleanup resources for {}: {}", mcp_id, e);
+                        }
                         info!("一次性 MCP 任务 {mcp_id} 资源自动清理完成");
                     }
                 } else {
