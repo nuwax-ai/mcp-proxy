@@ -100,7 +100,7 @@ pub struct McpServerUrlConfig {
     #[serde(
         skip_serializing_if = "Option::is_none",
         default,
-        rename = "baseUrl",
+        alias = "baseUrl",
         alias = "baseurl",
         alias = "base_url",
         alias = "BASE_URL"
