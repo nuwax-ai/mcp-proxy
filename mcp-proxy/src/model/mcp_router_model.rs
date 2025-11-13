@@ -96,25 +96,66 @@ pub struct McpServerUrlConfig {
     // 支持 url 字段，如果不存在则尝试使用 baseUrl
     #[serde(skip_serializing_if = "Option::is_none")]
     url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", default, rename = "baseUrl")]
+    // 支持多种大小写形式的baseUrl：baseUrl, baseurl, base_url, BASE_URL
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        default,
+        rename = "baseUrl",
+        alias = "baseurl",
+        alias = "base_url",
+        alias = "BASE_URL"
+    )]
     base_url: Option<String>,
 
     // 协议类型（可选，字符串格式）
-    #[serde(default, rename = "type")]
+    #[serde(default, rename = "type", alias = "Type", alias = "TYPE")]
     pub r#type: Option<String>,
+    #[serde(default, alias = "disabled", alias = "Disabled", alias = "DISABLED")]
     pub disabled: Option<bool>,
+    #[serde(default, alias = "timeout", alias = "Timeout", alias = "TIMEOUT")]
     pub timeout: Option<u64>,
 
     // 认证配置
+    #[serde(
+        default,
+        alias = "authToken",
+        alias = "auth_token",
+        alias = "AUTH_TOKEN",
+        alias = "AuthToken"
+    )]
     pub auth_token: Option<String>,
     pub headers: Option<HashMap<String, String>>,
 
     // 连接配置
+    #[serde(
+        default,
+        alias = "connectTimeoutSecs",
+        alias = "connect_timeout_secs",
+        alias = "CONNECT_TIMEOUT_SECS"
+    )]
     pub connect_timeout_secs: Option<u64>,
 
     // 重试配置
+    #[serde(
+        default,
+        alias = "maxRetries",
+        alias = "max_retries",
+        alias = "MAX_RETRIES"
+    )]
     pub max_retries: Option<usize>,
+    #[serde(
+        default,
+        alias = "retryMinBackoffMs",
+        alias = "retry_min_backoff_ms",
+        alias = "RETRY_MIN_BACKOFF_MS"
+    )]
     pub retry_min_backoff_ms: Option<u64>,
+    #[serde(
+        default,
+        alias = "retryMaxBackoffMs",
+        alias = "retry_max_backoff_ms",
+        alias = "RETRY_MAX_BACKOFF_MS"
+    )]
     pub retry_max_backoff_ms: Option<u64>,
 }
 
@@ -1219,5 +1260,97 @@ mod tests {
 
         println!("✅ 路径解析修复测试通过！");
         Ok(())
+    }
+
+    /// 测试大小写敏感性修复
+    #[test]
+    fn test_case_sensitivity_fixes() {
+        // 测试1：小写 baseurl
+        let json1 = r#"{
+            "baseurl": "http://192.168.1.68:8000/mcp"
+        }"#;
+
+        let result1: McpServerUrlConfig =
+            serde_json::from_str(json1).expect("小写 baseurl 解析失败");
+        assert!(result1.base_url.is_some());
+        assert_eq!(
+            result1.base_url.as_ref().unwrap(),
+            "http://192.168.1.68:8000/mcp"
+        );
+        println!("✅ 测试1：小写 baseurl 解析成功");
+
+        // 测试2：驼峰 baseUrl
+        let json2 = r#"{
+            "baseUrl": "http://192.168.1.68:8000/mcp"
+        }"#;
+
+        let result2: McpServerUrlConfig =
+            serde_json::from_str(json2).expect("驼峰 baseUrl 解析失败");
+        assert!(result2.base_url.is_some());
+        assert_eq!(
+            result2.base_url.as_ref().unwrap(),
+            "http://192.168.1.68:8000/mcp"
+        );
+        println!("✅ 测试2：驼峰 baseUrl 解析成功");
+
+        // 测试3：下划线 base_url
+        let json3 = r#"{
+            "base_url": "http://192.168.1.68:8000/mcp"
+        }"#;
+
+        let result3: McpServerUrlConfig =
+            serde_json::from_str(json3).expect("下划线 base_url 解析失败");
+        assert!(result3.base_url.is_some());
+        assert_eq!(
+            result3.base_url.as_ref().unwrap(),
+            "http://192.168.1.68:8000/mcp"
+        );
+        println!("✅ 测试3：下划线 base_url 解析成功");
+
+        // 测试4：大写 BASE_URL
+        let json4 = r#"{
+            "BASE_URL": "http://192.168.1.68:8000/mcp"
+        }"#;
+
+        let result4: McpServerUrlConfig =
+            serde_json::from_str(json4).expect("大写 BASE_URL 解析失败");
+        assert!(result4.base_url.is_some());
+        assert_eq!(
+            result4.base_url.as_ref().unwrap(),
+            "http://192.168.1.68:8000/mcp"
+        );
+        println!("✅ 测试4：大写 BASE_URL 解析成功");
+
+        // 测试5：混合字段（baseUrl + type）
+        let json5 = r#"{
+            "baseUrl": "http://192.168.1.68:8000/mcp",
+            "type": "sse",
+            "authToken": "test-token"
+        }"#;
+
+        let result5: McpServerUrlConfig = serde_json::from_str(json5).expect("混合字段解析失败");
+        assert!(result5.base_url.is_some());
+        assert_eq!(result5.r#type, Some("sse".to_string()));
+        assert_eq!(result5.auth_token, Some("test-token".to_string()));
+        println!("✅ 测试5：混合字段解析成功");
+
+        // 测试6：field别名测试（auth_token, authToken, AUTH_TOKEN）
+        let test_cases = vec![
+            r#"{"auth_token": "test1"}"#,
+            r#"{"authToken": "test2"}"#,
+            r#"{"AUTH_TOKEN": "test3"}"#,
+        ];
+
+        for (i, json) in test_cases.iter().enumerate() {
+            let result: McpServerUrlConfig =
+                serde_json::from_str(json).expect(&format!("别名测试 {} 解析失败", i + 1));
+            assert_eq!(
+                result.auth_token,
+                Some("test".to_string() + &(i + 1).to_string())
+            );
+            println!("✅ 测试6.{}：别名测试成功", i + 1);
+        }
+
+        println!("🎉 所有大小写敏感性测试通过！");
     }
 }
