@@ -85,11 +85,92 @@ Accept: application/json, text/event-stream
 }
 
 ### ========================================
+### 测试 Streamable HTTP 客户端 + 阿里云百炼 SSE 后端（协议转换）
+### ========================================
+
+### 7. 检查服务状态 - Stream 客户端到 SSE 后端（阿里云百炼）
+# 客户端使用 Streamable HTTP 协议，后端为阿里云百炼 SSE 服务（自动协议转换）
+POST http://localhost:8085/mcp/stream/check_status
+Content-Type: application/json
+
+{
+  "mcpId": "test-stream-aliyun-bailian-stream",
+  "mcpJsonConfig": "{\"mcpServers\": {\"mcp-NjZmY2NhZDc5NTQz\": {\"type\": \"sse\", \"description\": \"阿里云百炼_新浪实时汇率报价\", \"isActive\": true, \"name\": \"阿里云百炼_阿里云百炼_新浪实时汇率报价\", \"baseUrl\": \"https://dashscope.aliyuncs.com/api/v1/mcps/mcp-NjZmY2NhZDc5NTQz/sse\", \"headers\": {\"Authorization\": \"Bearer sk-d39046bd64b446d8a19d642e9a2b8967\"}}}}",
+  "mcpType": "Persistent"
+}
+
+### 8. 发送 Streamable HTTP 请求 - initialize（阿里云百炼服务）
+# 使用 Streamable HTTP 客户端协议，后端自动转换为 SSE 协议
+POST http://localhost:8085/mcp/stream/proxy/test-stream-aliyun-bailian-stream
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{
+  "jsonrpc": "2.0",
+  "id": "msg-1",
+  "method": "initialize",
+  "params": {
+    "protocolVersion": "2024-11-05",
+    "capabilities": {},
+    "clientInfo": {
+      "name": "test-client",
+      "version": "1.0.0"
+    }
+  }
+}
+
+### 9. 列出可用工具（阿里云百炼服务）
+POST http://localhost:8085/mcp/stream/proxy/test-stream-aliyun-bailian-stream
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{
+  "jsonrpc": "2.0",
+  "id": "msg-2",
+  "method": "tools/list",
+  "params": {}
+}
+
+### 10. 调用工具（阿里云百炼服务示例）
+# 根据实际可用的工具名称和参数进行调整
+POST http://localhost:8085/mcp/stream/proxy/test-stream-aliyun-bailian-stream
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{
+  "jsonrpc": "2.0",
+  "id": "msg-3",
+  "method": "tools/call",
+  "params": {
+    "name": "example-tool",
+    "arguments": {}
+  }
+}
+
+### 11. 获取服务器信息（阿里云百炼服务）
+POST http://localhost:8085/mcp/stream/proxy/test-stream-aliyun-bailian-stream
+Content-Type: application/json
+Accept: application/json, text/event-stream
+
+{
+  "jsonrpc": "2.0",
+  "id": "msg-4",
+  "method": "server/info",
+  "params": {}
+}
+
+### ========================================
 ### 清理服务
 ### ========================================
 
 ### 6. 清理 Stream 服务
 DELETE http://localhost:8085/mcp/config/delete/test-streamable-service
+Content-Type: application/json
+
+{}
+
+### 12. 清理阿里云百炼 Stream 服务
+DELETE http://localhost:8085/mcp/config/delete/test-stream-aliyun-bailian-stream
 Content-Type: application/json
 
 {}

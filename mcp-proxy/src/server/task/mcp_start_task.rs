@@ -74,15 +74,16 @@ pub async fn integrate_sse_server_with_axum(
                     Err(_) => {
                         // 如果解析失败，自动检测协议
                         debug!("协议类型 '{}' 无法识别，开始自动检测协议", type_str);
-                        let detected_protocol = crate::server::detect_mcp_protocol(&url_config.url)
-                            .await
-                            .map_err(|e| {
-                                anyhow::anyhow!(
-                                    "协议类型 '{}' 不可识别，且自动检测失败: {}",
-                                    type_str,
-                                    e
-                                )
-                            })?;
+                        let detected_protocol =
+                            crate::server::detect_mcp_protocol(url_config.get_url())
+                                .await
+                                .map_err(|e| {
+                                    anyhow::anyhow!(
+                                        "协议类型 '{}' 不可识别，且自动检测失败: {}",
+                                        type_str,
+                                        e
+                                    )
+                                })?;
                         debug!(
                             "自动检测到协议类型: {:?}（原始配置: '{}'）",
                             detected_protocol, type_str
@@ -93,7 +94,7 @@ pub async fn integrate_sse_server_with_axum(
             } else {
                 // 没有指定 type 字段，自动检测协议
                 debug!("未指定 type 字段，自动检测协议");
-                let detected_protocol = crate::server::detect_mcp_protocol(&url_config.url)
+                let detected_protocol = crate::server::detect_mcp_protocol(url_config.get_url())
                     .await
                     .map_err(|e| anyhow::anyhow!("自动检测协议失败: {}", e))?;
                 detected_protocol
@@ -153,7 +154,9 @@ pub async fn integrate_sse_server_with_axum(
             // 根据后端协议类型创建不同的客户端传输
             info!(
                 "连接到远程MCP服务: {}, 后端协议: {:?}, 客户端协议: {:?}",
-                url_config.url, backend_protocol, mcp_router_path.mcp_protocol
+                url_config.get_url(),
+                backend_protocol,
+                mcp_router_path.mcp_protocol
             );
 
             match backend_protocol {
@@ -163,17 +166,113 @@ pub async fn integrate_sse_server_with_axum(
                 }
                 McpProtocol::Sse => {
                     // SSE 协议 - 创建 SSE 客户端传输
-                    info!("使用SSE协议连接到: {}", url_config.url);
+                    info!("使用SSE协议连接到: {}", url_config.get_url());
 
-                    let sse_transport = SseClientTransport::start(url_config.url.clone()).await?;
+                    // 创建带有自定义 headers 的 reqwest client
+                    let mut headers = reqwest::header::HeaderMap::new();
+
+                    // 添加配置中的自定义 headers
+                    if let Some(config_headers) = &url_config.headers {
+                        for (key, value) in config_headers {
+                            // SSE 协议：直接添加所有 headers（不跳过 Authorization）
+                            // 原因：SSE 协议没有官方的 auth_header 字段配置
+                            headers.insert(
+                                reqwest::header::HeaderName::try_from(key).map_err(|e| {
+                                    anyhow::anyhow!("Invalid header name: {}, error: {}", key, e)
+                                })?,
+                                value.parse().map_err(|e| {
+                                    anyhow::anyhow!(
+                                        "Invalid header value for {}: {}, error: {}",
+                                        key,
+                                        value,
+                                        e
+                                    )
+                                })?,
+                            );
+                        }
+                        info!(
+                            "添加了 {} 个自定义 headers（包含 Authorization）",
+                            headers.len()
+                        );
+                    } else {
+                        info!("没有配置自定义 headers");
+                    }
+
+                    let client = reqwest::Client::builder()
+                        .default_headers(headers)
+                        .build()
+                        .map_err(|e| anyhow::anyhow!("创建 reqwest client 失败: {}", e))?;
+
+                    // 创建 SSE 客户端配置
+                    let sse_config = rmcp::transport::sse_client::SseClientConfig {
+                        sse_endpoint: url_config.get_url().to_string().into(),
+                        ..Default::default()
+                    };
+
+                    let sse_transport =
+                        SseClientTransport::start_with_client(client, sse_config).await?;
                     client_info.serve(sse_transport).await?
                 }
                 McpProtocol::Stream => {
                     // Streamable 协议 - 创建 Streamable HTTP 客户端传输
-                    info!("使用Streamable HTTP协议连接到: {}", url_config.url);
+                    info!("使用Streamable HTTP协议连接到: {}", url_config.get_url());
 
-                    // 使用默认方式创建传输，rmcp 库会自动处理 Accept 头和会话管理
-                    let transport = StreamableHttpClientTransport::from_uri(url_config.url.clone());
+                    // 创建自定义 client 和配置（支持 Authorization header）
+                    let mut headers = reqwest::header::HeaderMap::new();
+
+                    // 添加配置中的自定义 headers（排除 Authorization）
+                    if let Some(config_headers) = &url_config.headers {
+                        for (key, value) in config_headers {
+                            // 跳过 Authorization header，它会通过 auth_header 配置字段传递
+                            if key.eq_ignore_ascii_case("Authorization") {
+                                continue;
+                            }
+                            headers.insert(
+                                reqwest::header::HeaderName::try_from(key).map_err(|e| {
+                                    anyhow::anyhow!("Invalid header name: {}, error: {}", key, e)
+                                })?,
+                                value.parse().map_err(|e| {
+                                    anyhow::anyhow!(
+                                        "Invalid header value for {}: {}, error: {}",
+                                        key,
+                                        value,
+                                        e
+                                    )
+                                })?,
+                            );
+                        }
+                        info!("添加了 {} 个自定义 headers", headers.len());
+                    } else {
+                        info!("没有配置自定义 headers");
+                    }
+
+                    let client = reqwest::Client::builder()
+                        .default_headers(headers)
+                        .build()
+                        .map_err(|e| anyhow::anyhow!("创建 reqwest client 失败: {}", e))?;
+
+                    // 提取 Authorization header 用于配置（不区分大小写）
+                    let auth_header = url_config.headers.as_ref().and_then(|h| {
+                        // HTTP header 名称不区分大小写，查找 Authorization
+                        h.iter()
+                            .find_map(|(k, v)| {
+                                if k.eq_ignore_ascii_case("Authorization") {
+                                    Some(v)
+                                } else {
+                                    None
+                                }
+                            })
+                            .map(|s| s.strip_prefix("Bearer ").unwrap_or(s).to_string())
+                    });
+
+                    // 创建传输配置
+                    let config = rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig {
+                        uri: url_config.get_url().to_string().into(),
+                        auth_header,
+                        ..Default::default()
+                    };
+
+                    let transport = StreamableHttpClientTransport::with_client(client, config);
 
                     info!(
                         "Streamable HTTP传输已创建，开始建立连接，MCP ID: {}, 类型: {:?}",

@@ -93,7 +93,11 @@ impl McpUrlProtocolType {
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub struct McpServerUrlConfig {
-    pub url: String,
+    // 支持 url 字段，如果不存在则尝试使用 baseUrl
+    #[serde(skip_serializing_if = "Option::is_none")]
+    url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default, rename = "baseUrl")]
+    base_url: Option<String>,
 
     // 协议类型（可选，字符串格式）
     #[serde(default, rename = "type")]
@@ -114,6 +118,30 @@ pub struct McpServerUrlConfig {
     pub retry_max_backoff_ms: Option<u64>,
 }
 
+// 添加一个公共方法来获取实际的URL（优先使用url，其次baseUrl）
+impl McpServerUrlConfig {
+    /// 获取实际的URL（优先使用url，其次baseUrl）
+    pub fn get_url(&self) -> &str {
+        self.url
+            .as_deref()
+            .or_else(|| self.base_url.as_deref())
+            .expect("至少需要提供 url 或 baseUrl 字段")
+    }
+
+    /// 获取实际的URL的可变引用
+    pub fn get_url_mut(&mut self) -> &mut String {
+        if self.url.is_none() && self.base_url.is_some() {
+            self.url = self.base_url.take();
+        }
+        self.url.as_mut().expect("至少需要提供 url 或 baseUrl 字段")
+    }
+
+    /// 检查是否提供了URL字段
+    pub fn has_url(&self) -> bool {
+        self.url.is_some() || self.base_url.is_some()
+    }
+}
+
 impl McpServerUrlConfig {
     /// 获取协议类型，如果未指定或不是 "sse"，则返回 None（需要自动检测）
     pub fn get_protocol_type(&self) -> Option<McpUrlProtocolType> {
@@ -126,7 +154,8 @@ impl McpServerUrlConfig {
 impl Default for McpServerUrlConfig {
     fn default() -> Self {
         Self {
-            url: String::new(),
+            url: None,
+            base_url: None,
             r#type: None,
             disabled: None,
             timeout: None,
@@ -184,6 +213,81 @@ impl McpJsonServerParameters {
             );
             Err(anyhow::anyhow!("mcp_servers 必须恰好只有一个MCP插件"))
         }
+    }
+}
+
+/// 灵活的 MCP 配置结构体 - 接受任何字段名作为服务容器
+#[derive(Debug, Clone)]
+pub struct FlexibleMcpConfig {
+    services: HashMap<String, McpServerInnerConfig>,
+}
+
+impl FlexibleMcpConfig {
+    /// 尝试获取第一个 MCP 服务器配置
+    pub fn try_get_first_mcp_server(&self) -> Result<McpServerConfig> {
+        debug!("flexible_mcp_config: {:?}", self.services);
+        if self.services.len() == 1 {
+            let vals = self.services.values().next();
+            if let Some(val) = vals {
+                match val {
+                    McpServerInnerConfig::Command(cmd) => Ok(McpServerConfig::Command(cmd.clone())),
+                    McpServerInnerConfig::Url(url) => Ok(McpServerConfig::Url(url.clone())),
+                }
+            } else {
+                error!("flexible_mcp_config: {:?}", "没有找到对应的mcp配置");
+                Err(anyhow::anyhow!("没有找到对应的mcp配置"))
+            }
+        } else {
+            error!(
+                "MCP 配置必须恰好有一个服务, 当前数量: {:?}",
+                self.services.len()
+            );
+            Err(anyhow::anyhow!("MCP 配置必须恰好有一个服务"))
+        }
+    }
+
+    /// 获取所有服务配置（用于调试）
+    pub fn get_all_services(&self) -> &HashMap<String, McpServerInnerConfig> {
+        &self.services
+    }
+
+    /// 获取服务名称列表
+    pub fn get_service_names(&self) -> Vec<&String> {
+        self.services.keys().collect()
+    }
+}
+
+impl TryFrom<String> for FlexibleMcpConfig {
+    type Error = anyhow::Error;
+
+    fn try_from(json_str: String) -> Result<Self> {
+        debug!("flexible_mcp_json_server_parameters: {json_str:?}");
+
+        // 首先尝试标准格式 (包含 "mcpServers" 字段)
+        if let Ok(standard_config) = serde_json::from_str::<McpJsonServerParameters>(&json_str) {
+            return Ok(Self {
+                services: standard_config.mcp_servers,
+            });
+        }
+
+        // 如果标准格式失败，尝试直接解析为 HashMap
+        let parsed_value: serde_json::Value =
+            serde_json::from_str(&json_str).map_err(|e| anyhow::anyhow!("JSON 解析失败: {}", e))?;
+
+        // 找到第一个包含 McpServerInnerConfig 的字段
+        if let serde_json::Value::Object(obj) = parsed_value {
+            for (key, value) in obj {
+                if let Ok(service_config) =
+                    serde_json::from_value::<McpServerInnerConfig>(value.clone())
+                {
+                    let mut services = HashMap::new();
+                    services.insert(key, service_config);
+                    return Ok(Self { services });
+                }
+            }
+        }
+
+        Err(anyhow::anyhow!("无法从 JSON 中提取 MCP 服务配置"))
     }
 }
 
@@ -400,14 +504,21 @@ impl McpRouterPath {
 impl From<String> for McpJsonServerParameters {
     fn from(s: String) -> Self {
         debug!("mcp_json_server_parameters: {s:?}");
-        match serde_json::from_str::<McpJsonServerParameters>(&s) {
-            Ok(mcp_json_server_parameters) => mcp_json_server_parameters,
-            Err(e) => {
-                error!("mcp_json_server_parameters 解析失败: {e:?}");
-                McpJsonServerParameters {
-                    mcp_servers: HashMap::new(),
-                }
-            }
+
+        // 首先尝试标准格式 (包含 "mcpServers" 字段)
+        if let Ok(mcp_json_server_parameters) = serde_json::from_str::<McpJsonServerParameters>(&s)
+        {
+            return mcp_json_server_parameters;
+        }
+
+        // 如果标准格式失败，尝试使用灵活格式
+        let flexible_config: FlexibleMcpConfig = s
+            .try_into()
+            .expect("Failed to convert to FlexibleMcpConfig");
+        let services = flexible_config.get_all_services().clone();
+
+        McpJsonServerParameters {
+            mcp_servers: services,
         }
     }
 }
@@ -554,7 +665,7 @@ mod tests {
         match mcp_server_config {
             McpServerConfig::Url(url_config) => {
                 assert_eq!(
-                    url_config.url,
+                    url_config.get_url(),
                     "https://aip.baidubce.com/mcp/image_recognition/sse?Authorization=Bearer%20bce-v3/ALTAK-zX2w0VFXauTMxEf5BypEl/1835f7e1886946688b132e9187392d9fee8f3c06"
                 );
             }
@@ -587,7 +698,7 @@ mod tests {
 
         match mcp_server_config {
             McpServerConfig::Url(url_config) => {
-                assert_eq!(url_config.url, "https://mcp.amap.com/sse");
+                assert_eq!(url_config.get_url(), "https://mcp.amap.com/sse");
                 assert_eq!(url_config.disabled, Some(false));
                 assert_eq!(url_config.timeout, Some(60));
                 assert_eq!(url_config.r#type, Some("sse".to_string()));
@@ -627,9 +738,12 @@ mod tests {
 
         match mcp_server_config {
             McpServerConfig::Url(url_config) => {
-                assert_eq!(url_config.url, "https://example.com/mcp");
+                assert_eq!(url_config.get_url(), "https://example.com/mcp");
                 assert_eq!(url_config.r#type, Some("stream".to_string()));
-                assert_eq!(url_config.get_protocol_type(), None); // 非 "sse" 值返回 None
+                assert_eq!(
+                    url_config.get_protocol_type(),
+                    Some(McpUrlProtocolType::Stream)
+                ); // "stream" 应该解析为 Stream
             }
             McpServerConfig::Command(_) => {
                 panic!("Expected URL config, got command config");
@@ -655,9 +769,12 @@ mod tests {
 
         match mcp_server_config {
             McpServerConfig::Url(url_config) => {
-                assert_eq!(url_config.url, "https://example.com/mcp");
+                assert_eq!(url_config.get_url(), "https://example.com/mcp");
                 assert_eq!(url_config.r#type, Some("http".to_string()));
-                assert_eq!(url_config.get_protocol_type(), None); // 非 "sse" 值返回 None
+                assert_eq!(
+                    url_config.get_protocol_type(),
+                    Some(McpUrlProtocolType::Stream)
+                ); // "http" 应该解析为 Stream
             }
             McpServerConfig::Command(_) => {
                 panic!("Expected URL config, got command config");
@@ -721,5 +838,255 @@ mod tests {
         assert!("invalid".parse::<McpProtocol>().is_err());
         assert!("tcp".parse::<McpProtocol>().is_err());
         assert!("".parse::<McpProtocol>().is_err());
+    }
+
+    #[test]
+    fn test_url_config_with_base_url() -> Result<()> {
+        // 测试使用 baseUrl 字段的配置
+        let json = r#"{
+            "mcpServers": {
+                "aliyun-exchange": {
+                    "type": "sse",
+                    "description": "阿里云百炼_新浪实时汇率报价",
+                    "isActive": true,
+                    "name": "阿里云百炼_阿里云百炼_新浪实时汇率报价",
+                    "baseUrl": "https://dashscope.aliyuncs.com/api/v1/mcps/mcp-NjZmY2NhZDc5NTQz/sse",
+                    "headers": {
+                        "Authorization": "Bearer sk-d39046bd64b446d8a19d642e9a2b8967"
+                    }
+                }
+            }
+        }"#;
+
+        let params = McpJsonServerParameters::from(json.to_string());
+        let mcp_server_config = params.try_get_first_mcp_server()?;
+
+        match mcp_server_config {
+            McpServerConfig::Url(url_config) => {
+                assert_eq!(
+                    url_config.get_url(),
+                    "https://dashscope.aliyuncs.com/api/v1/mcps/mcp-NjZmY2NhZDc5NTQz/sse"
+                );
+                assert_eq!(url_config.r#type, Some("sse".to_string()));
+                assert_eq!(
+                    url_config.get_protocol_type(),
+                    Some(McpUrlProtocolType::Sse)
+                );
+                assert!(url_config.has_url());
+                assert!(
+                    url_config
+                        .headers
+                        .as_ref()
+                        .unwrap()
+                        .contains_key("Authorization")
+                );
+            }
+            McpServerConfig::Command(_) => {
+                panic!("Expected URL config, got command config");
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_url_config_with_both_url_and_base_url() -> Result<()> {
+        // 测试同时提供 url 和 baseUrl 的配置，url 应该优先使用
+        let json = r#"{
+            "mcpServers": {
+                "test-service": {
+                    "url": "https://primary.example.com/mcp",
+                    "baseUrl": "https://fallback.example.com/mcp",
+                    "type": "sse"
+                }
+            }
+        }"#;
+
+        let params = McpJsonServerParameters::from(json.to_string());
+        let mcp_server_config = params.try_get_first_mcp_server()?;
+
+        match mcp_server_config {
+            McpServerConfig::Url(url_config) => {
+                // 应该优先使用 url 字段
+                assert_eq!(url_config.get_url(), "https://primary.example.com/mcp");
+                assert!(url_config.has_url());
+            }
+            McpServerConfig::Command(_) => {
+                panic!("Expected URL config, got command config");
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_flexible_config_with_custom_field_name() -> Result<()> {
+        // 测试使用自定义字段名的灵活配置
+        let json = r#"{
+            "mcpServers2222": {
+                "mcp-NjZmY2NhZDc5NTQz": {
+                    "type": "sse",
+                    "description": "阿里云百炼_新浪实时汇率报价",
+                    "isActive": true,
+                    "name": "阿里云百炼_阿里云百炼_新浪实时汇率报价",
+                    "baseUrl": "https://dashscope.aliyuncs.com/api/v1/mcps/mcp-NjZmY2NhZDc5NTQz/sse",
+                    "headers": {
+                        "Authorization": "Bearer sk-d39046bd64b446d8a19d642e9a2b8967"
+                    }
+                }
+            }
+        }"#;
+
+        let flexible_config: FlexibleMcpConfig = json.try_into()?;
+        let mcp_server_config = flexible_config.try_get_first_mcp_server()?;
+
+        // 验证服务名称列表
+        let service_names = flexible_config.get_service_names();
+        assert_eq!(service_names.len(), 1);
+        assert_eq!(service_names[0], "mcp-NjZmY2NhZDc5NTQz");
+
+        match mcp_server_config {
+            McpServerConfig::Url(url_config) => {
+                assert_eq!(
+                    url_config.get_url(),
+                    "https://dashscope.aliyuncs.com/api/v1/mcps/mcp-NjZmY2NhZDc5NTQz/sse"
+                );
+                assert_eq!(url_config.r#type, Some("sse".to_string()));
+                assert_eq!(
+                    url_config.get_protocol_type(),
+                    Some(McpUrlProtocolType::Sse)
+                );
+                assert!(url_config.has_url());
+
+                let headers = url_config.headers.as_ref().unwrap();
+                assert!(headers.contains_key("Authorization"));
+                assert_eq!(
+                    headers.get("Authorization").unwrap(),
+                    "Bearer sk-d39046bd64b446d8a19d642e9a2b8967"
+                );
+            }
+            McpServerConfig::Command(_) => {
+                panic!("Expected URL config, got command config");
+            }
+        }
+
+        println!("✅ 自定义字段名配置测试通过！");
+        Ok(())
+    }
+
+    #[test]
+    fn test_flexible_config_standard_format() -> Result<()> {
+        // 测试灵活配置仍然支持标准格式
+        let json = r#"{
+            "mcpServers": {
+                "test-service": {
+                    "url": "https://example.com/mcp",
+                    "type": "sse"
+                }
+            }
+        }"#;
+
+        let flexible_config: FlexibleMcpConfig = json.try_into()?;
+        let mcp_server_config = flexible_config.try_get_first_mcp_server()?;
+
+        let service_names = flexible_config.get_service_names();
+        assert_eq!(service_names.len(), 1);
+        assert_eq!(service_names[0], "test-service");
+
+        match mcp_server_config {
+            McpServerConfig::Url(url_config) => {
+                assert_eq!(url_config.get_url(), "https://example.com/mcp");
+                assert_eq!(url_config.r#type, Some("sse".to_string()));
+            }
+            McpServerConfig::Command(_) => {
+                panic!("Expected URL config, got command config");
+            }
+        }
+
+        println!("✅ 灵活配置标准格式测试通过！");
+        Ok(())
+    }
+
+    #[test]
+    fn test_flexible_config_through_mcp_json_server_parameters() -> Result<()> {
+        // 测试通过 McpJsonServerParameters 使用灵活配置
+        let json = r#"{
+            "myCustomFieldName": {
+                "test-service": {
+                    "command": "npx",
+                    "args": ["-y", "@playwright/mcp@latest"]
+                }
+            }
+        }"#;
+
+        let params = McpJsonServerParameters::from(json.to_string());
+        let mcp_server_config = params.try_get_first_mcp_server()?;
+
+        match mcp_server_config {
+            McpServerConfig::Command(cmd_config) => {
+                assert_eq!(cmd_config.command, "npx");
+                assert_eq!(
+                    cmd_config.args,
+                    Some(vec!["-y".to_string(), "@playwright/mcp@latest".to_string()])
+                );
+            }
+            McpServerConfig::Url(_) => {
+                panic!("Expected command config, got URL config");
+            }
+        }
+
+        println!("✅ 通过 McpJsonServerParameters 使用灵活配置测试通过！");
+        Ok(())
+    }
+
+    #[test]
+    fn test_flexible_config_multiple_fields_error() -> Result<()> {
+        // 测试多个字段时的错误处理
+        let json = r#"{
+            "field1": {
+                "service1": {
+                    "url": "https://example1.com/mcp",
+                    "type": "sse"
+                }
+            },
+            "field2": {
+                "service2": {
+                    "url": "https://example2.com/mcp",
+                    "type": "sse"
+                }
+            }
+        }"#;
+
+        let flexible_config: FlexibleMcpConfig = json.try_into()?;
+        let result = flexible_config.try_get_first_mcp_server();
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("必须恰好有一个服务")
+        );
+
+        println!("✅ 多字段错误处理测试通过！");
+        Ok(())
+    }
+
+    #[test]
+    fn test_flexible_config_empty_json() -> Result<()> {
+        // 测试空 JSON 的错误处理
+        let json = r#"{}"#;
+
+        let flexible_config: Result<FlexibleMcpConfig, _> = json.try_into();
+        assert!(flexible_config.is_err());
+        assert!(
+            flexible_config
+                .unwrap_err()
+                .to_string()
+                .contains("无法从 JSON 中提取 MCP 服务配置")
+        );
+
+        println!("✅ 空 JSON 错误处理测试通过！");
+        Ok(())
     }
 }

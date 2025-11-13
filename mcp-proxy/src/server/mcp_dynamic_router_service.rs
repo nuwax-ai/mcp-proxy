@@ -111,20 +111,6 @@ impl Service<Request<Body>> for DynamicRouterService {
                     warn!("未找到匹配的路径,尝试启动服务:base_path={base_path},path={path}");
                     span.record("error.route_not_found", true);
 
-                    // 先检查MCP服务是否存在
-                    let proxy_manager = crate::model::get_proxy_manager();
-                    if proxy_manager.get_mcp_service_status(&mcp_id).is_none() {
-                        // MCP服务不存在
-                        warn!("MCP服务不存在: {}", mcp_id);
-                        span.record("error.mcp_service_not_found", true);
-                        return Ok((
-                            axum::http::StatusCode::NOT_FOUND,
-                            [("Content-Type", "text/plain")],
-                            format!("MCP service '{}' not found", mcp_id),
-                        )
-                            .into_response());
-                    }
-
                     // 从请求扩展中获取MCP配置
                     if let Some(mcp_config) = req.extensions().get::<McpConfig>().cloned() {
                         //mcp_config.mcp_json_config 非空判断
