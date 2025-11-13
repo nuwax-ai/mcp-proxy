@@ -264,37 +264,9 @@ pub struct FlexibleMcpConfig {
 }
 
 impl FlexibleMcpConfig {
-    /// 尝试获取第一个 MCP 服务器配置
-    pub fn try_get_first_mcp_server(&self) -> Result<McpServerConfig> {
-        debug!("flexible_mcp_config: {:?}", self.services);
-        if self.services.len() == 1 {
-            let vals = self.services.values().next();
-            if let Some(val) = vals {
-                match val {
-                    McpServerInnerConfig::Command(cmd) => Ok(McpServerConfig::Command(cmd.clone())),
-                    McpServerInnerConfig::Url(url) => Ok(McpServerConfig::Url(url.clone())),
-                }
-            } else {
-                error!("flexible_mcp_config: {:?}", "没有找到对应的mcp配置");
-                Err(anyhow::anyhow!("没有找到对应的mcp配置"))
-            }
-        } else {
-            error!(
-                "MCP 配置必须恰好有一个服务, 当前数量: {:?}",
-                self.services.len()
-            );
-            Err(anyhow::anyhow!("MCP 配置必须恰好有一个服务"))
-        }
-    }
-
     /// 获取所有服务配置（用于调试）
     pub fn get_all_services(&self) -> &HashMap<String, McpServerInnerConfig> {
         &self.services
-    }
-
-    /// 获取服务名称列表
-    pub fn get_service_names(&self) -> Vec<&String> {
-        self.services.keys().collect()
     }
 }
 
@@ -1093,38 +1065,6 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_flexible_config_standard_format() -> Result<()> {
-        // 测试灵活配置仍然支持标准格式
-        let json = r#"{
-            "mcpServers": {
-                "test-service": {
-                    "url": "https://example.com/mcp",
-                    "type": "sse"
-                }
-            }
-        }"#;
-
-        let flexible_config: FlexibleMcpConfig = json.to_string().try_into()?;
-        let mcp_server_config = flexible_config.try_get_first_mcp_server()?;
-
-        let service_names = flexible_config.get_service_names();
-        assert_eq!(service_names.len(), 1);
-        assert_eq!(service_names[0], "test-service");
-
-        match mcp_server_config {
-            McpServerConfig::Url(url_config) => {
-                assert_eq!(url_config.get_url(), "https://example.com/mcp");
-                assert_eq!(url_config.r#type, Some("sse".to_string()));
-            }
-            McpServerConfig::Command(_) => {
-                panic!("Expected URL config, got command config");
-            }
-        }
-
-        println!("✅ 灵活配置标准格式测试通过！");
-        Ok(())
-    }
 
     #[test]
     fn test_flexible_config_through_mcp_json_server_parameters() -> Result<()> {
@@ -1141,41 +1081,6 @@ mod tests {
         // 这个测试现在跳过，因为当前解析逻辑在处理复杂嵌套结构时会返回外层字段名
         // 实际使用中，建议使用标准格式或更简单的嵌套结构
         println!("✅ 通过 McpJsonServerParameters 使用灵活配置测试跳过（需要完善解析逻辑）");
-        Ok(())
-    }
-
-    #[test]
-    fn test_flexible_config_multiple_fields_error() -> Result<()> {
-        // 测试多个字段时的错误处理
-        // 这个测试应该失败，因为解析后会找到多个服务
-        let json = r#"{
-            "field1": {
-                "service1": {
-                    "url": "https://example1.com/mcp",
-                    "type": "sse"
-                }
-            },
-            "field2": {
-                "service2": {
-                    "url": "https://example2.com/mcp",
-                    "type": "sse"
-                }
-            }
-        }"#;
-
-        let flexible_config: FlexibleMcpConfig = json.to_string().try_into()?;
-        let result = flexible_config.try_get_first_mcp_server();
-
-        // 由于解析后会找到多个服务（service1 和 service2），应该返回错误
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("必须恰好有一个服务")
-        );
-
-        println!("✅ 多字段错误处理测试通过！");
         Ok(())
     }
 
