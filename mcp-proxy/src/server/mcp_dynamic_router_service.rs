@@ -40,8 +40,8 @@ impl Service<Request<Body>> for DynamicRouterService {
         // 提取 trace_id
         let trace_id = extract_trace_id();
 
-        // 创建根 span
-        let span = tracing::info_span!(
+        // 创建根 span (使用 debug_span 减少日志量)
+        let span = tracing::debug_span!(
             "DynamicRouterService",
             otel.name = "HTTP Request",
             http.method = %method,
@@ -203,7 +203,8 @@ async fn handle_request_with_router(
         debug!("[handle_request_with_router] Query: {}", query);
     }
 
-    let span = tracing::info_span!(
+    // 使用 debug_span 减少日志量，因为 DynamicRouterService 已经记录了请求信息
+    let span = tracing::debug_span!(
         "handle_request_with_router",
         otel.name = "Handle Request with Router",
         component = "router",
@@ -248,7 +249,8 @@ async fn start_mcp_and_handle_request(
     let trace_id = extract_trace_id();
     debug!("请求路径: {request_path}");
 
-    let span = tracing::info_span!(
+    // 使用 debug_span 减少日志量
+    let span = tracing::debug_span!(
         "start_mcp_and_handle_request",
         otel.name = "Start MCP and Handle Request",
         component = "mcp_startup",

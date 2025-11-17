@@ -40,6 +40,7 @@ async fn main() -> Result<()> {
 
     let log_filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level));
+    // 配置文件日志层：使用默认格式，确保每条日志有换行符
     let file_layer = tracing_subscriber::fmt::layer()
         .with_ansi(false)
         .with_writer(non_blocking)
