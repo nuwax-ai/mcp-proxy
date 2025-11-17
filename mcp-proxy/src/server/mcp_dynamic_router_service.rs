@@ -172,7 +172,7 @@ async fn handle_request_with_router(
     // 记录请求头中的关键信息
     if let Some(content_type) = req.headers().get("content-type") {
         if let Ok(content_type_str) = content_type.to_str() {
-            info!(
+            debug!(
                 "[handle_request_with_router] Content-Type: {}",
                 content_type_str
             );
@@ -181,7 +181,7 @@ async fn handle_request_with_router(
 
     if let Some(content_length) = req.headers().get("content-length") {
         if let Ok(content_length_str) = content_length.to_str() {
-            info!(
+            debug!(
                 "[handle_request_with_router] Content-Length: {}",
                 content_length_str
             );
@@ -191,7 +191,7 @@ async fn handle_request_with_router(
     // 记录 x-mcp-json 头信息（如果存在）
     if let Some(mcp_json) = req.headers().get("x-mcp-json") {
         if let Ok(mcp_json_str) = mcp_json.to_str() {
-            info!(
+            debug!(
                 "[handle_request_with_router] MCP-JSON Header: {}",
                 mcp_json_str
             );
@@ -200,7 +200,7 @@ async fn handle_request_with_router(
 
     // 记录查询参数
     if let Some(query) = uri.query() {
-        info!("[handle_request_with_router] Query: {}", query);
+        debug!("[handle_request_with_router] Query: {}", query);
     }
 
     let span = tracing::info_span!(
@@ -219,7 +219,7 @@ async fn handle_request_with_router(
             span.record("http.response.status_code", status.as_u16());
 
             // 记录响应头信息
-            info!(
+            debug!(
                 "[handle_request_with_router]响应状态: {}, 响应头: {response:?}",
                 status
             );

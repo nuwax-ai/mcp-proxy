@@ -212,3 +212,58 @@ DELETE http://localhost:8085/mcp/config/delete/test-aliyun-bailian-sse
 Content-Type: application/json
 
 {}
+
+### ========================================
+### 方案 D：SSE 客户端 + Nuwax 图像服务 SSE 后端（SSE 到 SSE）
+### ========================================
+
+### 10a. 检查服务状态 - Nuwax 图像理解和生成 SSE 服务
+# 客户端使用 SSE 协议，后端为 Nuwax 图像服务 SSE
+POST http://localhost:8085/mcp/sse/check_status
+Content-Type: application/json
+
+{
+  "mcpId": "test-nuwax-image-service",
+  "mcpJsonConfig": "{\"mcpServers\": {\"image-understanding-and-generation\": {\"type\": \"sse\", \"url\": \"https://mcp-sse-api.nuwax.com/?ts=TENANT_SECRET&id=image-services\"}}}",
+  "mcpType": "Persistent"
+}
+
+### 10b. 获取 SSE 连接 - Nuwax 图像服务
+GET http://localhost:8085/mcp/sse/proxy/test-nuwax-image-service/sse
+Accept: text/event-stream
+
+### 10c. 发送 initialize 消息 - Nuwax 图像服务（需要先从 SSE 响应中获取 sessionId）
+# 替换 {sessionId} 为实际的 session ID
+POST http://localhost:8085/mcp/sse/proxy/test-nuwax-image-service/message?sessionId={sessionId}
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": "msg-1",
+  "method": "initialize",
+  "params": {
+    "protocolVersion": "2024-11-05",
+    "capabilities": {},
+    "clientInfo": {
+      "name": "test-client",
+      "version": "1.0.0"
+    }
+  }
+}
+
+### 10d. 列出可用工具 - Nuwax 图像服务
+POST http://localhost:8085/mcp/sse/proxy/test-nuwax-image-service/message?sessionId={sessionId}
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": "msg-2",
+  "method": "tools/list",
+  "params": {}
+}
+
+### 10e. 清理 Nuwax 图像服务 SSE 服务
+DELETE http://localhost:8085/mcp/config/delete/test-nuwax-image-service
+Content-Type: application/json
+
+{}
