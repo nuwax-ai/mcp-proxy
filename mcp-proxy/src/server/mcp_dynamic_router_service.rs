@@ -152,10 +152,6 @@ impl Service<Request<Body>> for DynamicRouterService {
 }
 
 /// 使用给定的路由处理请求
-#[tracing::instrument(skip(req, router_entry), fields(
-    http.method = %req.method(),
-    http.uri = %req.uri(),
-))]
 async fn handle_request_with_router(
     req: Request<Body>,
     router_entry: axum::Router,
@@ -204,11 +200,14 @@ async fn handle_request_with_router(
     }
 
     // 使用 debug_span 减少日志量，因为 DynamicRouterService 已经记录了请求信息
+    // 移除 #[tracing::instrument] 避免 span 嵌套导致的日志膨胀问题
     let span = tracing::debug_span!(
         "handle_request_with_router",
         otel.name = "Handle Request with Router",
         component = "router",
         trace_id = %trace_id,
+        http.method = %method,
+        http.path = %path,
     );
 
     let _guard = span.enter();
@@ -237,10 +236,6 @@ async fn handle_request_with_router(
 }
 
 /// 启动MCP服务并处理请求
-#[tracing::instrument(skip(req, mcp_config), fields(
-    mcp_id = %mcp_config.mcp_id,
-    mcp_type = ?mcp_config.mcp_type,
-))]
 async fn start_mcp_and_handle_request(
     req: Request<Body>,
     mcp_config: McpConfig,
@@ -249,11 +244,13 @@ async fn start_mcp_and_handle_request(
     let trace_id = extract_trace_id();
     debug!("请求路径: {request_path}");
 
-    // 使用 debug_span 减少日志量
+    // 使用 debug_span 减少日志量，移除 #[tracing::instrument] 避免 span 嵌套
     let span = tracing::debug_span!(
         "start_mcp_and_handle_request",
         otel.name = "Start MCP and Handle Request",
         component = "mcp_startup",
+        mcp.id = %mcp_config.mcp_id,
+        mcp.type = ?mcp_config.mcp_type,
         mcp.config.has_config = mcp_config.mcp_json_config.is_some(),
         trace_id = %trace_id,
     );
