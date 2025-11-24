@@ -1,5 +1,5 @@
 [workspace]
-members = ["document-parser", "mcp-proxy", "oss-client", "voice-cli"]
+members = ["document-parser", "fastembed", "mcp-proxy", "oss-client", "voice-cli"]
 resolver = "2"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
