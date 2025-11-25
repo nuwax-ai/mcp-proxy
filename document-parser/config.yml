@@ -8,6 +8,8 @@ server:
 log:
   level: "info"
   path: "logs"
+  # The number of log files to retain (default: 20)
+  retain_days: 20
 
 # 文档解析配置
 document_parser:

@@ -14,6 +14,7 @@ use std::env;
 use std::path::PathBuf;
 use tokio::net::TcpListener;
 use tokio::signal;
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 use tracing_subscriber::{EnvFilter, Layer as _};
@@ -225,6 +226,7 @@ async fn main() -> Result<()> {
     let log_path = app_config.log.path.clone();
     let server_port = app_config.server.port;
     let server_host = app_config.server.host.clone();
+    let retain_days = app_config.log.retain_days;
 
     // 配置日志
     let console_filter =
@@ -236,8 +238,12 @@ async fn main() -> Result<()> {
         .with_writer(std::io::stdout)
         .with_filter(console_filter);
 
-    // 文件日志层
-    let file_appender = tracing_appender::rolling::daily(log_path.clone(), "log");
+    // 文件日志层 - 使用 Builder 模式配置日志轮转和保留策略
+    let file_appender = RollingFileAppender::builder()
+        .rotation(Rotation::DAILY) // 按天滚动
+        .filename_prefix("log") // 文件名前缀
+        .max_log_files(retain_days as usize) // 保留最近 N 个日志文件
+        .build(&log_path)?;
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     let log_filter =

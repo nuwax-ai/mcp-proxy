@@ -363,6 +363,14 @@ impl ServerConfig {
 pub struct LogConfig {
     pub level: String,
     pub path: String,
+    /// The number of log files to retain (default: 20)
+    #[serde(default = "default_retain_days")]
+    pub retain_days: u32,
+}
+
+/// Default log files to retain
+fn default_retain_days() -> u32 {
+    20
 }
 
 impl LogConfig {

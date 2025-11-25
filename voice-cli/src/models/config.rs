@@ -218,7 +218,7 @@ impl Default for LoggingConfig {
             level: "info".to_string(),
             log_dir: "./logs".to_string(),
             max_file_size: "10MB".to_string(),
-            max_files: 5,
+            max_files: 20,
         }
     }
 }

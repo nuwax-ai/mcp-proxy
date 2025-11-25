@@ -27,7 +27,7 @@ tokio-util = "0.7"
 # Logging and tracing
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-tracing-appender = "=0.2.2"
+tracing-appender = "0.2"
 tracing-opentelemetry = "0.32"
 opentelemetry = { version = "0.31", features = ["trace"] }
 opentelemetry-jaeger = { version = "0.22", features = ["rt-tokio"] }
