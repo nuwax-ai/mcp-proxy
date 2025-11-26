@@ -66,10 +66,18 @@ pub fn get_or_init_model(
 }
 
 /// 模型信息
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
 pub struct ModelInfo {
+    /// 模型变体名称
+    #[schema(example = "BGELargeZHV15")]
     pub variant: String,
+    
+    /// 模型代码（Hugging Face 仓库）
+    #[schema(example = "Xenova/bge-large-zh-v1.5")]
     pub code: String,
+    
+    /// 向量维度
+    #[schema(example = 1024)]
     pub dim: usize,
 }
 

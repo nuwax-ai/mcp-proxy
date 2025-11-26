@@ -2,47 +2,83 @@ use axum::{extract::State, http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Instant;
+use utoipa::ToSchema;
 
 use crate::models::{parse_model, get_or_init_model, ModelInfo};
 use crate::server::AppState;
 
 /// 文本嵌入请求
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct EmbedRequest {
     /// 模型名称（变体名或模型代码）
+    #[schema(example = "BGELargeZHV15")]
     pub model: Option<String>,
     
     /// 待嵌入的文本列表
+    #[schema(example = json!(["query: 搜索文本", "passage: 文档内容"]))]
     pub texts: Vec<String>,
     
     /// 批处理大小
+    #[schema(example = 256)]
     pub batch_size: Option<usize>,
     
     /// 最大长度
+    #[schema(example = 512)]
     pub max_length: Option<usize>,
     
     /// 是否归一化
+    #[schema(example = true)]
     pub normalize: Option<bool>,
 }
 
 /// 文本嵌入响应
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct EmbedResponse {
+    /// 模型信息
     pub model: ModelInfo,
+    
+    /// 嵌入向量数量
+    #[schema(example = 2)]
     pub count: usize,
+    
+    /// 嵌入向量列表
+    #[schema(example = json!([[0.00123, -0.00456], [0.00078, 0.00234]]))]
     pub embeddings: Vec<Vec<f32>>,
+    
+    /// 耗时（毫秒）
+    #[schema(example = 12)]
     pub elapsed_ms: u128,
 }
 
 /// 错误响应
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ErrorResponse {
+    /// 错误代码
+    #[schema(example = "INVALID_MODEL")]
     pub error: String,
+    
+    /// 错误消息
+    #[schema(example = "未知模型")]
     pub message: String,
+    
+    /// HTTP 状态码
+    #[schema(example = 400)]
     pub status: u16,
 }
 
 /// 文本嵌入处理器
+#[utoipa::path(
+    post,
+    path = "/api/embeddings",
+    tag = "文本嵌入",
+    request_body = EmbedRequest,
+    responses(
+        (status = 200, description = "嵌入成功", body = EmbedResponse),
+        (status = 400, description = "请求参数错误", body = ErrorResponse),
+        (status = 413, description = "请求负载过大", body = ErrorResponse),
+        (status = 500, description = "服务器错误", body = ErrorResponse)
+    )
+)]
 pub async fn handle_embed(
     State(state): State<Arc<AppState>>,
     Json(req): Json<EmbedRequest>,

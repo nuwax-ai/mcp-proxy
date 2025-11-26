@@ -43,6 +43,10 @@ chrono = { workspace = true }
 # Utilities
 dirs = { workspace = true }
 
+# OpenAPI documentation
+utoipa = { workspace = true }
+utoipa-swagger-ui = { workspace = true }
+
 [dev-dependencies]
 criterion = { workspace = true }
 tempfile = { workspace = true }

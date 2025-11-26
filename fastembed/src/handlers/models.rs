@@ -1,28 +1,48 @@
 use axum::{extract::{Query, State}, http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use utoipa::{ToSchema, IntoParams};
 
 use crate::models::{list_available_models, ModelInfo};
 use crate::server::AppState;
 use crate::handlers::embeddings::ErrorResponse;
 
 /// 查询参数
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
 pub struct ModelsQuery {
     /// 模型类型: text | image | sparse
     #[serde(rename = "type")]
+    #[param(example = "text")]
     pub model_type: Option<String>,
 }
 
 /// 模型列表响应
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ModelsResponse {
+    /// 模型类型
+    #[schema(example = "text")]
     pub r#type: String,
+    
+    /// 模型数量
+    #[schema(example = 2)]
     pub count: usize,
+    
+    /// 模型列表
     pub models: Vec<ModelInfo>,
 }
 
 /// 列出可用模型处理器
+#[utoipa::path(
+    get,
+    path = "/api/models/available",
+    tag = "模型管理",
+    params(ModelsQuery),
+    responses(
+        (status = 200, description = "模型列表", body = ModelsResponse),
+        (status = 400, description = "请求参数错误", body = ErrorResponse),
+        (status = 500, description = "服务器错误", body = ErrorResponse)
+    )
+)]
 pub async fn handle_list_models(
     State(state): State<Arc<AppState>>,
     Query(query): Query<ModelsQuery>,
