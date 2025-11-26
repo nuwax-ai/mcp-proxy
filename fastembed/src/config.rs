@@ -42,17 +42,9 @@ pub struct FastEmbedConfig {
     #[serde(default = "default_model")]
     pub default_model: String,
     
-    /// 最大长度
-    #[serde(default = "default_max_length")]
-    pub max_length: usize,
-    
     /// 批处理大小
     #[serde(default = "default_batch_size")]
     pub batch_size: usize,
-    
-    /// 是否归一化
-    #[serde(default = "default_normalize")]
-    pub normalize: bool,
 }
 
 fn default_cache_dir() -> String {
@@ -63,16 +55,8 @@ fn default_model() -> String {
     "BGELargeZHV15".to_string()
 }
 
-fn default_max_length() -> usize {
-    512
-}
-
 fn default_batch_size() -> usize {
     256
-}
-
-fn default_normalize() -> bool {
-    true
 }
 
 impl Default for FastEmbedConfig {
@@ -80,9 +64,7 @@ impl Default for FastEmbedConfig {
         Self {
             cache_dir: default_cache_dir(),
             default_model: default_model(),
-            max_length: default_max_length(),
             batch_size: default_batch_size(),
-            normalize: default_normalize(),
         }
     }
 }

@@ -21,14 +21,6 @@ pub struct EmbedRequest {
     /// 批处理大小
     #[schema(example = 256)]
     pub batch_size: Option<usize>,
-    
-    /// 最大长度
-    #[schema(example = 512)]
-    pub max_length: Option<usize>,
-    
-    /// 是否归一化
-    #[schema(example = true)]
-    pub normalize: Option<bool>,
 }
 
 /// 文本嵌入响应
@@ -126,7 +118,7 @@ pub async fn handle_embed(
     let model_arc = get_or_init_model(
         embedding_model.clone(),
         Some(state.config.fastembed.cache_dir.clone()),
-        req.max_length.or(Some(state.config.fastembed.max_length)),
+        None,  // 使用模型默认的 max_length
     ).map_err(|e| {
         tracing::error!("模型初始化失败: {}", e);
         (

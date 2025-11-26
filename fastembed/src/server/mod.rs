@@ -150,7 +150,7 @@ async fn warmup_model(state: Arc<AppState>, config: AppConfig) -> Result<()> {
     let model_arc = get_or_init_model(
         model,
         Some(config.fastembed.cache_dir.clone()),
-        Some(config.fastembed.max_length),
+        None,  // 使用模型默认的 max_length
     )?;
     
     // 执行一次微型嵌入

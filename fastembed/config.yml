@@ -4,6 +4,4 @@ server:
 fastembed:
   cache_dir: .fastembed_cache
   default_model: BGELargeZHV15
-  max_length: 512
   batch_size: 256
-  normalize: true
