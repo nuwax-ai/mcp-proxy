@@ -2940,6 +2940,7 @@ name = "mcp-proxy"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum",
  "backtrace",
  "base64 0.22.1",

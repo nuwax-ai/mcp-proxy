@@ -367,6 +367,16 @@ pub enum McpProtocol {
     Stream,
 }
 
+impl std::fmt::Display for McpProtocol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            McpProtocol::Stdio => write!(f, "Stdio"),
+            McpProtocol::Sse => write!(f, "SSE"),
+            McpProtocol::Stream => write!(f, "Streamable HTTP"),
+        }
+    }
+}
+
 impl std::str::FromStr for McpProtocol {
     type Err = String;
 

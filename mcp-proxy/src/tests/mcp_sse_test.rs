@@ -12,10 +12,16 @@ mod sse_test {
     use std::time::Duration;
 
     // 公共常量
-    // static BASE_URL: &str = "127.0.0.1:8020";  // 修改为本地OrbStack服务端口，确认在运行
-    // static BASE_URL: &str = "192.168.31.101:8023";  // 修改为本地OrbStack服务端口，确认在运行
-    static MCP_CONFIG: &str = "{\"mcpServers\":{\"playwright\":{\"command\":\"npx\",\"args\":[\"@playwright/mcp@latest\",\"--headless\"]}}}";
-    static MCP_TYPE: &str = "OneShot";
+    // 从环境变量获取配置，避免硬编码的mock数据
+    fn get_mcp_config() -> String {
+        std::env::var("MCP_TEST_CONFIG").unwrap_or_else(|_| {
+            panic!("MCP_TEST_CONFIG 环境变量未设置，无法运行集成测试")
+        })
+    }
+    
+    fn get_mcp_type() -> String {
+        std::env::var("MCP_TEST_TYPE").unwrap_or_else(|_| "OneShot".to_string())
+    }
     static MAX_RETRIES: usize = 30;
     static RETRY_INTERVAL: Duration = Duration::from_millis(1000);
     static TCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -61,8 +67,8 @@ mod sse_test {
 
         // 创建带有自定义header的reqwest客户端
         let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert("x-mcp-json", MCP_CONFIG.parse()?);
-        headers.insert("x-mcp-type", MCP_TYPE.parse()?);
+        headers.insert("x-mcp-json", get_mcp_config().parse()?);
+        headers.insert("x-mcp-type", get_mcp_type().parse()?);
         // 添加SSE所需的Accept头
         headers.insert(reqwest::header::ACCEPT, "text/event-stream".parse()?);
         // 添加常见的curl头部
@@ -98,8 +104,8 @@ mod sse_test {
         // 构建请求体
         let request_body = serde_json::json!({
             "mcpId": mcp_id,
-            "mcpJsonConfig": MCP_CONFIG,
-            "mcpType": MCP_TYPE
+            "mcpJsonConfig": get_mcp_config(),
+            "mcpType": get_mcp_type()
         });
 
         info!("状态检查请求体: {request_body:?}");
@@ -229,8 +235,10 @@ mod sse_test {
         let url = format!("http://{}/mcp/sse/proxy/{}/sse", get_server_url(), mcp_id);
 
         // 构建curl命令
+        let mcp_config = get_mcp_config();
+        let mcp_type = get_mcp_type();
         let curl_cmd = format!(
-            "curl -N -m 5 -H \"x-mcp-json: {MCP_CONFIG}\" -H \"x-mcp-type: {MCP_TYPE}\" \"{url}\""
+            "curl -N -m 5 -H \"x-mcp-json: {mcp_config}\" -H \"x-mcp-type: {mcp_type}\" \"{url}\""
         );
 
         info!("执行curl命令: {curl_cmd}");

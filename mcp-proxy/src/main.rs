@@ -4,7 +4,7 @@ use backtrace::Backtrace;
 use log::{error, info, warn};
 use mcp_proxy::{
     AppConfig, AppState, get_proxy_manager, get_router, init_tracer_provider, log_service_info,
-    start_schedule_task,
+    start_schedule_task, Cli, run_cli,
 };
 use run_code_rmcp::warm_up_all_envs;
 use tokio::net::TcpListener;
@@ -13,10 +13,51 @@ use tracing_appender::rolling::{Builder, Rotation};
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 use tracing_subscriber::{EnvFilter, Layer as _};
+use clap::Parser;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 配置日志
+    // 解析命令行参数
+    let cli = Cli::parse();
+    
+    // 如果有子命令，运行 CLI 模式
+    if cli.command.is_some() || cli.url.is_some() {
+        return run_cli_mode(cli).await;
+    }
+    
+    // 否则运行传统的服务器模式
+    run_server_mode().await
+}
+
+/// 运行 CLI 模式
+async fn run_cli_mode(cli: Cli) -> Result<()> {
+    // 设置基本的日志配置
+    let log_level = if cli.verbose {
+        "debug"
+    } else if cli.quiet {
+        "error"
+    } else {
+        "info"
+    };
+    
+    // 初始化日志
+    if std::env::var("RUST_LOG").is_err() {
+        unsafe { std::env::set_var("RUST_LOG", log_level); }
+    }
+    
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_target(false)
+        .without_time()
+        .init();
+    
+    // 运行 CLI 命令
+    run_cli(cli).await
+}
+
+/// 运行传统的服务器模式
+async fn run_server_mode() -> Result<()> {
+    // 配置日志（保持原有的完整日志配置）
     let app_config = AppConfig::load_config()?;
     app_config.log_path_init()?;
     let log_level = app_config.log.level.clone();
@@ -34,6 +75,7 @@ async fn main() -> Result<()> {
         .pretty()
         .with_writer(std::io::stdout)
         .with_filter(console_filter);
+    
     // 日志写入到文件，使用 Builder 模式配置日志轮转和保留策略
     let log_path_for_file = log_path.clone();
     let file_appender = Builder::new()
@@ -45,6 +87,7 @@ async fn main() -> Result<()> {
 
     let log_filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level));
+    
     // 配置文件日志层：使用 compact 格式，避免显示完整的 span 嵌套链，减少日志膨胀
     let file_layer = tracing_subscriber::fmt::layer()
         .compact()
@@ -112,7 +155,7 @@ async fn main() -> Result<()> {
         }));
     });
 
-    //预热 uv /deno 环境依赖
+    // 预热 uv/deno 环境依赖
     tokio::spawn(async move {
         info!("开始预热 uv/deno 环境依赖...");
         if let Err(e) = warm_up_all_envs(None, None, None, None).await {
@@ -147,5 +190,7 @@ async fn main() -> Result<()> {
 
 // 监听多种终止信号
 async fn shutdown_signal() {
-    signal::ctrl_c().await.expect("无法安装Ctrl+C处理器");
+    signal::ctrl_c()
+        .await
+        .expect("无法安装Ctrl+C处理器");
 }
