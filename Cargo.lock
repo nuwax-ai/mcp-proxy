@@ -392,7 +392,7 @@ dependencies = [
  "log",
  "num-rational",
  "num-traits",
- "pastey",
+ "pastey 0.1.1",
  "rayon",
  "thiserror 2.0.17",
  "v_frame",
@@ -2961,7 +2961,7 @@ dependencies = [
  "opentelemetry_sdk 0.31.0",
  "rand 0.9.2",
  "reqwest",
- "rmcp 0.9.0",
+ "rmcp 0.10.0",
  "run_code_rmcp",
  "serde",
  "serde_json",
@@ -3663,6 +3663,12 @@ name = "pastey"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "35fb2e5f958ec131621fdd531e9fc186ed768cbe395337403ae56c17a74c68ec"
+
+[[package]]
+name = "pastey"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57d6c094ee800037dff99e02cab0eaf3142826586742a270ab3d7a62656bd27a"
 
 [[package]]
 name = "pathdiff"
@@ -4513,9 +4519,9 @@ dependencies = [
 
 [[package]]
 name = "rmcp"
-version = "0.9.0"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "acc36ea743d4bbc97e9f3c33bf0b97765a5cf338de3d9c3d2f321a6e38095615"
+checksum = "38b18323edc657390a6ed4d7a9110b0dec2dc3ed128eb2a123edfbafabdbddc5"
 dependencies = [
  "async-trait",
  "axum",
@@ -4526,12 +4532,12 @@ dependencies = [
  "http",
  "http-body",
  "http-body-util",
- "paste",
+ "pastey 0.2.0",
  "pin-project-lite",
  "process-wrap",
  "rand 0.9.2",
  "reqwest",
- "rmcp-macros 0.9.0",
+ "rmcp-macros 0.10.0",
  "schemars",
  "serde",
  "serde_json",
@@ -4560,9 +4566,9 @@ dependencies = [
 
 [[package]]
 name = "rmcp-macros"
-version = "0.9.0"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "263caba1c96f2941efca0fdcd97b03f42bcde52d2347d05e5d77c93ab18c5b58"
+checksum = "c75d0a62676bf8c8003c4e3c348e2ceb6a7b3e48323681aaf177fdccdac2ce50"
 dependencies = [
  "darling 0.21.3",
  "proc-macro2",

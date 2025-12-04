@@ -8,7 +8,7 @@ resolver = "2"
 mcp-proxy = { path = "mcp-proxy" }
 oss-client = { path = "oss-client" }
 
-rmcp = { version = "0.9", features = [
+rmcp = { version = "0.10", features = [
     "server",
     "client",
     "transport-sse-server",
