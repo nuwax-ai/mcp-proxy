@@ -2,7 +2,7 @@ mod config;
 use anyhow::Result;
 use backtrace::Backtrace;
 use log::{error, info, warn};
-use mcp_proxy::{
+use mcp_stdio_proxy::{
     AppConfig, AppState, get_proxy_manager, get_router, init_tracer_provider, log_service_info,
     start_schedule_task, Cli, run_cli,
 };

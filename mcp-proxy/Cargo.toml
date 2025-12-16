@@ -1,5 +1,5 @@
 [package]
-name = "mcp-proxy"
+name = "mcp-stdio-proxy"
 version = "0.1.0"
 edition = "2024"
 authors = ["nuwax-ai"]
@@ -57,6 +57,9 @@ urlencoding = { workspace = true }
 base64 = { workspace = true }
 async-trait.workspace = true
 
+[[bin]]
+name = "mcp-proxy"
+path = "src/main.rs"
 
 [dev-dependencies]
 criterion = "0.6"
