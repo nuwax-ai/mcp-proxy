@@ -31,25 +31,34 @@ async fn main() -> Result<()> {
 
 /// 运行 CLI 模式
 async fn run_cli_mode(cli: Cli) -> Result<()> {
-    // 设置基本的日志配置
-    let log_level = if cli.verbose {
-        "debug"
-    } else if cli.quiet {
-        "error"
-    } else {
-        "info"
-    };
-    
-    // 初始化日志
-    if std::env::var("RUST_LOG").is_err() {
-        unsafe { std::env::set_var("RUST_LOG", log_level); }
+    // CLI 模式独立的日志配置
+    // 只在非 quiet 模式下初始化日志，且必须禁用 ANSI 颜色避免污染 JSON 输出
+    if !cli.quiet {
+        // CLI 模式默认只显示错误，避免 info/debug 日志污染输出
+        let log_level = if cli.verbose {
+            "debug"
+        } else {
+            "error"  // 默认只显示错误，屏蔽 info/warn/debug
+        };
+        
+        // 只在未设置 RUST_LOG 时才设置默认值
+        if std::env::var("RUST_LOG").is_err() {
+            unsafe { std::env::set_var("RUST_LOG", log_level); }
+        }
+        
+        // CLI 模式的日志配置：
+        // 1. 禁用 ANSI 颜色（避免污染 JSON）
+        // 2. 输出到 stderr（stdout 用于 JSON-RPC 通信）
+        // 3. 简化格式（无时间戳、无目标）
+        tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .with_target(false)
+            .without_time()
+            .with_ansi(false)
+            .with_writer(std::io::stderr)
+            .compact()
+            .init();
     }
-    
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .with_target(false)
-        .without_time()
-        .init();
     
     // 运行 CLI 命令
     run_cli(cli).await
