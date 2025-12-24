@@ -9,7 +9,7 @@ use rmcp::{
     model::{ClientCapabilities, ClientInfo},
     transport::{SseClientTransport, StreamableHttpClientTransport, sse_client::SseClientConfig, streamable_http_client::StreamableHttpClientTransportConfig, stdio},
 };
-use crate::proxy::ProxyHandler;
+use crate::proxy::{ProxyHandler, ToolFilter};
 
 /// MCP-Proxy CLI 主命令结构
 #[derive(Parser, Debug)]
@@ -51,22 +51,30 @@ pub struct ConvertArgs {
     /// MCP 服务的 URL 地址
     #[arg(value_name = "URL", help = "MCP 服务的 URL 地址")]
     pub url: String,
-    
+
     /// 认证 header (如: "Bearer token")
     #[arg(short, long, help = "认证 header")]
     pub auth: Option<String>,
-    
+
     /// 自定义 HTTP headers
     #[arg(short = 'H', long, value_parser = parse_key_val, help = "自定义 HTTP headers (KEY=VALUE 格式)")]
     pub header: Vec<(String, String)>,
-    
+
     /// 连接超时时间（秒）
     #[arg(long, default_value = "30", help = "连接超时时间（秒）")]
     pub timeout: u64,
-    
+
     /// 重试次数
     #[arg(long, default_value = "3", help = "重试次数")]
     pub retries: u32,
+
+    /// 工具白名单（逗号分隔），只允许指定的工具
+    #[arg(long, value_delimiter = ',', help = "工具白名单（逗号分隔），只允许指定的工具")]
+    pub allow_tools: Option<Vec<String>>,
+
+    /// 工具黑名单（逗号分隔），排除指定的工具
+    #[arg(long, value_delimiter = ',', help = "工具黑名单（逗号分隔），排除指定的工具")]
+    pub deny_tools: Option<Vec<String>>,
 }
 
 /// 检查参数
@@ -125,6 +133,8 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
                     header: vec![],
                     timeout: 30,
                     retries: 3,
+                    allow_tools: None,
+                    deny_tools: None,
                 };
                 run_convert_command(args, cli.verbose, cli.quiet).await
             } else {
@@ -136,10 +146,31 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
 
 /// 运行转换命令 - 核心功能
 async fn run_convert_command(args: ConvertArgs, verbose: bool, quiet: bool) -> Result<()> {
+    // 检查 --allow-tools 和 --deny-tools 互斥
+    if args.allow_tools.is_some() && args.deny_tools.is_some() {
+        bail!("--allow-tools 和 --deny-tools 不能同时使用，请只选择其中一个");
+    }
+
+    // 创建工具过滤器
+    let tool_filter = if let Some(allow_tools) = args.allow_tools.clone() {
+        ToolFilter::allow(allow_tools)
+    } else if let Some(deny_tools) = args.deny_tools.clone() {
+        ToolFilter::deny(deny_tools)
+    } else {
+        ToolFilter::default()
+    };
+
     if !quiet {
         eprintln!("🚀 MCP-Stdio-Proxy: {} → stdio", args.url);
         if verbose {
             eprintln!("📡 超时: {}s, 重试: {}", args.timeout, args.retries);
+        }
+        // 显示过滤器配置
+        if let Some(ref allow_tools) = args.allow_tools {
+            eprintln!("🔧 工具白名单: {:?}", allow_tools);
+        }
+        if let Some(ref deny_tools) = args.deny_tools {
+            eprintln!("🔧 工具黑名单: {:?}", deny_tools);
         }
     }
 
@@ -200,7 +231,7 @@ async fn run_convert_command(args: ConvertArgs, verbose: bool, quiet: bool) -> R
     }
 
     // 使用 ProxyHandler + stdio 将远程 MCP 服务透明暴露为本地 stdio
-    let proxy_handler = ProxyHandler::new(running);
+    let proxy_handler = ProxyHandler::with_tool_filter(running, "cli".to_string(), tool_filter);
     let stdio_transport = stdio();
     let server = proxy_handler.serve(stdio_transport).await?;
     server.waiting().await?;

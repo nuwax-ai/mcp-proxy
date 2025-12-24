@@ -10,8 +10,55 @@ use rmcp::{
     },
     service::{NotificationContext, RequestContext, RunningService},
 };
+use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex;
+
+/// 工具过滤配置
+#[derive(Clone, Debug, Default)]
+pub struct ToolFilter {
+    /// 白名单（只允许这些工具）
+    pub allow_tools: Option<HashSet<String>>,
+    /// 黑名单（排除这些工具）
+    pub deny_tools: Option<HashSet<String>>,
+}
+
+impl ToolFilter {
+    /// 创建白名单过滤器
+    pub fn allow(tools: Vec<String>) -> Self {
+        Self {
+            allow_tools: Some(tools.into_iter().collect()),
+            deny_tools: None,
+        }
+    }
+
+    /// 创建黑名单过滤器
+    pub fn deny(tools: Vec<String>) -> Self {
+        Self {
+            allow_tools: None,
+            deny_tools: Some(tools.into_iter().collect()),
+        }
+    }
+
+    /// 检查工具是否被允许
+    pub fn is_allowed(&self, tool_name: &str) -> bool {
+        // 白名单模式：只有在白名单中的工具才被允许
+        if let Some(ref allow_list) = self.allow_tools {
+            return allow_list.contains(tool_name);
+        }
+        // 黑名单模式：不在黑名单中的工具都被允许
+        if let Some(ref deny_list) = self.deny_tools {
+            return !deny_list.contains(tool_name);
+        }
+        // 无过滤：全部允许
+        true
+    }
+
+    /// 检查是否启用了过滤
+    pub fn is_enabled(&self) -> bool {
+        self.allow_tools.is_some() || self.deny_tools.is_some()
+    }
+}
 
 /// A proxy handler that forwards requests to a client based on the server's capabilities
 #[derive(Clone, Debug)]
@@ -21,6 +68,8 @@ pub struct ProxyHandler {
     cached_info: Arc<RwLock<Option<ServerInfo>>>,
     // MCP ID 用于日志记录
     mcp_id: String,
+    // 工具过滤配置
+    tool_filter: ToolFilter,
 }
 
 impl ServerHandler for ProxyHandler {
@@ -94,18 +143,37 @@ impl ServerHandler for ProxyHandler {
                 match guard.list_tools(request).await {
                     // Forward request to client
                     Ok(result) => {
+                        // 根据过滤配置过滤工具列表
+                        let filtered_tools: Vec<_> = if self.tool_filter.is_enabled() {
+                            result
+                                .tools
+                                .into_iter()
+                                .filter(|tool| self.tool_filter.is_allowed(&tool.name))
+                                .collect()
+                        } else {
+                            result.tools
+                        };
+
                         // 记录工具列表结果，这些结果会通过 SSE 推送给客户端
                         info!(
-                            "[list_tools] 工具列表结果 - MCP ID: {}, 工具数量: {}",
+                            "[list_tools] 工具列表结果 - MCP ID: {}, 工具数量: {}{}",
                             self.mcp_id,
-                            result.tools.len()
+                            filtered_tools.len(),
+                            if self.tool_filter.is_enabled() {
+                                " (已过滤)"
+                            } else {
+                                ""
+                            }
                         );
 
                         debug!(
                             "Proxying list_tools response with {} tools",
-                            result.tools.len()
+                            filtered_tools.len()
                         );
-                        Ok(result)
+                        Ok(ListToolsResult {
+                            tools: filtered_tools,
+                            next_cursor: result.next_cursor,
+                        })
                     }
                     Err(err) => {
                         tracing::error!("Error listing tools: {:?}", err);
@@ -132,6 +200,18 @@ impl ServerHandler for ProxyHandler {
         request: CallToolRequestParam,
         _context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
+        // 首先检查工具是否被过滤
+        if !self.tool_filter.is_allowed(&request.name) {
+            info!(
+                "[call_tool] 工具被过滤 - MCP ID: {}, 工具: {}",
+                self.mcp_id, request.name
+            );
+            return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Tool '{}' is not allowed by filter configuration",
+                request.name
+            ))]));
+        }
+
         let client = self.client.clone();
         let guard = client.lock().await;
 
@@ -427,6 +507,15 @@ impl ProxyHandler {
     }
 
     pub fn with_mcp_id(client: RunningService<RoleClient, ClientInfo>, mcp_id: String) -> Self {
+        Self::with_tool_filter(client, mcp_id, ToolFilter::default())
+    }
+
+    /// 创建带工具过滤器的 ProxyHandler
+    pub fn with_tool_filter(
+        client: RunningService<RoleClient, ClientInfo>,
+        mcp_id: String,
+        tool_filter: ToolFilter,
+    ) -> Self {
         let peer_info = client.peer_info();
 
         // Create a ServerInfo object that forwards the server's capabilities
@@ -443,10 +532,27 @@ impl ProxyHandler {
             capabilities: peer_info.capabilities.clone(),
         });
 
+        // 记录过滤器配置
+        if tool_filter.is_enabled() {
+            if let Some(ref allow_list) = tool_filter.allow_tools {
+                info!(
+                    "[ProxyHandler] 工具白名单已启用 - MCP ID: {}, 允许的工具: {:?}",
+                    mcp_id, allow_list
+                );
+            }
+            if let Some(ref deny_list) = tool_filter.deny_tools {
+                info!(
+                    "[ProxyHandler] 工具黑名单已启用 - MCP ID: {}, 排除的工具: {:?}",
+                    mcp_id, deny_list
+                );
+            }
+        }
+
         Self {
             client: Arc::new(Mutex::new(client)),
             cached_info: Arc::new(RwLock::new(cached_info)),
             mcp_id,
+            tool_filter,
         }
     }
 
