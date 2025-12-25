@@ -37,12 +37,15 @@ pub struct Cli {
 pub enum Commands {
     /// 协议转换模式 - 将 URL 转换为 stdio
     Convert(ConvertArgs),
-    
+
     /// 检查服务状态
     Check(CheckArgs),
-    
+
     /// 协议检测
     Detect(DetectArgs),
+
+    /// 代理模式 - 将 stdio MCP 服务代理为 HTTP/SSE 服务
+    Proxy(super::proxy_server::ProxyArgs),
 }
 
 /// 协议转换参数
@@ -123,6 +126,9 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
         }
         Some(Commands::Detect(args)) => {
             run_detect_command(args, cli.verbose, cli.quiet).await
+        }
+        Some(Commands::Proxy(args)) => {
+            super::proxy_server::run_proxy_command(args, cli.verbose, cli.quiet).await
         }
         None => {
             // 直接 URL 模式（向后兼容）
