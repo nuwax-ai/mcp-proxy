@@ -27,9 +27,9 @@ use crate::proxy::{ProxyHandler, ToolFilter};
 #[derive(clap::ValueEnum, Clone, Debug, Default)]
 pub enum ProxyProtocol {
     /// SSE 协议
-    #[default]
     Sse,
     /// Streamable HTTP 协议
+    #[default]
     Stream,
 }
 
@@ -57,7 +57,7 @@ pub struct ProxyArgs {
     pub config_file: Option<PathBuf>,
 
     /// 输出协议类型
-    #[arg(long, value_enum, default_value = "sse", help = "输出协议类型")]
+    #[arg(long, value_enum, default_value = "stream", help = "输出协议类型")]
     pub protocol: ProxyProtocol,
 
     /// SSE 端点路径（仅 SSE 协议）
@@ -118,7 +118,12 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
     };
 
     if !quiet {
+        let protocol_name = match args.protocol {
+            ProxyProtocol::Sse => "SSE",
+            ProxyProtocol::Stream => "Streamable HTTP",
+        };
         eprintln!("🚀 MCP Proxy 服务");
+        eprintln!("   协议类型: {}", protocol_name);
         eprintln!("   服务名称: {}", parsed.name);
         eprintln!("   命令: {} {:?}", parsed.config.command, parsed.config.args.as_ref().unwrap_or(&vec![]));
         if verbose {
