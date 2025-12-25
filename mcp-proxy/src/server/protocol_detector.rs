@@ -33,8 +33,8 @@ pub async fn detect_mcp_protocol(url: &str) -> Result<McpProtocol> {
 ///
 /// Streamable HTTP 协议的特征：
 /// - 需要 Accept: application/json, text/event-stream 头
-/// - 返回 200 OK 或 406 Not Acceptable（如果缺少正确的 Accept 头）
-/// - 响应头包含 content-type: text/event-stream 或 application/json
+/// - 支持 POST 请求，响应 JSON-RPC 格式
+/// - 对 initialize 请求返回有效响应
 async fn is_streamable_http(url: &str) -> bool {
     debug!("尝试检测 Streamable HTTP 协议: {}", url);
 
@@ -49,7 +49,7 @@ async fn is_streamable_http(url: &str) -> bool {
         }
     };
 
-    // 构造一个简单的探测请求
+    // 构造一个标准的 MCP initialize 请求
     let mut headers = HeaderMap::new();
     headers.insert(
         ACCEPT,
@@ -57,40 +57,44 @@ async fn is_streamable_http(url: &str) -> bool {
     );
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
 
-    // 发送一个简单的 ping 或 initialize 请求
+    // 发送 initialize 请求（MCP 协议标准方法）
     let body = serde_json::json!({
         "jsonrpc": "2.0",
-        "id": "probe",
-        "method": "ping",
-        "params": {}
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {
+                "name": "mcp-proxy-detector",
+                "version": "0.1.0"
+            }
+        }
     });
 
     match client.post(url).headers(headers).json(&body).send().await {
         Ok(response) => {
             let status = response.status();
-            let headers = response.headers();
+            let resp_headers = response.headers().clone();
 
             debug!("Streamable HTTP 探测响应状态: {}", status);
-            debug!("响应头: {:?}", headers);
+            debug!("响应头: {:?}", resp_headers);
 
             // 检查响应头中是否包含 mcp-session-id（Streamable HTTP 的特征）
-            if headers.contains_key("mcp-session-id") {
+            if resp_headers.contains_key("mcp-session-id") {
                 debug!("发现 mcp-session-id 头，确认为 Streamable HTTP 协议");
                 return true;
             }
 
-            // 检查 content-type
-            if let Some(content_type) = headers.get(CONTENT_TYPE) {
-                if let Ok(ct) = content_type.to_str() {
-                    debug!("Content-Type: {}", ct);
-                    // Streamable HTTP 可能返回 text/event-stream 或 application/json
-                    if ct.contains("text/event-stream") || ct.contains("application/json") {
-                        // 进一步检查是否为 Streamable HTTP（而不是普通的 JSON API）
-                        // 如果状态码是 200 且有正确的 content-type，很可能是 Streamable HTTP
-                        if status.is_success() {
-                            debug!("响应成功且 Content-Type 匹配，可能是 Streamable HTTP");
-                            return true;
-                        }
+            // 对 initialize 请求，成功响应应该返回 200
+            if status.is_success() {
+                // 检查响应是否为 JSON-RPC 格式
+                if let Ok(json) = response.json::<serde_json::Value>().await {
+                    debug!("响应内容: {:?}", json);
+                    // 检查是否有 jsonrpc 字段或 result 字段
+                    if json.get("jsonrpc").is_some() || json.get("result").is_some() {
+                        debug!("响应为有效 JSON-RPC 格式，确认为 Streamable HTTP 协议");
+                        return true;
                     }
                 }
             }

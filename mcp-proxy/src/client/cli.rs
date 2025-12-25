@@ -55,6 +55,10 @@ pub struct ConvertArgs {
     #[arg(value_name = "URL", help = "MCP 服务的 URL 地址")]
     pub url: String,
 
+    /// 指定远程服务协议类型（不指定则自动检测）
+    #[arg(long, value_enum, help = "指定远程服务协议类型（不指定则自动检测）")]
+    pub protocol: Option<super::proxy_server::ProxyProtocol>,
+
     /// 认证 header (如: "Bearer token")
     #[arg(short, long, help = "认证 header")]
     pub auth: Option<String>,
@@ -135,6 +139,7 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
             if let Some(url) = cli.url {
                 let args = ConvertArgs {
                     url,
+                    protocol: None,
                     auth: None,
                     header: vec![],
                     timeout: 30,
@@ -180,16 +185,37 @@ async fn run_convert_command(args: ConvertArgs, verbose: bool, quiet: bool) -> R
         }
     }
 
-    // 使用统一的协议检测模块
-    let protocol = super::protocol::detect_mcp_protocol(&args.url).await?;
+    // 确定协议类型：手动指定或自动检测
+    let protocol = if let Some(ref proto) = args.protocol {
+        // 手动指定协议
+        let detected = match proto {
+            super::proxy_server::ProxyProtocol::Sse => super::protocol::McpProtocol::Sse,
+            super::proxy_server::ProxyProtocol::Stream => super::protocol::McpProtocol::Stream,
+        };
+        if !quiet {
+            let proto_name = match detected {
+                super::protocol::McpProtocol::Sse => "SSE",
+                super::protocol::McpProtocol::Stream => "Streamable HTTP",
+                super::protocol::McpProtocol::Stdio => "Stdio",
+            };
+            eprintln!("🔧 使用指定协议: {}", proto_name);
+        }
+        detected
+    } else {
+        // 自动检测协议
+        let detected = super::protocol::detect_mcp_protocol(&args.url).await?;
+        if !quiet {
+            let proto_name = match detected {
+                super::protocol::McpProtocol::Sse => "SSE",
+                super::protocol::McpProtocol::Stream => "Streamable HTTP",
+                super::protocol::McpProtocol::Stdio => "Stdio",
+            };
+            eprintln!("🔍 检测到 {} 协议", proto_name);
+        }
+        detected
+    };
 
     if !quiet {
-        let proto_name = match protocol {
-            super::protocol::McpProtocol::Sse => "SSE",
-            super::protocol::McpProtocol::Stream => "Streamable HTTP",
-            super::protocol::McpProtocol::Stdio => "Stdio",
-        };
-        eprintln!("🔍 检测到 {} 协议", proto_name);
         eprintln!("🔗 建立连接...");
     }
 
