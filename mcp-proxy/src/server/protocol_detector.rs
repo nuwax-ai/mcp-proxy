@@ -103,12 +103,15 @@ async fn is_streamable_http(url: &str) -> bool {
             // 注意：即使状态码不是 2xx，只要响应体是有效的 JSON-RPC 格式，也说明是 Streamable HTTP
             if let Ok(json) = response.json::<serde_json::Value>().await {
                 debug!("响应内容: {:?}", json);
-                // 检查是否有 jsonrpc 字段、result 字段或 error 字段（JSON-RPC 错误响应）
-                if json.get("jsonrpc").is_some()
-                    || json.get("result").is_some()
-                    || json.get("error").is_some()
-                {
-                    debug!("响应为有效 JSON-RPC 格式，确认为 Streamable HTTP 协议");
+                // JSON-RPC 2.0 响应必须包含 jsonrpc 字段且值为 "2.0"
+                // 这比单独检查 error 字段更严格，避免误判普通 JSON 错误响应
+                let is_jsonrpc = json.get("jsonrpc")
+                    .and_then(|v| v.as_str())
+                    .map(|v| v == "2.0")
+                    .unwrap_or(false);
+
+                if is_jsonrpc {
+                    debug!("响应为有效 JSON-RPC 2.0 格式，确认为 Streamable HTTP 协议");
                     return true;
                 }
             }
