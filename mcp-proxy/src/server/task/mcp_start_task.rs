@@ -15,7 +15,8 @@ use rmcp::{
         StreamableHttpService, session::local::LocalSessionManager,
     },
     transport::{
-        SseClientTransport, SseServer, TokioChildProcess, sse_server::SseServerConfig,
+        SseClientTransport, SseServer, TokioChildProcess, StreamableHttpServerConfig,
+        sse_server::SseServerConfig,
         streamable_http_client::StreamableHttpClientTransport,
     },
 };
@@ -341,7 +342,10 @@ pub async fn integrate_sse_server_with_axum(
             let service = StreamableHttpService::new(
                 move || Ok(proxy_handler_clone.clone()),
                 LocalSessionManager::default().into(),
-                Default::default(),
+                StreamableHttpServerConfig {
+                    stateful_mode: false,
+                    ..Default::default()
+                },
             );
             let router = axum::Router::new().fallback_service(service);
             let ct = tokio_util::sync::CancellationToken::new();

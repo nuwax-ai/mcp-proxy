@@ -16,6 +16,7 @@ use rmcp::{
     model::{ClientCapabilities, ClientInfo},
     transport::{
         TokioChildProcess,
+        StreamableHttpServerConfig,
         sse_server::{SseServer, SseServerConfig},
         streamable_http_server::{StreamableHttpService, session::local::LocalSessionManager},
     },
@@ -350,7 +351,10 @@ async fn run_stream_server(
     let service = StreamableHttpService::new(
         move || Ok(proxy_handler.clone()),
         LocalSessionManager::default().into(),
-        Default::default(),
+        StreamableHttpServerConfig {
+            stateful_mode: false,
+            ..Default::default()
+        },
     );
 
     // Streamable HTTP 直接在根路径提供服务
