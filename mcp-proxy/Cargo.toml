@@ -1,6 +1,6 @@
 [package]
 name = "mcp-stdio-proxy"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2024"
 authors = ["nuwax-ai"]
 description = "MCP (Model Context Protocol) proxy server and CLI tool for protocol conversion and remote service access"

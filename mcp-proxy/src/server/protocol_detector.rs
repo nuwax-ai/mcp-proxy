@@ -86,16 +86,30 @@ async fn is_streamable_http(url: &str) -> bool {
                 return true;
             }
 
-            // 对 initialize 请求，成功响应应该返回 200
-            if status.is_success() {
-                // 检查响应是否为 JSON-RPC 格式
-                if let Ok(json) = response.json::<serde_json::Value>().await {
-                    debug!("响应内容: {:?}", json);
-                    // 检查是否有 jsonrpc 字段或 result 字段
-                    if json.get("jsonrpc").is_some() || json.get("result").is_some() {
-                        debug!("响应为有效 JSON-RPC 格式，确认为 Streamable HTTP 协议");
+            // 检查 Content-Type
+            // 关键区别：SSE 协议使用 GET 请求，Streamable HTTP 使用 POST 请求
+            // 如果 POST 请求返回 text/event-stream，说明是 Streamable HTTP（支持流式响应）
+            if let Some(content_type) = resp_headers.get(CONTENT_TYPE) {
+                if let Ok(ct) = content_type.to_str() {
+                    debug!("Content-Type: {}", ct);
+                    if ct.contains("text/event-stream") && status.is_success() {
+                        debug!("POST 请求返回 SSE 流，确认为 Streamable HTTP 协议");
                         return true;
                     }
+                }
+            }
+
+            // 检查响应是否为 JSON-RPC 格式
+            // 注意：即使状态码不是 2xx，只要响应体是有效的 JSON-RPC 格式，也说明是 Streamable HTTP
+            if let Ok(json) = response.json::<serde_json::Value>().await {
+                debug!("响应内容: {:?}", json);
+                // 检查是否有 jsonrpc 字段、result 字段或 error 字段（JSON-RPC 错误响应）
+                if json.get("jsonrpc").is_some()
+                    || json.get("result").is_some()
+                    || json.get("error").is_some()
+                {
+                    debug!("响应为有效 JSON-RPC 格式，确认为 Streamable HTTP 协议");
+                    return true;
                 }
             }
 

@@ -209,6 +209,31 @@ async fn run_proxy_server(
 
     if !quiet {
         eprintln!("✅ 子进程已启动");
+
+        // 获取并打印工具列表
+        match client.list_tools(None).await {
+            Ok(tools_result) => {
+                let tools = &tools_result.tools;
+                if tools.is_empty() {
+                    eprintln!("⚠️  工具列表为空 (tools/list 返回 0 个工具)");
+                } else {
+                    eprintln!("🔧 可用工具 ({} 个):", tools.len());
+                    for tool in tools {
+                        let desc = tool.description.as_deref().unwrap_or("无描述");
+                        // 截断描述，最多显示 50 个字符
+                        let desc_short = if desc.len() > 50 {
+                            format!("{}...", &desc[..50])
+                        } else {
+                            desc.to_string()
+                        };
+                        eprintln!("   - {} : {}", tool.name, desc_short);
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("⚠️  获取工具列表失败: {}", e);
+            }
+        }
     }
 
     // 5. 创建 ProxyHandler

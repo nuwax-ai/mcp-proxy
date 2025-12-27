@@ -500,6 +500,31 @@ async fn run_url_mode(
 
     if !quiet {
         eprintln!("✅ 连接成功，开始代理转换...");
+
+        // 打印工具列表
+        match running.list_tools(None).await {
+            Ok(tools_result) => {
+                let tools = &tools_result.tools;
+                if tools.is_empty() {
+                    eprintln!("⚠️  工具列表为空 (tools/list 返回 0 个工具)");
+                } else {
+                    eprintln!("🔧 可用工具 ({} 个):", tools.len());
+                    for tool in tools {
+                        let desc = tool.description.as_deref().unwrap_or("无描述");
+                        let desc_short = if desc.chars().count() > 50 {
+                            format!("{}...", desc.chars().take(50).collect::<String>())
+                        } else {
+                            desc.to_string()
+                        };
+                        eprintln!("   - {} : {}", tool.name, desc_short);
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("⚠️  获取工具列表失败: {}", e);
+            }
+        }
+
         eprintln!("💡 现在可以通过 stdin 发送 JSON-RPC 请求");
     }
 
@@ -557,6 +582,31 @@ async fn run_command_mode(
 
     if !quiet {
         eprintln!("✅ 子进程已启动，开始代理转换...");
+
+        // 打印工具列表
+        match running.list_tools(None).await {
+            Ok(tools_result) => {
+                let tools = &tools_result.tools;
+                if tools.is_empty() {
+                    eprintln!("⚠️  工具列表为空 (tools/list 返回 0 个工具)");
+                } else {
+                    eprintln!("🔧 可用工具 ({} 个):", tools.len());
+                    for tool in tools {
+                        let desc = tool.description.as_deref().unwrap_or("无描述");
+                        let desc_short = if desc.chars().count() > 50 {
+                            format!("{}...", desc.chars().take(50).collect::<String>())
+                        } else {
+                            desc.to_string()
+                        };
+                        eprintln!("   - {} : {}", tool.name, desc_short);
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("⚠️  获取工具列表失败: {}", e);
+            }
+        }
+
         eprintln!("💡 现在可以通过 stdin 发送 JSON-RPC 请求");
     }
 
