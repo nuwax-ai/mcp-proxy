@@ -84,7 +84,7 @@ pub struct ConvertArgs {
     pub header: Vec<(String, String)>,
 
     /// 连接超时时间（秒）
-    #[arg(long, default_value = "30", help = "连接超时时间（秒）")]
+    #[arg(long, default_value = "300", help = "连接超时时间（秒），默认5分钟")]
     pub timeout: u64,
 
     /// 重试次数
@@ -347,7 +347,7 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
                     protocol: None,
                     auth: None,
                     header: vec![],
-                    timeout: 30,
+                    timeout: 300,  // 5分钟，匹配 ProxyHandler 的工具调用超时
                     retries: 3,
                     allow_tools: None,
                     deny_tools: None,

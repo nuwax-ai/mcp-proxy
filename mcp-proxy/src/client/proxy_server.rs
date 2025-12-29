@@ -264,7 +264,7 @@ async fn run_sse_server(
         sse_path: args.sse_path.clone(),
         post_path: args.message_path.clone(),
         ct: tokio_util::sync::CancellationToken::new(),
-        sse_keep_alive: None,
+        sse_keep_alive: Some(std::time::Duration::from_secs(15)), // 15秒心跳，防止连接被中间代理关闭
     };
 
     if !quiet {
