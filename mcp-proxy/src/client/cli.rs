@@ -2,6 +2,7 @@
 // 直接使用 rmcp 库的功能，无需复杂的 trait 抽象
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use clap::Parser;
 use anyhow::{Result, bail};
@@ -88,7 +89,7 @@ pub struct ConvertArgs {
     pub timeout: u64,
 
     /// 重试次数
-    #[arg(long, default_value = "3", help = "重试次数")]
+    #[arg(long, default_value = "0", help = "重试次数，0 表示无限重试")]
     pub retries: u32,
 
     /// 工具白名单（逗号分隔），只允许指定的工具
@@ -348,7 +349,7 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
                     auth: None,
                     header: vec![],
                     timeout: 300,  // 5分钟，匹配 ProxyHandler 的工具调用超时
-                    retries: 3,
+                    retries: 0,    // 无限重试
                     allow_tools: None,
                     deny_tools: None,
                 };
@@ -394,8 +395,8 @@ async fn run_convert_command(args: ConvertArgs, verbose: bool, quiet: bool) -> R
     // 根据配置源执行不同逻辑
     match config_source {
         McpConfigSource::DirectUrl { url } => {
-            // 直接 URL 模式（原有逻辑）
-            run_url_mode(&args, &url, HashMap::new(), None, client_info, tool_filter, verbose, quiet).await
+            // 直接 URL 模式（带自动重连）
+            run_url_mode_with_retry(&args, &url, HashMap::new(), None, client_info, tool_filter, verbose, quiet).await
         }
         McpConfigSource::RemoteService { name, url, protocol, headers, timeout } => {
             // 远程服务配置模式
@@ -404,12 +405,140 @@ async fn run_convert_command(args: ConvertArgs, verbose: bool, quiet: bool) -> R
             }
             // 合并 headers：配置 + 命令行
             let merged_headers = merge_headers(headers, &args.header, args.auth.as_ref());
-            run_url_mode(&args, &url, merged_headers, protocol.or(timeout.map(|_| super::protocol::McpProtocol::Stream)), client_info, tool_filter, verbose, quiet).await
+            run_url_mode_with_retry(&args, &url, merged_headers, protocol.or(timeout.map(|_| super::protocol::McpProtocol::Stream)), client_info, tool_filter, verbose, quiet).await
         }
         McpConfigSource::LocalCommand { name, command, args: cmd_args, env } => {
             // 本地命令模式
             run_command_mode(&name, &command, cmd_args, env, client_info, tool_filter, verbose, quiet).await
         }
+    }
+}
+
+/// URL 模式执行（带自动重连）
+/// 当连接断开时自动尝试重连，使用指数退避算法
+async fn run_url_mode_with_retry(
+    args: &ConvertArgs,
+    url: &str,
+    merged_headers: HashMap<String, String>,
+    config_protocol: Option<super::protocol::McpProtocol>,
+    client_info: ClientInfo,
+    tool_filter: ToolFilter,
+    verbose: bool,
+    quiet: bool,
+) -> Result<()> {
+    let max_retries = args.retries;
+    let mut attempt = 0u32;
+    let mut backoff_secs = 1u64;
+    const MAX_BACKOFF_SECS: u64 = 30;
+
+    loop {
+        attempt += 1;
+        let is_retry = attempt > 1;
+
+        // 重连时显示日志
+        if is_retry && !quiet {
+            eprintln!("🔗 正在建立连接 (第{}次尝试)...", attempt);
+        }
+
+        // 每次重连需要新的 ClientInfo
+        let client_info_clone = ClientInfo {
+            protocol_version: client_info.protocol_version.clone(),
+            capabilities: client_info.capabilities.clone(),
+            client_info: client_info.client_info.clone(),
+        };
+
+        let result = run_url_mode(
+            args,
+            url,
+            merged_headers.clone(),
+            config_protocol.clone(),
+            client_info_clone,
+            tool_filter.clone(),
+            verbose,
+            quiet,
+            is_retry,  // 传递重连标志
+        ).await;
+
+        match result {
+            Ok(_) => {
+                // 正常退出
+                break Ok(());
+            }
+            Err(e) => {
+                // 分类错误类型
+                let error_type = classify_error(&e);
+
+                // 检查是否还有重试次数（0 表示无限重试）
+                if max_retries > 0 && attempt >= max_retries {
+                    if !quiet {
+                        eprintln!("❌ 连接失败，已达最大重试次数 ({})", max_retries);
+                        eprintln!("   错误类型: {}", error_type);
+                        eprintln!("   错误详情: {}", e);
+                    }
+                    break Err(e);
+                }
+
+                if !quiet {
+                    if max_retries == 0 {
+                        eprintln!("⚠️  连接断开 [{}]: {}，{}秒后重连 (第{}次)...",
+                            error_type, summarize_error(&e), backoff_secs, attempt);
+                    } else {
+                        eprintln!("⚠️  连接断开 [{}]: {}，{}秒后重连 ({}/{})...",
+                            error_type, summarize_error(&e), backoff_secs, attempt, max_retries);
+                    }
+                }
+
+                // verbose 模式下显示完整错误和退避信息
+                if verbose && !quiet {
+                    eprintln!("   完整错误: {}", e);
+                    eprintln!("   当前退避: {}s，下次退避: {}s",
+                        backoff_secs, (backoff_secs * 2).min(MAX_BACKOFF_SECS));
+                }
+
+                tokio::time::sleep(Duration::from_secs(backoff_secs)).await;
+
+                // 指数退避，但不超过最大值
+                backoff_secs = (backoff_secs * 2).min(MAX_BACKOFF_SECS);
+            }
+        }
+    }
+}
+
+/// 错误分类
+fn classify_error(e: &anyhow::Error) -> &'static str {
+    let err_str = e.to_string().to_lowercase();
+
+    if err_str.contains("timeout") || err_str.contains("timed out") {
+        "超时"
+    } else if err_str.contains("connection refused") {
+        "连接被拒绝"
+    } else if err_str.contains("connection reset") {
+        "连接被重置"
+    } else if err_str.contains("dns") || err_str.contains("resolve") {
+        "DNS解析失败"
+    } else if err_str.contains("certificate") || err_str.contains("ssl") || err_str.contains("tls") {
+        "SSL/TLS错误"
+    } else if err_str.contains("session") {
+        "会话错误"
+    } else if err_str.contains("sending request") || err_str.contains("network") {
+        "网络错误"
+    } else if err_str.contains("eof") || err_str.contains("closed") || err_str.contains("shutdown") {
+        "连接关闭"
+    } else {
+        "未知错误"
+    }
+}
+
+/// 简化错误信息（用于单行日志）
+fn summarize_error(e: &anyhow::Error) -> String {
+    let full = e.to_string();
+    // 截取第一行或前80个字符
+    let first_line = full.lines().next().unwrap_or(&full);
+    // 使用 chars() 安全处理 UTF-8 字符，避免在多字节字符中间截断
+    if first_line.chars().count() > 80 {
+        format!("{}...", first_line.chars().take(77).collect::<String>())
+    } else {
+        first_line.to_string()
     }
 }
 
@@ -423,17 +552,18 @@ async fn run_url_mode(
     tool_filter: ToolFilter,
     verbose: bool,
     quiet: bool,
+    is_retry: bool,  // 是否是重连
 ) -> Result<()> {
-    if !quiet && merged_headers.is_empty() {
+    if !quiet && merged_headers.is_empty() && !is_retry {
         eprintln!("🚀 MCP-Stdio-Proxy: {} → stdio", url);
     }
 
-    if verbose && !quiet {
+    if verbose && !quiet && !is_retry {
         eprintln!("📡 超时: {}s, 重试: {}", args.timeout, args.retries);
     }
 
-    // 显示过滤器配置
-    if !quiet {
+    // 显示过滤器配置（仅首次）
+    if !quiet && !is_retry {
         if let Some(ref allow_tools) = args.allow_tools {
             eprintln!("🔧 工具白名单: {:?}", allow_tools);
         }
@@ -449,26 +579,26 @@ async fn run_url_mode(
             super::proxy_server::ProxyProtocol::Sse => super::protocol::McpProtocol::Sse,
             super::proxy_server::ProxyProtocol::Stream => super::protocol::McpProtocol::Stream,
         };
-        if !quiet {
+        if !quiet && !is_retry {
             eprintln!("🔧 使用指定协议: {}", protocol_name(&detected));
         }
         detected
     } else if let Some(proto) = config_protocol {
         // 配置文件指定协议
-        if !quiet {
+        if !quiet && !is_retry {
             eprintln!("🔧 使用配置协议: {}", protocol_name(&proto));
         }
         proto
     } else {
         // 自动检测协议
         let detected = super::protocol::detect_mcp_protocol(url).await?;
-        if !quiet {
+        if !quiet && !is_retry {
             eprintln!("🔍 检测到 {} 协议", protocol_name(&detected));
         }
         detected
     };
 
-    if !quiet {
+    if !quiet && !is_retry {
         eprintln!("🔗 建立连接...");
     }
 
@@ -499,7 +629,11 @@ async fn run_url_mode(
     };
 
     if !quiet {
-        eprintln!("✅ 连接成功，开始代理转换...");
+        if is_retry {
+            eprintln!("✅ 重连成功，恢复代理服务");
+        } else {
+            eprintln!("✅ 连接成功，开始代理转换...");
+        }
 
         // 打印工具列表
         match running.list_tools(None).await {
