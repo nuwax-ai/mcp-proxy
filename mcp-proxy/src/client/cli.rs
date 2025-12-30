@@ -422,8 +422,8 @@ async fn run_convert_command(args: ConvertArgs, verbose: bool, quiet: bool) -> R
 }
 
 /// URL 模式执行（带自动重连）
-/// 使用 ArcSwap 热替换后端连接，stdio server 永不停止
-/// 当连接断开时客户端请求立即返回错误，而不是超时等待
+/// 先建立后端连接，成功后再启动 stdio server
+/// 当连接断开时 watchdog 会自动重连
 async fn run_url_mode_with_retry(
     args: &ConvertArgs,
     url: &str,
@@ -434,8 +434,6 @@ async fn run_url_mode_with_retry(
     verbose: bool,
     quiet: bool,
 ) -> Result<()> {
-    use rmcp::model::{ServerInfo, Implementation};
-
     if !quiet && merged_headers.is_empty() {
         eprintln!("🚀 MCP-Stdio-Proxy: {} → stdio", url);
     }
@@ -448,46 +446,56 @@ async fn run_url_mode_with_retry(
         if let Some(ref deny_tools) = args.deny_tools {
             eprintln!("🔧 工具黑名单: {:?}", deny_tools);
         }
+        eprintln!("🔗 正在连接到后端服务...");
     }
 
-    // 创建默认的 ServerInfo（断开状态时使用）
-    // 注意：需要预设 capabilities 以便在后端连接前也能正确响应请求
-    use rmcp::model::{ServerCapabilities, ToolsCapability, ResourcesCapability, PromptsCapability};
-    let default_info = ServerInfo {
-        protocol_version: Default::default(),
-        server_info: Implementation {
-            name: "MCP Proxy".to_string(),
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            title: None,
-            website_url: None,
-            icons: None,
-        },
-        instructions: None,
-        capabilities: ServerCapabilities {
-            tools: Some(ToolsCapability { list_changed: None }),
-            resources: Some(ResourcesCapability { subscribe: None, list_changed: None }),
-            prompts: Some(PromptsCapability { list_changed: None }),
-            ..Default::default()
-        },
+    // 1. 先建立后端连接（带超时）
+    let connect_timeout = Duration::from_secs(30);
+    let initial_connect_result = tokio::time::timeout(
+        connect_timeout,
+        try_connect(
+            args,
+            url,
+            &merged_headers,
+            config_protocol.clone(),
+            client_info.clone(),
+            verbose,
+            quiet,
+            false, // is_retry = false
+        )
+    ).await;
+
+    let initial_running = match initial_connect_result {
+        Ok(Ok(running)) => running,
+        Ok(Err(e)) => {
+            bail!("连接后端失败: {}", e);
+        }
+        Err(_) => {
+            bail!("连接后端超时 ({}秒)", connect_timeout.as_secs());
+        }
     };
 
-    // 1. 创建断开状态的 ProxyHandler（使用 Arc 以便共享）
-    let proxy_handler = Arc::new(ProxyHandler::new_disconnected(
+    if !quiet {
+        eprintln!("✅ 后端连接成功");
+    }
+
+    // 2. 使用已连接的后端创建 ProxyHandler
+    let proxy_handler = Arc::new(ProxyHandler::with_tool_filter(
+        initial_running,
         "cli".to_string(),
         tool_filter.clone(),
-        default_info,
     ));
 
-    // 2. 启动 stdio server（永不停止）
-    // 注意：serve() 需要所有权，所以克隆内部的 ProxyHandler
+    // 3. 启动 stdio server
     let stdio_transport = stdio();
     let server = (*proxy_handler).clone().serve(stdio_transport).await?;
 
     if !quiet {
-        eprintln!("💡 stdio server 已启动，等待后端连接...");
+        eprintln!("💡 stdio server 已启动，开始代理转换...");
     }
 
-    // 3. 启动 watchdog 任务处理连接/重连
+    // 4. 启动 watchdog 任务（负责监控连接健康 + 断线重连）
+    // 注意：skip_initial_connect = true，因为我们已经建立了连接
     let handler_for_watchdog = proxy_handler.clone();
     let mut watchdog_handle = tokio::spawn(run_reconnection_watchdog(
         handler_for_watchdog,
@@ -499,9 +507,10 @@ async fn run_url_mode_with_retry(
         tool_filter,
         verbose,
         quiet,
+        true, // skip_initial_connect: 跳过首次连接，直接进入监控阶段
     ));
 
-    // 4. 等待 stdio server 退出（通常是 stdin EOF）
+    // 5. 等待 stdio server 退出（通常是 stdin EOF）
     tokio::select! {
         result = server.waiting() => {
             // stdio server 退出，清理 watchdog
@@ -521,7 +530,10 @@ async fn run_url_mode_with_retry(
     Ok(())
 }
 
-/// 重连 watchdog：负责建立连接、监控健康、断开时重连
+/// 重连 watchdog：负责监控连接健康、断开时重连
+///
+/// - `skip_initial_connect`: 如果为 true，跳过首次连接尝试，直接进入监控阶段
+///   （用于已经建立连接的场景）
 async fn run_reconnection_watchdog(
     handler: Arc<ProxyHandler>,
     args: ConvertArgs,
@@ -532,15 +544,37 @@ async fn run_reconnection_watchdog(
     _tool_filter: ToolFilter,  // 保留参数以便将来使用
     verbose: bool,
     quiet: bool,
+    skip_initial_connect: bool,
 ) {
     let max_retries = args.retries;
     let mut attempt = 0u32;
     let mut backoff_secs = 1u64;
     const MAX_BACKOFF_SECS: u64 = 30;
 
+    // 如果跳过首次连接，直接进入监控阶段
+    if skip_initial_connect {
+        // 监控现有连接的健康状态
+        let disconnect_reason = monitor_connection(
+            &handler,
+            args.ping_interval,
+            args.ping_timeout,
+            quiet,
+        ).await;
+
+        // 连接断开，标记后端不可用
+        handler.swap_backend(None);
+
+        if !quiet {
+            eprintln!("⚠️  连接断开: {}", disconnect_reason);
+        }
+        // 继续进入重连循环，此时 attempt 从 0 开始
+        // 第一次进入循环时 attempt = 1，is_retry = true（因为这是断线重连）
+    }
+
     loop {
         attempt += 1;
-        let is_retry = attempt > 1;
+        // 如果跳过了首次连接，所有循环都是重连
+        let is_retry = skip_initial_connect || attempt > 1;
 
         // 重连时显示日志
         if is_retry && !quiet {

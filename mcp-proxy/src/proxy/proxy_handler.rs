@@ -105,7 +105,7 @@ impl ServerHandler for ProxyHandler {
         let inner = inner_guard.as_ref().ok_or_else(|| {
             error!("Backend connection is not available (reconnecting)");
             ErrorData::internal_error(
-                "Backend connection is not available, reconnecting...".to_string(),
+                "Backend connection is not availabletemp/rust-sdk, reconnecting...".to_string(),
                 None,
             )
         })?;
