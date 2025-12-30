@@ -885,4 +885,24 @@ impl ProxyHandler {
     pub fn get_backend_version(&self) -> u64 {
         self.backend_version.load(Ordering::SeqCst)
     }
+
+    /// Update backend from a StreamClientConnection
+    ///
+    /// This method allows updating the backend connection using the high-level
+    /// `StreamClientConnection` type, which is more convenient than the raw
+    /// `RunningService` type.
+    ///
+    /// # Arguments
+    /// * `conn` - Some(connection) to set new backend, None to mark disconnected
+    pub fn swap_backend_from_connection(&self, conn: Option<crate::client::StreamClientConnection>) {
+        match conn {
+            Some(c) => {
+                let running = c.into_running_service();
+                self.swap_backend(Some(running));
+            }
+            None => {
+                self.swap_backend(None);
+            }
+        }
+    }
 }

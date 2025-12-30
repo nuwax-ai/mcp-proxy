@@ -5,7 +5,9 @@
 
 pub mod tool_filter;
 pub mod config;
+pub mod client_config;
 
 // Re-export main types
 pub use tool_filter::ToolFilter;
 pub use config::McpServiceConfig;
+pub use client_config::McpClientConfig;

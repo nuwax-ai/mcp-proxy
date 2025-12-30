@@ -46,6 +46,9 @@ tower = { workspace = true }
 # Logging
 tracing = { workspace = true }
 
+# HTTP client
+reqwest = { workspace = true }
+
 # Utilities
 arc-swap = { workspace = true }
 anyhow = { workspace = true }

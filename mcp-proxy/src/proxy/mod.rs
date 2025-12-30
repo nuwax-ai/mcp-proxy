@@ -1,7 +1,7 @@
 //! Proxy module - re-exports handler types from proxy libraries
 //!
 //! This module provides a unified interface for proxy handlers by re-exporting
-//! types from mcp-sse-proxy and mcp-common libraries.
+//! types from mcp-sse-proxy, mcp-streamable-proxy, and mcp-common libraries.
 
 // Re-export SseHandler as ProxyHandler for backward compatibility
 // SseHandler is used because it's based on rmcp 0.10 which supports both
@@ -10,3 +10,7 @@ pub use mcp_sse_proxy::SseHandler as ProxyHandler;
 
 // Re-export ToolFilter from mcp-common
 pub use mcp_common::ToolFilter;
+
+// Re-export client connection types for high-level API (each from its own library)
+pub use mcp_sse_proxy::{SseClientConnection, McpClientConfig};
+pub use mcp_streamable_proxy::StreamClientConnection;

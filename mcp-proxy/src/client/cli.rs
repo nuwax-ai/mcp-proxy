@@ -1,5 +1,5 @@
-// MCP-Proxy CLI 简化实现 - 修复版本
-// 直接使用 rmcp 库的功能，无需复杂的 trait 抽象
+// MCP-Proxy CLI 实现
+// 使用库提供的高层 API，分支处理 SSE 和 Stream 协议
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -11,12 +11,28 @@ use serde::Deserialize;
 use tokio::process::Command;
 use tracing::error;
 
-use rmcp::{
-    ServiceExt,
-    model::{ClientCapabilities, ClientInfo},
-    transport::{SseClientTransport, StreamableHttpClientTransport, TokioChildProcess, sse_client::SseClientConfig, streamable_http_client::StreamableHttpClientTransportConfig, stdio},
+// 使用各自库的高层 API（从 proxy/mod.rs 导入）
+use crate::proxy::{
+    ProxyHandler, ToolFilter,
+    McpClientConfig, SseClientConnection, StreamClientConnection,
 };
-use crate::proxy::{ProxyHandler, ToolFilter};
+
+// SSE 模式需要的类型（rmcp 0.10）- 用于 command 模式和 SSE stdio 服务
+use mcp_sse_proxy::{
+    ServiceExt as SseServiceExt,
+    TokioChildProcess,
+    stdio as sse_stdio,
+    ClientInfo as SseClientInfo,
+    ClientCapabilities as SseClientCapabilities,
+    Implementation as SseImplementation,
+};
+
+// Stream 模式需要的类型（rmcp 0.12）
+use mcp_streamable_proxy::{
+    ServiceExt as StreamServiceExt,
+    stdio as stream_stdio,
+    ProxyHandler as StreamProxyHandler,
+};
 
 /// MCP-Proxy CLI 主命令结构
 #[derive(Parser, Debug)]
@@ -387,23 +403,11 @@ async fn run_convert_command(args: ConvertArgs, verbose: bool, quiet: bool) -> R
     // 解析配置
     let config_source = parse_convert_config(&args)?;
 
-    // 配置客户端能力
-    let client_info = ClientInfo {
-        protocol_version: Default::default(),
-        capabilities: ClientCapabilities::builder()
-            .enable_experimental()
-            .enable_roots()
-            .enable_roots_list_changed()
-            .enable_sampling()
-            .build(),
-        ..Default::default()
-    };
-
     // 根据配置源执行不同逻辑
     match config_source {
         McpConfigSource::DirectUrl { url } => {
             // 直接 URL 模式（带自动重连）
-            run_url_mode_with_retry(&args, &url, HashMap::new(), None, client_info, tool_filter, verbose, quiet).await
+            run_url_mode_with_retry(&args, &url, HashMap::new(), None, tool_filter, verbose, quiet).await
         }
         McpConfigSource::RemoteService { name, url, protocol, headers, timeout } => {
             // 远程服务配置模式
@@ -412,24 +416,22 @@ async fn run_convert_command(args: ConvertArgs, verbose: bool, quiet: bool) -> R
             }
             // 合并 headers：配置 + 命令行
             let merged_headers = merge_headers(headers, &args.header, args.auth.as_ref());
-            run_url_mode_with_retry(&args, &url, merged_headers, protocol.or(timeout.map(|_| super::protocol::McpProtocol::Stream)), client_info, tool_filter, verbose, quiet).await
+            run_url_mode_with_retry(&args, &url, merged_headers, protocol.or(timeout.map(|_| super::protocol::McpProtocol::Stream)), tool_filter, verbose, quiet).await
         }
         McpConfigSource::LocalCommand { name, command, args: cmd_args, env } => {
-            // 本地命令模式
-            run_command_mode(&name, &command, cmd_args, env, client_info, tool_filter, verbose, quiet).await
+            // 本地命令模式（使用 SSE 库的 rmcp 0.10）
+            run_command_mode(&name, &command, cmd_args, env, tool_filter, verbose, quiet).await
         }
     }
 }
 
 /// URL 模式执行（带自动重连）
-/// 先建立后端连接，成功后再启动 stdio server
-/// 当连接断开时 watchdog 会自动重连
+/// 使用分支逻辑：根据协议类型调用不同的处理函数
 async fn run_url_mode_with_retry(
     args: &ConvertArgs,
     url: &str,
     merged_headers: HashMap<String, String>,
     config_protocol: Option<super::protocol::McpProtocol>,
-    client_info: ClientInfo,
     tool_filter: ToolFilter,
     verbose: bool,
     quiet: bool,
@@ -446,82 +448,126 @@ async fn run_url_mode_with_retry(
         if let Some(ref deny_tools) = args.deny_tools {
             eprintln!("🔧 工具黑名单: {:?}", deny_tools);
         }
-        eprintln!("🔗 正在连接到后端服务...");
     }
 
-    // 1. 先建立后端连接（带超时）
-    let connect_timeout = Duration::from_secs(30);
-    let initial_connect_result = tokio::time::timeout(
-        connect_timeout,
-        try_connect(
-            args,
-            url,
-            &merged_headers,
-            config_protocol.clone(),
-            client_info.clone(),
-            verbose,
-            quiet,
-            false, // is_retry = false
-        )
-    ).await;
-
-    let initial_running = match initial_connect_result {
-        Ok(Ok(running)) => running,
-        Ok(Err(e)) => {
-            bail!("连接后端失败: {}", e);
+    // 确定协议类型：命令行参数 > 配置文件 > 自动检测
+    let protocol = if let Some(ref proto) = args.protocol {
+        let detected = match proto {
+            super::proxy_server::ProxyProtocol::Sse => super::protocol::McpProtocol::Sse,
+            super::proxy_server::ProxyProtocol::Stream => super::protocol::McpProtocol::Stream,
+        };
+        if !quiet {
+            eprintln!("🔧 使用指定协议: {}", protocol_name(&detected));
         }
-        Err(_) => {
-            bail!("连接后端超时 ({}秒)", connect_timeout.as_secs());
+        detected
+    } else if let Some(proto) = config_protocol {
+        if !quiet {
+            eprintln!("🔧 使用配置协议: {}", protocol_name(&proto));
         }
+        proto
+    } else {
+        if !quiet {
+            eprintln!("🔍 正在检测协议...");
+        }
+        let detected = super::protocol::detect_mcp_protocol(url).await?;
+        if !quiet {
+            eprintln!("🔍 检测到 {} 协议", protocol_name(&detected));
+        }
+        detected
     };
+
+    // 构建 McpClientConfig
+    let config = build_mcp_config(url, &merged_headers, args.auth.as_ref());
+
+    // 根据协议类型分支处理
+    match protocol {
+        super::protocol::McpProtocol::Sse => {
+            run_sse_mode(config, args.clone(), tool_filter, verbose, quiet).await
+        }
+        super::protocol::McpProtocol::Stream => {
+            run_stream_mode(config, args.clone(), tool_filter, verbose, quiet).await
+        }
+        super::protocol::McpProtocol::Stdio => {
+            bail!("Stdio 协议不支持通过 URL 转换，请使用 --config 配置本地命令")
+        }
+    }
+}
+
+/// 构建 McpClientConfig
+fn build_mcp_config(
+    url: &str,
+    headers: &HashMap<String, String>,
+    auth: Option<&String>,
+) -> McpClientConfig {
+    let mut config = McpClientConfig::new(url);
+    for (k, v) in headers {
+        config = config.with_header(k, v);
+    }
+    if let Some(auth_value) = auth {
+        config = config.with_header("Authorization", auth_value);
+    }
+    config
+}
+
+/// SSE 模式处理（使用 mcp-sse-proxy，rmcp 0.10）
+async fn run_sse_mode(
+    config: McpClientConfig,
+    args: ConvertArgs,
+    tool_filter: ToolFilter,
+    verbose: bool,
+    quiet: bool,
+) -> Result<()> {
+    if !quiet {
+        eprintln!("🔗 正在连接到后端服务 (SSE)...");
+    }
+
+    // 1. 使用高层 API 连接
+    let connect_timeout = Duration::from_secs(30);
+    let conn = tokio::time::timeout(connect_timeout, SseClientConnection::connect(config.clone()))
+        .await
+        .map_err(|_| anyhow::anyhow!("连接后端超时 ({}秒)", connect_timeout.as_secs()))?
+        .map_err(|e| anyhow::anyhow!("连接后端失败: {}", e))?;
 
     if !quiet {
         eprintln!("✅ 后端连接成功");
+        // 打印工具列表
+        print_sse_tools(&conn, quiet).await;
+        if args.ping_interval > 0 {
+            eprintln!("💓 心跳检测: 每 {}s ping 一次（超时 {}s）", args.ping_interval, args.ping_timeout);
+        }
     }
 
-    // 2. 使用已连接的后端创建 ProxyHandler
-    let proxy_handler = Arc::new(ProxyHandler::with_tool_filter(
-        initial_running,
-        "cli".to_string(),
-        tool_filter.clone(),
-    ));
+    // 2. 创建 handler（消耗 conn）
+    let handler = Arc::new(conn.into_handler("cli".to_string(), tool_filter.clone()));
 
     // 3. 启动 stdio server
-    let stdio_transport = stdio();
-    let server = (*proxy_handler).clone().serve(stdio_transport).await?;
+    let server = (*handler).clone().serve(sse_stdio()).await?;
 
     if !quiet {
         eprintln!("💡 stdio server 已启动，开始代理转换...");
     }
 
-    // 4. 启动 watchdog 任务（负责监控连接健康 + 断线重连）
-    // 注意：skip_initial_connect = true，因为我们已经建立了连接
-    let handler_for_watchdog = proxy_handler.clone();
-    let mut watchdog_handle = tokio::spawn(run_reconnection_watchdog(
+    // 4. 启动 watchdog 任务
+    let handler_for_watchdog = handler.clone();
+    let mut watchdog_handle = tokio::spawn(run_sse_watchdog(
         handler_for_watchdog,
-        args.clone(),
-        url.to_string(),
-        merged_headers,
-        config_protocol,
-        client_info,
+        args,
+        config,
         tool_filter,
         verbose,
         quiet,
-        true, // skip_initial_connect: 跳过首次连接，直接进入监控阶段
     ));
 
-    // 5. 等待 stdio server 退出（通常是 stdin EOF）
+    // 5. 等待 stdio server 退出
     tokio::select! {
         result = server.waiting() => {
-            // stdio server 退出，清理 watchdog
             watchdog_handle.abort();
             result?;
         }
         watchdog_result = &mut watchdog_handle => {
-            // watchdog 异常退出（不应该发生）
             if let Err(e) = watchdog_result {
                 if !e.is_cancelled() {
-                    error!("Watchdog task failed: {:?}", e);
+                    error!("SSE Watchdog task failed: {:?}", e);
                 }
             }
         }
@@ -530,95 +576,183 @@ async fn run_url_mode_with_retry(
     Ok(())
 }
 
-/// 重连 watchdog：负责监控连接健康、断开时重连
-///
-/// - `skip_initial_connect`: 如果为 true，跳过首次连接尝试，直接进入监控阶段
-///   （用于已经建立连接的场景）
-async fn run_reconnection_watchdog(
-    handler: Arc<ProxyHandler>,
+/// Stream 模式处理（使用 mcp-streamable-proxy，rmcp 0.12）
+async fn run_stream_mode(
+    config: McpClientConfig,
     args: ConvertArgs,
-    url: String,
-    merged_headers: HashMap<String, String>,
-    config_protocol: Option<super::protocol::McpProtocol>,
-    client_info: ClientInfo,
-    _tool_filter: ToolFilter,  // 保留参数以便将来使用
+    tool_filter: ToolFilter,
     verbose: bool,
     quiet: bool,
-    skip_initial_connect: bool,
+) -> Result<()> {
+    if !quiet {
+        eprintln!("🔗 正在连接到后端服务 (Stream)...");
+    }
+
+    // 1. 使用高层 API 连接
+    let connect_timeout = Duration::from_secs(30);
+    let conn = tokio::time::timeout(connect_timeout, StreamClientConnection::connect(config.clone()))
+        .await
+        .map_err(|_| anyhow::anyhow!("连接后端超时 ({}秒)", connect_timeout.as_secs()))?
+        .map_err(|e| anyhow::anyhow!("连接后端失败: {}", e))?;
+
+    if !quiet {
+        eprintln!("✅ 后端连接成功");
+        // 打印工具列表
+        print_stream_tools(&conn, quiet).await;
+        if args.ping_interval > 0 {
+            eprintln!("💓 心跳检测: 每 {}s ping 一次（超时 {}s）", args.ping_interval, args.ping_timeout);
+        }
+    }
+
+    // 2. 创建 handler（消耗 conn）
+    let handler = Arc::new(conn.into_handler("cli".to_string(), tool_filter.clone()));
+
+    // 3. 启动 stdio server（使用 stream_stdio，即 rmcp 0.12 的 stdio）
+    let server = (*handler).clone().serve(stream_stdio()).await?;
+
+    if !quiet {
+        eprintln!("💡 stdio server 已启动，开始代理转换...");
+    }
+
+    // 4. 启动 watchdog 任务
+    let handler_for_watchdog = handler.clone();
+    let mut watchdog_handle = tokio::spawn(run_stream_watchdog(
+        handler_for_watchdog,
+        args,
+        config,
+        tool_filter,
+        verbose,
+        quiet,
+    ));
+
+    // 5. 等待 stdio server 退出
+    tokio::select! {
+        result = server.waiting() => {
+            watchdog_handle.abort();
+            result?;
+        }
+        watchdog_result = &mut watchdog_handle => {
+            if let Err(e) = watchdog_result {
+                if !e.is_cancelled() {
+                    error!("Stream Watchdog task failed: {:?}", e);
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// 打印 SSE 连接的工具列表
+async fn print_sse_tools(conn: &SseClientConnection, quiet: bool) {
+    if quiet {
+        return;
+    }
+    match conn.list_tools().await {
+        Ok(tools) => {
+            if tools.is_empty() {
+                eprintln!("⚠️  工具列表为空 (tools/list 返回 0 个工具)");
+            } else {
+                eprintln!("🔧 可用工具 ({} 个):", tools.len());
+                for tool in &tools {
+                    let desc = tool.description.as_deref().unwrap_or("无描述");
+                    let desc_short = truncate_str(desc, 50);
+                    eprintln!("   - {} : {}", tool.name, desc_short);
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("⚠️  获取工具列表失败: {}", e);
+        }
+    }
+}
+
+/// 打印 Stream 连接的工具列表
+async fn print_stream_tools(conn: &StreamClientConnection, quiet: bool) {
+    if quiet {
+        return;
+    }
+    match conn.list_tools().await {
+        Ok(tools) => {
+            if tools.is_empty() {
+                eprintln!("⚠️  工具列表为空 (tools/list 返回 0 个工具)");
+            } else {
+                eprintln!("🔧 可用工具 ({} 个):", tools.len());
+                for tool in &tools {
+                    let desc = tool.description.as_deref().unwrap_or("无描述");
+                    let desc_short = truncate_str(desc, 50);
+                    eprintln!("   - {} : {}", tool.name, desc_short);
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("⚠️  获取工具列表失败: {}", e);
+        }
+    }
+}
+
+/// 截断字符串（UTF-8 安全）
+fn truncate_str(s: &str, max_len: usize) -> String {
+    if s.chars().count() > max_len {
+        format!("{}...", s.chars().take(max_len - 3).collect::<String>())
+    } else {
+        s.to_string()
+    }
+}
+
+/// SSE 模式的 watchdog：负责监控连接健康、断开时重连
+async fn run_sse_watchdog(
+    handler: Arc<ProxyHandler>,
+    args: ConvertArgs,
+    config: McpClientConfig,
+    _tool_filter: ToolFilter,
+    verbose: bool,
+    quiet: bool,
 ) {
     let max_retries = args.retries;
     let mut attempt = 0u32;
     let mut backoff_secs = 1u64;
     const MAX_BACKOFF_SECS: u64 = 30;
 
-    // 如果跳过首次连接，直接进入监控阶段
-    if skip_initial_connect {
-        // 监控现有连接的健康状态
-        let disconnect_reason = monitor_connection(
-            &handler,
-            args.ping_interval,
-            args.ping_timeout,
-            quiet,
-        ).await;
+    // 首先监控现有连接的健康状态
+    let disconnect_reason = monitor_sse_connection(
+        &handler,
+        args.ping_interval,
+        args.ping_timeout,
+        quiet,
+    ).await;
 
-        // 连接断开，标记后端不可用
-        handler.swap_backend(None);
+    // 连接断开，标记后端不可用
+    handler.swap_backend(None);
 
-        if !quiet {
-            eprintln!("⚠️  连接断开: {}", disconnect_reason);
-        }
-        // 继续进入重连循环，此时 attempt 从 0 开始
-        // 第一次进入循环时 attempt = 1，is_retry = true（因为这是断线重连）
+    if !quiet {
+        eprintln!("⚠️  连接断开: {}", disconnect_reason);
     }
 
+    // 进入重连循环
     loop {
         attempt += 1;
-        // 如果跳过了首次连接，所有循环都是重连
-        let is_retry = skip_initial_connect || attempt > 1;
 
-        // 重连时显示日志
-        if is_retry && !quiet {
-            eprintln!("🔗 正在建立连接 (第{}次尝试)...", attempt);
+        if !quiet {
+            eprintln!("🔗 正在重新连接 (第{}次尝试)...", attempt);
         }
 
-        // 每次连接需要新的 ClientInfo
-        let client_info_clone = ClientInfo {
-            protocol_version: client_info.protocol_version.clone(),
-            capabilities: client_info.capabilities.clone(),
-            client_info: client_info.client_info.clone(),
-        };
-
         // 尝试建立连接
-        let connect_result = try_connect(
-            &args,
-            &url,
-            &merged_headers,
-            config_protocol.clone(),
-            client_info_clone,
-            verbose,
-            quiet,
-            is_retry,
-        ).await;
+        let connect_result = SseClientConnection::connect(config.clone()).await;
 
         match connect_result {
-            Ok(running) => {
-                // 连接成功，热替换后端
+            Ok(conn) => {
+                // 连接成功，获取 RunningService 并热替换后端
+                let running = conn.into_running_service();
                 handler.swap_backend(Some(running));
-                backoff_secs = 1; // 重置退避
+                backoff_secs = 1;
 
                 if !quiet {
-                    if is_retry {
-                        eprintln!("✅ 重连成功，恢复代理服务");
-                    } else {
-                        eprintln!("✅ 连接成功，开始代理转换...");
-                    }
-
-                    // 打印工具列表（需要通过 handler 访问）
-                    // 由于 handler 现在有连接，可以直接使用
+                    eprintln!("✅ 重连成功，恢复代理服务");
                 }
 
                 // 监控连接健康
-                let disconnect_reason = monitor_connection(
+                let disconnect_reason = monitor_sse_connection(
                     &handler,
                     args.ping_interval,
                     args.ping_timeout,
@@ -633,17 +767,14 @@ async fn run_reconnection_watchdog(
                 }
             }
             Err(e) => {
-                // 连接失败
                 let error_type = classify_error(&e);
 
-                // 检查是否还有重试次数（0 表示无限重试）
                 if max_retries > 0 && attempt >= max_retries {
                     if !quiet {
                         eprintln!("❌ 连接失败，已达最大重试次数 ({})", max_retries);
                         eprintln!("   错误类型: {}", error_type);
                         eprintln!("   错误详情: {}", e);
                     }
-                    // 达到最大重试次数，退出 watchdog（但 stdio server 继续运行）
                     break;
                 }
 
@@ -657,127 +788,124 @@ async fn run_reconnection_watchdog(
                     }
                 }
 
-                // verbose 模式下显示完整错误
                 if verbose && !quiet {
                     eprintln!("   完整错误: {}", e);
                 }
             }
         }
 
-        // 等待退避时间后重试
         tokio::time::sleep(Duration::from_secs(backoff_secs)).await;
-
-        // 指数退避，但不超过最大值
         backoff_secs = (backoff_secs * 2).min(MAX_BACKOFF_SECS);
     }
 }
 
-/// 尝试建立到远程 MCP 服务的连接
-async fn try_connect(
-    args: &ConvertArgs,
-    url: &str,
-    merged_headers: &HashMap<String, String>,
-    config_protocol: Option<super::protocol::McpProtocol>,
-    client_info: ClientInfo,
-    _verbose: bool,  // 保留参数以便将来使用
+/// Stream 模式的 watchdog：负责监控连接健康、断开时重连
+async fn run_stream_watchdog(
+    handler: Arc<StreamProxyHandler>,
+    args: ConvertArgs,
+    config: McpClientConfig,
+    _tool_filter: ToolFilter,
+    verbose: bool,
     quiet: bool,
-    is_retry: bool,
-) -> Result<rmcp::service::RunningService<rmcp::RoleClient, ClientInfo>> {
-    // 确定协议类型：命令行参数 > 配置文件 > 自动检测
-    let protocol = if let Some(ref proto) = args.protocol {
-        let detected = match proto {
-            super::proxy_server::ProxyProtocol::Sse => super::protocol::McpProtocol::Sse,
-            super::proxy_server::ProxyProtocol::Stream => super::protocol::McpProtocol::Stream,
-        };
-        if !quiet && !is_retry {
-            eprintln!("🔧 使用指定协议: {}", protocol_name(&detected));
-        }
-        detected
-    } else if let Some(proto) = config_protocol {
-        if !quiet && !is_retry {
-            eprintln!("🔧 使用配置协议: {}", protocol_name(&proto));
-        }
-        proto
-    } else {
-        let detected = super::protocol::detect_mcp_protocol(url).await?;
-        if !quiet && !is_retry {
-            eprintln!("🔍 检测到 {} 协议", protocol_name(&detected));
-        }
-        detected
-    };
+) {
+    let max_retries = args.retries;
+    let mut attempt = 0u32;
+    let mut backoff_secs = 1u64;
+    const MAX_BACKOFF_SECS: u64 = 30;
 
-    if !quiet && !is_retry {
-        eprintln!("🔗 建立连接...");
+    // 首先监控现有连接的健康状态
+    let disconnect_reason = monitor_stream_connection(
+        &handler,
+        args.ping_interval,
+        args.ping_timeout,
+        quiet,
+    ).await;
+
+    // 连接断开，标记后端不可用
+    handler.swap_backend(None);
+
+    if !quiet {
+        eprintln!("⚠️  连接断开: {}", disconnect_reason);
     }
 
-    // 构建 HTTP 客户端
-    let http_client = create_http_client_with_headers(merged_headers, &args.header, args.auth.as_ref())?;
+    // 进入重连循环
+    loop {
+        attempt += 1;
 
-    // 创建传输并启动 rmcp 客户端
-    let running = match protocol {
-        super::protocol::McpProtocol::Sse => {
-            let cfg = SseClientConfig {
-                sse_endpoint: url.to_string().into(),
-                ..Default::default()
-            };
-            let transport = SseClientTransport::start_with_client(http_client, cfg).await?;
-            client_info.serve(transport).await?
+        if !quiet {
+            eprintln!("🔗 正在重新连接 (第{}次尝试)...", attempt);
         }
-        super::protocol::McpProtocol::Stream => {
-            let cfg = StreamableHttpClientTransportConfig {
-                uri: url.to_string().into(),
-                ..Default::default()
-            };
-            let transport = StreamableHttpClientTransport::with_client(http_client, cfg);
-            client_info.serve(transport).await?
-        }
-        super::protocol::McpProtocol::Stdio => {
-            bail!("Stdio 协议不支持通过 URL 转换，请使用 --config 配置本地命令")
-        }
-    };
 
-    // 打印工具列表
-    if !quiet {
-        match running.list_tools(None).await {
-            Ok(tools_result) => {
-                let tools = &tools_result.tools;
-                if tools.is_empty() {
-                    eprintln!("⚠️  工具列表为空 (tools/list 返回 0 个工具)");
-                } else {
-                    eprintln!("🔧 可用工具 ({} 个):", tools.len());
-                    for tool in tools {
-                        let desc = tool.description.as_deref().unwrap_or("无描述");
-                        let desc_short = if desc.chars().count() > 50 {
-                            format!("{}...", desc.chars().take(50).collect::<String>())
-                        } else {
-                            desc.to_string()
-                        };
-                        eprintln!("   - {} : {}", tool.name, desc_short);
-                    }
+        // 尝试建立连接
+        let connect_result = StreamClientConnection::connect(config.clone()).await;
+
+        match connect_result {
+            Ok(conn) => {
+                // 连接成功，获取 RunningService 并热替换后端
+                let running = conn.into_running_service();
+                handler.swap_backend(Some(running));
+                backoff_secs = 1;
+
+                if !quiet {
+                    eprintln!("✅ 重连成功，恢复代理服务");
+                }
+
+                // 监控连接健康
+                let disconnect_reason = monitor_stream_connection(
+                    &handler,
+                    args.ping_interval,
+                    args.ping_timeout,
+                    quiet,
+                ).await;
+
+                // 连接断开，标记后端不可用
+                handler.swap_backend(None);
+
+                if !quiet {
+                    eprintln!("⚠️  连接断开: {}", disconnect_reason);
                 }
             }
             Err(e) => {
-                eprintln!("⚠️  获取工具列表失败: {}", e);
+                let error_type = classify_error(&e);
+
+                if max_retries > 0 && attempt >= max_retries {
+                    if !quiet {
+                        eprintln!("❌ 连接失败，已达最大重试次数 ({})", max_retries);
+                        eprintln!("   错误类型: {}", error_type);
+                        eprintln!("   错误详情: {}", e);
+                    }
+                    break;
+                }
+
+                if !quiet {
+                    if max_retries == 0 {
+                        eprintln!("⚠️  连接失败 [{}]: {}，{}秒后重连 (第{}次)...",
+                            error_type, summarize_error(&e), backoff_secs, attempt);
+                    } else {
+                        eprintln!("⚠️  连接失败 [{}]: {}，{}秒后重连 ({}/{})...",
+                            error_type, summarize_error(&e), backoff_secs, attempt, max_retries);
+                    }
+                }
+
+                if verbose && !quiet {
+                    eprintln!("   完整错误: {}", e);
+                }
             }
         }
 
-        if args.ping_interval > 0 && !is_retry {
-            eprintln!("💓 心跳检测: 每 {}s ping 一次（超时 {}s）", args.ping_interval, args.ping_timeout);
-        }
+        tokio::time::sleep(Duration::from_secs(backoff_secs)).await;
+        backoff_secs = (backoff_secs * 2).min(MAX_BACKOFF_SECS);
     }
-
-    Ok(running)
 }
 
-/// 监控连接健康，返回断开原因
-async fn monitor_connection(
+/// SSE 模式：监控连接健康，返回断开原因
+async fn monitor_sse_connection(
     handler: &ProxyHandler,
     ping_interval: u64,
     ping_timeout: u64,
     quiet: bool,
 ) -> String {
     if ping_interval == 0 {
-        // 无 ping 模式，等待后端自然断开
         loop {
             tokio::time::sleep(Duration::from_secs(1)).await;
             if !handler.is_backend_available() {
@@ -787,32 +915,68 @@ async fn monitor_connection(
     }
 
     let mut interval = tokio::time::interval(Duration::from_secs(ping_interval));
-    interval.tick().await; // 跳过第一次立即触发
+    interval.tick().await;
 
     loop {
         interval.tick().await;
 
-        // 快速检查后端可用性
         if !handler.is_backend_available() {
             return "后端连接已关闭".to_string();
         }
 
-        // 异步检查（发送请求验证）
         let check_result = tokio::time::timeout(
             Duration::from_secs(ping_timeout),
             handler.is_terminated_async()
         ).await;
 
         match check_result {
-            Ok(true) => {
-                // 连接已断开
-                return "Ping 检测失败（服务错误）".to_string();
-            }
-            Ok(false) => {
-                // 连接正常，继续
-            }
+            Ok(true) => return "Ping 检测失败（服务错误）".to_string(),
+            Ok(false) => {}
             Err(_) => {
-                // 超时
+                if !quiet {
+                    eprintln!("❌ Ping 检测超时（{}s）", ping_timeout);
+                }
+                return format!("Ping 检测超时（{}s）", ping_timeout);
+            }
+        }
+    }
+}
+
+/// Stream 模式：监控连接健康，返回断开原因
+async fn monitor_stream_connection(
+    handler: &StreamProxyHandler,
+    ping_interval: u64,
+    ping_timeout: u64,
+    quiet: bool,
+) -> String {
+    if ping_interval == 0 {
+        loop {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            if !handler.is_backend_available() {
+                return "后端连接已关闭".to_string();
+            }
+        }
+    }
+
+    let mut interval = tokio::time::interval(Duration::from_secs(ping_interval));
+    interval.tick().await;
+
+    loop {
+        interval.tick().await;
+
+        if !handler.is_backend_available() {
+            return "后端连接已关闭".to_string();
+        }
+
+        let check_result = tokio::time::timeout(
+            Duration::from_secs(ping_timeout),
+            handler.is_terminated_async()
+        ).await;
+
+        match check_result {
+            Ok(true) => return "Ping 检测失败（服务错误）".to_string(),
+            Ok(false) => {}
+            Err(_) => {
                 if !quiet {
                     eprintln!("❌ Ping 检测超时（{}s）", ping_timeout);
                 }
@@ -861,12 +1025,12 @@ fn summarize_error(e: &anyhow::Error) -> String {
 }
 
 /// 命令模式执行（本地子进程）
+/// 使用 SSE 库（rmcp 0.10）的类型
 async fn run_command_mode(
     name: &str,
     command: &str,
     cmd_args: Vec<String>,
     env: HashMap<String, String>,
-    client_info: ClientInfo,
     tool_filter: ToolFilter,
     verbose: bool,
     quiet: bool,
@@ -900,6 +1064,9 @@ async fn run_command_mode(
         eprintln!("🔗 启动子进程...");
     }
 
+    // 创建 ClientInfo（使用 SSE 库的类型，rmcp 0.10）
+    let client_info = create_sse_client_info();
+
     // 连接到子进程
     let running = client_info.serve(tokio_process).await?;
 
@@ -916,11 +1083,7 @@ async fn run_command_mode(
                     eprintln!("🔧 可用工具 ({} 个):", tools.len());
                     for tool in tools {
                         let desc = tool.description.as_deref().unwrap_or("无描述");
-                        let desc_short = if desc.chars().count() > 50 {
-                            format!("{}...", desc.chars().take(50).collect::<String>())
-                        } else {
-                            desc.to_string()
-                        };
+                        let desc_short = truncate_str(desc, 50);
                         eprintln!("   - {} : {}", tool.name, desc_short);
                     }
                 }
@@ -935,11 +1098,30 @@ async fn run_command_mode(
 
     // 使用 ProxyHandler + stdio 将本地 MCP 服务透明暴露为 stdio
     let proxy_handler = ProxyHandler::with_tool_filter(running, name.to_string(), tool_filter);
-    let stdio_transport = stdio();
-    let server = proxy_handler.serve(stdio_transport).await?;
+    let server = proxy_handler.serve(sse_stdio()).await?;
     server.waiting().await?;
 
     Ok(())
+}
+
+/// 创建 SSE 库的 ClientInfo（rmcp 0.10）
+fn create_sse_client_info() -> SseClientInfo {
+    SseClientInfo {
+        protocol_version: Default::default(),
+        capabilities: SseClientCapabilities::builder()
+            .enable_experimental()
+            .enable_roots()
+            .enable_roots_list_changed()
+            .enable_sampling()
+            .build(),
+        client_info: SseImplementation {
+            name: "mcp-proxy-cli".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            title: None,
+            website_url: None,
+            icons: None,
+        },
+    }
 }
 
 /// 获取协议名称
@@ -949,42 +1131,6 @@ fn protocol_name(protocol: &super::protocol::McpProtocol) -> &'static str {
         super::protocol::McpProtocol::Stream => "Streamable HTTP",
         super::protocol::McpProtocol::Stdio => "Stdio",
     }
-}
-
-/// 创建 HTTP 客户端（使用合并后的 headers）
-fn create_http_client_with_headers(
-    config_headers: &HashMap<String, String>,
-    cli_headers: &[(String, String)],
-    cli_auth: Option<&String>,
-) -> Result<reqwest::Client> {
-    let mut headers = reqwest::header::HeaderMap::new();
-
-    // 1. 先添加配置中的 headers
-    for (key, value) in config_headers {
-        headers.insert(
-            key.parse::<reqwest::header::HeaderName>()?,
-            value.parse()?,
-        );
-    }
-
-    // 2. 命令行 -H 参数覆盖
-    for (key, value) in cli_headers {
-        headers.insert(
-            key.parse::<reqwest::header::HeaderName>()?,
-            value.parse()?,
-        );
-    }
-
-    // 3. 命令行 --auth 参数优先级最高
-    if let Some(auth) = cli_auth {
-        headers.insert("Authorization", auth.parse()?);
-    }
-
-    let client = reqwest::Client::builder()
-        .default_headers(headers)
-        .build()?;
-
-    Ok(client)
 }
 
 /// 运行检查命令

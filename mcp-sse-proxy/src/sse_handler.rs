@@ -856,4 +856,24 @@ impl SseHandler {
     pub fn mcp_id(&self) -> &str {
         &self.mcp_id
     }
+
+    /// Update backend from an SseClientConnection
+    ///
+    /// This method allows updating the backend connection using the high-level
+    /// `SseClientConnection` type, which is more convenient than the raw
+    /// `RunningService` type.
+    ///
+    /// # Arguments
+    /// * `conn` - Some(connection) to set new backend, None to mark disconnected
+    pub fn swap_backend_from_connection(&self, conn: Option<crate::client::SseClientConnection>) {
+        match conn {
+            Some(c) => {
+                let running = c.into_running_service();
+                self.swap_backend(Some(running));
+            }
+            None => {
+                self.swap_backend(None);
+            }
+        }
+    }
 }

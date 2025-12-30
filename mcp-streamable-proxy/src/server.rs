@@ -127,11 +127,13 @@ pub async fn run_stream_server_from_config(
 ///
 /// ```no_run
 /// use mcp_streamable_proxy::{ProxyHandler, run_stream_server};
+/// use mcp_common::ToolFilter;
 ///
 /// # async fn example() -> anyhow::Result<()> {
 /// let handler = ProxyHandler::new_disconnected(
-///     Default::default(),
 ///     "test-mcp".to_string(),
+///     ToolFilter::default(),
+///     Default::default(),
 /// );
 ///
 /// run_stream_server(handler, "127.0.0.1:3000", false).await?;
