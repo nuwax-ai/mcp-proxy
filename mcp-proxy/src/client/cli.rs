@@ -451,6 +451,8 @@ async fn run_url_mode_with_retry(
     }
 
     // 创建默认的 ServerInfo（断开状态时使用）
+    // 注意：需要预设 capabilities 以便在后端连接前也能正确响应请求
+    use rmcp::model::{ServerCapabilities, ToolsCapability, ResourcesCapability, PromptsCapability};
     let default_info = ServerInfo {
         protocol_version: Default::default(),
         server_info: Implementation {
@@ -461,7 +463,12 @@ async fn run_url_mode_with_retry(
             icons: None,
         },
         instructions: None,
-        capabilities: Default::default(),
+        capabilities: ServerCapabilities {
+            tools: Some(ToolsCapability { list_changed: None }),
+            resources: Some(ResourcesCapability { subscribe: None, list_changed: None }),
+            prompts: Some(PromptsCapability { list_changed: None }),
+            ..Default::default()
+        },
     };
 
     // 1. 创建断开状态的 ProxyHandler（使用 Arc 以便共享）
