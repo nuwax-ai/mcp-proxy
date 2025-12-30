@@ -120,6 +120,54 @@ setup-buildx:
 # MCP 包发布目标
 # ============================================================================
 
+# 自动更新所有 MCP 包的版本号（小版本号加一）
+.PHONY: mcp-version-update
+mcp-version-update:
+	@echo "🔄 开始更新 MCP 包版本号..."
+	@echo ""
+	@# 读取 mcp-common 的当前版本
+	@CURRENT_VERSION=$$(grep '^version = ' mcp-common/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/'); \
+	MAJOR=$$(echo $$CURRENT_VERSION | cut -d. -f1); \
+	MINOR=$$(echo $$CURRENT_VERSION | cut -d. -f2); \
+	PATCH=$$(echo $$CURRENT_VERSION | cut -d. -f3); \
+	NEW_PATCH=$$((PATCH + 1)); \
+	NEW_VERSION="$$MAJOR.$$MINOR.$$NEW_PATCH"; \
+	echo "当前版本: $$CURRENT_VERSION"; \
+	echo "新版本: $$NEW_VERSION"; \
+	echo ""; \
+	echo "1️⃣  更新 mcp-common 版本..."; \
+	sed -i.bak "s/^version = \"$$CURRENT_VERSION\"/version = \"$$NEW_VERSION\"/" mcp-common/Cargo.toml && rm mcp-common/Cargo.toml.bak; \
+	echo "2️⃣  更新 mcp-sse-proxy 版本和依赖..."; \
+	sed -i.bak "s/^version = \"$$CURRENT_VERSION\"/version = \"$$NEW_VERSION\"/" mcp-sse-proxy/Cargo.toml && rm mcp-sse-proxy/Cargo.toml.bak; \
+	sed -i.bak "s/mcp-common = { version = \"$$CURRENT_VERSION\"/mcp-common = { version = \"$$NEW_VERSION\"/" mcp-sse-proxy/Cargo.toml && rm mcp-sse-proxy/Cargo.toml.bak; \
+	echo "3️⃣  更新 mcp-streamable-proxy 版本和依赖..."; \
+	sed -i.bak "s/^version = \"$$CURRENT_VERSION\"/version = \"$$NEW_VERSION\"/" mcp-streamable-proxy/Cargo.toml && rm mcp-streamable-proxy/Cargo.toml.bak; \
+	sed -i.bak "s/mcp-common = { version = \"$$CURRENT_VERSION\"/mcp-common = { version = \"$$NEW_VERSION\"/" mcp-streamable-proxy/Cargo.toml && rm mcp-streamable-proxy/Cargo.toml.bak; \
+	echo "4️⃣  更新 mcp-stdio-proxy 的依赖版本..."; \
+	sed -i.bak "s/mcp-common = { version = \"$$CURRENT_VERSION\"/mcp-common = { version = \"$$NEW_VERSION\"/" mcp-proxy/Cargo.toml && rm mcp-proxy/Cargo.toml.bak; \
+	sed -i.bak "s/mcp-streamable-proxy = { version = \"$$CURRENT_VERSION\"/mcp-streamable-proxy = { version = \"$$NEW_VERSION\"/" mcp-proxy/Cargo.toml && rm mcp-proxy/Cargo.toml.bak; \
+	sed -i.bak "s/mcp-sse-proxy = { version = \"$$CURRENT_VERSION\"/mcp-sse-proxy = { version = \"$$NEW_VERSION\"/" mcp-proxy/Cargo.toml && rm mcp-proxy/Cargo.toml.bak; \
+	echo ""; \
+	echo "✅ 版本号更新完成: $$CURRENT_VERSION -> $$NEW_VERSION"
+
+# 显示当前 MCP 包的版本号
+.PHONY: mcp-version-show
+mcp-version-show:
+	@echo "📋 当前 MCP 包版本号:"
+	@echo ""
+	@echo "  mcp-common:            $$(grep '^version = ' mcp-common/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')"
+	@echo "  mcp-sse-proxy:         $$(grep '^version = ' mcp-sse-proxy/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')"
+	@echo "  mcp-streamable-proxy:  $$(grep '^version = ' mcp-streamable-proxy/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')"
+	@echo "  mcp-stdio-proxy:       $$(grep '^version = ' mcp-proxy/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')"
+	@echo ""
+	@echo "📦 依赖版本号检查:"
+	@echo ""
+	@echo "  mcp-sse-proxy 依赖的 mcp-common:           $$(grep 'mcp-common = { version' mcp-sse-proxy/Cargo.toml | sed 's/.*version = "\([^"]*\)".*/\1/')"
+	@echo "  mcp-streamable-proxy 依赖的 mcp-common:    $$(grep 'mcp-common = { version' mcp-streamable-proxy/Cargo.toml | sed 's/.*version = "\([^"]*\)".*/\1/')"
+	@echo "  mcp-stdio-proxy 依赖的 mcp-common:         $$(grep 'mcp-common = { version' mcp-proxy/Cargo.toml | sed 's/.*version = "\([^"]*\)".*/\1/')"
+	@echo "  mcp-stdio-proxy 依赖的 mcp-sse-proxy:      $$(grep 'mcp-sse-proxy = { version' mcp-proxy/Cargo.toml | sed 's/.*version = "\([^"]*\)".*/\1/')"
+	@echo "  mcp-stdio-proxy 依赖的 mcp-streamable-proxy: $$(grep 'mcp-streamable-proxy = { version' mcp-proxy/Cargo.toml | sed 's/.*version = "\([^"]*\)".*/\1/')"
+
 # 发布所有 MCP 相关包（按依赖顺序）
 .PHONY: mcp-publish
 mcp-publish:
@@ -228,6 +276,8 @@ help:
 	@echo "    make setup-buildx                   - 设置 Docker buildx builder"
 	@echo ""
 	@echo "  📦 MCP 发布命令:"
+	@echo "    make mcp-version-show               - 显示当前所有 MCP 包的版本号"
+	@echo "    make mcp-version-update             - 自动更新版本号（小版本号加一）"
 	@echo "    make mcp-publish                    - 发布所有 MCP 包到 crates.io（按依赖顺序）"
 	@echo "    make mcp-publish-dry-run            - 预览将要发布的内容（不实际发布）"
 	@echo "    make mcp-package-list               - 查看各包将包含的文件列表"
@@ -245,6 +295,8 @@ help:
 	@echo "    make build-voice-cli-multi          # 构建 voice-cli 多平台版本"
 	@echo "    make build-all-x86_64               # 构建所有组件 Linux x86_64 版本"
 	@echo "    make build-all-multi                # 构建所有组件多平台版本"
+	@echo "    make mcp-version-show               # 查看当前版本号"
+	@echo "    make mcp-version-update             # 更新版本号（0.1.0 -> 0.1.1）"
 	@echo "    make mcp-publish-dry-run            # 预览 MCP 发布（建议先运行此命令）"
 	@echo "    make mcp-publish                    # 发布 MCP 包到 crates.io"
 	@echo ""
