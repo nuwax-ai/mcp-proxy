@@ -27,6 +27,17 @@ pub use server::{run_sse_server, run_sse_server_from_config, McpServiceConfig};
 // Re-export commonly used rmcp types
 pub use rmcp::{
     RoleClient, RoleServer, ServerHandler,
-    model::{ServerInfo, ClientInfo},
+    model::{ServerInfo, ClientInfo, ClientCapabilities, CallToolRequestParam, Implementation},
     service::{RunningService, Peer},
+    ServiceExt,
+};
+
+// Re-export transport types for SSE protocol (rmcp 0.10)
+pub use rmcp::transport::{
+    SseClientTransport,
+    sse_client::SseClientConfig,
+    child_process::TokioChildProcess,
+    stdio,
+    SseServer,
+    sse_server::SseServerConfig,
 };

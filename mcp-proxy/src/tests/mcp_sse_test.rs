@@ -3,10 +3,11 @@ mod sse_test {
     use crate::tests::test_utils::setup;
     use anyhow::{Context, Result};
     use log::{error, info, warn};
-    use rmcp::{
+    // Use library re-exports instead of direct rmcp imports
+    use mcp_sse_proxy::{
         ServiceExt,
-        model::{CallToolRequestParam, ClientCapabilities, ClientInfo, Implementation},
-        transport::{SseClientTransport, sse_client::SseClientConfig},
+        CallToolRequestParam, ClientCapabilities, ClientInfo, Implementation,
+        SseClientTransport, SseClientConfig,
     };
     use std::process::Command;
     use std::time::Duration;

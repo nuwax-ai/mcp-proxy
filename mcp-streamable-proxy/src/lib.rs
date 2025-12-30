@@ -32,6 +32,21 @@ pub use server::{run_stream_server, run_stream_server_from_config, McpServiceCon
 // Re-export commonly used rmcp types
 pub use rmcp::{
     RoleClient, RoleServer, ServerHandler,
-    model::{ServerInfo, ClientInfo},
+    model::{ServerInfo, ClientInfo, ClientCapabilities},
     service::{RunningService, Peer},
+    ServiceExt,
+};
+
+// Re-export transport types for Streamable HTTP protocol (rmcp 0.12)
+pub use rmcp::transport::{
+    child_process::TokioChildProcess,
+    streamable_http_client::StreamableHttpClientTransport,
+    streamable_http_client::StreamableHttpClientTransportConfig,
+    StreamableHttpServerConfig,
+};
+
+// Re-export server-side Streamable HTTP types
+pub use rmcp::transport::streamable_http_server::{
+    StreamableHttpService,
+    session::local::LocalSessionManager,
 };
