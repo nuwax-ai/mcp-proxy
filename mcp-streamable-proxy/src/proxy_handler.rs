@@ -11,9 +11,8 @@ use rmcp::{
     service::{NotificationContext, Peer, RequestContext, RunningService},
 };
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use arc_swap::ArcSwapOption;
-
-// 使用共享的 ToolFilter
 pub use mcp_common::ToolFilter;
 
 /// 包装后端连接和运行服务
@@ -29,6 +28,10 @@ struct PeerInner {
 
 /// A proxy handler that forwards requests to a client based on the server's capabilities
 /// 使用 ArcSwap 实现后端热替换，支持断开时立即返回错误
+///
+/// **增强功能**：
+/// - 后端版本控制：每次 swap_backend 都会递增版本号
+/// - 支持 Session 版本跟踪：配合 ProxyAwareSessionManager 使用
 #[derive(Clone, Debug)]
 pub struct ProxyHandler {
     /// 后端连接（ArcSwap 支持无锁原子替换）
@@ -40,6 +43,9 @@ pub struct ProxyHandler {
     mcp_id: String,
     /// 工具过滤配置
     tool_filter: ToolFilter,
+    /// 后端版本号（每次 swap_backend 递增）
+    /// 用于跟踪后端连接变化，使旧 session 失效
+    backend_version: Arc<AtomicU64>,
 }
 
 impl ServerHandler for ProxyHandler {
@@ -113,6 +119,7 @@ impl ServerHandler for ProxyHandler {
                                 Ok(ListToolsResult {
                                     tools: filtered_tools,
                                     next_cursor: result.next_cursor,
+                                    meta: result.meta, // rmcp 0.12 新增字段
                                 })
                             }
                             Err(err) => {
@@ -728,6 +735,7 @@ impl ProxyHandler {
             cached_info: default_info,
             mcp_id,
             tool_filter,
+            backend_version: Arc::new(AtomicU64::new(0)), // 断开状态版本为 0
         }
     }
 
@@ -780,12 +788,15 @@ impl ProxyHandler {
             cached_info,
             mcp_id,
             tool_filter,
+            backend_version: Arc::new(AtomicU64::new(1)), // 初始版本为 1
         }
     }
 
     /// 原子性替换后端连接
     /// - Some(client): 设置新的后端连接
     /// - None: 标记后端断开
+    ///
+    /// **版本控制**：每次调用都会递增 backend_version，使旧 session 失效
     pub fn swap_backend(&self, new_client: Option<RunningService<RoleClient, ClientInfo>>) {
         use std::ops::Deref;
 
@@ -804,6 +815,13 @@ impl ProxyHandler {
                 info!("[ProxyHandler] 后端连接已断开 - MCP ID: {}", self.mcp_id);
             }
         }
+
+        // 关键：递增版本号，使所有旧 session 失效
+        let new_version = self.backend_version.fetch_add(1, Ordering::SeqCst) + 1;
+        info!(
+            "[ProxyHandler] 后端版本更新: {} - MCP ID: {}",
+            new_version, self.mcp_id
+        );
     }
 
     /// 检查后端是否可用（快速检查，不发送请求）
@@ -855,5 +873,16 @@ impl ProxyHandler {
     /// 获取 MCP ID
     pub fn mcp_id(&self) -> &str {
         &self.mcp_id
+    }
+
+    /// 获取当前后端版本号
+    ///
+    /// 版本号用于跟踪后端连接变化：
+    /// - 0: 断开状态
+    /// - 1+: 已连接，每次 swap_backend 递增
+    ///
+    /// **用途**：配合 ProxyAwareSessionManager 实现 session 版本控制
+    pub fn get_backend_version(&self) -> u64 {
+        self.backend_version.load(Ordering::SeqCst)
     }
 }

@@ -1,5 +1,5 @@
 [workspace]
-members = ["document-parser", "fastembed", "mcp-proxy", "oss-client", "voice-cli"]
+members = ["document-parser", "fastembed", "mcp-common", "mcp-proxy", "mcp-sse-proxy", "mcp-streamable-proxy", "oss-client", "voice-cli"]
 resolver = "2"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -8,19 +8,7 @@ resolver = "2"
 mcp-proxy = { path = "mcp-proxy" }
 oss-client = { path = "oss-client" }
 
-rmcp = { version = "0.10", features = [
-    "server",
-    "client",
-    "transport-sse-server",
-    "transport-sse-client",
-    "transport-streamable-http-client",
-    "transport-streamable-http-client-reqwest",
-    "transport-streamable-http-server",
-    "transport-child-process",
-    "transport-io",
-    "reqwest",
-    "transport-sse-client-reqwest"
-] }
+# Note: rmcp 依赖由各子项目独立管理（mcp-sse-proxy 用 0.10，mcp-streamable-proxy 用 0.12）
 tokio = { version = "1.48", features = ["macros", "net", "rt", "rt-multi-thread"] }
 tokio-util = "0.7"
 

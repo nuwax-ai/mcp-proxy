@@ -1,6 +1,6 @@
 [package]
 name = "mcp-stdio-proxy"
-version = "0.1.12"
+version = "0.1.13"
 edition = "2024"
 authors = ["nuwax-ai"]
 description = "MCP (Model Context Protocol) proxy server and CLI tool for protocol conversion and remote service access"
@@ -18,7 +18,25 @@ exclude = [
 ]
 
 [dependencies]
-rmcp = { workspace = true }
+# MCP protocol - 使用 0.10 版本（不从 workspace 继承，因为有多版本共存）
+rmcp = { version = "0.10", features = [
+    "server",
+    "client",
+    "transport-sse-server",
+    "transport-sse-client",
+    "transport-streamable-http-client",
+    "transport-streamable-http-client-reqwest",
+    "transport-streamable-http-server",
+    "transport-child-process",
+    "transport-io",
+    "reqwest",
+    "transport-sse-client-reqwest"
+] }
+# 共享类型和工具
+mcp-common = { path = "../mcp-common" }
+# 新增：协议特定的代理库
+mcp-streamable-proxy = { path = "../mcp-streamable-proxy" }
+mcp-sse-proxy = { path = "../mcp-sse-proxy" }
 axum = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }

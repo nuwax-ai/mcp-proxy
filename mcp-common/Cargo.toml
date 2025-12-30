@@ -1,0 +1,22 @@
+[package]
+name = "mcp-common"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# 基础依赖
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# 日志
+tracing = { workspace = true }
+
+# 异步
+async-trait = { workspace = true }
+
+# 并发
+arc-swap = { workspace = true }
+dashmap = { workspace = true }
+
+[features]
+default = []

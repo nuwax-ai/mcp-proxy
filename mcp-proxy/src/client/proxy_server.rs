@@ -9,20 +9,8 @@ use std::time::Duration;
 use anyhow::{Result, bail};
 use clap::Parser;
 use serde::Deserialize;
-use tokio::process::Command;
 
-use rmcp::{
-    ServiceExt,
-    model::{ClientCapabilities, ClientInfo},
-    transport::{
-        TokioChildProcess,
-        StreamableHttpServerConfig,
-        sse_server::{SseServer, SseServerConfig},
-        streamable_http_server::{StreamableHttpService, session::local::LocalSessionManager},
-    },
-};
-
-use crate::proxy::{ProxyHandler, ToolFilter};
+use crate::proxy::ToolFilter;
 
 /// 输出协议类型
 #[derive(clap::ValueEnum, Clone, Debug, Default)]
@@ -176,234 +164,37 @@ async fn run_proxy_server(
     _verbose: bool,
     quiet: bool,
 ) -> Result<()> {
-    // 1. 创建子进程命令
-    let mut command = Command::new(&parsed.config.command);
-
-    if let Some(ref cmd_args) = parsed.config.args {
-        command.args(cmd_args);
-    }
-
-    if let Some(ref env_vars) = parsed.config.env {
-        for (k, v) in env_vars {
-            command.env(k, v);
-        }
-    }
-
-    // 2. 启动子进程
-    let tokio_process = TokioChildProcess::new(command)?;
-
-    // 3. 创建客户端信息
-    let client_info = ClientInfo {
-        protocol_version: Default::default(),
-        capabilities: ClientCapabilities::builder()
-            .enable_experimental()
-            .enable_roots()
-            .enable_roots_list_changed()
-            .enable_sampling()
-            .build(),
-        ..Default::default()
-    };
-
-    // 4. 连接到子进程
-    let client = client_info.serve(tokio_process).await?;
-
-    if !quiet {
-        eprintln!("✅ 子进程已启动");
-
-        // 获取并打印工具列表
-        match client.list_tools(None).await {
-            Ok(tools_result) => {
-                let tools = &tools_result.tools;
-                if tools.is_empty() {
-                    eprintln!("⚠️  工具列表为空 (tools/list 返回 0 个工具)");
-                } else {
-                    eprintln!("🔧 可用工具 ({} 个):", tools.len());
-                    for tool in tools {
-                        let desc = tool.description.as_deref().unwrap_or("无描述");
-                        // 截断描述，最多显示 50 个字符
-                        let desc_short = if desc.len() > 50 {
-                            format!("{}...", &desc[..50])
-                        } else {
-                            desc.to_string()
-                        };
-                        eprintln!("   - {} : {}", tool.name, desc_short);
-                    }
-                }
-            }
-            Err(e) => {
-                eprintln!("⚠️  获取工具列表失败: {}", e);
-            }
-        }
-    }
-
-    // 5. 创建 ProxyHandler
-    let proxy_handler = ProxyHandler::with_tool_filter(client, parsed.name.clone(), tool_filter);
-
-    // 6. 根据协议类型启动服务器
     let bind_addr = format!("{}:{}", args.host, args.port);
 
+    // 根据协议类型选择对应的库并启动服务器
+    // 每个库使用自己的 rmcp 版本创建完整的生命周期
     match args.protocol {
         ProxyProtocol::Sse => {
-            run_sse_server(args, proxy_handler, &bind_addr, quiet).await
+            // 使用 mcp-sse-proxy 库（rmcp 0.10）
+            let config = mcp_sse_proxy::McpServiceConfig {
+                name: parsed.name.clone(),
+                command: parsed.config.command.clone(),
+                args: parsed.config.args.clone(),
+                env: parsed.config.env.clone(),
+                tool_filter: Some(tool_filter),
+            };
+            mcp_sse_proxy::run_sse_server_from_config(config, &bind_addr, quiet).await
         }
         ProxyProtocol::Stream => {
-            run_stream_server(proxy_handler, &bind_addr, quiet).await
+            // 使用 mcp-streamable-proxy 库（rmcp 0.12）
+            let config = mcp_streamable_proxy::McpServiceConfig {
+                name: parsed.name.clone(),
+                command: parsed.config.command.clone(),
+                args: parsed.config.args.clone(),
+                env: parsed.config.env.clone(),
+                tool_filter: Some(tool_filter),
+            };
+            mcp_streamable_proxy::run_stream_server_from_config(config, &bind_addr, quiet).await
         }
     }
 }
 
-/// 运行 SSE 服务器
-async fn run_sse_server(
-    args: &ProxyArgs,
-    proxy_handler: ProxyHandler,
-    bind_addr: &str,
-    quiet: bool,
-) -> Result<()> {
-    let config = SseServerConfig {
-        bind: bind_addr.parse()?,
-        sse_path: args.sse_path.clone(),
-        post_path: args.message_path.clone(),
-        ct: tokio_util::sync::CancellationToken::new(),
-        sse_keep_alive: Some(std::time::Duration::from_secs(15)), // 15秒心跳，防止连接被中间代理关闭
-    };
-
-    if !quiet {
-        eprintln!("📡 SSE 服务启动: http://{}", bind_addr);
-        eprintln!("   SSE 端点: http://{}{}", bind_addr, args.sse_path);
-        eprintln!("   消息端点: http://{}{}", bind_addr, args.message_path);
-        eprintln!("💡 MCP 客户端可直接使用 http://{} （自动重定向）", bind_addr);
-        eprintln!("💡 按 Ctrl+C 停止服务");
-    }
-
-    let (sse_server, sse_router) = SseServer::new(config);
-    let ct = sse_server.with_service(move || proxy_handler.clone());
-
-    // 根路径兼容处理器 - 自动重定向到正确的端点
-    let sse_path = args.sse_path.clone();
-    let message_path = args.message_path.clone();
-
-    let fallback_handler = move |method: axum::http::Method, headers: axum::http::HeaderMap| {
-        let sse_path = sse_path.clone();
-        let message_path = message_path.clone();
-        async move {
-            match method {
-                axum::http::Method::GET => {
-                    // 检查 Accept 头
-                    let accept = headers
-                        .get("accept")
-                        .and_then(|v| v.to_str().ok())
-                        .unwrap_or("");
-
-                    if accept.contains("text/event-stream") {
-                        // SSE 请求，重定向到 /sse
-                        (
-                            axum::http::StatusCode::TEMPORARY_REDIRECT,
-                            [("Location", sse_path)],
-                            "Redirecting to SSE endpoint".to_string(),
-                        )
-                    } else {
-                        // 普通 GET 请求，返回服务信息
-                        (
-                            axum::http::StatusCode::OK,
-                            [("Content-Type", "application/json".to_string())],
-                            serde_json::json!({
-                                "service": "MCP Proxy (SSE)",
-                                "status": "running",
-                                "endpoints": {
-                                    "sse": sse_path,
-                                    "message": message_path
-                                },
-                                "usage": "Connect your MCP client to this URL or the SSE endpoint directly"
-                            }).to_string(),
-                        )
-                    }
-                }
-                axum::http::Method::POST => {
-                    // POST 请求，重定向到 /message
-                    (
-                        axum::http::StatusCode::TEMPORARY_REDIRECT,
-                        [("Location", message_path)],
-                        "Redirecting to message endpoint".to_string(),
-                    )
-                }
-                _ => {
-                    (
-                        axum::http::StatusCode::METHOD_NOT_ALLOWED,
-                        [("Allow", "GET, POST".to_string())],
-                        "Method not allowed".to_string(),
-                    )
-                }
-            }
-        }
-    };
-
-    // 合并路由：SSE 路由 + 根路径兼容处理
-    let router = sse_router.fallback(fallback_handler);
-
-    // 启动 HTTP 服务器
-    let listener = tokio::net::TcpListener::bind(bind_addr).await?;
-
-    // 使用 select 处理 Ctrl+C 和服务器
-    tokio::select! {
-        result = axum::serve(listener, router) => {
-            if let Err(e) = result {
-                bail!("服务器错误: {}", e);
-            }
-        }
-        _ = tokio::signal::ctrl_c() => {
-            if !quiet {
-                eprintln!("\n🛑 收到退出信号，正在关闭...");
-            }
-            ct.cancel();
-        }
-    }
-
-    Ok(())
-}
-
-/// 运行 Streamable HTTP 服务器
-async fn run_stream_server(
-    proxy_handler: ProxyHandler,
-    bind_addr: &str,
-    quiet: bool,
-) -> Result<()> {
-    if !quiet {
-        eprintln!("📡 Streamable HTTP 服务启动: http://{}", bind_addr);
-        eprintln!("💡 MCP 客户端可直接使用 http://{}", bind_addr);
-        eprintln!("💡 按 Ctrl+C 停止服务");
-    }
-
-    let service = StreamableHttpService::new(
-        move || Ok(proxy_handler.clone()),
-        LocalSessionManager::default().into(),
-        StreamableHttpServerConfig {
-            stateful_mode: true,  // 使用有状态模式，支持 session 管理和服务端推送
-            ..Default::default()
-        },
-    );
-
-    // Streamable HTTP 直接在根路径提供服务
-    let router = axum::Router::new().fallback_service(service);
-
-    // 启动 HTTP 服务器
-    let listener = tokio::net::TcpListener::bind(bind_addr).await?;
-
-    // 使用 select 处理 Ctrl+C 和服务器
-    tokio::select! {
-        result = axum::serve(listener, router) => {
-            if let Err(e) = result {
-                bail!("服务器错误: {}", e);
-            }
-        }
-        _ = tokio::signal::ctrl_c() => {
-            if !quiet {
-                eprintln!("\n🛑 收到退出信号，正在关闭...");
-            }
-        }
-    }
-
-    Ok(())
-}
+// Note: 两个库现在都使用 mcp-common::ToolFilter，所以直接传递即可
 
 /// 解析配置
 fn parse_config(args: &ProxyArgs) -> Result<ParsedConfig> {

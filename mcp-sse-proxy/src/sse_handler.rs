@@ -12,8 +12,6 @@ use rmcp::{
 };
 use std::sync::Arc;
 use arc_swap::ArcSwapOption;
-
-// 使用共享的 ToolFilter
 pub use mcp_common::ToolFilter;
 
 /// 包装后端连接和运行服务
@@ -27,10 +25,12 @@ struct PeerInner {
     _running: Arc<RunningService<RoleClient, ClientInfo>>,
 }
 
-/// A proxy handler that forwards requests to a client based on the server's capabilities
+/// A SSE proxy handler that forwards requests to a client based on the server's capabilities
 /// 使用 ArcSwap 实现后端热替换，支持断开时立即返回错误
+///
+/// **SSE 模式**：使用 rmcp 0.10，稳定的 SSE 传输协议
 #[derive(Clone, Debug)]
-pub struct ProxyHandler {
+pub struct SseHandler {
     /// 后端连接（ArcSwap 支持无锁原子替换）
     /// None 表示后端断开/重连中
     peer: Arc<ArcSwapOption<PeerInner>>,
@@ -42,7 +42,7 @@ pub struct ProxyHandler {
     tool_filter: ToolFilter,
 }
 
-impl ServerHandler for ProxyHandler {
+impl ServerHandler for SseHandler {
     fn get_info(&self) -> ServerInfo {
         self.cached_info.clone()
     }
@@ -662,7 +662,7 @@ impl ServerHandler for ProxyHandler {
     }
 }
 
-impl ProxyHandler {
+impl SseHandler {
     /// 获取 capabilities 的引用，避免 clone
     #[inline]
     fn capabilities(&self) -> &rmcp::model::ServerCapabilities {
@@ -671,7 +671,7 @@ impl ProxyHandler {
 
     /// 创建一个默认的 ServerInfo（用于断开状态）
     fn default_server_info(mcp_id: &str) -> ServerInfo {
-        warn!("[ProxyHandler] 创建默认 ServerInfo - MCP ID: {}", mcp_id);
+        warn!("[SseHandler] 创建默认 ServerInfo - MCP ID: {}", mcp_id);
         ServerInfo {
             protocol_version: Default::default(),
             server_info: Implementation {
@@ -705,19 +705,19 @@ impl ProxyHandler {
     /// 创建断开状态的 handler（用于初始化）
     /// 后续通过 swap_backend() 注入实际的后端连接
     pub fn new_disconnected(mcp_id: String, tool_filter: ToolFilter, default_info: ServerInfo) -> Self {
-        info!("[ProxyHandler] 创建断开状态的 handler - MCP ID: {}", mcp_id);
+        info!("[SseHandler] 创建断开状态的 handler - MCP ID: {}", mcp_id);
 
         // 记录过滤器配置
         if tool_filter.is_enabled() {
             if let Some(ref allow_list) = tool_filter.allow_tools {
                 info!(
-                    "[ProxyHandler] 工具白名单已启用 - MCP ID: {}, 允许的工具: {:?}",
+                    "[SseHandler] 工具白名单已启用 - MCP ID: {}, 允许的工具: {:?}",
                     mcp_id, allow_list
                 );
             }
             if let Some(ref deny_list) = tool_filter.deny_tools {
                 info!(
-                    "[ProxyHandler] 工具黑名单已启用 - MCP ID: {}, 排除的工具: {:?}",
+                    "[SseHandler] 工具黑名单已启用 - MCP ID: {}, 排除的工具: {:?}",
                     mcp_id, deny_list
                 );
             }
@@ -739,7 +739,7 @@ impl ProxyHandler {
         Self::with_tool_filter(client, mcp_id, ToolFilter::default())
     }
 
-    /// 创建带工具过滤器的 ProxyHandler（带初始后端连接）
+    /// 创建带工具过滤器的 SseHandler（带初始后端连接）
     pub fn with_tool_filter(
         client: RunningService<RoleClient, ClientInfo>,
         mcp_id: String,
@@ -757,13 +757,13 @@ impl ProxyHandler {
         if tool_filter.is_enabled() {
             if let Some(ref allow_list) = tool_filter.allow_tools {
                 info!(
-                    "[ProxyHandler] 工具白名单已启用 - MCP ID: {}, 允许的工具: {:?}",
+                    "[SseHandler] 工具白名单已启用 - MCP ID: {}, 允许的工具: {:?}",
                     mcp_id, allow_list
                 );
             }
             if let Some(ref deny_list) = tool_filter.deny_tools {
                 info!(
-                    "[ProxyHandler] 工具黑名单已启用 - MCP ID: {}, 排除的工具: {:?}",
+                    "[SseHandler] 工具黑名单已启用 - MCP ID: {}, 排除的工具: {:?}",
                     mcp_id, deny_list
                 );
             }
@@ -797,11 +797,11 @@ impl ProxyHandler {
                     _running: Arc::new(client),
                 };
                 self.peer.store(Some(Arc::new(inner)));
-                info!("[ProxyHandler] 后端连接已更新 - MCP ID: {}", self.mcp_id);
+                info!("[SseHandler] 后端连接已更新 - MCP ID: {}", self.mcp_id);
             }
             None => {
                 self.peer.store(None);
-                info!("[ProxyHandler] 后端连接已断开 - MCP ID: {}", self.mcp_id);
+                info!("[SseHandler] 后端连接已断开 - MCP ID: {}", self.mcp_id);
             }
         }
     }
