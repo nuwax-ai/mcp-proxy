@@ -54,6 +54,7 @@ impl TestEnvironment {
                     .join("test.log")
                     .to_string_lossy()
                     .to_string(),
+                retain_days: 20,
             },
             document_parser: crate::config::DocumentParserConfig {
                 max_concurrent: 2,

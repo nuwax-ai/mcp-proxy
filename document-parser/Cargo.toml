@@ -108,10 +108,6 @@ fake = { version = "4.4", features = ["derive", "chrono", "uuid"] }
 bytes = "1.0"
 
 [[bench]]
-name = "markdown_processing_bench"
-harness = false
-
-[[bench]]
 name = "document_parsing_bench"
 harness = false
 

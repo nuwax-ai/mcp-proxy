@@ -90,10 +90,11 @@ async fn add_tid_to_response(response: Response, tid: String) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::http::{Request, StatusCode};
+    use axum::http::Request;
 
     #[test]
     fn test_get_or_generate_trace_id() {
+        // 测试有效的 traceparent header
         let request = Request::builder()
             .header(
                 "traceparent",
@@ -107,22 +108,21 @@ mod tests {
             "12345678901234567890123456789012"
         );
 
+        // 测试没有 traceparent header 的请求 - 应该生成一个新的 UUID
         let request = Request::builder()
             .uri("/health")
             .body(axum::body::Body::from("{}"))
             .unwrap();
-        assert_eq!(
-            get_or_generate_trace_id(&request),
-            Uuid::new_v4().to_string()
-        );
+        let trace_id = get_or_generate_trace_id(&request);
+        // 验证生成的是有效的 UUID 格式 (不带连字符的 UUID 长度为 32)
+        assert!(trace_id.len() == 36 || trace_id.len() == 32);
 
+        // 测试另一个没有 traceparent header 的请求
         let request = Request::builder()
             .uri("/some/path")
             .body(axum::body::Body::from("{}"))
             .unwrap();
-        assert_eq!(
-            get_or_generate_trace_id(&request),
-            Uuid::new_v4().to_string()
-        );
+        let trace_id = get_or_generate_trace_id(&request);
+        assert!(trace_id.len() == 36 || trace_id.len() == 32);
     }
 }

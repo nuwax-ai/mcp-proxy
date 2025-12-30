@@ -1,5 +1,5 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use mcp_proxy::{RunCodeMessageRequest, run_code_handler};
+use mcp_stdio_proxy::{RunCodeMessageRequest, run_code_handler};
 use serde_json::json;
 use std::{collections::HashMap, fs};
 use tokio::runtime::Runtime;

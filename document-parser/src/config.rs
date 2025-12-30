@@ -1404,6 +1404,7 @@ mod tests {
         let mut config = LogConfig {
             level: "info".to_string(),
             path: "/tmp/test.log".to_string(),
+            retain_days: 20,
         };
 
         assert!(config.validate().is_ok());
