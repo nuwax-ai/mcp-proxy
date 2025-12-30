@@ -33,10 +33,10 @@ rmcp = { version = "0.10", features = [
     "transport-sse-client-reqwest"
 ] }
 # 共享类型和工具
-mcp-common = { path = "../mcp-common" }
+mcp-common = { version = "0.1.0", path = "../mcp-common" }
 # 新增：协议特定的代理库
-mcp-streamable-proxy = { path = "../mcp-streamable-proxy" }
-mcp-sse-proxy = { path = "../mcp-sse-proxy" }
+mcp-streamable-proxy = { version = "0.1.0", path = "../mcp-streamable-proxy" }
+mcp-sse-proxy = { version = "0.1.0", path = "../mcp-sse-proxy" }
 axum = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }

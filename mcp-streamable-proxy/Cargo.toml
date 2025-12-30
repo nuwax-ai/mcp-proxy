@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 # 共享类型和工具
-mcp-common = { path = "../mcp-common" }
+mcp-common = { version = "0.1.0", path = "../mcp-common" }
 
 # MCP protocol implementation - using 0.12 for enhanced Streamable HTTP support
 rmcp = { version = "0.12", features = [
