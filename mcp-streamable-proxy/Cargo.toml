@@ -2,6 +2,12 @@
 name = "mcp-streamable-proxy"
 version = "0.1.0"
 edition = "2024"
+authors = ["nuwax-ai"]
+description = "Streamable HTTP proxy implementation for MCP protocol using rmcp 0.12"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/nuwax-ai/mcp-proxy"
+keywords = ["mcp", "proxy", "http", "protocol"]
+categories = ["web-programming", "network-programming"]
 
 [dependencies]
 # 共享类型和工具

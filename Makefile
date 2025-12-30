@@ -116,6 +116,71 @@ setup-buildx:
 	docker buildx create --name cross-builder --use --bootstrap || true
 	@echo "✅ Docker buildx builder 设置完成"
 
+# ============================================================================
+# MCP 包发布目标
+# ============================================================================
+
+# 发布所有 MCP 相关包（按依赖顺序）
+.PHONY: mcp-publish
+mcp-publish:
+	@echo "📦 开始发布 MCP 相关包到 crates.io..."
+	@echo ""
+	@echo "1️⃣  发布 mcp-common..."
+	cd mcp-common && cargo publish
+	@echo "⏳ 等待 10 秒让 crates.io 索引更新..."
+	@sleep 10
+	@echo ""
+	@echo "2️⃣  发布 mcp-sse-proxy..."
+	cd mcp-sse-proxy && cargo publish
+	@echo "⏳ 等待 10 秒让 crates.io 索引更新..."
+	@sleep 10
+	@echo ""
+	@echo "3️⃣  发布 mcp-streamable-proxy..."
+	cd mcp-streamable-proxy && cargo publish
+	@echo "⏳ 等待 10 秒让 crates.io 索引更新..."
+	@sleep 10
+	@echo ""
+	@echo "4️⃣  发布 mcp-stdio-proxy..."
+	cd mcp-proxy && cargo publish
+	@echo ""
+	@echo "✅ 所有 MCP 包发布成功！"
+
+# 预览将要发布的 MCP 包（dry-run）
+.PHONY: mcp-publish-dry-run
+mcp-publish-dry-run:
+	@echo "🔍 预览将要发布的 MCP 包..."
+	@echo ""
+	@echo "1️⃣  mcp-common:"
+	cd mcp-common && cargo publish --dry-run
+	@echo ""
+	@echo "2️⃣  mcp-sse-proxy:"
+	cd mcp-sse-proxy && cargo publish --dry-run
+	@echo ""
+	@echo "3️⃣  mcp-streamable-proxy:"
+	cd mcp-streamable-proxy && cargo publish --dry-run
+	@echo ""
+	@echo "4️⃣  mcp-stdio-proxy:"
+	cd mcp-proxy && cargo publish --dry-run
+	@echo ""
+	@echo "✅ 预览完成（未实际发布）"
+
+# 查看将要发布的文件列表
+.PHONY: mcp-package-list
+mcp-package-list:
+	@echo "📋 查看各包将包含的文件..."
+	@echo ""
+	@echo "1️⃣  mcp-common:"
+	cd mcp-common && cargo package --list
+	@echo ""
+	@echo "2️⃣  mcp-sse-proxy:"
+	cd mcp-sse-proxy && cargo package --list
+	@echo ""
+	@echo "3️⃣  mcp-streamable-proxy:"
+	cd mcp-streamable-proxy && cargo package --list
+	@echo ""
+	@echo "4️⃣  mcp-stdio-proxy:"
+	cd mcp-proxy && cargo package --list
+
 # 清理构建文件
 .PHONY: clean
 clean:
@@ -162,6 +227,11 @@ help:
 	@echo "    make check-buildx                   - 检查 Docker buildx 状态"
 	@echo "    make setup-buildx                   - 设置 Docker buildx builder"
 	@echo ""
+	@echo "  📦 MCP 发布命令:"
+	@echo "    make mcp-publish                    - 发布所有 MCP 包到 crates.io（按依赖顺序）"
+	@echo "    make mcp-publish-dry-run            - 预览将要发布的内容（不实际发布）"
+	@echo "    make mcp-package-list               - 查看各包将包含的文件列表"
+	@echo ""
 	@echo "  🧹 清理命令:"
 	@echo "    make clean                          - 清理所有构建文件"
 	@echo "    make clean-images                   - 清理 Docker 镜像"
@@ -175,6 +245,8 @@ help:
 	@echo "    make build-voice-cli-multi          # 构建 voice-cli 多平台版本"
 	@echo "    make build-all-x86_64               # 构建所有组件 Linux x86_64 版本"
 	@echo "    make build-all-multi                # 构建所有组件多平台版本"
+	@echo "    make mcp-publish-dry-run            # 预览 MCP 发布（建议先运行此命令）"
+	@echo "    make mcp-publish                    # 发布 MCP 包到 crates.io"
 	@echo ""
 	@echo "📊 输出目录: ./dist/"
 	@echo "    document-parser-x86_64/             # Document Parser x86_64 二进制文件"

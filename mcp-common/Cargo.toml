@@ -2,6 +2,12 @@
 name = "mcp-common"
 version = "0.1.0"
 edition = "2024"
+authors = ["nuwax-ai"]
+description = "Common types and utilities shared across MCP proxy components"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/nuwax-ai/mcp-proxy"
+keywords = ["mcp", "proxy", "protocol"]
+categories = ["web-programming", "network-programming"]
 
 [dependencies]
 # 基础依赖
