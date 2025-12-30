@@ -1,6 +1,6 @@
 [package]
 name = "mcp-stdio-proxy"
-version = "0.1.11"
+version = "0.1.12"
 edition = "2024"
 authors = ["nuwax-ai"]
 description = "MCP (Model Context Protocol) proxy server and CLI tool for protocol conversion and remote service access"
@@ -45,6 +45,7 @@ http = { workspace = true }
 clap = { workspace = true }
 uuid = { workspace = true }
 dashmap = { workspace = true }
+arc-swap = { workspace = true }
 futures = { workspace = true }
 chrono = { workspace = true }
 tokio-stream = { workspace = true }
@@ -60,6 +61,10 @@ async-trait.workspace = true
 [[bin]]
 name = "mcp-proxy"
 path = "src/main.rs"
+
+[[bin]]
+name = "test-mcp-server"
+path = "src/client/test_mcp_server.rs"
 
 [dev-dependencies]
 criterion = "0.6"

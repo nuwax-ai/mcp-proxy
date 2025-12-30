@@ -4,6 +4,7 @@
 mod cli;
 mod protocol;
 pub(crate) mod proxy_server;
+pub mod test_mcp_server;
 
 #[cfg(test)]
 mod tests;

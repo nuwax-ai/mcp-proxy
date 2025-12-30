@@ -377,7 +377,7 @@ async fn run_stream_server(
         move || Ok(proxy_handler.clone()),
         LocalSessionManager::default().into(),
         StreamableHttpServerConfig {
-            stateful_mode: false,
+            stateful_mode: true,  // 使用有状态模式，支持 session 管理和服务端推送
             ..Default::default()
         },
     );
