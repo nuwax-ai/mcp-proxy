@@ -126,29 +126,36 @@ mcp-version-update:
 	@echo "🔄 开始更新 MCP 包版本号..."
 	@echo ""
 	@# 读取 mcp-common 的当前版本
-	@CURRENT_VERSION=$$(grep '^version = ' mcp-common/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/'); \
-	MAJOR=$$(echo $$CURRENT_VERSION | cut -d. -f1); \
-	MINOR=$$(echo $$CURRENT_VERSION | cut -d. -f2); \
-	PATCH=$$(echo $$CURRENT_VERSION | cut -d. -f3); \
-	NEW_PATCH=$$((PATCH + 1)); \
-	NEW_VERSION="$$MAJOR.$$MINOR.$$NEW_PATCH"; \
-	echo "当前版本: $$CURRENT_VERSION"; \
-	echo "新版本: $$NEW_VERSION"; \
+	@COMMON_VERSION=$$(grep '^version = ' mcp-common/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/'); \
+	COMMON_MAJOR=$$(echo $$COMMON_VERSION | cut -d. -f1); \
+	COMMON_MINOR=$$(echo $$COMMON_VERSION | cut -d. -f2); \
+	COMMON_PATCH=$$(echo $$COMMON_VERSION | cut -d. -f3); \
+	COMMON_NEW_PATCH=$$((COMMON_PATCH + 1)); \
+	COMMON_NEW_VERSION="$$COMMON_MAJOR.$$COMMON_MINOR.$$COMMON_NEW_PATCH"; \
+	echo "mcp-common: $$COMMON_VERSION -> $$COMMON_NEW_VERSION"; \
+	PROXY_VERSION=$$(grep '^version = ' mcp-proxy/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/'); \
+	PROXY_MAJOR=$$(echo $$PROXY_VERSION | cut -d. -f1); \
+	PROXY_MINOR=$$(echo $$PROXY_VERSION | cut -d. -f2); \
+	PROXY_PATCH=$$(echo $$PROXY_VERSION | cut -d. -f3); \
+	PROXY_NEW_PATCH=$$((PROXY_PATCH + 1)); \
+	PROXY_NEW_VERSION="$$PROXY_MAJOR.$$PROXY_MINOR.$$PROXY_NEW_PATCH"; \
+	echo "mcp-stdio-proxy: $$PROXY_VERSION -> $$PROXY_NEW_VERSION"; \
 	echo ""; \
 	echo "1️⃣  更新 mcp-common 版本..."; \
-	sed -i.bak "s/^version = \"$$CURRENT_VERSION\"/version = \"$$NEW_VERSION\"/" mcp-common/Cargo.toml && rm mcp-common/Cargo.toml.bak; \
+	sed -i.bak "s/^version = \"$$COMMON_VERSION\"/version = \"$$COMMON_NEW_VERSION\"/" mcp-common/Cargo.toml && rm mcp-common/Cargo.toml.bak; \
 	echo "2️⃣  更新 mcp-sse-proxy 版本和依赖..."; \
-	sed -i.bak "s/^version = \"$$CURRENT_VERSION\"/version = \"$$NEW_VERSION\"/" mcp-sse-proxy/Cargo.toml && rm mcp-sse-proxy/Cargo.toml.bak; \
-	sed -i.bak "s/mcp-common = { version = \"$$CURRENT_VERSION\"/mcp-common = { version = \"$$NEW_VERSION\"/" mcp-sse-proxy/Cargo.toml && rm mcp-sse-proxy/Cargo.toml.bak; \
+	sed -i.bak "s/^version = \"$$COMMON_VERSION\"/version = \"$$COMMON_NEW_VERSION\"/" mcp-sse-proxy/Cargo.toml && rm mcp-sse-proxy/Cargo.toml.bak; \
+	sed -i.bak "s/mcp-common = { version = \"$$COMMON_VERSION\"/mcp-common = { version = \"$$COMMON_NEW_VERSION\"/" mcp-sse-proxy/Cargo.toml && rm mcp-sse-proxy/Cargo.toml.bak; \
 	echo "3️⃣  更新 mcp-streamable-proxy 版本和依赖..."; \
-	sed -i.bak "s/^version = \"$$CURRENT_VERSION\"/version = \"$$NEW_VERSION\"/" mcp-streamable-proxy/Cargo.toml && rm mcp-streamable-proxy/Cargo.toml.bak; \
-	sed -i.bak "s/mcp-common = { version = \"$$CURRENT_VERSION\"/mcp-common = { version = \"$$NEW_VERSION\"/" mcp-streamable-proxy/Cargo.toml && rm mcp-streamable-proxy/Cargo.toml.bak; \
-	echo "4️⃣  更新 mcp-stdio-proxy 的依赖版本..."; \
-	sed -i.bak "s/mcp-common = { version = \"$$CURRENT_VERSION\"/mcp-common = { version = \"$$NEW_VERSION\"/" mcp-proxy/Cargo.toml && rm mcp-proxy/Cargo.toml.bak; \
-	sed -i.bak "s/mcp-streamable-proxy = { version = \"$$CURRENT_VERSION\"/mcp-streamable-proxy = { version = \"$$NEW_VERSION\"/" mcp-proxy/Cargo.toml && rm mcp-proxy/Cargo.toml.bak; \
-	sed -i.bak "s/mcp-sse-proxy = { version = \"$$CURRENT_VERSION\"/mcp-sse-proxy = { version = \"$$NEW_VERSION\"/" mcp-proxy/Cargo.toml && rm mcp-proxy/Cargo.toml.bak; \
+	sed -i.bak "s/^version = \"$$COMMON_VERSION\"/version = \"$$COMMON_NEW_VERSION\"/" mcp-streamable-proxy/Cargo.toml && rm mcp-streamable-proxy/Cargo.toml.bak; \
+	sed -i.bak "s/mcp-common = { version = \"$$COMMON_VERSION\"/mcp-common = { version = \"$$COMMON_NEW_VERSION\"/" mcp-streamable-proxy/Cargo.toml && rm mcp-streamable-proxy/Cargo.toml.bak; \
+	echo "4️⃣  更新 mcp-stdio-proxy 版本和依赖..."; \
+	sed -i.bak "s/^version = \"$$PROXY_VERSION\"/version = \"$$PROXY_NEW_VERSION\"/" mcp-proxy/Cargo.toml && rm mcp-proxy/Cargo.toml.bak; \
+	sed -i.bak "s/mcp-common = { version = \"$$COMMON_VERSION\"/mcp-common = { version = \"$$COMMON_NEW_VERSION\"/" mcp-proxy/Cargo.toml && rm mcp-proxy/Cargo.toml.bak; \
+	sed -i.bak "s/mcp-streamable-proxy = { version = \"$$COMMON_VERSION\"/mcp-streamable-proxy = { version = \"$$COMMON_NEW_VERSION\"/" mcp-proxy/Cargo.toml && rm mcp-proxy/Cargo.toml.bak; \
+	sed -i.bak "s/mcp-sse-proxy = { version = \"$$COMMON_VERSION\"/mcp-sse-proxy = { version = \"$$COMMON_NEW_VERSION\"/" mcp-proxy/Cargo.toml && rm mcp-proxy/Cargo.toml.bak; \
 	echo ""; \
-	echo "✅ 版本号更新完成: $$CURRENT_VERSION -> $$NEW_VERSION"
+	echo "✅ 版本号更新完成!"
 
 # 显示当前 MCP 包的版本号
 .PHONY: mcp-version-show
