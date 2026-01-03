@@ -1,4 +1,5 @@
 use tracing::{debug, info, warn, error};
+use std::time::{Instant, SystemTime};
 /**
  * Create a local SSE server that proxies requests to a stdio MCP server.
  */
@@ -151,6 +152,10 @@ impl ServerHandler for SseHandler {
         request: CallToolRequestParam,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
+        let start = Instant::now();
+        let start_time = SystemTime::now();
+        info!("🔧 开始执行工具: {}, 时间: {:?}", request.name, start_time);
+        
         // 首先检查工具是否被过滤
         if !self.tool_filter.is_allowed(&request.name) {
             info!(
@@ -184,7 +189,7 @@ impl ServerHandler for SseHandler {
         }
 
         // Check if the server has tools capability and forward the request
-        match self.capabilities().tools {
+        let result = match self.capabilities().tools {
             Some(_) => {
                 // 使用 tokio::select! 同时等待取消和结果
                 tokio::select! {
@@ -192,16 +197,18 @@ impl ServerHandler for SseHandler {
                         match result {
                             Ok(result) => {
                                 // 记录工具调用结果，这些结果会通过 SSE 推送给客户端
+                                let elapsed = start.elapsed();
                                 info!(
-                                    "[call_tool] 工具调用成功 - MCP ID: {}, 工具: {}",
-                                    self.mcp_id, request.name
+                                    "[call_tool] 工具调用成功 - MCP ID: {}, 工具: {}, 耗时: {}ms",
+                                    self.mcp_id, request.name, elapsed.as_millis()
                                 );
 
                                 debug!("Tool call succeeded");
                                 Ok(result)
                             }
                             Err(err) => {
-                                error!("Error calling tool: {:?}", err);
+                                let elapsed = start.elapsed();
+                                error!("Error calling tool: {:?}, 耗时: {}ms", err, elapsed.as_millis());
                                 // Return an error result instead of propagating the error
                                 Ok(CallToolResult::error(vec![Content::text(format!(
                                     "Error: {err}"
@@ -210,9 +217,10 @@ impl ServerHandler for SseHandler {
                         }
                     }
                     _ = context.ct.cancelled() => {
+                        let elapsed = start.elapsed();
                         info!(
-                            "[call_tool] 请求被取消 - MCP ID: {}, 工具: {}",
-                            self.mcp_id, request.name
+                            "[call_tool] 请求被取消 - MCP ID: {}, 工具: {}, 耗时: {}ms",
+                            self.mcp_id, request.name, elapsed.as_millis()
                         );
                         Ok(CallToolResult::error(vec![Content::text(
                             "Request cancelled"
@@ -226,7 +234,11 @@ impl ServerHandler for SseHandler {
                     "Server doesn't support tools capability",
                 )]))
             }
-        }
+        };
+        
+        let total_elapsed = start.elapsed();
+        info!("✅ 工具执行完成: {}, 总耗时: {}ms", request.name, total_elapsed.as_millis());
+        result
     }
 
     async fn list_resources(

@@ -31,9 +31,15 @@ async fn main() -> Result<()> {
 
 /// 运行 CLI 模式
 async fn run_cli_mode(cli: Cli) -> Result<()> {
+    // 检查是否是需要自定义日志初始化的命令
+    // convert 和 proxy 命令会根据自己的参数（--log-dir、--log-file）初始化日志，所以这里跳过
+    let is_convert_command = matches!(cli.command, Some(mcp_stdio_proxy::Commands::Convert(_)));
+    let is_proxy_command = matches!(cli.command, Some(mcp_stdio_proxy::Commands::Proxy(_)));
+    let has_custom_logging = is_convert_command || is_proxy_command;
+
     // CLI 模式独立的日志配置
-    // 只在非 quiet 模式下初始化日志，且必须禁用 ANSI 颜色避免污染 JSON 输出
-    if !cli.quiet {
+    // 跳过会自己初始化日志的命令，避免重复初始化导致 panic
+    if !has_custom_logging && !cli.quiet {
         // CLI 模式默认只显示错误，避免 info/debug 日志污染输出
         let log_level = if cli.verbose {
             "debug"

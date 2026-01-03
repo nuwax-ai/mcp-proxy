@@ -11,6 +11,7 @@ use clap::Parser;
 use serde::Deserialize;
 
 use crate::proxy::ToolFilter;
+use crate::client::support::{init_logging_with_config, LoggingArgs};
 
 /// 输出协议类型
 #[derive(clap::ValueEnum, Clone, Debug, Default)]
@@ -64,6 +65,10 @@ pub struct ProxyArgs {
     /// 工具黑名单（逗号分隔），排除指定的工具
     #[arg(long, value_delimiter = ',', help = "工具黑名单（逗号分隔）")]
     pub deny_tools: Option<Vec<String>>,
+
+    /// 日志配置（使用通用结构）
+    #[command(flatten)]
+    pub logging: LoggingArgs,
 }
 
 /// MCP 配置格式
@@ -97,7 +102,10 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
     // 2. 解析配置
     let parsed = parse_config(&args)?;
 
-    // 3. 创建工具过滤器
+    // 3. 初始化日志系统（在启动服务之前）
+    init_logging_with_config(&args.logging, Some(&parsed.name), quiet, verbose)?;
+
+    // 4. 创建工具过滤器
     let tool_filter = if let Some(allow_tools) = args.allow_tools.clone() {
         ToolFilter::allow(allow_tools)
     } else if let Some(deny_tools) = args.deny_tools.clone() {
@@ -129,7 +137,7 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
         }
     }
 
-    // 4. 主循环 - 支持子进程崩溃后自动重启
+    // 5. 主循环 - 支持子进程崩溃后自动重启
     loop {
         let result = run_proxy_server(&args, &parsed, tool_filter.clone(), verbose, quiet).await;
 
