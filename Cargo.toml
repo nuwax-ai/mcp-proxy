@@ -21,6 +21,8 @@ opentelemetry = { version = "0.31", features = ["trace"] }
 opentelemetry-jaeger = { version = "0.22", features = ["rt-tokio"] }
 opentelemetry-semantic-conventions = { version = "0.31", features = ["semconv_experimental"] }
 opentelemetry_sdk = "0.31"
+opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic"] }
+tonic = "0.13"
 hostname = "0.4"
 uuid = { version = "1.19", features = ["v4", "v7"] }
 rand = "0.9"

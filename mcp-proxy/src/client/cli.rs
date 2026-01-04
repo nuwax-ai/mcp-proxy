@@ -48,6 +48,8 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
                         diagnostic: true,   // 默认启用诊断模式
                         log_dir: None,      // 默认无日志目录（将在 init_logging 中自动设置）
                         log_file: None,     // 默认无日志文件
+                        otlp_endpoint: None, // 默认不启用 OTLP 追踪
+                        service_name: "mcp-proxy".to_string(),
                     },
                 };
                 crate::client::cli_impl::run_convert_command(args, cli.verbose, cli.quiet).await

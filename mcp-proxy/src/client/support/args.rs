@@ -22,6 +22,25 @@ pub struct LoggingArgs {
     /// 日志文件完整路径（手动指定）
     #[arg(long, conflicts_with = "log_dir", help = "日志文件完整路径")]
     pub log_file: Option<PathBuf>,
+
+    /// OTLP 追踪端点（如 http://localhost:4317）
+    /// 
+    /// 启用 diagnostic 模式时，可配置此参数将追踪数据发送到 Jaeger 等 OTLP 兼容的后端。
+    /// 支持 gRPC (端口 4317) 和 HTTP (端口 4318) 协议。
+    #[arg(
+        long,
+        env = "OTEL_EXPORTER_OTLP_ENDPOINT",
+        help = "OTLP 追踪端点 (如 http://localhost:4317)"
+    )]
+    pub otlp_endpoint: Option<String>,
+
+    /// 追踪服务名称（用于 Jaeger 等追踪后端标识）
+    #[arg(
+        long,
+        default_value = "mcp-proxy",
+        help = "追踪服务名称（用于 Jaeger 等追踪后端标识）"
+    )]
+    pub service_name: String,
 }
 
 
