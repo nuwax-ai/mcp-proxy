@@ -14,16 +14,19 @@ use tracing::{debug, error, info};
 /// - Manual shutdown signals
 ///
 /// # Example
-/// ```rust
+/// ```rust,no_run
 /// use voice_cli::utils::signal_handling::create_shutdown_signal;
+/// use tracing::info;
 ///
+/// # async fn example() {
 /// let shutdown_signal = create_shutdown_signal();
 /// tokio::select! {
-///     _ = service_work => {},
+///     _ = async { /* service_work */ } => {},
 ///     _ = shutdown_signal => {
 ///         info!("Received shutdown signal, stopping service");
 ///     }
 /// }
+/// # }
 /// ```
 pub async fn create_shutdown_signal() {
     handle_system_signals().await
@@ -74,20 +77,23 @@ pub async fn handle_system_signals() {
 /// * `manual_shutdown` - A future that completes when manual shutdown is requested
 ///
 /// # Example
-/// ```rust
+/// ```rust,no_run
 /// use voice_cli::utils::signal_handling::create_combined_shutdown_signal;
+/// use tracing::info;
 ///
-/// let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+/// # async fn example() {
+/// let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 /// let shutdown_signal = create_combined_shutdown_signal(async {
 ///     shutdown_rx.await.ok();
 /// });
 ///
 /// tokio::select! {
-///     _ = service_work => {},
+///     _ = async { /* service_work */ } => {},
 ///     _ = shutdown_signal => {
 ///         info!("Received shutdown signal");
 ///     }
 /// }
+/// # }
 /// ```
 pub async fn create_combined_shutdown_signal<F>(manual_shutdown: F)
 where
@@ -111,14 +117,16 @@ where
 /// * `service_name` - Name of the service for logging context
 ///
 /// # Example
-/// ```rust
+/// ```rust,no_run
 /// use voice_cli::utils::signal_handling::create_service_shutdown_signal;
 ///
+/// # async fn example() {
 /// let shutdown_signal = create_service_shutdown_signal("http-server");
 /// tokio::select! {
-///     _ = service_work => {},
+///     _ = async { /* service_work */ } => {},
 ///     _ = shutdown_signal => {}
 /// }
+/// # }
 /// ```
 pub async fn create_service_shutdown_signal(service_name: &str) {
     let ctrl_c = async {

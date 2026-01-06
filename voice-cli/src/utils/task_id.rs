@@ -7,6 +7,8 @@ use uuid::Uuid;
 /// # Examples
 ///
 /// ```
+/// use voice_cli::utils::task_id::generate_task_id;
+///
 /// let task_id = generate_task_id();
 /// assert!(task_id.starts_with("task"));
 /// assert!(!task_id.contains('-'));

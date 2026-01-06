@@ -40,6 +40,8 @@ mod config_parsing_tests {
                 diagnostic: true,
                 log_dir: None,
                 log_file: None,
+                otlp_endpoint: None,
+                service_name: "mcp-proxy".to_string(),
             },
         };
 
@@ -95,6 +97,8 @@ mod config_parsing_tests {
                 diagnostic: true,
                 log_dir: None,
                 log_file: None,
+                otlp_endpoint: None,
+                service_name: "mcp-proxy".to_string(),
             },
         };
 
@@ -152,6 +156,8 @@ mod config_parsing_tests {
                 diagnostic: true,
                 log_dir: None,
                 log_file: None,
+                otlp_endpoint: None,
+                service_name: "mcp-proxy".to_string(),
             },
         };
 
@@ -212,6 +218,8 @@ mod config_parsing_tests {
                 diagnostic: true,
                 log_dir: None,
                 log_file: None,
+                otlp_endpoint: None,
+                service_name: "mcp-proxy".to_string(),
             },
         };
 
@@ -270,6 +278,8 @@ mod config_parsing_tests {
                 diagnostic: true,
                 log_dir: None,
                 log_file: None,
+                otlp_endpoint: None,
+                service_name: "mcp-proxy".to_string(),
             },
         };
 
@@ -317,6 +327,8 @@ mod config_parsing_tests {
                 diagnostic: true,
                 log_dir: None,
                 log_file: None,
+                otlp_endpoint: None,
+                service_name: "mcp-proxy".to_string(),
             },
         };
 
@@ -358,6 +370,8 @@ mod config_parsing_tests {
                 diagnostic: true,
                 log_dir: None,
                 log_file: None,
+                otlp_endpoint: None,
+                service_name: "mcp-proxy".to_string(),
             },
         };
 
@@ -395,6 +409,8 @@ mod config_parsing_tests {
                 diagnostic: true,
                 log_dir: None,
                 log_file: None,
+                otlp_endpoint: None,
+                service_name: "mcp-proxy".to_string(),
             },
         };
 
@@ -436,6 +452,8 @@ mod config_parsing_tests {
                 diagnostic: true,
                 log_dir: None,
                 log_file: None,
+                otlp_endpoint: None,
+                service_name: "mcp-proxy".to_string(),
             },
         };
 
@@ -469,6 +487,8 @@ mod config_parsing_tests {
                 diagnostic: true,
                 log_dir: None,
                 log_file: None,
+                otlp_endpoint: None,
+                service_name: "mcp-proxy".to_string(),
             },
         };
 
@@ -504,6 +524,8 @@ mod config_parsing_tests {
                 diagnostic: true,
                 log_dir: None,
                 log_file: None,
+                otlp_endpoint: None,
+                service_name: "mcp-proxy".to_string(),
             },
         };
 
@@ -545,6 +567,8 @@ mod config_parsing_tests {
                 diagnostic: true,
                 log_dir: None,
                 log_file: None,
+                otlp_endpoint: None,
+                service_name: "mcp-proxy".to_string(),
             },
         };
 
@@ -587,6 +611,8 @@ mod config_parsing_tests {
                 diagnostic: true,
                 log_dir: None,
                 log_file: None,
+                otlp_endpoint: None,
+                service_name: "mcp-proxy".to_string(),
             },
         };
 
