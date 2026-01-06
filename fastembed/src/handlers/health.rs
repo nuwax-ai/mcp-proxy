@@ -1,4 +1,4 @@
-use axum::{extract::State, Json};
+use axum::{Json, extract::State};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use utoipa::ToSchema;
@@ -11,11 +11,11 @@ pub struct HealthResponse {
     /// 服务状态
     #[schema(example = "ok")]
     pub status: String,
-    
+
     /// 服务运行时长（毫秒）
     #[schema(example = 123456)]
     pub uptime_ms: u128,
-    
+
     /// 模型缓存是否就绪
     #[schema(example = true)]
     pub model_cache_ready: bool,
@@ -30,11 +30,9 @@ pub struct HealthResponse {
         (status = 200, description = "服务健康", body = HealthResponse)
     )
 )]
-pub async fn handle_health(
-    State(state): State<Arc<AppState>>,
-) -> Json<HealthResponse> {
+pub async fn handle_health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
     let uptime = state.start_time.elapsed();
-    
+
     Json(HealthResponse {
         status: "ok".to_string(),
         uptime_ms: uptime.as_millis(),

@@ -10,8 +10,8 @@ use anyhow::{Result, bail};
 use clap::Parser;
 use serde::Deserialize;
 
+use crate::client::support::{LoggingArgs, init_logging_with_config};
 use crate::proxy::ToolFilter;
-use crate::client::support::{init_logging_with_config, LoggingArgs};
 
 /// 输出协议类型
 #[derive(clap::ValueEnum, Clone, Debug, Default)]
@@ -122,7 +122,11 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
         eprintln!("🚀 MCP Proxy 服务");
         eprintln!("   协议类型: {}", protocol_name);
         eprintln!("   服务名称: {}", parsed.name);
-        eprintln!("   命令: {} {:?}", parsed.config.command, parsed.config.args.as_ref().unwrap_or(&vec![]));
+        eprintln!(
+            "   命令: {} {:?}",
+            parsed.config.command,
+            parsed.config.args.as_ref().unwrap_or(&vec![])
+        );
         if verbose {
             if let Some(ref env) = parsed.config.env {
                 eprintln!("   环境变量: {:?}", env);
@@ -210,18 +214,18 @@ fn parse_config(args: &ProxyArgs) -> Result<ParsedConfig> {
     let json_str = if let Some(ref config) = args.config {
         config.clone()
     } else if let Some(ref path) = args.config_file {
-        std::fs::read_to_string(path)
-            .map_err(|e| anyhow::anyhow!("读取配置文件失败: {}", e))?
+        std::fs::read_to_string(path).map_err(|e| anyhow::anyhow!("读取配置文件失败: {}", e))?
     } else {
         bail!("必须提供 --config 或 --config-file 参数");
     };
 
     // 2. 解析配置
-    let mcp_config: McpConfig = serde_json::from_str(&json_str)
-        .map_err(|e| anyhow::anyhow!(
+    let mcp_config: McpConfig = serde_json::from_str(&json_str).map_err(|e| {
+        anyhow::anyhow!(
             "配置解析失败: {}。配置必须是标准 MCP 格式，包含 mcpServers 字段",
             e
-        ))?;
+        )
+    })?;
 
     let servers = mcp_config.mcp_servers;
 

@@ -5,7 +5,7 @@
 use anyhow::Result;
 use mcp_common::{TracingConfig, TracingGuard};
 use once_cell::sync::OnceCell;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 use super::args::{ConvertArgs, LoggingArgs};
 
@@ -83,8 +83,7 @@ fn determine_log_file_path(
         let name_part = mcp_name.unwrap_or("unknown");
         let filename = format!("mcp-proxy-{}-{}-{}.log", name_part, date, session_id);
 
-        std::fs::create_dir_all(log_dir)
-            .map_err(|e| anyhow::anyhow!("无法创建日志目录: {}", e))?;
+        std::fs::create_dir_all(log_dir).map_err(|e| anyhow::anyhow!("无法创建日志目录: {}", e))?;
         Ok(Some(log_dir.join(filename)))
     } else if logging.diagnostic {
         // diagnostic=true 时，使用系统临时目录
@@ -127,14 +126,18 @@ fn init_with_file_and_otlp(
     quiet: bool,
     verbose: bool,
 ) -> Result<()> {
-    let file = std::fs::File::create(file_path)
-        .map_err(|e| anyhow::anyhow!("无法创建日志文件: {}", e))?;
+    let file =
+        std::fs::File::create(file_path).map_err(|e| anyhow::anyhow!("无法创建日志文件: {}", e))?;
 
     if !quiet {
         eprintln!("📝 日志文件: {}", file_path.display());
         eprintln!(
             "📋 诊断模式: {} (日志级别: {})",
-            if logging.diagnostic { "启用" } else { "禁用" },
+            if logging.diagnostic {
+                "启用"
+            } else {
+                "禁用"
+            },
             if logging.diagnostic { "DEBUG" } else { "WARN" }
         );
     }
@@ -163,14 +166,18 @@ fn init_with_file_only(
     quiet: bool,
     verbose: bool,
 ) -> Result<()> {
-    let file = std::fs::File::create(file_path)
-        .map_err(|e| anyhow::anyhow!("无法创建日志文件: {}", e))?;
+    let file =
+        std::fs::File::create(file_path).map_err(|e| anyhow::anyhow!("无法创建日志文件: {}", e))?;
 
     if !quiet {
         eprintln!("📝 日志文件: {}", file_path.display());
         eprintln!(
             "📋 诊断模式: {} (日志级别: {})",
-            if logging.diagnostic { "启用" } else { "禁用" },
+            if logging.diagnostic {
+                "启用"
+            } else {
+                "禁用"
+            },
             if logging.diagnostic { "DEBUG" } else { "WARN" }
         );
     }

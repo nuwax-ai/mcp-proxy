@@ -8,14 +8,13 @@
 //! ```
 
 use rmcp::{
-    ErrorData, ServerHandler, ServiceExt,
+    ErrorData, RoleServer, ServerHandler, ServiceExt,
     model::{
-        CallToolRequestParam, CallToolResult, Content, Implementation, JsonObject,
-        ListToolsResult, PaginatedRequestParam, ServerCapabilities, ServerInfo, Tool,
+        CallToolRequestParam, CallToolResult, Content, Implementation, JsonObject, ListToolsResult,
+        PaginatedRequestParam, ServerCapabilities, ServerInfo, Tool,
     },
     service::RequestContext,
     transport::stdio,
-    RoleServer,
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;

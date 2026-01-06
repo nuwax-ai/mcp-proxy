@@ -10,12 +10,9 @@ use crate::proxy::{ProxyHandler, ToolFilter};
 
 // SSE 模式需要的类型（rmcp 0.10）
 use mcp_sse_proxy::{
-    ServiceExt as SseServiceExt,
-    TokioChildProcess,
+    ClientCapabilities as SseClientCapabilities, ClientInfo as SseClientInfo,
+    Implementation as SseImplementation, ServiceExt as SseServiceExt, TokioChildProcess,
     stdio as sse_stdio,
-    ClientInfo as SseClientInfo,
-    ClientCapabilities as SseClientCapabilities,
-    Implementation as SseImplementation,
 };
 
 use crate::client::support::utils::truncate_str;

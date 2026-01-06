@@ -1075,7 +1075,6 @@ mod tests {
         Ok(())
     }
 
-
     #[test]
     fn test_flexible_config_through_mcp_json_server_parameters() -> Result<()> {
         // 测试通过 McpJsonServerParameters 使用灵活配置

@@ -3,6 +3,7 @@
 //! This module provides the SSE server using rmcp 0.10's stable SSE transport.
 
 use anyhow::{Result, bail};
+pub use mcp_common::McpServiceConfig;
 use rmcp::{
     ServiceExt,
     model::{ClientCapabilities, ClientInfo},
@@ -13,7 +14,6 @@ use rmcp::{
 };
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
-pub use mcp_common::McpServiceConfig;
 
 use crate::SseHandler;
 
@@ -138,11 +138,7 @@ pub async fn run_sse_server_from_config(
 /// # Ok(())
 /// # }
 /// ```
-pub async fn run_sse_server(
-    sse_handler: SseHandler,
-    bind_addr: &str,
-    quiet: bool,
-) -> Result<()> {
+pub async fn run_sse_server(sse_handler: SseHandler, bind_addr: &str, quiet: bool) -> Result<()> {
     // 默认的 SSE 和消息路径
     let sse_path = "/sse".to_string();
     let message_path = "/message".to_string();
@@ -151,7 +147,10 @@ pub async fn run_sse_server(
         eprintln!("📡 SSE 服务启动: http://{}", bind_addr);
         eprintln!("   SSE 端点: http://{}{}", bind_addr, sse_path);
         eprintln!("   消息端点: http://{}{}", bind_addr, message_path);
-        eprintln!("💡 MCP 客户端可直接使用: http://{} （自动重定向）", bind_addr);
+        eprintln!(
+            "💡 MCP 客户端可直接使用: http://{} （自动重定向）",
+            bind_addr
+        );
         eprintln!("🔄 后端热替换: 启用");
         eprintln!("💡 按 Ctrl+C 停止服务");
     }
@@ -217,13 +216,11 @@ pub async fn run_sse_server(
                         "Redirecting to message endpoint".to_string(),
                     )
                 }
-                _ => {
-                    (
-                        axum::http::StatusCode::METHOD_NOT_ALLOWED,
-                        [("Allow", "GET, POST".to_string())],
-                        "Method not allowed".to_string(),
-                    )
-                }
+                _ => (
+                    axum::http::StatusCode::METHOD_NOT_ALLOWED,
+                    [("Allow", "GET, POST".to_string())],
+                    "Method not allowed".to_string(),
+                ),
             }
         }
     };

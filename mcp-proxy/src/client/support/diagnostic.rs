@@ -8,7 +8,8 @@ pub fn classify_error(e: &anyhow::Error) -> &'static str {
 
     // 特殊识别 30 秒超时（可能是服务器限制）
     if (err_str.contains("30") || err_str.contains("thirty"))
-        && (err_str.contains("timeout") || err_str.contains("second") || err_str.contains("秒")) {
+        && (err_str.contains("timeout") || err_str.contains("second") || err_str.contains("秒"))
+    {
         "30秒超时（可能是服务器限制）"
     }
     // 识别 503 服务不可用
@@ -18,24 +19,19 @@ pub fn classify_error(e: &anyhow::Error) -> &'static str {
     // 识别其他 HTTP 5xx 错误
     else if err_str.contains("500") || err_str.contains("internal server error") {
         "服务器内部错误(500)"
-    }
-    else if err_str.contains("502") || err_str.contains("bad gateway") {
+    } else if err_str.contains("502") || err_str.contains("bad gateway") {
         "网关错误(502)"
-    }
-    else if err_str.contains("504") || err_str.contains("gateway timeout") {
+    } else if err_str.contains("504") || err_str.contains("gateway timeout") {
         "网关超时(504)"
     }
     // 识别 HTTP 4xx 错误
     else if err_str.contains("401") || err_str.contains("unauthorized") {
         "未授权(401)"
-    }
-    else if err_str.contains("403") || err_str.contains("forbidden") {
+    } else if err_str.contains("403") || err_str.contains("forbidden") {
         "禁止访问(403)"
-    }
-    else if err_str.contains("404") || err_str.contains("not found") {
+    } else if err_str.contains("404") || err_str.contains("not found") {
         "资源未找到(404)"
-    }
-    else if err_str.contains("408") || err_str.contains("request timeout") {
+    } else if err_str.contains("408") || err_str.contains("request timeout") {
         "请求超时(408)"
     }
     // 通用超时
@@ -45,28 +41,25 @@ pub fn classify_error(e: &anyhow::Error) -> &'static str {
     // 连接相关错误
     else if err_str.contains("connection refused") {
         "连接被拒绝"
-    }
-    else if err_str.contains("connection reset") {
+    } else if err_str.contains("connection reset") {
         "连接被重置"
-    }
-    else if err_str.contains("eof") || err_str.contains("closed") || err_str.contains("shutdown") {
+    } else if err_str.contains("eof") || err_str.contains("closed") || err_str.contains("shutdown")
+    {
         "连接关闭"
     }
     // 网络相关错误
     else if err_str.contains("dns") || err_str.contains("resolve") {
         "DNS解析失败"
-    }
-    else if err_str.contains("certificate") || err_str.contains("ssl") || err_str.contains("tls") {
+    } else if err_str.contains("certificate") || err_str.contains("ssl") || err_str.contains("tls")
+    {
         "SSL/TLS错误"
-    }
-    else if err_str.contains("sending request") || err_str.contains("network") {
+    } else if err_str.contains("sending request") || err_str.contains("network") {
         "网络错误"
     }
     // 会话相关
     else if err_str.contains("session") {
         "会话错误"
-    }
-    else {
+    } else {
         "未知错误"
     }
 }
@@ -106,14 +99,17 @@ pub fn print_diagnostic_report(
         if parts.len() == 2 {
             let base = parts[0];
             let params: Vec<&str> = parts[1].split('&').collect();
-            let masked_params: Vec<String> = params.iter().map(|p| {
-                if p.starts_with("ak=") || p.starts_with("token=") || p.starts_with("auth=") {
-                    let key = p.split('=').next().unwrap_or("");
-                    format!("{}=***", key)
-                } else {
-                    p.to_string()
-                }
-            }).collect();
+            let masked_params: Vec<String> = params
+                .iter()
+                .map(|p| {
+                    if p.starts_with("ak=") || p.starts_with("token=") || p.starts_with("auth=") {
+                        let key = p.split('=').next().unwrap_or("");
+                        format!("{}=***", key)
+                    } else {
+                        p.to_string()
+                    }
+                })
+                .collect();
             format!("{}?{}", base, masked_params.join("&"))
         } else {
             url.to_string()
@@ -143,13 +139,16 @@ pub fn print_diagnostic_report(
         eprintln!("     2. 服务器拒绝连接");
         eprintln!("     3. 网络不稳定");
     } else if alive_duration_secs >= 60 {
-        eprintln!("  ✅ 连接保持了较长时间（{}秒），可能是:", alive_duration_secs);
+        eprintln!(
+            "  ✅ 连接保持了较长时间（{}秒），可能是:",
+            alive_duration_secs
+        );
         eprintln!("     1. 工具调用执行时间过长");
         eprintln!("     2. 网络波动导致断开");
     }
 
-    if error_type == Some("30秒超时（可能是服务器限制）")
-        || error_type == Some("服务不可用(503)") {
+    if error_type == Some("30秒超时（可能是服务器限制）") || error_type == Some("服务不可用(503)")
+    {
         eprintln!("\n建议:");
         eprintln!("  1. 联系服务提供商增加超时限制");
         eprintln!("  2. 使用 --request-timeout 参数设置客户端超时");
@@ -174,7 +173,10 @@ mod tests {
     fn test_classify_error() {
         assert_eq!(classify_error(&anyhow!("connection timeout")), "超时");
         assert_eq!(classify_error(&anyhow!("connection refused")), "连接被拒绝");
-        assert_eq!(classify_error(&anyhow!("503 Service Unavailable")), "服务不可用(503)");
+        assert_eq!(
+            classify_error(&anyhow!("503 Service Unavailable")),
+            "服务不可用(503)"
+        );
         assert_eq!(classify_error(&anyhow!("401 Unauthorized")), "未授权(401)");
     }
 
@@ -183,7 +185,9 @@ mod tests {
         let short_err = anyhow!("short error");
         assert_eq!(summarize_error(&short_err), "short error");
 
-        let long_err = anyhow!("this is a very long error message that exceeds eighty characters and should be truncated");
+        let long_err = anyhow!(
+            "this is a very long error message that exceeds eighty characters and should be truncated"
+        );
         let summary = summarize_error(&long_err);
         assert!(summary.len() <= 80);
         assert!(summary.ends_with("..."));

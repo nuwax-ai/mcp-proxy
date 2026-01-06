@@ -19,9 +19,7 @@ pub use server::{
 };
 
 // 导出 CLI 功能
-pub use client::{
-    Cli, Commands, run_cli,
-};
+pub use client::{Cli, Commands, run_cli};
 
 // 导出用于基准测试的组件
 pub use server::handlers::run_code_handler::{RunCodeMessageRequest, run_code_handler};

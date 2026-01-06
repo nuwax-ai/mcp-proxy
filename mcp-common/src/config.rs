@@ -1,7 +1,7 @@
 //! MCP 服务配置
 
-use std::collections::HashMap;
 use crate::ToolFilter;
+use std::collections::HashMap;
 
 /// MCP 服务配置
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]

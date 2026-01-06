@@ -1,11 +1,15 @@
-use axum::{extract::{Query, State}, http::StatusCode, Json};
+use axum::{
+    Json,
+    extract::{Query, State},
+    http::StatusCode,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use utoipa::{ToSchema, IntoParams};
+use utoipa::{IntoParams, ToSchema};
 
-use crate::models::{list_available_models, ModelInfo};
-use crate::server::AppState;
 use crate::handlers::embeddings::ErrorResponse;
+use crate::models::{ModelInfo, list_available_models};
+use crate::server::AppState;
 
 /// 查询参数
 #[derive(Debug, Deserialize, IntoParams)]
@@ -22,11 +26,11 @@ pub struct ModelsResponse {
     /// 模型类型
     #[schema(example = "text")]
     pub r#type: String,
-    
+
     /// 模型数量
     #[schema(example = 2)]
     pub count: usize,
-    
+
     /// 模型列表
     pub models: Vec<ModelInfo>,
 }
@@ -49,7 +53,7 @@ pub async fn handle_list_models(
 ) -> Result<Json<ModelsResponse>, (StatusCode, Json<ErrorResponse>)> {
     // 验证类型参数
     let model_type = query.model_type.as_deref().unwrap_or("text");
-    
+
     // 目前仅支持 text 类型
     if model_type != "text" {
         return Err((
@@ -61,21 +65,20 @@ pub async fn handle_list_models(
             }),
         ));
     }
-    
+
     // 列出可用模型
-    let models = list_available_models(&state.config.fastembed.cache_dir)
-        .map_err(|e| {
-            tracing::error!("列出可用模型失败: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "LIST_ERROR".to_string(),
-                    message: format!("列出可用模型失败: {}", e),
-                    status: 500,
-                }),
-            )
-        })?;
-    
+    let models = list_available_models(&state.config.fastembed.cache_dir).map_err(|e| {
+        tracing::error!("列出可用模型失败: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "LIST_ERROR".to_string(),
+                message: format!("列出可用模型失败: {}", e),
+                status: 500,
+            }),
+        )
+    })?;
+
     Ok(Json(ModelsResponse {
         r#type: model_type.to_string(),
         count: models.len(),

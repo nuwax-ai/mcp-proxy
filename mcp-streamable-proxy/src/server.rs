@@ -3,20 +3,20 @@
 //! This module provides the HTTP server that uses ProxyAwareSessionManager
 //! for stateful session management with backend version control.
 
-use std::sync::Arc;
 use anyhow::{Result, bail};
+pub use mcp_common::McpServiceConfig;
 use rmcp::{
     ServiceExt,
     model::{ClientCapabilities, ClientInfo},
     transport::{
         TokioChildProcess,
-        streamable_http_server::{StreamableHttpService, StreamableHttpServerConfig},
+        streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService},
     },
 };
+use std::sync::Arc;
 use tokio::process::Command;
-pub use mcp_common::McpServiceConfig;
 
-use crate::{ProxyHandler, ProxyAwareSessionManager};
+use crate::{ProxyAwareSessionManager, ProxyHandler};
 
 /// 从配置启动 Streamable HTTP 服务器
 ///

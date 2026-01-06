@@ -5,9 +5,8 @@ mod sse_test {
     use log::{error, info, warn};
     // Use library re-exports instead of direct rmcp imports
     use mcp_sse_proxy::{
-        ServiceExt,
-        CallToolRequestParam, ClientCapabilities, ClientInfo, Implementation,
-        SseClientTransport, SseClientConfig,
+        CallToolRequestParam, ClientCapabilities, ClientInfo, Implementation, ServiceExt,
+        SseClientConfig, SseClientTransport,
     };
     use std::process::Command;
     use std::time::Duration;
@@ -15,11 +14,10 @@ mod sse_test {
     // 公共常量
     // 从环境变量获取配置，避免硬编码的mock数据
     fn get_mcp_config() -> String {
-        std::env::var("MCP_TEST_CONFIG").unwrap_or_else(|_| {
-            panic!("MCP_TEST_CONFIG 环境变量未设置，无法运行集成测试")
-        })
+        std::env::var("MCP_TEST_CONFIG")
+            .unwrap_or_else(|_| panic!("MCP_TEST_CONFIG 环境变量未设置，无法运行集成测试"))
     }
-    
+
     fn get_mcp_type() -> String {
         std::env::var("MCP_TEST_TYPE").unwrap_or_else(|_| "OneShot".to_string())
     }

@@ -2,20 +2,17 @@
 //!
 //! Server-Sent Events 协议的实现和连接管理
 
+use anyhow::Result;
 use std::sync::Arc;
 use std::time::Duration;
-use anyhow::Result;
 use tracing::error;
 
-use crate::proxy::{
-    ProxyHandler, ToolFilter, McpClientConfig, SseClientConnection,
+use crate::client::support::{
+    ConvertArgs, classify_error, print_diagnostic_report, summarize_error, truncate_str,
 };
-use crate::client::support::{ConvertArgs, truncate_str, classify_error, summarize_error, print_diagnostic_report};
+use crate::proxy::{McpClientConfig, ProxyHandler, SseClientConnection, ToolFilter};
 
-use mcp_sse_proxy::{
-    ServiceExt,
-    stdio as sse_stdio,
-};
+use mcp_sse_proxy::{ServiceExt, stdio as sse_stdio};
 
 /// SSE 模式处理（使用 mcp-sse-proxy，rmcp 0.10）
 pub async fn run_sse_mode(
@@ -28,7 +25,11 @@ pub async fn run_sse_mode(
     tracing::info!("========================================");
     tracing::info!("SSE 模式启动");
     tracing::info!("目标 URL: {}", config.url);
-    tracing::info!("Ping 间隔: {}s, Ping 超时: {}s", args.ping_interval, args.ping_timeout);
+    tracing::info!(
+        "Ping 间隔: {}s, Ping 超时: {}s",
+        args.ping_interval,
+        args.ping_timeout
+    );
     tracing::info!("========================================");
 
     if !quiet {
@@ -37,19 +38,25 @@ pub async fn run_sse_mode(
 
     // 1. 使用高层 API 连接
     let connect_timeout = Duration::from_secs(30);
-    tracing::info!("开始连接到后端服务 (超时: {}s)...", connect_timeout.as_secs());
+    tracing::info!(
+        "开始连接到后端服务 (超时: {}s)...",
+        connect_timeout.as_secs()
+    );
     let connect_start = std::time::Instant::now();
 
-    let conn = tokio::time::timeout(connect_timeout, SseClientConnection::connect(config.clone()))
-        .await
-        .map_err(|_| {
-            tracing::error!("连接后端超时 ({}s)", connect_timeout.as_secs());
-            anyhow::anyhow!("连接后端超时 ({}秒)", connect_timeout.as_secs())
-        })?
-        .map_err(|e| {
-            tracing::error!("连接后端失败: {}", e);
-            anyhow::anyhow!("连接后端失败: {}", e)
-        })?;
+    let conn = tokio::time::timeout(
+        connect_timeout,
+        SseClientConnection::connect(config.clone()),
+    )
+    .await
+    .map_err(|_| {
+        tracing::error!("连接后端超时 ({}s)", connect_timeout.as_secs());
+        anyhow::anyhow!("连接后端超时 ({}秒)", connect_timeout.as_secs())
+    })?
+    .map_err(|e| {
+        tracing::error!("连接后端失败: {}", e);
+        anyhow::anyhow!("连接后端失败: {}", e)
+    })?;
 
     let connect_duration = connect_start.elapsed();
     tracing::info!("后端连接成功 (耗时: {:?})", connect_duration);
@@ -59,7 +66,10 @@ pub async fn run_sse_mode(
         // 打印工具列表
         print_sse_tools(&conn, quiet).await;
         if args.ping_interval > 0 {
-            eprintln!("💓 心跳检测: 每 {}s ping 一次（超时 {}s）", args.ping_interval, args.ping_timeout);
+            eprintln!(
+                "💓 心跳检测: 每 {}s ping 一次（超时 {}s）",
+                args.ping_interval, args.ping_timeout
+            );
         }
     }
 
@@ -155,12 +165,8 @@ async fn run_sse_watchdog(
 
     // 首先监控现有连接的健康状态
     tracing::info!("开始监控初始连接...");
-    let disconnect_reason = monitor_sse_connection(
-        &handler,
-        args.ping_interval,
-        args.ping_timeout,
-        quiet,
-    ).await;
+    let disconnect_reason =
+        monitor_sse_connection(&handler, args.ping_interval, args.ping_timeout, quiet).await;
 
     // 连接断开，标记后端不可用
     tracing::warn!("初始连接断开: {}", disconnect_reason);
@@ -216,12 +222,9 @@ async fn run_sse_watchdog(
                 // 监控连接健康
                 tracing::info!("开始监控重连后的连接...");
                 let reconnect_start = std::time::Instant::now();
-                let disconnect_reason = monitor_sse_connection(
-                    &handler,
-                    args.ping_interval,
-                    args.ping_timeout,
-                    quiet,
-                ).await;
+                let disconnect_reason =
+                    monitor_sse_connection(&handler, args.ping_interval, args.ping_timeout, quiet)
+                        .await;
 
                 // 连接断开，标记后端不可用
                 tracing::warn!("重连后断开: {}", disconnect_reason);
@@ -245,7 +248,12 @@ async fn run_sse_watchdog(
             }
             Err(e) => {
                 let error_type = classify_error(&e);
-                tracing::error!("连接失败 [{}]: {} (耗时: {:?})", error_type, summarize_error(&e), connect_duration);
+                tracing::error!(
+                    "连接失败 [{}]: {} (耗时: {:?})",
+                    error_type,
+                    summarize_error(&e),
+                    connect_duration
+                );
 
                 if max_retries > 0 && attempt >= max_retries {
                     tracing::error!("达到最大重试次数 ({}), 停止重连", max_retries);
@@ -268,11 +276,22 @@ async fn run_sse_watchdog(
 
                 if !quiet {
                     if max_retries == 0 {
-                        eprintln!("⚠️  连接失败 [{}]: {}，{}秒后重连 (第{}次)...",
-                            error_type, summarize_error(&e), backoff_secs, attempt);
+                        eprintln!(
+                            "⚠️  连接失败 [{}]: {}，{}秒后重连 (第{}次)...",
+                            error_type,
+                            summarize_error(&e),
+                            backoff_secs,
+                            attempt
+                        );
                     } else {
-                        eprintln!("⚠️  连接失败 [{}]: {}，{}秒后重连 ({}/{})...",
-                            error_type, summarize_error(&e), backoff_secs, attempt, max_retries);
+                        eprintln!(
+                            "⚠️  连接失败 [{}]: {}，{}秒后重连 ({}/{})...",
+                            error_type,
+                            summarize_error(&e),
+                            backoff_secs,
+                            attempt,
+                            max_retries
+                        );
                     }
                 }
 
@@ -307,7 +326,8 @@ async fn monitor_sse_connection(
             tokio::time::sleep(Duration::from_secs(1)).await;
             if !handler.is_backend_available() {
                 let alive_duration = connection_start.elapsed();
-                let disconnect_reason = format!("后端连接已关闭（存活时长: {}s）", alive_duration.as_secs());
+                let disconnect_reason =
+                    format!("后端连接已关闭（存活时长: {}s）", alive_duration.as_secs());
                 if !quiet {
                     tracing::error!("❌ {}", disconnect_reason);
                 }
@@ -325,10 +345,15 @@ async fn monitor_sse_connection(
         ping_count += 1;
 
         let alive_duration = connection_start.elapsed();
-        tracing::debug!("💓 Ping 检测 #{}, 连接已存活: {}s", ping_count, alive_duration.as_secs());
+        tracing::debug!(
+            "💓 Ping 检测 #{}, 连接已存活: {}s",
+            ping_count,
+            alive_duration.as_secs()
+        );
 
         if !handler.is_backend_available() {
-            let disconnect_reason = format!("后端连接已关闭（存活时长: {}s）", alive_duration.as_secs());
+            let disconnect_reason =
+                format!("后端连接已关闭（存活时长: {}s）", alive_duration.as_secs());
             if !quiet {
                 tracing::error!("❌ {}", disconnect_reason);
             }
@@ -337,22 +362,30 @@ async fn monitor_sse_connection(
 
         let check_result = tokio::time::timeout(
             Duration::from_secs(ping_timeout),
-            handler.is_terminated_async()
-        ).await;
+            handler.is_terminated_async(),
+        )
+        .await;
 
         match check_result {
             Ok(true) => {
-                let disconnect_reason = format!("Ping 检测失败（服务错误），存活时长: {}s", alive_duration.as_secs());
+                let disconnect_reason = format!(
+                    "Ping 检测失败（服务错误），存活时长: {}s",
+                    alive_duration.as_secs()
+                );
                 if !quiet {
                     tracing::error!("❌ {}", disconnect_reason);
                 }
                 return disconnect_reason;
-            },
+            }
             Ok(false) => {
                 tracing::trace!("✅ Ping #{} 成功", ping_count);
             }
             Err(_) => {
-                let disconnect_reason = format!("Ping 检测超时（{}s），存活时长: {}s", ping_timeout, alive_duration.as_secs());
+                let disconnect_reason = format!(
+                    "Ping 检测超时（{}s），存活时长: {}s",
+                    ping_timeout,
+                    alive_duration.as_secs()
+                );
                 if !quiet {
                     eprintln!("❌ {}", disconnect_reason);
                 }

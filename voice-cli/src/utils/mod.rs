@@ -46,7 +46,9 @@ pub fn init_logging(config: &Config) -> crate::Result<()> {
         .filename_prefix("voice-cli")
         .max_log_files(config.logging.max_files as usize)
         .build(&log_dir)
-        .map_err(|e| VoiceCliError::Config(format!("Failed to initialize log file appender: {}", e)))?;
+        .map_err(|e| {
+            VoiceCliError::Config(format!("Failed to initialize log file appender: {}", e))
+        })?;
 
     // Create console layer with proper formatting
     let console_layer = tracing_subscriber::fmt::layer()

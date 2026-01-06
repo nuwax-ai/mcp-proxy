@@ -16,5 +16,5 @@ pub use mcp_streamable_proxy::ProxyHandler as StreamProxyHandler;
 pub use mcp_common::ToolFilter;
 
 // Re-export client connection types for high-level API (each from its own library)
-pub use mcp_sse_proxy::{SseClientConnection, McpClientConfig};
+pub use mcp_sse_proxy::{McpClientConfig, SseClientConnection};
 pub use mcp_streamable_proxy::StreamClientConnection;

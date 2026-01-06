@@ -1,7 +1,7 @@
 use anyhow::Result;
 use axum::{
-    routing::{get, post},
     Router,
+    routing::{get, post},
 };
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -16,9 +16,7 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::config::AppConfig;
 use crate::handlers::{
-    embeddings::handle_embed,
-    health::handle_health,
-    models::handle_list_models,
+    embeddings::handle_embed, health::handle_health, models::handle_list_models,
 };
 
 /// OpenAPI 文档定义
@@ -80,14 +78,13 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any);
-    
+
     // Body 限制：20MB
     let body_limit = RequestBodyLimitLayer::new(20 * 1024 * 1024);
-    
+
     // 创建 Swagger UI（无状态路由）
-    let swagger = SwaggerUi::new("/swagger-ui")
-        .url("/api-docs/openapi.json", ApiDoc::openapi());
-    
+    let swagger = SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi());
+
     // 创建 API 路由（有状态）
     Router::new()
         .merge(swagger)
@@ -105,9 +102,9 @@ pub async fn start_server(config: AppConfig) -> Result<()> {
     let host = config.server.host.clone();
     let port = config.server.port;
     let addr = format!("{}:{}", host, port);
-    
+
     let state = Arc::new(AppState::new(config.clone()));
-    
+
     // 预热模型（异步执行）
     let warmup_state = state.clone();
     let warmup_config = config.clone();
@@ -116,64 +113,62 @@ pub async fn start_server(config: AppConfig) -> Result<()> {
             tracing::warn!("模型预热失败: {}", e);
         }
     });
-    
+
     let app = create_router(state);
-    
+
     tracing::info!("FastEmbed 服务启动中...");
     tracing::info!("监听地址: {}", addr);
-    
+
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    
+
     tracing::info!("✅ FastEmbed 服务已启动: http://{}", addr);
     tracing::info!("健康检查: http://{}/health", addr);
     tracing::info!("文本嵌入: POST http://{}/api/embeddings", addr);
     tracing::info!("可用模型: GET http://{}/api/models/available", addr);
     tracing::info!("📚 Swagger UI: http://{}/swagger-ui/", addr);
-    
+
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
-    
+
     tracing::info!("✅ FastEmbed 服务已优雅关闭");
-    
+
     Ok(())
 }
 
 /// 模型预热
 async fn warmup_model(state: Arc<AppState>, config: AppConfig) -> Result<()> {
-    use crate::models::{parse_model, get_or_init_model};
-    
+    use crate::models::{get_or_init_model, parse_model};
+
     tracing::info!("开始预热模型: {}", config.fastembed.default_model);
     let start = Instant::now();
-    
+
     let model = parse_model(&config.fastembed.default_model)?;
     let model_arc = get_or_init_model(
         model,
         Some(config.fastembed.cache_dir.clone()),
-        None,  // 使用模型默认的 max_length
+        None, // 使用模型默认的 max_length
     )?;
-    
+
     // 执行一次微型嵌入
     let warmup_text = vec!["passage: warmup".to_string()];
     let mut model_guard = model_arc.lock().unwrap();
     model_guard.embed(warmup_text, Some(1))?;
-    
+
     let elapsed = start.elapsed();
-    
+
     // 标记预热完成
     *state.model_cache_ready.lock().unwrap() = true;
-    
+
     tracing::info!("✅ 模型预热完成，耗时: {:?}", elapsed);
-    
+
     Ok(())
 }
 
 /// 优雅关闭信号
 async fn shutdown_signal() {
     let ctrl_c = async {
-        signal::ctrl_c()
-            .await
-            .expect("无法安装 Ctrl+C 信号处理器");
+        signal::ctrl_c().await.expect("无法安装 Ctrl+C 信号处理器");
     };
 
     #[cfg(unix)]

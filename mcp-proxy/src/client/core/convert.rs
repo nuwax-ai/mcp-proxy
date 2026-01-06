@@ -6,8 +6,8 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::proxy::{ProxyHandler, ToolFilter, McpClientConfig};
 use crate::client::support::{ConvertArgs, protocol_name};
+use crate::proxy::{McpClientConfig, ProxyHandler, ToolFilter};
 
 use super::sse::run_sse_mode;
 use super::stream::run_stream_mode;
@@ -26,7 +26,11 @@ pub async fn run_url_mode_with_retry(
     tracing::info!("开始 URL 模式处理");
     tracing::info!("目标 URL: {}", url);
     tracing::debug!("Headers 数量: {}", merged_headers.len());
-    tracing::debug!("Ping 间隔: {}s, Ping 超时: {}s", args.ping_interval, args.ping_timeout);
+    tracing::debug!(
+        "Ping 间隔: {}s, Ping 超时: {}s",
+        args.ping_interval,
+        args.ping_timeout
+    );
     tracing::debug!("重试次数: {} (0=无限)", args.retries);
 
     if !quiet && merged_headers.is_empty() {
@@ -46,8 +50,12 @@ pub async fn run_url_mode_with_retry(
     // 确定协议类型：命令行参数 > 配置文件 > 自动检测
     let protocol = if let Some(ref proto) = args.protocol {
         let detected = match proto {
-            crate::client::proxy_server::ProxyProtocol::Sse => crate::client::protocol::McpProtocol::Sse,
-            crate::client::proxy_server::ProxyProtocol::Stream => crate::client::protocol::McpProtocol::Stream,
+            crate::client::proxy_server::ProxyProtocol::Sse => {
+                crate::client::protocol::McpProtocol::Sse
+            }
+            crate::client::proxy_server::ProxyProtocol::Stream => {
+                crate::client::protocol::McpProtocol::Stream
+            }
         };
         tracing::info!("使用命令行指定协议: {}", protocol_name(&detected));
         if !quiet {
@@ -66,13 +74,18 @@ pub async fn run_url_mode_with_retry(
             eprintln!("🔍 正在检测协议...");
         }
         let detection_start = std::time::Instant::now();
-        let detected = crate::client::protocol::detect_mcp_protocol(url).await
+        let detected = crate::client::protocol::detect_mcp_protocol(url)
+            .await
             .map_err(|e| {
                 tracing::error!("协议检测失败: {}", e);
                 e
             })?;
         let detection_duration = detection_start.elapsed();
-        tracing::info!("协议检测完成: {} (耗时: {:?})", protocol_name(&detected), detection_duration);
+        tracing::info!(
+            "协议检测完成: {} (耗时: {:?})",
+            protocol_name(&detected),
+            detection_duration
+        );
         if !quiet {
             eprintln!("🔍 检测到 {} 协议", protocol_name(&detected));
         }

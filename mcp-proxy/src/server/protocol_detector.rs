@@ -105,7 +105,8 @@ async fn is_streamable_http(url: &str) -> bool {
                 debug!("响应内容: {:?}", json);
                 // JSON-RPC 2.0 响应必须包含 jsonrpc 字段且值为 "2.0"
                 // 这比单独检查 error 字段更严格，避免误判普通 JSON 错误响应
-                let is_jsonrpc = json.get("jsonrpc")
+                let is_jsonrpc = json
+                    .get("jsonrpc")
                     .and_then(|v| v.as_str())
                     .map(|v| v == "2.0")
                     .unwrap_or(false);

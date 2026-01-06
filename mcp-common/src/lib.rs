@@ -22,4 +22,4 @@ pub use tool_filter::ToolFilter;
 
 // Re-export telemetry types when feature is enabled
 #[cfg(feature = "telemetry")]
-pub use telemetry::{create_otel_layer, init_tracing, TracingConfig, TracingGuard};
+pub use telemetry::{TracingConfig, TracingGuard, create_otel_layer, init_tracing};

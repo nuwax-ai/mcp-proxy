@@ -8,7 +8,7 @@ pub struct ServerConfig {
     /// 监听地址
     #[serde(default = "default_host")]
     pub host: String,
-    
+
     /// 监听端口
     #[serde(default = "default_port")]
     pub port: u16,
@@ -37,11 +37,11 @@ pub struct FastEmbedConfig {
     /// 缓存目录
     #[serde(default = "default_cache_dir")]
     pub cache_dir: String,
-    
+
     /// 默认模型
     #[serde(default = "default_model")]
     pub default_model: String,
-    
+
     /// 批处理大小
     #[serde(default = "default_batch_size")]
     pub batch_size: usize,
@@ -74,7 +74,7 @@ impl Default for FastEmbedConfig {
 pub struct AppConfig {
     #[serde(default)]
     pub server: ServerConfig,
-    
+
     #[serde(default)]
     pub fastembed: FastEmbedConfig,
 }
@@ -93,26 +93,24 @@ impl AppConfig {
     pub fn from_file(path: &PathBuf) -> Result<Self> {
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("无法读取配置文件: {:?}", path))?;
-        
+
         let config: AppConfig = serde_yaml::from_str(&content)
             .with_context(|| format!("无法解析配置文件: {:?}", path))?;
-        
+
         Ok(config)
     }
-    
+
     /// 生成默认配置文件
     pub fn generate_default_config(path: &PathBuf) -> Result<()> {
         let default_config = AppConfig::default();
-        let yaml = serde_yaml::to_string(&default_config)
-            .context("无法序列化默认配置")?;
-        
-        std::fs::write(path, yaml)
-            .with_context(|| format!("无法写入配置文件: {:?}", path))?;
-        
+        let yaml = serde_yaml::to_string(&default_config).context("无法序列化默认配置")?;
+
+        std::fs::write(path, yaml).with_context(|| format!("无法写入配置文件: {:?}", path))?;
+
         tracing::info!("已生成默认配置文件: {:?}", path);
         Ok(())
     }
-    
+
     /// 应用环境变量覆盖
     pub fn apply_env_overrides(&mut self) {
         // FASTEMBED_CACHE_DIR 可以覆盖 cache_dir
@@ -121,11 +119,11 @@ impl AppConfig {
             self.fastembed.cache_dir = cache_dir;
         }
     }
-    
+
     /// 加载或生成配置
     pub fn load_or_generate(config_path: Option<PathBuf>) -> Result<Self> {
         let path = config_path.unwrap_or_else(|| PathBuf::from("./config.yml"));
-        
+
         let mut config = if path.exists() {
             tracing::info!("从文件加载配置: {:?}", path);
             Self::from_file(&path)?
@@ -134,13 +132,13 @@ impl AppConfig {
             Self::generate_default_config(&path)?;
             Self::default()
         };
-        
+
         // 应用环境变量覆盖
         config.apply_env_overrides();
-        
+
         // 打印最终配置
         tracing::info!("最终配置: {:?}", config);
-        
+
         Ok(config)
     }
 }

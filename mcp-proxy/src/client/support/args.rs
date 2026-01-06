@@ -12,7 +12,11 @@ use std::path::PathBuf;
 #[derive(Parser, Debug, Clone)]
 pub struct LoggingArgs {
     /// 启用详细诊断模式，输出连接和工具调用的详细时间信息（默认启用）
-    #[arg(long, default_value = "false", help = "启用详细诊断模式，追踪连接生命周期和超时问题（默认启用）")]
+    #[arg(
+        long,
+        default_value = "false",
+        help = "启用详细诊断模式，追踪连接生命周期和超时问题（默认启用）"
+    )]
     pub diagnostic: bool,
 
     /// 日志输出目录（自动生成文件名）
@@ -24,7 +28,7 @@ pub struct LoggingArgs {
     pub log_file: Option<PathBuf>,
 
     /// OTLP 追踪端点（如 http://localhost:4317）
-    /// 
+    ///
     /// 启用 diagnostic 模式时，可配置此参数将追踪数据发送到 Jaeger 等 OTLP 兼容的后端。
     /// 支持 gRPC (端口 4317) 和 HTTP (端口 4318) 协议。
     #[arg(
@@ -42,7 +46,6 @@ pub struct LoggingArgs {
     )]
     pub service_name: String,
 }
-
 
 /// MCP-Proxy CLI 主命令结构
 #[derive(Parser, Debug)]
@@ -117,19 +120,35 @@ pub struct ConvertArgs {
     pub retries: u32,
 
     /// 工具白名单（逗号分隔），只允许指定的工具
-    #[arg(long, value_delimiter = ',', help = "工具白名单（逗号分隔），只允许指定的工具")]
+    #[arg(
+        long,
+        value_delimiter = ',',
+        help = "工具白名单（逗号分隔），只允许指定的工具"
+    )]
     pub allow_tools: Option<Vec<String>>,
 
     /// 工具黑名单（逗号分隔），排除指定的工具
-    #[arg(long, value_delimiter = ',', help = "工具黑名单（逗号分隔），排除指定的工具")]
+    #[arg(
+        long,
+        value_delimiter = ',',
+        help = "工具黑名单（逗号分隔），排除指定的工具"
+    )]
     pub deny_tools: Option<Vec<String>>,
 
     /// 客户端 ping 间隔（秒），0 表示禁用
-    #[arg(long, default_value = "30", help = "客户端 ping 间隔（秒），0 表示禁用")]
+    #[arg(
+        long,
+        default_value = "30",
+        help = "客户端 ping 间隔（秒），0 表示禁用"
+    )]
     pub ping_interval: u64,
 
     /// 客户端 ping 超时（秒）
-    #[arg(long, default_value = "10", help = "客户端 ping 超时（秒），超时则认为连接断开")]
+    #[arg(
+        long,
+        default_value = "10",
+        help = "客户端 ping 超时（秒），超时则认为连接断开"
+    )]
     pub ping_timeout: u64,
 
     /// 日志配置（使用通用结构）
@@ -167,7 +186,8 @@ pub struct DetectArgs {
 
 /// 解析 KEY=VALUE 格式的辅助函数
 pub fn parse_key_val(s: &str) -> Result<(String, String), String> {
-    let pos = s.find('=')
+    let pos = s
+        .find('=')
         .ok_or_else(|| format!("无效的 KEY=VALUE 格式: {}", s))?;
     Ok((s[..pos].to_string(), s[pos + 1..].to_string()))
 }

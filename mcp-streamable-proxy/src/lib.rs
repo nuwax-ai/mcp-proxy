@@ -33,16 +33,16 @@
 //! let tools = conn.list_tools().await?;
 //! ```
 
-pub mod proxy_handler;
-pub mod session_manager;
-pub mod server;
-pub mod config;
 pub mod client;
+pub mod config;
+pub mod proxy_handler;
+pub mod server;
+pub mod session_manager;
 
 // Re-export main types
 pub use proxy_handler::{ProxyHandler, ToolFilter};
+pub use server::{McpServiceConfig, run_stream_server, run_stream_server_from_config};
 pub use session_manager::ProxyAwareSessionManager;
-pub use server::{run_stream_server, run_stream_server_from_config, McpServiceConfig};
 
 // Re-export client connection types
 pub use client::{StreamClientConnection, ToolInfo};
@@ -50,23 +50,21 @@ pub use mcp_common::McpClientConfig;
 
 // Re-export commonly used rmcp types
 pub use rmcp::{
-    RoleClient, RoleServer, ServerHandler,
-    model::{ServerInfo, ClientInfo, ClientCapabilities},
-    service::{RunningService, Peer},
-    ServiceExt,
+    RoleClient, RoleServer, ServerHandler, ServiceExt,
+    model::{ClientCapabilities, ClientInfo, ServerInfo},
+    service::{Peer, RunningService},
 };
 
 // Re-export transport types for Streamable HTTP protocol (rmcp 0.12)
 pub use rmcp::transport::{
+    StreamableHttpServerConfig,
     child_process::TokioChildProcess,
+    stdio, // stdio transport for CLI mode
     streamable_http_client::StreamableHttpClientTransport,
     streamable_http_client::StreamableHttpClientTransportConfig,
-    StreamableHttpServerConfig,
-    stdio,  // stdio transport for CLI mode
 };
 
 // Re-export server-side Streamable HTTP types
 pub use rmcp::transport::streamable_http_server::{
-    StreamableHttpService,
-    session::local::LocalSessionManager,
+    StreamableHttpService, session::local::LocalSessionManager,
 };

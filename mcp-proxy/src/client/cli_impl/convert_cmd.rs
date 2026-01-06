@@ -4,8 +4,8 @@
 
 use anyhow::Result;
 
-use crate::client::support::{ConvertArgs, parse_convert_config, init_logging};
 use crate::client::core::{run_command_mode, run_url_mode_with_retry};
+use crate::client::support::{ConvertArgs, init_logging, parse_convert_config};
 use crate::proxy::ToolFilter;
 
 /// 运行转换命令 - 核心功能
@@ -65,9 +65,24 @@ pub async fn run_convert_command(args: ConvertArgs, verbose: bool, quiet: bool) 
             tracing::info!("模式: 直接 URL 模式");
             tracing::info!("目标 URL: {}", url);
             // 直接 URL 模式（带自动重连）
-            run_url_mode_with_retry(&args, &url, std::collections::HashMap::new(), None, tool_filter, verbose, quiet).await
+            run_url_mode_with_retry(
+                &args,
+                &url,
+                std::collections::HashMap::new(),
+                None,
+                tool_filter,
+                verbose,
+                quiet,
+            )
+            .await
         }
-        crate::client::support::McpConfigSource::RemoteService { name, url, protocol, headers, timeout } => {
+        crate::client::support::McpConfigSource::RemoteService {
+            name,
+            url,
+            protocol,
+            headers,
+            timeout,
+        } => {
             // 远程服务配置模式
             tracing::info!("模式: 远程服务配置模式");
             tracing::info!("服务名称: {}", name);
@@ -86,10 +101,25 @@ pub async fn run_convert_command(args: ConvertArgs, verbose: bool, quiet: bool) 
                 eprintln!("🚀 MCP-Stdio-Proxy: {} ({}) → stdio", name, url);
             }
             // 合并 headers：配置 + 命令行
-            let merged_headers = crate::client::support::merge_headers(headers, &args.header, args.auth.as_ref());
-            run_url_mode_with_retry(&args, &url, merged_headers, protocol.or(timeout.map(|_| crate::client::protocol::McpProtocol::Stream)), tool_filter, verbose, quiet).await
+            let merged_headers =
+                crate::client::support::merge_headers(headers, &args.header, args.auth.as_ref());
+            run_url_mode_with_retry(
+                &args,
+                &url,
+                merged_headers,
+                protocol.or(timeout.map(|_| crate::client::protocol::McpProtocol::Stream)),
+                tool_filter,
+                verbose,
+                quiet,
+            )
+            .await
         }
-        crate::client::support::McpConfigSource::LocalCommand { name, command, args: cmd_args, env } => {
+        crate::client::support::McpConfigSource::LocalCommand {
+            name,
+            command,
+            args: cmd_args,
+            env,
+        } => {
             // 本地命令模式（使用 SSE 库的 rmcp 0.10）
             run_command_mode(&name, &command, cmd_args, env, tool_filter, verbose, quiet).await
         }

@@ -12,7 +12,7 @@ use rmcp::{
     transport::{SseClientTransport, sse_client::SseClientConfig},
 };
 use std::time::Instant;
-use tracing::{info, debug};
+use tracing::{debug, info};
 
 use crate::sse_handler::SseHandler;
 use mcp_common::ToolFilter;
@@ -55,7 +55,7 @@ impl SseClientConnection {
     pub async fn connect(config: McpClientConfig) -> Result<Self> {
         let start = Instant::now();
         info!("🔗 开始建立 SSE 连接: {}", config.url);
-        
+
         debug!("构建 HTTP 客户端配置...");
         let http_client = build_http_client(&config)?;
 
@@ -69,7 +69,7 @@ impl SseClientConnection {
             SseClientTransport::start_with_client(http_client, sse_config)
                 .await
                 .context("Failed to start SSE transport")?;
-        
+
         let transport_elapsed = start.elapsed();
         debug!("SSE 传输层启动完成，耗时: {:?}", transport_elapsed);
 
@@ -81,8 +81,12 @@ impl SseClientConnection {
             .context("Failed to initialize MCP client")?;
 
         let total_elapsed = start.elapsed();
-        info!("✅ SSE 连接建立成功，总耗时: {:?} (传输层: {:?}, 握手: {:?})", 
-              total_elapsed, transport_elapsed, total_elapsed - transport_elapsed);
+        info!(
+            "✅ SSE 连接建立成功，总耗时: {:?} (传输层: {:?}, 握手: {:?})",
+            total_elapsed,
+            transport_elapsed,
+            total_elapsed - transport_elapsed
+        );
 
         Ok(Self { inner: running })
     }

@@ -8,7 +8,7 @@ use anyhow::Result;
 pub use crate::model::McpProtocol;
 
 /// 自动检测 MCP 协议类型
-/// 
+///
 /// 直接复用 server 模块的协议检测逻辑
 pub async fn detect_mcp_protocol(url: &str) -> Result<McpProtocol> {
     crate::server::detect_mcp_protocol(url).await

@@ -19,20 +19,20 @@
 //!    - 不匹配 → 返回 NotFound，客户端重新创建 session
 //! ```
 
-use std::sync::Arc;
 use dashmap::DashMap;
 use futures::Stream;
 use rmcp::{
     model::{ClientJsonRpcMessage, ServerJsonRpcMessage},
     transport::{
+        WorkerTransport,
+        common::server_side_http::ServerSseMessage,
         streamable_http_server::session::{
-            SessionManager, SessionId,
+            SessionId, SessionManager,
             local::{LocalSessionManager, LocalSessionManagerError, LocalSessionWorker},
         },
-        common::server_side_http::ServerSseMessage,
-        WorkerTransport,
     },
 };
+use std::sync::Arc;
 use tracing::{debug, info};
 
 use super::proxy_handler::ProxyHandler;
@@ -72,9 +72,7 @@ impl ProxyAwareSessionManager {
             if meta.backend_version != current_version {
                 debug!(
                     "Session {} version mismatch: {} != {}",
-                    session_id,
-                    meta.backend_version,
-                    current_version
+                    session_id, meta.backend_version, current_version
                 );
                 return false;
             }
@@ -121,10 +119,7 @@ impl SessionManager for ProxyAwareSessionManager {
         }
 
         if !self.check_backend_version(id) {
-            info!(
-                "Rejecting session initialization {}: version mismatch",
-                id
-            );
+            info!("Rejecting session initialization {}: version mismatch", id);
             return Err(LocalSessionManagerError::SessionNotFound(id.clone()));
         }
 
@@ -149,10 +144,7 @@ impl SessionManager for ProxyAwareSessionManager {
         message: ClientJsonRpcMessage,
     ) -> Result<impl Stream<Item = ServerSseMessage> + Send + 'static, Self::Error> {
         if !self.handler.is_backend_available() {
-            info!(
-                "Rejecting stream creation {}: backend not available",
-                id
-            );
+            info!("Rejecting stream creation {}: backend not available", id);
             return Err(LocalSessionManagerError::SessionNotFound(id.clone()));
         }
 
@@ -178,10 +170,7 @@ impl SessionManager for ProxyAwareSessionManager {
         }
 
         if !self.check_backend_version(id) {
-            info!(
-                "Rejecting message for session {}: version mismatch",
-                id
-            );
+            info!("Rejecting message for session {}: version mismatch", id);
             return Err(LocalSessionManagerError::SessionNotFound(id.clone()));
         }
 

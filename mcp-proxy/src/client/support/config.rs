@@ -12,9 +12,7 @@ use super::args::ConvertArgs;
 #[derive(Debug, Clone)]
 pub enum McpConfigSource {
     /// 直接 URL 模式（命令行参数）
-    DirectUrl {
-        url: String,
-    },
+    DirectUrl { url: String },
     /// 远程服务配置（JSON 配置）
     RemoteService {
         name: String,
@@ -93,18 +91,18 @@ pub fn parse_convert_config(args: &ConvertArgs) -> Result<McpConfigSource> {
     let json_str = if let Some(ref config) = args.config {
         config.clone()
     } else if let Some(ref path) = args.config_file {
-        std::fs::read_to_string(path)
-            .map_err(|e| anyhow::anyhow!("读取配置文件失败: {}", e))?
+        std::fs::read_to_string(path).map_err(|e| anyhow::anyhow!("读取配置文件失败: {}", e))?
     } else {
         bail!("必须提供 URL、--config 或 --config-file 参数之一");
     };
 
     // 解析 JSON 配置
-    let mcp_config: McpConfig = serde_json::from_str(&json_str)
-        .map_err(|e| anyhow::anyhow!(
+    let mcp_config: McpConfig = serde_json::from_str(&json_str).map_err(|e| {
+        anyhow::anyhow!(
             "配置解析失败: {}。配置必须是标准 MCP 格式，包含 mcpServers 字段",
             e
-        ))?;
+        )
+    })?;
 
     let servers = mcp_config.mcp_servers;
 
@@ -115,13 +113,13 @@ pub fn parse_convert_config(args: &ConvertArgs) -> Result<McpConfigSource> {
     // 选择服务
     let (name, inner_config) = if let Some(ref name) = args.name {
         // 用户指定了服务名称，必须严格匹配
-        let config = servers.get(name)
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!(
+        let config = servers.get(name).cloned().ok_or_else(|| {
+            anyhow::anyhow!(
                 "服务 '{}' 不存在。可用服务: {:?}",
                 name,
                 servers.keys().collect::<Vec<_>>()
-            ))?;
+            )
+        })?;
         (name.clone(), config)
     } else if servers.len() == 1 {
         // 单服务且未指定名称，自动使用
@@ -136,26 +134,23 @@ pub fn parse_convert_config(args: &ConvertArgs) -> Result<McpConfigSource> {
 
     // 根据配置类型返回
     match inner_config {
-        McpServerInnerConfig::Command(stdio) => {
-            Ok(McpConfigSource::LocalCommand {
-                name,
-                command: stdio.command,
-                args: stdio.args.unwrap_or_default(),
-                env: stdio.env.unwrap_or_default(),
-            })
-        }
+        McpServerInnerConfig::Command(stdio) => Ok(McpConfigSource::LocalCommand {
+            name,
+            command: stdio.command,
+            args: stdio.args.unwrap_or_default(),
+            env: stdio.env.unwrap_or_default(),
+        }),
         McpServerInnerConfig::Url(url_config) => {
-            let url = url_config.get_url()
+            let url = url_config
+                .get_url()
                 .ok_or_else(|| anyhow::anyhow!("URL 配置缺少 url 或 baseUrl 字段"))?
                 .to_string();
 
             // 解析协议类型
-            let protocol = url_config.r#type.as_ref().and_then(|t| {
-                match t.as_str() {
-                    "sse" => Some(crate::client::protocol::McpProtocol::Sse),
-                    "http" | "stream" => Some(crate::client::protocol::McpProtocol::Stream),
-                    _ => None,
-                }
+            let protocol = url_config.r#type.as_ref().and_then(|t| match t.as_str() {
+                "sse" => Some(crate::client::protocol::McpProtocol::Sse),
+                "http" | "stream" => Some(crate::client::protocol::McpProtocol::Stream),
+                _ => None,
             });
 
             // 合并 headers：JSON 配置中的 auth_token -> Authorization

@@ -4,23 +4,24 @@
 
 #[cfg(test)]
 mod test_helpers {
+    use serde_json::json;
     use std::process::Stdio;
     use std::time::Duration;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     use tokio::process::{Child, Command};
     use tokio::time::timeout;
-    use serde_json::json;
 
     /// 测试端口分配
-    pub const TEST_PORT_INTEGRATION: u16 = 19880;  // integration_tests 使用
-    pub const TEST_PORT_PROTOCOL: u16 = 19881;     // protocol detection 使用
-    pub const TEST_PORT_RECONNECT: u16 = 19876;    // reconnection_tests 使用
+    pub const TEST_PORT_INTEGRATION: u16 = 19880; // integration_tests 使用
+    pub const TEST_PORT_PROTOCOL: u16 = 19881; // protocol detection 使用
+    pub const TEST_PORT_RECONNECT: u16 = 19876; // reconnection_tests 使用
 
     /// 获取预编译的 test-mcp-server 二进制路径
     pub fn get_test_mcp_server_path() -> String {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
         let workspace_root = std::path::Path::new(manifest_dir).parent().unwrap();
-        workspace_root.join("target/debug/test-mcp-server")
+        workspace_root
+            .join("target/debug/test-mcp-server")
             .to_string_lossy()
             .to_string()
     }
@@ -29,7 +30,8 @@ mod test_helpers {
     pub fn get_mcp_proxy_path() -> String {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
         let workspace_root = std::path::Path::new(manifest_dir).parent().unwrap();
-        workspace_root.join("target/debug/mcp-proxy")
+        workspace_root
+            .join("target/debug/mcp-proxy")
             .to_string_lossy()
             .to_string()
     }
@@ -209,9 +211,9 @@ mod test_helpers {
 #[cfg(test)]
 mod integration_tests {
     use super::test_helpers::*;
+    use serde_json::json;
     use std::time::Duration;
     use tokio::io::BufReader;
-    use serde_json::json;
 
     /// 测试本地 MCP 服务连接和通信
     ///
@@ -250,13 +252,10 @@ mod integration_tests {
 
         // 等待客户端连接成功
         println!("⏳ 等待客户端连接...");
-        let connected = wait_for_stderr_pattern(
-            &mut stderr_reader,
-            "开始代理转换",
-            Duration::from_secs(15),
-        )
-        .await
-        .expect("监控 stderr 失败");
+        let connected =
+            wait_for_stderr_pattern(&mut stderr_reader, "开始代理转换", Duration::from_secs(15))
+                .await
+                .expect("监控 stderr 失败");
 
         if !connected {
             println!("⚠️  未检测到连接成功日志，尝试直接通信...");
@@ -277,9 +276,10 @@ mod integration_tests {
             "id": 2,
             "method": "tools/list"
         });
-        let tools_response = send_jsonrpc_and_receive(&mut stdin, &mut stdout_reader, tools_request)
-            .await
-            .expect("tools/list 请求失败");
+        let tools_response =
+            send_jsonrpc_and_receive(&mut stdin, &mut stdout_reader, tools_request)
+                .await
+                .expect("tools/list 请求失败");
 
         assert_eq!(tools_response["jsonrpc"], "2.0");
         assert_eq!(tools_response["id"], 2);
@@ -289,10 +289,7 @@ mod integration_tests {
         println!("✅ 获取到 {} 个工具", tools.len());
 
         // 验证本地测试工具存在
-        let tool_names: Vec<&str> = tools
-            .iter()
-            .filter_map(|t| t["name"].as_str())
-            .collect();
+        let tool_names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
         println!("   工具列表: {:?}", tool_names);
         assert!(tool_names.contains(&"echo"), "应该包含 echo 工具");
         assert!(tool_names.contains(&"increment"), "应该包含 increment 工具");
@@ -311,9 +308,10 @@ mod integration_tests {
             }
         });
 
-        let call_response = send_jsonrpc_and_receive(&mut stdin, &mut stdout_reader, call_tool_request)
-            .await
-            .expect("tools/call 请求失败");
+        let call_response =
+            send_jsonrpc_and_receive(&mut stdin, &mut stdout_reader, call_tool_request)
+                .await
+                .expect("tools/call 请求失败");
 
         assert_eq!(call_response["jsonrpc"], "2.0");
         assert_eq!(call_response["id"], 3);
@@ -324,7 +322,10 @@ mod integration_tests {
         }
 
         let result = &call_response["result"];
-        assert!(!result["isError"].as_bool().unwrap_or(true), "echo 调用不应该出错");
+        assert!(
+            !result["isError"].as_bool().unwrap_or(true),
+            "echo 调用不应该出错"
+        );
         assert!(result["content"].is_array(), "Content should be an array");
 
         let content = result["content"].as_array().unwrap();
@@ -332,8 +333,13 @@ mod integration_tests {
 
         let first_content = &content[0];
         assert_eq!(first_content["type"], "text");
-        let text = first_content["text"].as_str().expect("Should have text field");
-        assert!(text.contains("Hello from integration test!"), "Should echo our message");
+        let text = first_content["text"]
+            .as_str()
+            .expect("Should have text field");
+        assert!(
+            text.contains("Hello from integration test!"),
+            "Should echo our message"
+        );
 
         println!("✅ Tool call successful! Response: {}", text);
 
@@ -349,12 +355,17 @@ mod integration_tests {
             }
         });
 
-        let increment_response = send_jsonrpc_and_receive(&mut stdin, &mut stdout_reader, increment_request)
-            .await
-            .expect("increment 请求失败");
+        let increment_response =
+            send_jsonrpc_and_receive(&mut stdin, &mut stdout_reader, increment_request)
+                .await
+                .expect("increment 请求失败");
 
-        assert!(!increment_response["result"]["isError"].as_bool().unwrap_or(true),
-            "increment 调用不应该出错");
+        assert!(
+            !increment_response["result"]["isError"]
+                .as_bool()
+                .unwrap_or(true),
+            "increment 调用不应该出错"
+        );
         println!("✅ increment 调用成功");
 
         // 清理：关闭进程
@@ -395,7 +406,11 @@ mod integration_tests {
         let protocol = protocol.unwrap();
         use crate::client::protocol::McpProtocol;
         // 本地 proxy 默认使用 Streamable HTTP
-        assert_eq!(protocol, McpProtocol::Stream, "应该检测到 Streamable HTTP 协议");
+        assert_eq!(
+            protocol,
+            McpProtocol::Stream,
+            "应该检测到 Streamable HTTP 协议"
+        );
 
         println!("✅ 检测到协议: {:?}", protocol);
 
@@ -414,10 +429,10 @@ mod integration_tests {
 #[cfg(test)]
 mod reconnection_tests {
     use super::test_helpers::*;
+    use serde_json::json;
     use std::time::Duration;
     use tokio::io::{AsyncBufReadExt, BufReader};
     use tokio::time::timeout;
-    use serde_json::json;
 
     /// 测试配置
     const SERVER_STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
@@ -436,7 +451,9 @@ mod reconnection_tests {
 
         // 1. 启动 proxy 服务器
         println!("🚀 启动 proxy 服务器...");
-        let mut proxy = spawn_proxy_server(TEST_PORT_RECONNECT).await.expect("启动 proxy 失败");
+        let mut proxy = spawn_proxy_server(TEST_PORT_RECONNECT)
+            .await
+            .expect("启动 proxy 失败");
 
         // 等待服务器就绪
         let addr = format!("127.0.0.1:{}", TEST_PORT_RECONNECT);
@@ -482,9 +499,10 @@ mod reconnection_tests {
             "id": 2,
             "method": "tools/list"
         });
-        let tools_response = send_jsonrpc_and_receive(&mut stdin, &mut stdout_reader, tools_request)
-            .await
-            .expect("tools/list 请求失败");
+        let tools_response =
+            send_jsonrpc_and_receive(&mut stdin, &mut stdout_reader, tools_request)
+                .await
+                .expect("tools/list 请求失败");
 
         assert!(
             tools_response["result"]["tools"].is_array(),
@@ -494,10 +512,7 @@ mod reconnection_tests {
         println!("✅ 获取到 {} 个工具", tools.len());
 
         // 验证我们的测试工具存在
-        let tool_names: Vec<&str> = tools
-            .iter()
-            .filter_map(|t| t["name"].as_str())
-            .collect();
+        let tool_names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
         assert!(tool_names.contains(&"echo"), "应该包含 echo 工具");
         assert!(tool_names.contains(&"increment"), "应该包含 increment 工具");
 
@@ -572,13 +587,10 @@ mod reconnection_tests {
 
         // 4. 等待客户端检测到断开
         println!("⏳ 等待客户端检测到断开...");
-        let disconnected = wait_for_stderr_pattern(
-            &mut stderr_reader,
-            "连接断开",
-            RECONNECT_DETECT_TIMEOUT,
-        )
-        .await
-        .expect("监控 stderr 失败");
+        let disconnected =
+            wait_for_stderr_pattern(&mut stderr_reader, "连接断开", RECONNECT_DETECT_TIMEOUT)
+                .await
+                .expect("监控 stderr 失败");
 
         // 也可能是 "Ping 检测" 或 "后端连接已关闭"
         if !disconnected {
@@ -691,7 +703,9 @@ mod reconnection_tests {
 
         // 1. 启动 proxy 服务器
         println!("🚀 启动 proxy 服务器...");
-        let mut proxy = spawn_proxy_server(TEST_PORT_RECONNECT + 3).await.expect("启动 proxy 失败");
+        let mut proxy = spawn_proxy_server(TEST_PORT_RECONNECT + 3)
+            .await
+            .expect("启动 proxy 失败");
 
         let addr = format!("127.0.0.1:{}", TEST_PORT_RECONNECT + 3);
         wait_for_server_ready(&addr, 20)
@@ -744,9 +758,10 @@ mod reconnection_tests {
         });
 
         let start = std::time::Instant::now();
-        let tools_response = send_jsonrpc_and_receive(&mut stdin, &mut stdout_reader, tools_request)
-            .await
-            .expect("tools/list 请求失败");
+        let tools_response =
+            send_jsonrpc_and_receive(&mut stdin, &mut stdout_reader, tools_request)
+                .await
+                .expect("tools/list 请求失败");
         let elapsed = start.elapsed();
 
         assert!(

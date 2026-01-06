@@ -39,15 +39,15 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
                     protocol: None,
                     auth: None,
                     header: vec![],
-                    retries: 0,    // 无限重试
+                    retries: 0, // 无限重试
                     allow_tools: None,
                     deny_tools: None,
-                    ping_interval: 30,  // 默认 30 秒 ping 一次
-                    ping_timeout: 10,   // 默认 10 秒超时
+                    ping_interval: 30, // 默认 30 秒 ping 一次
+                    ping_timeout: 10,  // 默认 10 秒超时
                     logging: crate::client::support::LoggingArgs {
-                        diagnostic: true,   // 默认启用诊断模式
-                        log_dir: None,      // 默认无日志目录（将在 init_logging 中自动设置）
-                        log_file: None,     // 默认无日志文件
+                        diagnostic: true,    // 默认启用诊断模式
+                        log_dir: None,       // 默认无日志目录（将在 init_logging 中自动设置）
+                        log_file: None,      // 默认无日志文件
                         otlp_endpoint: None, // 默认不启用 OTLP 追踪
                         service_name: "mcp-proxy".to_string(),
                     },

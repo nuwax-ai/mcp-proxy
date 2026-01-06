@@ -1,5 +1,5 @@
-use tracing::{debug, info, warn, error};
-use std::time::{Instant, SystemTime};
+use arc_swap::ArcSwapOption;
+pub use mcp_common::ToolFilter;
 /**
  * Create a local SSE server that proxies requests to a stdio MCP server.
  */
@@ -12,8 +12,8 @@ use rmcp::{
     service::{NotificationContext, Peer, RequestContext, RunningService},
 };
 use std::sync::Arc;
-use arc_swap::ArcSwapOption;
-pub use mcp_common::ToolFilter;
+use std::time::{Instant, SystemTime};
+use tracing::{debug, error, info, warn};
 
 /// 包装后端连接和运行服务
 /// 用于 ArcSwap 热替换
@@ -155,7 +155,7 @@ impl ServerHandler for SseHandler {
         let start = Instant::now();
         let start_time = SystemTime::now();
         info!("🔧 开始执行工具: {}, 时间: {:?}", request.name, start_time);
-        
+
         // 首先检查工具是否被过滤
         if !self.tool_filter.is_allowed(&request.name) {
             info!(
@@ -175,7 +175,7 @@ impl ServerHandler for SseHandler {
             None => {
                 error!("Backend connection is not available (reconnecting)");
                 return Ok(CallToolResult::error(vec![Content::text(
-                    "Backend connection is not available, reconnecting..."
+                    "Backend connection is not available, reconnecting...",
                 )]));
             }
         };
@@ -235,9 +235,13 @@ impl ServerHandler for SseHandler {
                 )]))
             }
         };
-        
+
         let total_elapsed = start.elapsed();
-        info!("✅ 工具执行完成: {}, 总耗时: {}ms", request.name, total_elapsed.as_millis());
+        info!(
+            "✅ 工具执行完成: {}, 总耗时: {}ms",
+            request.name,
+            total_elapsed.as_millis()
+        );
         result
     }
 
@@ -652,7 +656,9 @@ impl ServerHandler for SseHandler {
         let inner = match inner_guard.as_ref() {
             Some(inner) => inner,
             None => {
-                error!("Backend connection is not available, cannot forward cancelled notification");
+                error!(
+                    "Backend connection is not available, cannot forward cancelled notification"
+                );
                 return;
             }
         };
@@ -699,24 +705,34 @@ impl SseHandler {
     }
 
     /// 从 RunningService 提取 ServerInfo
-    fn extract_server_info(client: &RunningService<RoleClient, ClientInfo>, mcp_id: &str) -> ServerInfo {
-        client.peer_info().map(|peer_info| ServerInfo {
-            protocol_version: peer_info.protocol_version.clone(),
-            server_info: Implementation {
-                name: peer_info.server_info.name.clone(),
-                version: peer_info.server_info.version.clone(),
-                title: None,
-                website_url: None,
-                icons: None,
-            },
-            instructions: peer_info.instructions.clone(),
-            capabilities: peer_info.capabilities.clone(),
-        }).unwrap_or_else(|| Self::default_server_info(mcp_id))
+    fn extract_server_info(
+        client: &RunningService<RoleClient, ClientInfo>,
+        mcp_id: &str,
+    ) -> ServerInfo {
+        client
+            .peer_info()
+            .map(|peer_info| ServerInfo {
+                protocol_version: peer_info.protocol_version.clone(),
+                server_info: Implementation {
+                    name: peer_info.server_info.name.clone(),
+                    version: peer_info.server_info.version.clone(),
+                    title: None,
+                    website_url: None,
+                    icons: None,
+                },
+                instructions: peer_info.instructions.clone(),
+                capabilities: peer_info.capabilities.clone(),
+            })
+            .unwrap_or_else(|| Self::default_server_info(mcp_id))
     }
 
     /// 创建断开状态的 handler（用于初始化）
     /// 后续通过 swap_backend() 注入实际的后端连接
-    pub fn new_disconnected(mcp_id: String, tool_filter: ToolFilter, default_info: ServerInfo) -> Self {
+    pub fn new_disconnected(
+        mcp_id: String,
+        tool_filter: ToolFilter,
+        default_info: ServerInfo,
+    ) -> Self {
         info!("[SseHandler] 创建断开状态的 handler - MCP ID: {}", mcp_id);
 
         // 记录过滤器配置

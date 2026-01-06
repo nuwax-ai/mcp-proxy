@@ -2,10 +2,10 @@
 //!
 //! 测试各种 MCP JSON 配置格式的解析
 
-use super::config::{parse_convert_config, McpConfigSource};
 use super::args::{ConvertArgs, LoggingArgs};
-use std::path::PathBuf;
+use super::config::{McpConfigSource, parse_convert_config};
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 #[cfg(test)]
 mod config_parsing_tests {
@@ -48,7 +48,12 @@ mod config_parsing_tests {
 
         let config_source = result.unwrap();
         match config_source {
-            McpConfigSource::LocalCommand { name, command, args, .. } => {
+            McpConfigSource::LocalCommand {
+                name,
+                command,
+                args,
+                ..
+            } => {
                 assert_eq!(name, "test-service");
                 assert_eq!(command, "node");
                 assert_eq!(args, vec!["server.js"]);
@@ -98,7 +103,12 @@ mod config_parsing_tests {
 
         let config_source = result.unwrap();
         match config_source {
-            McpConfigSource::LocalCommand { name, command, args, env } => {
+            McpConfigSource::LocalCommand {
+                name,
+                command,
+                args,
+                env,
+            } => {
                 assert_eq!(name, "my-service");
                 assert_eq!(command, "python");
                 assert_eq!(args, vec!["-m", "mcp_server"]);
@@ -150,11 +160,23 @@ mod config_parsing_tests {
 
         let config_source = result.unwrap();
         match config_source {
-            McpConfigSource::RemoteService { name, url, headers, timeout, .. } => {
+            McpConfigSource::RemoteService {
+                name,
+                url,
+                headers,
+                timeout,
+                ..
+            } => {
                 assert_eq!(name, "remote-service");
                 assert_eq!(url, "https://api.example.com/mcp");
-                assert_eq!(headers.get("X-Custom-Header"), Some(&"custom-value".to_string()));
-                assert_eq!(headers.get("Authorization"), Some(&"Bearer token123".to_string()));
+                assert_eq!(
+                    headers.get("X-Custom-Header"),
+                    Some(&"custom-value".to_string())
+                );
+                assert_eq!(
+                    headers.get("Authorization"),
+                    Some(&"Bearer token123".to_string())
+                );
                 assert_eq!(timeout, Some(30));
             }
             _ => panic!("应该解析为 RemoteService 类型"),
@@ -198,7 +220,12 @@ mod config_parsing_tests {
 
         let config_source = result.unwrap();
         match config_source {
-            McpConfigSource::RemoteService { name, url, protocol, .. } => {
+            McpConfigSource::RemoteService {
+                name,
+                url,
+                protocol,
+                ..
+            } => {
                 assert_eq!(name, "sse-service");
                 assert_eq!(url, "https://api.example.com/sse");
                 assert_eq!(format!("{:?}", protocol), "Some(Sse)"); // SSE 协议
@@ -277,7 +304,7 @@ mod config_parsing_tests {
             url: None,
             config: Some(config_json.to_string()),
             config_file: None,
-            name: None,  // 未指定 name
+            name: None, // 未指定 name
             protocol: None,
             auth: None,
             header: vec![],
@@ -297,7 +324,10 @@ mod config_parsing_tests {
         assert!(result.is_err(), "多服务配置未指定 --name 应该失败");
 
         let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("请使用 --name 指定"), "错误消息应该提示使用 --name");
+        assert!(
+            error_msg.contains("请使用 --name 指定"),
+            "错误消息应该提示使用 --name"
+        );
     }
 
     /// 测试 7: 指定的服务不存在应该失败
@@ -315,7 +345,7 @@ mod config_parsing_tests {
             url: None,
             config: Some(config_json.to_string()),
             config_file: None,
-            name: Some("nonexistent".to_string()),  // 不存在的服务
+            name: Some("nonexistent".to_string()), // 不存在的服务
             protocol: None,
             auth: None,
             header: vec![],
@@ -335,7 +365,10 @@ mod config_parsing_tests {
         assert!(result.is_err(), "不存在的服务应该失败");
 
         let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("'nonexistent' 不存在"), "错误消息应该提示服务不存在");
+        assert!(
+            error_msg.contains("'nonexistent' 不存在"),
+            "错误消息应该提示服务不存在"
+        );
     }
 
     /// 测试 8: 空配置应该失败
@@ -369,7 +402,10 @@ mod config_parsing_tests {
         assert!(result.is_err(), "空配置应该失败");
 
         let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("没有找到任何 MCP 服务"), "错误消息应该提示没有服务");
+        assert!(
+            error_msg.contains("没有找到任何 MCP 服务"),
+            "错误消息应该提示没有服务"
+        );
     }
 
     /// 测试 9: URL 配置缺少 url 和 baseUrl 应该失败
@@ -407,7 +443,10 @@ mod config_parsing_tests {
         assert!(result.is_err(), "缺少 URL 的配置应该失败");
 
         let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("缺少 url 或 baseUrl"), "错误消息应该提示缺少 URL");
+        assert!(
+            error_msg.contains("缺少 url 或 baseUrl"),
+            "错误消息应该提示缺少 URL"
+        );
     }
 
     /// 测试 10: 直接 URL 模式（不使用 JSON 配置）
@@ -472,7 +511,10 @@ mod config_parsing_tests {
         assert!(result.is_err(), "既没有 URL 也没有配置应该失败");
 
         let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("必须提供 URL"), "错误消息应该提示需要提供配置");
+        assert!(
+            error_msg.contains("必须提供 URL"),
+            "错误消息应该提示需要提供配置"
+        );
     }
 
     /// 测试 12: 无效的 JSON 应该失败
@@ -510,7 +552,10 @@ mod config_parsing_tests {
         assert!(result.is_err(), "无效的 JSON 应该失败");
 
         let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("配置解析失败"), "错误消息应该提示解析失败");
+        assert!(
+            error_msg.contains("配置解析失败"),
+            "错误消息应该提示解析失败"
+        );
     }
 
     /// 测试 13: Stream 协议类型解析

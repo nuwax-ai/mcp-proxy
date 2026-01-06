@@ -65,11 +65,11 @@ impl TracingConfig {
 /// 初始化追踪系统（启用 OTLP feature 时）
 #[cfg(feature = "otlp")]
 pub fn init_tracing(config: &TracingConfig) -> Result<TracingGuard> {
-    use opentelemetry::global;
     use opentelemetry::KeyValue;
+    use opentelemetry::global;
     use opentelemetry_otlp::WithExportConfig;
-    use opentelemetry_sdk::trace::{SdkTracerProvider, Sampler};
     use opentelemetry_sdk::Resource;
+    use opentelemetry_sdk::trace::{Sampler, SdkTracerProvider};
 
     let mut provider_builder = SdkTracerProvider::builder();
 
@@ -90,10 +90,7 @@ pub fn init_tracing(config: &TracingConfig) -> Result<TracingGuard> {
     }
 
     // 配置资源属性
-    let mut attributes = vec![KeyValue::new(
-        "service.name",
-        config.service_name.clone(),
-    )];
+    let mut attributes = vec![KeyValue::new("service.name", config.service_name.clone())];
 
     if let Some(version) = &config.service_version {
         attributes.push(KeyValue::new("service.version", version.clone()));
@@ -190,4 +187,3 @@ mod tests {
         assert_eq!(config.sample_ratio, Some(0.0));
     }
 }
-

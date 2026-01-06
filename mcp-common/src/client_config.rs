@@ -103,15 +103,13 @@ mod tests {
 
     #[test]
     fn test_with_header() {
-        let config = McpClientConfig::new("http://localhost:8080")
-            .with_header("X-Custom", "value");
+        let config = McpClientConfig::new("http://localhost:8080").with_header("X-Custom", "value");
         assert_eq!(config.headers.get("X-Custom"), Some(&"value".to_string()));
     }
 
     #[test]
     fn test_with_bearer_auth() {
-        let config = McpClientConfig::new("http://localhost:8080")
-            .with_bearer_auth("mytoken");
+        let config = McpClientConfig::new("http://localhost:8080").with_bearer_auth("mytoken");
         assert_eq!(
             config.headers.get("Authorization"),
             Some(&"Bearer mytoken".to_string())

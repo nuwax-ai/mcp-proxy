@@ -9,7 +9,9 @@ use rmcp::{
     RoleClient, ServiceExt,
     model::{ClientCapabilities, ClientInfo, Implementation},
     service::RunningService,
-    transport::streamable_http_client::{StreamableHttpClientTransport, StreamableHttpClientTransportConfig},
+    transport::streamable_http_client::{
+        StreamableHttpClientTransport, StreamableHttpClientTransportConfig,
+    },
 };
 
 use crate::proxy_handler::ProxyHandler;
