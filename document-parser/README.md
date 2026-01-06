@@ -1,104 +1,117 @@
 # Document Parser
 
-一个高性能的多格式文档解析服务，支持PDF、Word、Excel、PowerPoint等格式，具备GPU加速能力。
+**[English](README.md)** | **[简体中文](README_zh-CN.md)**
 
-## 特性
+---
 
-- 🚀 **高性能解析**：支持MinerU和MarkItDown双引擎
-- 🎯 **GPU加速**：通过sglang支持CUDA环境下的GPU加速
-- 🔧 **零配置部署**：自动环境检测和依赖安装
-- 📚 **多格式支持**：PDF、Word、Excel、PowerPoint、Markdown等
-- 🌐 **HTTP API**：提供RESTful API接口
-- 📊 **实时监控**：内置性能监控和健康检查
+# Document Parser
 
-## 快速开始
+A high-performance multi-format document parsing service supporting PDF, Word, Excel, and PowerPoint with GPU acceleration capabilities.
 
-### 1. 环境初始化
+## Features
+
+- 🚀 **High-Performance Parsing**: MinerU and MarkItDown dual-engine support
+- 🎯 **GPU Acceleration**: CUDA/sglang support for GPU acceleration (optional)
+- 🔧 **Zero-Configuration Deployment**: Automatic environment detection and dependency installation
+- 📚 **Multi-Format Support**: PDF, Word, Excel, PowerPoint, Markdown, and more
+- 🌐 **HTTP API**: RESTful API interface for easy integration
+- 📊 **Real-time Monitoring**: Built-in performance monitoring and health checks
+- ☁️ **OSS Integration**: Alibaba Cloud OSS support for cloud storage
+
+## Quick Start
+
+### 1. Environment Initialization
+
 ```bash
-# 在当前目录初始化uv虚拟环境和依赖
+cd document-parser
+
+# Initialize uv virtual environment and dependencies (first time)
 document-parser uv-init
+
+# Check environment status
+document-parser check
 ```
 
-### 2. 启动服务
+### 2. Start Service
+
 ```bash
-# 启动文档解析服务
+# Start document parsing service
 document-parser server
+
+# Or specify custom port
+document-parser server --port 8088
 ```
 
-服务将在 `http://localhost:8087` 启动，并自动激活虚拟环境。
+The service will start at `http://localhost:8087` (default) and automatically activate the virtual environment.
 
-## 文档
+## System Requirements
 
-- 📖 **[用户使用手册](USER_MANUAL.md)** - 基本使用方法
-- 🚀 **[CUDA环境配置指南](CUDA_SETUP_GUIDE.md)** - GPU加速配置
-- 🔧 **[故障排除指南](TROUBLESHOOTING.md)** - 常见问题解决
-- ⚡ **[GPU加速修复说明](GPU_ACCELERATION_FIX.md)** - GPU相关问题
+### Basic Requirements
+- **Rust**: 1.70+
+- **Python**: 3.8+
+- **uv**: Python package manager
 
-## 系统要求
+### GPU Acceleration (Optional)
+- **NVIDIA GPU**: CUDA-compatible
+- **CUDA Toolkit**: 11.8+
+- **GPU Memory**: At least 8GB recommended
 
-### 基本要求
-- Rust 1.70+
-- Python 3.8+
-- uv (Python包管理器)
+## Supported Formats
 
-### GPU加速要求（可选）
-- NVIDIA GPU (支持CUDA)
-- CUDA Toolkit 11.8+
-- 至少8GB GPU内存
+| Format | Parsing Engine | Features |
+|--------|----------------|----------|
+| PDF | MinerU | Professional PDF parsing, image extraction, table recognition |
+| Word | MarkItDown | Document structure preservation, format conversion |
+| Excel | MarkItDown | Table data extraction, format preservation |
+| PowerPoint | MarkItDown | Slide content extraction, image saving |
+| Markdown | Built-in | Real-time parsing, table of contents generation |
 
-## 支持的格式
+## Configuration
 
-| 格式 | 解析引擎 | 特性 |
-|------|----------|------|
-| PDF | MinerU | 专业PDF解析、图片提取、表格识别 |
-| Word | MarkItDown | 文档结构保持、格式转换 |
-| Excel | MarkItDown | 表格数据提取、格式保持 |
-| PowerPoint | MarkItDown | 幻灯片内容提取、图片保存 |
-| Markdown | 内置 | 实时解析、目录生成 |
+### Basic Configuration
 
-## 配置说明
-
-### 基本配置
 ```yaml
-# 服务器配置
+# Server configuration
 server:
   port: 8087
   host: "0.0.0.0"
 
-# MinerU配置
+# MinerU configuration
 mineru:
-  backend: "vlm-sglang-engine"  # 启用GPU加速
+  backend: "vlm-sglang-engine"  # Enable GPU acceleration
   max_concurrent: 3
   quality_level: "Balanced"
 ```
 
-### GPU加速配置
+### GPU Acceleration Configuration
+
 ```yaml
 mineru:
-  backend: "vlm-sglang-engine"  # 使用sglang后端
-  max_concurrent: 2              # GPU环境下建议降低并发数
+  backend: "vlm-sglang-engine"  # Use sglang backend
+  max_concurrent: 2              # Lower concurrency for GPU
   batch_size: 1
 ```
 
-## 常用命令
+## Common Commands
 
 ```bash
-# 环境管理
-document-parser check              # 检查环境状态
-document-parser uv-init            # 初始化环境
-document-parser troubleshoot       # 故障排除指南
+# Environment management
+document-parser check              # Check environment status
+document-parser uv-init            # Initialize environment
+document-parser troubleshoot       # Troubleshooting guide
 
-# 服务管理
-document-parser server             # 启动服务
-document-parser server --port 8088 # 指定端口
+# Service management
+document-parser server             # Start service
+document-parser server --port 8088 # Specify port
 
-# 文件解析
+# File parsing (CLI)
 document-parser parse --input file.pdf --output result.md --parser mineru
 ```
 
-## API使用
+## API Usage
 
-### 解析文档
+### Parse Document
+
 ```bash
 curl -X POST "http://localhost:8087/api/v1/documents/parse" \
   -H "Content-Type: multipart/form-data" \
@@ -106,73 +119,83 @@ curl -X POST "http://localhost:8087/api/v1/documents/parse" \
   -F "format=pdf"
 ```
 
-### 获取解析状态
+### Get Parsing Status
+
 ```bash
 curl "http://localhost:8087/api/v1/documents/{task_id}/status"
 ```
 
-## 性能优化
+### API Documentation
 
-### GPU加速
-1. 确保安装了 `sglang[all]`
-2. 配置 `backend: "vlm-sglang-engine"`
-3. 根据GPU内存调整并发参数
-4. 监控GPU使用情况
+Once the service is running, visit:
+- **OpenAPI Swagger UI**: `http://localhost:8087/swagger-ui/`
+- **OpenAPI JSON**: `http://localhost:8087/api-docs/openapi.json`
 
-### 并发控制
+## Performance Optimization
+
+### GPU Acceleration
+
+1. Ensure `sglang[all]` is installed
+2. Configure `backend: "vlm-sglang-engine"`
+3. Adjust concurrency parameters based on GPU memory
+4. Monitor GPU usage
+
+### Concurrency Control
+
 ```yaml
 mineru:
-  max_concurrent: 2    # 根据系统性能调整
-  batch_size: 1        # 小批次处理
-  queue_size: 100      # 队列缓冲区大小
+  max_concurrent: 2    # Adjust based on system performance
+  batch_size: 1        # Process in small batches
+  queue_size: 100      # Queue buffer size
 ```
 
-## 故障排除
+## Troubleshooting
 
-### 常见问题
-1. **虚拟环境未激活**：运行 `source ./venv/bin/activate`
-2. **依赖安装失败**：运行 `document-parser uv-init`
-3. **GPU加速不生效**：参考 [CUDA环境配置指南](CUDA_SETUP_GUIDE.md)
-4. **权限问题**：检查目录权限和用户权限
+### Common Issues
 
-### 获取帮助
+1. **Virtual environment not activated**: Run `source ./venv/bin/activate`
+2. **Dependency installation failed**: Run `document-parser uv-init`
+3. **GPU acceleration not working**: Refer to CUDA Environment Setup Guide
+4. **Permission issues**: Check directory and user permissions
+
+### Get Help
+
 ```bash
-# 详细故障排除指南
+# Detailed troubleshooting guide
 document-parser troubleshoot
 
-# 环境状态检查
+# Environment status check
 document-parser check
 
-# 查看日志
+# View logs
 tail -f logs/log.$(date +%Y-%m-%d)
 ```
 
-## 开发
+## Development
 
-### 构建
+### Build
+
 ```bash
 cargo build --release
 ```
 
-### 测试
+### Test
+
 ```bash
 cargo test
 ```
 
-### 代码检查
+### Code Check
+
 ```bash
 cargo fmt
 cargo clippy
 ```
 
-## 许可证
+## License
 
-本项目采用 MIT 许可证。
+This project is licensed under MIT License.
 
-## 贡献
+## Contributing
 
-欢迎提交Issue和Pull Request！
-
----
-
-**注意**：首次使用请运行 `document-parser uv-init` 初始化环境。如需GPU加速，请参考 [CUDA环境配置指南](CUDA_SETUP_GUIDE.md)。
+Issues and Pull Requests are welcome!
