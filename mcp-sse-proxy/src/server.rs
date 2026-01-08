@@ -14,6 +14,7 @@ use rmcp::{
 };
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
+use tracing::{error, info, warn};
 
 use crate::SseHandler;
 
@@ -66,6 +67,14 @@ pub async fn run_sse_server_from_config(
     // 4. 连接到子进程
     let client = client_info.serve(tokio_process).await?;
 
+    // 记录子进程启动到日志文件
+    info!(
+        "[子进程启动] SSE - 服务名: {}, 命令: {} {:?}",
+        config.name,
+        config.command,
+        config.args.as_ref().unwrap_or(&vec![])
+    );
+
     if !quiet {
         eprintln!("✅ 子进程已启动");
 
@@ -74,8 +83,17 @@ pub async fn run_sse_server_from_config(
             Ok(tools_result) => {
                 let tools = &tools_result.tools;
                 if tools.is_empty() {
+                    warn!(
+                        "[工具列表] 工具列表为空 - 服务名: {}",
+                        config.name
+                    );
                     eprintln!("⚠️  工具列表为空");
                 } else {
+                    info!(
+                        "[工具列表] 服务名: {}, 工具数量: {}",
+                        config.name,
+                        tools.len()
+                    );
                     eprintln!("🔧 可用工具 ({} 个):", tools.len());
                     for tool in tools.iter().take(10) {
                         let desc = tool.description.as_deref().unwrap_or("无描述");
@@ -92,7 +110,28 @@ pub async fn run_sse_server_from_config(
                 }
             }
             Err(e) => {
+                error!(
+                    "[工具列表] 获取工具列表失败 - 服务名: {}, 错误: {}",
+                    config.name, e
+                );
                 eprintln!("⚠️  获取工具列表失败: {}", e);
+            }
+        }
+    } else {
+        // 即使静默模式也记录日志
+        match client.list_tools(None).await {
+            Ok(tools_result) => {
+                info!(
+                    "[工具列表] 服务名: {}, 工具数量: {}",
+                    config.name,
+                    tools_result.tools.len()
+                );
+            }
+            Err(e) => {
+                error!(
+                    "[工具列表] 获取工具列表失败 - 服务名: {}, 错误: {}",
+                    config.name, e
+                );
             }
         }
     }
@@ -142,6 +181,13 @@ pub async fn run_sse_server(sse_handler: SseHandler, bind_addr: &str, quiet: boo
     // 默认的 SSE 和消息路径
     let sse_path = "/sse".to_string();
     let message_path = "/message".to_string();
+    let mcp_id = sse_handler.mcp_id().to_string();
+
+    // 记录服务启动到日志文件
+    info!(
+        "[HTTP服务启动] SSE 服务启动 - 地址: {}, MCP ID: {}, SSE端点: {}, 消息端点: {}",
+        bind_addr, mcp_id, sse_path, message_path
+    );
 
     if !quiet {
         eprintln!("📡 SSE 服务启动: http://{}", bind_addr);
@@ -235,10 +281,18 @@ pub async fn run_sse_server(sse_handler: SseHandler, bind_addr: &str, quiet: boo
     tokio::select! {
         result = axum::serve(listener, router) => {
             if let Err(e) = result {
+                error!(
+                    "[HTTP服务错误] SSE 服务器错误 - MCP ID: {}, 错误: {}",
+                    mcp_id, e
+                );
                 bail!("服务器错误: {}", e);
             }
         }
         _ = tokio::signal::ctrl_c() => {
+            info!(
+                "[HTTP服务关闭] 收到退出信号，正在关闭 SSE 服务 - MCP ID: {}",
+                mcp_id
+            );
             if !quiet {
                 eprintln!("\n🛑 收到退出信号，正在关闭...");
             }

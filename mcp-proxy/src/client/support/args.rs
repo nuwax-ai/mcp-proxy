@@ -11,11 +11,11 @@ use std::path::PathBuf;
 /// 用于多个命令之间共享日志配置
 #[derive(Parser, Debug, Clone)]
 pub struct LoggingArgs {
-    /// 启用详细诊断模式，输出连接和工具调用的详细时间信息（默认启用）
+    /// 启用详细诊断模式，输出连接和工具调用的详细时间信息（默认关闭
     #[arg(
         long,
         default_value = "false",
-        help = "启用详细诊断模式，追踪连接生命周期和超时问题（默认启用）"
+        help = "启用详细诊断模式，追踪连接生命周期和超时问题（默认关闭)"
     )]
     pub diagnostic: bool,
 

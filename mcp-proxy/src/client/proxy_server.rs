@@ -9,6 +9,7 @@ use std::time::Duration;
 use anyhow::{Result, bail};
 use clap::Parser;
 use serde::Deserialize;
+use tracing::{error, info, warn};
 
 use crate::client::support::{LoggingArgs, init_logging_with_config};
 use crate::proxy::ToolFilter;
@@ -114,11 +115,28 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
         ToolFilter::default()
     };
 
+    let protocol_name = match args.protocol {
+        ProxyProtocol::Sse => "SSE",
+        ProxyProtocol::Stream => "Streamable HTTP",
+    };
+
+    // 记录服务启动信息到日志文件
+    info!(
+        "[服务启动] MCP Proxy 服务启动 - 协议: {}, 服务名: {}, 命令: {} {:?}",
+        protocol_name,
+        parsed.name,
+        parsed.config.command,
+        parsed.config.args.as_ref().unwrap_or(&vec![])
+    );
+
+    if let Some(ref allow_tools) = args.allow_tools {
+        info!("[服务启动] 工具白名单: {:?}", allow_tools);
+    }
+    if let Some(ref deny_tools) = args.deny_tools {
+        info!("[服务启动] 工具黑名单: {:?}", deny_tools);
+    }
+
     if !quiet {
-        let protocol_name = match args.protocol {
-            ProxyProtocol::Sse => "SSE",
-            ProxyProtocol::Stream => "Streamable HTTP",
-        };
         eprintln!("🚀 MCP Proxy 服务");
         eprintln!("   协议类型: {}", protocol_name);
         eprintln!("   服务名称: {}", parsed.name);
@@ -148,6 +166,7 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
         match result {
             Ok(_) => {
                 // 正常退出（如 Ctrl+C）
+                info!("[服务停止] MCP Proxy 服务正常停止 - 服务名: {}", parsed.name);
                 if !quiet {
                     eprintln!("🛑 服务已停止");
                 }
@@ -155,8 +174,16 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
             }
             Err(e) => {
                 // 异常退出，尝试重启
+                error!(
+                    "[服务异常] MCP Proxy 服务异常退出 - 服务名: {}, 错误: {}, 3秒后重启",
+                    parsed.name, e
+                );
                 eprintln!("⚠️  服务异常: {}，3秒后重启...", e);
                 tokio::time::sleep(Duration::from_secs(3)).await;
+                warn!(
+                    "[服务重启] 正在重启 MCP Proxy 服务 - 服务名: {}",
+                    parsed.name
+                );
                 if !quiet {
                     eprintln!("🔄 正在重启服务...");
                 }
