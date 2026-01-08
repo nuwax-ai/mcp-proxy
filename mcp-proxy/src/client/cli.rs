@@ -13,6 +13,7 @@ pub use crate::client::support::args::{Cli, Commands};
 /// 根据命令类型分发到对应的实现模块：
 /// - Convert -> cli_impl/convert_cmd.rs
 /// - Check/Detect -> cli_impl/check.rs
+/// - Health -> cli_impl/health.rs
 /// - Proxy -> proxy_server.rs
 pub async fn run_cli(cli: Cli) -> Result<()> {
     match cli.command {
@@ -24,6 +25,9 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
         }
         Some(Commands::Detect(args)) => {
             crate::client::cli_impl::run_detect_command(args, cli.verbose, cli.quiet).await
+        }
+        Some(Commands::Health(args)) => {
+            crate::client::cli_impl::run_health_command(args, cli.quiet).await
         }
         Some(Commands::Proxy(args)) => {
             super::proxy_server::run_proxy_command(args, cli.verbose, cli.quiet).await

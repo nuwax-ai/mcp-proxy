@@ -12,7 +12,7 @@ pub mod utils;
 mod config_tests;
 
 // 导出常用类型
-pub use args::{CheckArgs, ConvertArgs, DetectArgs, LoggingArgs, parse_key_val};
+pub use args::{CheckArgs, ConvertArgs, DetectArgs, HealthArgs, LoggingArgs, parse_key_val};
 pub use config::{McpConfigSource, merge_headers, parse_convert_config};
 pub use diagnostic::{classify_error, print_diagnostic_report, summarize_error};
 pub use logging::{generate_session_id, init_logging, init_logging_with_config};

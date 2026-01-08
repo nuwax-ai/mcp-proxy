@@ -82,6 +82,9 @@ pub enum Commands {
 
     /// 代理模式 - 将 stdio MCP 服务代理为 HTTP/SSE 服务
     Proxy(crate::client::proxy_server::ProxyArgs),
+
+    /// 健康检查 - 验证 MCP 服务是否可用
+    Health(HealthArgs),
 }
 
 /// 协议转换参数
@@ -182,6 +185,55 @@ pub struct DetectArgs {
     /// 认证 header
     #[arg(short, long)]
     pub auth: Option<String>,
+}
+
+/// 健康检查参数
+#[derive(Parser, Debug)]
+#[command(after_help = "\
+退出码:
+  0  服务健康 - MCP 连接握手成功
+  1  服务不健康 - 连接失败、超时或握手失败
+
+示例:
+  # 基本用法
+  mcp-proxy health http://localhost:8080/mcp
+
+  # 带认证
+  mcp-proxy health http://localhost:8080/mcp -a \"Bearer token123\"
+
+  # 指定协议和超时
+  mcp-proxy health http://localhost:8080/mcp --protocol sse --timeout 5
+
+  # 静默模式（仅返回退出码，适合脚本使用）
+  mcp-proxy health http://localhost:8080/mcp -q
+
+  # 在 shell 脚本中使用
+  if mcp-proxy health http://localhost:8080/mcp -q; then
+      echo \"MCP 服务正常\"
+  else
+      echo \"MCP 服务不可用\"
+  fi
+")]
+pub struct HealthArgs {
+    /// 要检查的 MCP 服务 URL
+    #[arg(value_name = "URL")]
+    pub url: String,
+
+    /// 认证 header (如: "Bearer token")
+    #[arg(short, long, help = "认证 header")]
+    pub auth: Option<String>,
+
+    /// 自定义 HTTP headers
+    #[arg(short = 'H', long, value_parser = parse_key_val, help = "自定义 HTTP headers (KEY=VALUE 格式)")]
+    pub header: Vec<(String, String)>,
+
+    /// 超时时间（秒）
+    #[arg(long, default_value = "10")]
+    pub timeout: u64,
+
+    /// 指定远程服务协议类型（不指定则自动检测）
+    #[arg(long, value_enum, help = "指定远程服务协议类型（不指定则自动检测）")]
+    pub protocol: Option<crate::client::proxy_server::ProxyProtocol>,
 }
 
 /// 解析 KEY=VALUE 格式的辅助函数

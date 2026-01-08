@@ -35,6 +35,7 @@ async fn run_cli_mode(cli: Cli) -> Result<()> {
     // convert 和 proxy 命令会根据自己的参数（--log-dir、--log-file）初始化日志，所以这里跳过
     let is_convert_command = matches!(cli.command, Some(mcp_stdio_proxy::Commands::Convert(_)));
     let is_proxy_command = matches!(cli.command, Some(mcp_stdio_proxy::Commands::Proxy(_)));
+    let is_health_command = matches!(cli.command, Some(mcp_stdio_proxy::Commands::Health(_)));
     let has_custom_logging = is_convert_command || is_proxy_command;
 
     // CLI 模式独立的日志配置
@@ -43,6 +44,9 @@ async fn run_cli_mode(cli: Cli) -> Result<()> {
         // CLI 模式默认只显示错误，避免 info/debug 日志污染输出
         let log_level = if cli.verbose {
             "debug"
+        } else if is_health_command {
+            // health 命令使用更严格的过滤，屏蔽 rmcp 库的噪音日志
+            "off"
         } else {
             "error" // 默认只显示错误，屏蔽 info/warn/debug
         };
