@@ -33,7 +33,7 @@ use rmcp::{
     },
 };
 use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use super::proxy_handler::ProxyHandler;
 
@@ -58,7 +58,10 @@ pub struct ProxyAwareSessionManager {
 
 impl ProxyAwareSessionManager {
     pub fn new(handler: Arc<ProxyHandler>) -> Self {
-        info!("创建 ProxyAwareSessionManager");
+        info!(
+            "[Session管理器] 创建 ProxyAwareSessionManager - MCP ID: {}",
+            handler.mcp_id()
+        );
         Self {
             inner: LocalSessionManager::default(),
             handler,
@@ -70,9 +73,9 @@ impl ProxyAwareSessionManager {
         if let Some(meta) = self.session_versions.get(session_id.as_ref()) {
             let current_version = self.handler.get_backend_version();
             if meta.backend_version != current_version {
-                debug!(
-                    "Session {} version mismatch: {} != {}",
-                    session_id, meta.backend_version, current_version
+                warn!(
+                    "[Session版本不匹配] session_id={}, 创建时版本={}, 当前版本={}, MCP ID: {}",
+                    session_id, meta.backend_version, current_version, self.handler.mcp_id()
                 );
                 return false;
             }
@@ -97,9 +100,9 @@ impl SessionManager for ProxyAwareSessionManager {
             },
         );
 
-        debug!(
-            "Created session {} with backend version {}",
-            session_id, version
+        info!(
+            "[Session创建] session_id={}, backend_version={}, MCP ID: {}",
+            session_id, version, self.handler.mcp_id()
         );
 
         Ok((session_id, transport))
@@ -111,18 +114,25 @@ impl SessionManager for ProxyAwareSessionManager {
         message: ClientJsonRpcMessage,
     ) -> Result<ServerJsonRpcMessage, Self::Error> {
         if !self.handler.is_backend_available() {
-            info!(
-                "Rejecting session initialization {}: backend not available",
-                id
+            warn!(
+                "[Session初始化失败] session_id={}, 原因: 后端不可用, MCP ID: {}",
+                id, self.handler.mcp_id()
             );
             return Err(LocalSessionManagerError::SessionNotFound(id.clone()));
         }
 
         if !self.check_backend_version(id) {
-            info!("Rejecting session initialization {}: version mismatch", id);
+            warn!(
+                "[Session初始化失败] session_id={}, 原因: 版本不匹配, MCP ID: {}",
+                id, self.handler.mcp_id()
+            );
             return Err(LocalSessionManagerError::SessionNotFound(id.clone()));
         }
 
+        debug!(
+            "[Session初始化] session_id={}, MCP ID: {}",
+            id, self.handler.mcp_id()
+        );
         self.inner.initialize_session(id, message).await
     }
 
@@ -134,6 +144,10 @@ impl SessionManager for ProxyAwareSessionManager {
     }
 
     async fn close_session(&self, id: &SessionId) -> Result<(), Self::Error> {
+        info!(
+            "[Session关闭] session_id={}, MCP ID: {}",
+            id, self.handler.mcp_id()
+        );
         self.session_versions.remove(id.as_ref());
         self.inner.close_session(id).await
     }
@@ -144,15 +158,25 @@ impl SessionManager for ProxyAwareSessionManager {
         message: ClientJsonRpcMessage,
     ) -> Result<impl Stream<Item = ServerSseMessage> + Send + 'static, Self::Error> {
         if !self.handler.is_backend_available() {
-            info!("Rejecting stream creation {}: backend not available", id);
+            warn!(
+                "[Stream创建失败] session_id={}, 原因: 后端不可用, MCP ID: {}",
+                id, self.handler.mcp_id()
+            );
             return Err(LocalSessionManagerError::SessionNotFound(id.clone()));
         }
 
         if !self.check_backend_version(id) {
-            info!("Rejecting stream creation {}: version mismatch", id);
+            warn!(
+                "[Stream创建失败] session_id={}, 原因: 版本不匹配, MCP ID: {}",
+                id, self.handler.mcp_id()
+            );
             return Err(LocalSessionManagerError::SessionNotFound(id.clone()));
         }
 
+        debug!(
+            "[Stream创建] session_id={}, MCP ID: {}",
+            id, self.handler.mcp_id()
+        );
         self.inner.create_stream(id, message).await
     }
 
@@ -162,15 +186,18 @@ impl SessionManager for ProxyAwareSessionManager {
         message: ClientJsonRpcMessage,
     ) -> Result<(), Self::Error> {
         if !self.handler.is_backend_available() {
-            info!(
-                "Rejecting message for session {}: backend not available",
-                id
+            warn!(
+                "[消息拒绝] session_id={}, 原因: 后端不可用, MCP ID: {}",
+                id, self.handler.mcp_id()
             );
             return Err(LocalSessionManagerError::SessionNotFound(id.clone()));
         }
 
         if !self.check_backend_version(id) {
-            info!("Rejecting message for session {}: version mismatch", id);
+            warn!(
+                "[消息拒绝] session_id={}, 原因: 版本不匹配, MCP ID: {}",
+                id, self.handler.mcp_id()
+            );
             return Err(LocalSessionManagerError::SessionNotFound(id.clone()));
         }
 
@@ -193,9 +220,9 @@ impl SessionManager for ProxyAwareSessionManager {
         if let Some(meta) = self.session_versions.get(id.as_ref()) {
             let current_version = self.handler.get_backend_version();
             if meta.backend_version != current_version {
-                info!(
-                    "Session {} invalidated: backend version changed ({} -> {})",
-                    id, meta.backend_version, current_version
+                warn!(
+                    "[Session恢复失败] session_id={}, 原因: 后端版本变化 ({} -> {}), MCP ID: {}",
+                    id, meta.backend_version, current_version, self.handler.mcp_id()
                 );
 
                 // 清理失效 session
@@ -208,10 +235,17 @@ impl SessionManager for ProxyAwareSessionManager {
         }
 
         if !self.handler.is_backend_available() {
-            info!("Cannot resume session {}: backend not available", id);
+            warn!(
+                "[Session恢复失败] session_id={}, 原因: 后端不可用, MCP ID: {}",
+                id, self.handler.mcp_id()
+            );
             return Err(LocalSessionManagerError::SessionNotFound(id.clone()));
         }
 
+        debug!(
+            "[Session恢复] session_id={}, last_event_id={}, MCP ID: {}",
+            id, last_event_id, self.handler.mcp_id()
+        );
         self.inner.resume(id, last_event_id).await
     }
 }
