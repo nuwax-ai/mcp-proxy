@@ -9,13 +9,77 @@ use rmcp::{
     RoleClient, ServiceExt,
     model::{ClientCapabilities, ClientInfo, Implementation},
     service::RunningService,
-    transport::{SseClientTransport, sse_client::SseClientConfig},
+    transport::{
+        SseClientTransport, common::client_side_sse::SseRetryPolicy, sse_client::SseClientConfig,
+    },
 };
+use std::sync::Arc;
+use std::time::Duration;
 use std::time::Instant;
 use tracing::{debug, info};
 
 use crate::sse_handler::SseHandler;
 use mcp_common::ToolFilter;
+
+/// 自定义的指数退避重试策略，支持最大间隔限制
+///
+/// 重试间隔按照指数增长，但不会超过 max_interval
+/// - 第 1 次重试：base_duration × 2^0
+/// - 第 2 次重试：base_duration × 2^1
+/// - ...
+/// - 第 n 次重试：min(base_duration × 2^(n-1), max_interval)
+#[derive(Debug, Clone)]
+pub struct CappedExponentialBackoff {
+    /// 最大重试次数，None 表示无限制
+    pub max_times: Option<usize>,
+    /// 基础延迟时间（第一次重试前的等待时间）
+    pub base_duration: Duration,
+    /// 最大延迟间隔（重试间隔不会超过这个值）
+    pub max_interval: Duration,
+}
+
+impl CappedExponentialBackoff {
+    /// 创建一个新的带上限的指数退避策略
+    ///
+    /// # Arguments
+    /// * `max_times` - 最大重试次数，None 表示无限制
+    /// * `base_duration` - 基础延迟时间
+    /// * `max_interval` - 最大延迟间隔
+    pub fn new(max_times: Option<usize>, base_duration: Duration, max_interval: Duration) -> Self {
+        Self {
+            max_times,
+            base_duration,
+            max_interval,
+        }
+    }
+}
+
+impl Default for CappedExponentialBackoff {
+    fn default() -> Self {
+        Self {
+            max_times: None,
+            base_duration: Duration::from_secs(1),
+            max_interval: Duration::from_secs(60),
+        }
+    }
+}
+
+impl SseRetryPolicy for CappedExponentialBackoff {
+    fn retry(&self, current_times: usize) -> Option<Duration> {
+        // 检查是否超过最大重试次数
+        if let Some(max_times) = self.max_times
+            && current_times >= max_times
+        {
+            return None;
+        }
+
+        // 计算指数退避时间
+        let exponential_delay = self.base_duration * (2u32.pow(current_times as u32));
+
+        // 限制最大间隔
+        Some(exponential_delay.min(self.max_interval))
+    }
+}
 
 /// Opaque wrapper for SSE client connection
 ///
@@ -59,8 +123,16 @@ impl SseClientConnection {
         debug!("构建 HTTP 客户端配置...");
         let http_client = build_http_client(&config)?;
 
+        // 配置指数退避重试策略，最大间隔 1 分钟，不限制重试次数
+        let retry_policy = CappedExponentialBackoff::new(
+            None,                    // 不限制重试次数
+            Duration::from_secs(1),  // 基础延迟 1 秒
+            Duration::from_secs(60), // 最大间隔 60 秒
+        );
+
         let sse_config = SseClientConfig {
             sse_endpoint: config.url.clone().into(),
+            retry_policy: Arc::new(retry_policy),
             ..Default::default()
         };
 
@@ -94,9 +166,7 @@ impl SseClientConnection {
             if let Some(info) = peer_info {
                 info!(
                     "   服务器信息: name={}, version={}, capabilities={:?}",
-                    info.server_info.name,
-                    info.server_info.version,
-                    info.capabilities
+                    info.server_info.name, info.server_info.version, info.capabilities
                 );
             }
         }
@@ -215,5 +285,66 @@ mod tests {
         };
         assert_eq!(info.name, "test_tool");
         assert_eq!(info.description, Some("A test tool".to_string()));
+    }
+
+    #[test]
+    fn test_capped_exponential_backoff() {
+        // 测试带上限的指数退避策略
+        let policy = CappedExponentialBackoff::new(
+            None,                    // 不限制重试次数
+            Duration::from_secs(1),  // 基础延迟 1 秒
+            Duration::from_secs(60), // 最大间隔 60 秒
+        );
+
+        // 验证第 1 次重试：1 秒
+        assert_eq!(policy.retry(0), Some(Duration::from_secs(1)));
+        // 验证第 2 次重试：2 秒
+        assert_eq!(policy.retry(1), Some(Duration::from_secs(2)));
+        // 验证第 3 次重试：4 秒
+        assert_eq!(policy.retry(2), Some(Duration::from_secs(4)));
+        // 验证第 4 次重试：8 秒
+        assert_eq!(policy.retry(3), Some(Duration::from_secs(8)));
+        // 验证第 5 次重试：16 秒
+        assert_eq!(policy.retry(4), Some(Duration::from_secs(16)));
+        // 验证第 6 次重试：32 秒
+        assert_eq!(policy.retry(5), Some(Duration::from_secs(32)));
+        // 验证第 7 次重试：64 秒 -> 会被限制为 60 秒
+        assert_eq!(policy.retry(6), Some(Duration::from_secs(60)));
+        // 验证第 8 次重试：128 秒 -> 会被限制为 60 秒
+        assert_eq!(policy.retry(7), Some(Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn test_capped_exponential_backoff_with_max_times() {
+        // 测试带最大重试次数的限制
+        let policy = CappedExponentialBackoff::new(
+            Some(3),                 // 最多重试 3 次
+            Duration::from_secs(1),  // 基础延迟 1 秒
+            Duration::from_secs(60), // 最大间隔 60 秒
+        );
+
+        // 验证前 3 次重试都有延迟时间
+        assert_eq!(policy.retry(0), Some(Duration::from_secs(1)));
+        assert_eq!(policy.retry(1), Some(Duration::from_secs(2)));
+        assert_eq!(policy.retry(2), Some(Duration::from_secs(4)));
+
+        // 验证第 4 次重试（重试次数已达到上限）
+        assert_eq!(policy.retry(3), None);
+    }
+
+    #[test]
+    fn test_capped_exponential_backoff_default() {
+        // 测试默认配置
+        let policy = CappedExponentialBackoff::default();
+
+        // 验证默认配置
+        assert_eq!(policy.max_times, None);
+        assert_eq!(policy.base_duration, Duration::from_secs(1));
+        assert_eq!(policy.max_interval, Duration::from_secs(60));
+
+        // 验证重试行为
+        assert_eq!(policy.retry(0), Some(Duration::from_secs(1)));
+        assert_eq!(policy.retry(5), Some(Duration::from_secs(32)));
+        assert_eq!(policy.retry(10), Some(Duration::from_secs(60)));
     }
 }

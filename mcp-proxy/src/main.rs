@@ -51,19 +51,16 @@ async fn run_cli_mode(cli: Cli) -> Result<()> {
             "error" // 默认只显示错误，屏蔽 info/warn/debug
         };
 
-        // 只在未设置 RUST_LOG 时才设置默认值
-        if std::env::var("RUST_LOG").is_err() {
-            unsafe {
-                std::env::set_var("RUST_LOG", log_level);
-            }
-        }
-
         // CLI 模式的日志配置：
         // 1. 禁用 ANSI 颜色（避免污染 JSON）
         // 2. 输出到 stderr（stdout 用于 JSON-RPC 通信）
         // 3. 简化格式（无时间戳、无目标）
+        // 4. 优先使用 RUST_LOG 环境变量，否则使用默认日志级别
+        let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(log_level));
+
         tracing_subscriber::fmt()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .with_env_filter(env_filter)
             .with_target(false)
             .without_time()
             .with_ansi(false)

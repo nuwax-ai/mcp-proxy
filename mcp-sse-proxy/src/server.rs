@@ -83,10 +83,7 @@ pub async fn run_sse_server_from_config(
             Ok(tools_result) => {
                 let tools = &tools_result.tools;
                 if tools.is_empty() {
-                    warn!(
-                        "[工具列表] 工具列表为空 - 服务名: {}",
-                        config.name
-                    );
+                    warn!("[工具列表] 工具列表为空 - 服务名: {}", config.name);
                     eprintln!("⚠️  工具列表为空");
                 } else {
                     info!(

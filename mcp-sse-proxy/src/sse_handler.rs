@@ -11,8 +11,8 @@ use rmcp::{
     },
     service::{NotificationContext, Peer, RequestContext, RunningService},
 };
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Instant, SystemTime};
 use tracing::{debug, error, info, warn};
 
@@ -217,7 +217,9 @@ impl ServerHandler for SseHandler {
                 // 记录发送请求到后端的时间点
                 info!(
                     "[call_tool:{}] 发送请求到后端... - 工具: {}, 已耗时: {}ms",
-                    request_id, request.name, start.elapsed().as_millis()
+                    request_id,
+                    request.name,
+                    start.elapsed().as_millis()
                 );
 
                 // 使用 tokio::select! 同时等待取消和结果
@@ -279,7 +281,9 @@ impl ServerHandler for SseHandler {
         let total_elapsed = start.elapsed();
         info!(
             "[call_tool:{}] 完成 - 工具: {}, 总耗时: {}ms",
-            request_id, request.name, total_elapsed.as_millis()
+            request_id,
+            request.name,
+            total_elapsed.as_millis()
         );
         result
     }

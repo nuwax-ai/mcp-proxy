@@ -75,7 +75,10 @@ impl ProxyAwareSessionManager {
             if meta.backend_version != current_version {
                 warn!(
                     "[Session版本不匹配] session_id={}, 创建时版本={}, 当前版本={}, MCP ID: {}",
-                    session_id, meta.backend_version, current_version, self.handler.mcp_id()
+                    session_id,
+                    meta.backend_version,
+                    current_version,
+                    self.handler.mcp_id()
                 );
                 return false;
             }
@@ -102,7 +105,9 @@ impl SessionManager for ProxyAwareSessionManager {
 
         info!(
             "[Session创建] session_id={}, backend_version={}, MCP ID: {}",
-            session_id, version, self.handler.mcp_id()
+            session_id,
+            version,
+            self.handler.mcp_id()
         );
 
         Ok((session_id, transport))
@@ -116,7 +121,8 @@ impl SessionManager for ProxyAwareSessionManager {
         if !self.handler.is_backend_available() {
             warn!(
                 "[Session初始化失败] session_id={}, 原因: 后端不可用, MCP ID: {}",
-                id, self.handler.mcp_id()
+                id,
+                self.handler.mcp_id()
             );
             return Err(LocalSessionManagerError::SessionNotFound(id.clone()));
         }
@@ -124,14 +130,16 @@ impl SessionManager for ProxyAwareSessionManager {
         if !self.check_backend_version(id) {
             warn!(
                 "[Session初始化失败] session_id={}, 原因: 版本不匹配, MCP ID: {}",
-                id, self.handler.mcp_id()
+                id,
+                self.handler.mcp_id()
             );
             return Err(LocalSessionManagerError::SessionNotFound(id.clone()));
         }
 
         debug!(
             "[Session初始化] session_id={}, MCP ID: {}",
-            id, self.handler.mcp_id()
+            id,
+            self.handler.mcp_id()
         );
         self.inner.initialize_session(id, message).await
     }
@@ -146,7 +154,8 @@ impl SessionManager for ProxyAwareSessionManager {
     async fn close_session(&self, id: &SessionId) -> Result<(), Self::Error> {
         info!(
             "[Session关闭] session_id={}, MCP ID: {}",
-            id, self.handler.mcp_id()
+            id,
+            self.handler.mcp_id()
         );
         self.session_versions.remove(id.as_ref());
         self.inner.close_session(id).await
@@ -160,7 +169,8 @@ impl SessionManager for ProxyAwareSessionManager {
         if !self.handler.is_backend_available() {
             warn!(
                 "[Stream创建失败] session_id={}, 原因: 后端不可用, MCP ID: {}",
-                id, self.handler.mcp_id()
+                id,
+                self.handler.mcp_id()
             );
             return Err(LocalSessionManagerError::SessionNotFound(id.clone()));
         }
@@ -168,14 +178,16 @@ impl SessionManager for ProxyAwareSessionManager {
         if !self.check_backend_version(id) {
             warn!(
                 "[Stream创建失败] session_id={}, 原因: 版本不匹配, MCP ID: {}",
-                id, self.handler.mcp_id()
+                id,
+                self.handler.mcp_id()
             );
             return Err(LocalSessionManagerError::SessionNotFound(id.clone()));
         }
 
         debug!(
             "[Stream创建] session_id={}, MCP ID: {}",
-            id, self.handler.mcp_id()
+            id,
+            self.handler.mcp_id()
         );
         self.inner.create_stream(id, message).await
     }
@@ -188,7 +200,8 @@ impl SessionManager for ProxyAwareSessionManager {
         if !self.handler.is_backend_available() {
             warn!(
                 "[消息拒绝] session_id={}, 原因: 后端不可用, MCP ID: {}",
-                id, self.handler.mcp_id()
+                id,
+                self.handler.mcp_id()
             );
             return Err(LocalSessionManagerError::SessionNotFound(id.clone()));
         }
@@ -196,7 +209,8 @@ impl SessionManager for ProxyAwareSessionManager {
         if !self.check_backend_version(id) {
             warn!(
                 "[消息拒绝] session_id={}, 原因: 版本不匹配, MCP ID: {}",
-                id, self.handler.mcp_id()
+                id,
+                self.handler.mcp_id()
             );
             return Err(LocalSessionManagerError::SessionNotFound(id.clone()));
         }
@@ -222,7 +236,10 @@ impl SessionManager for ProxyAwareSessionManager {
             if meta.backend_version != current_version {
                 warn!(
                     "[Session恢复失败] session_id={}, 原因: 后端版本变化 ({} -> {}), MCP ID: {}",
-                    id, meta.backend_version, current_version, self.handler.mcp_id()
+                    id,
+                    meta.backend_version,
+                    current_version,
+                    self.handler.mcp_id()
                 );
 
                 // 清理失效 session
@@ -237,14 +254,17 @@ impl SessionManager for ProxyAwareSessionManager {
         if !self.handler.is_backend_available() {
             warn!(
                 "[Session恢复失败] session_id={}, 原因: 后端不可用, MCP ID: {}",
-                id, self.handler.mcp_id()
+                id,
+                self.handler.mcp_id()
             );
             return Err(LocalSessionManagerError::SessionNotFound(id.clone()));
         }
 
         debug!(
             "[Session恢复] session_id={}, last_event_id={}, MCP ID: {}",
-            id, last_event_id, self.handler.mcp_id()
+            id,
+            last_event_id,
+            self.handler.mcp_id()
         );
         self.inner.resume(id, last_event_id).await
     }
