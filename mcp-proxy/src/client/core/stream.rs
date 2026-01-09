@@ -6,12 +6,24 @@ use anyhow::Result;
 use std::sync::Arc;
 use std::time::Duration;
 
+use super::common::HealthChecker;
 use crate::client::support::{
     ConvertArgs, classify_error, print_diagnostic_report, summarize_error, truncate_str,
 };
 use crate::proxy::{McpClientConfig, StreamClientConnection, StreamProxyHandler, ToolFilter};
 
 use mcp_streamable_proxy::{ServiceExt, stdio as stream_stdio};
+
+/// 为 StreamProxyHandler 实现 HealthChecker trait
+impl HealthChecker for StreamProxyHandler {
+    fn is_backend_available(&self) -> bool {
+        self.is_backend_available()
+    }
+
+    async fn is_terminated_async(&self) -> bool {
+        self.is_terminated_async().await
+    }
+}
 
 /// Stream 模式处理（使用 mcp-streamable-proxy，rmcp 0.12）
 pub async fn run_stream_mode(
@@ -102,19 +114,25 @@ pub async fn run_stream_mode(
     tracing::info!("开始等待 stdio server 事件...");
     tokio::select! {
         result = server.waiting() => {
-            tracing::info!("stdio server 退出");
+            tracing::info!("========================================");
+            tracing::info!("stdio server 退出 - 原因: MCP 客户端断开连接 (stdin EOF)");
+            tracing::info!("========================================");
             watchdog_handle.abort();
             result?;
         }
         watchdog_result = &mut watchdog_handle => {
-            if let Err(e) = watchdog_result {
-                if !e.is_cancelled() {
-                    tracing::error!("Stream Watchdog task failed: {:?}", e);
-                }
+            tracing::info!("========================================");
+            tracing::info!("Watchdog 任务退出");
+            tracing::info!("========================================");
+            if let Err(e) = watchdog_result
+                && !e.is_cancelled()
+            {
+                tracing::error!("Stream Watchdog task failed: {:?}", e);
             }
         }
     }
 
+    tracing::info!("mcp-proxy convert (Stream 模式) 正常退出");
     Ok(())
 }
 
@@ -283,88 +301,15 @@ async fn run_stream_watchdog(
     }
 }
 
-/// Stream 模式：监控连接健康，返回断开原因
+/// 监控 Stream 连接健康状态
+///
+/// 委托给 common::monitor_connection_health 公共函数
 async fn monitor_stream_connection(
     handler: &StreamProxyHandler,
     ping_interval: u64,
     ping_timeout: u64,
     quiet: bool,
 ) -> String {
-    let connection_start = std::time::Instant::now();
-    if !quiet {
-        tracing::info!("💓 开始监控 Stream 连接健康状态");
-    }
-
-    if ping_interval == 0 {
-        loop {
-            tokio::time::sleep(Duration::from_secs(1)).await;
-            if !handler.is_backend_available() {
-                let alive_duration = connection_start.elapsed();
-                let disconnect_reason =
-                    format!("后端连接已关闭（存活时长: {}s）", alive_duration.as_secs());
-                if !quiet {
-                    tracing::error!("❌ {}", disconnect_reason);
-                }
-                return disconnect_reason;
-            }
-        }
-    }
-
-    let mut interval = tokio::time::interval(Duration::from_secs(ping_interval));
-    interval.tick().await;
-    let mut ping_count = 0u64;
-
-    loop {
-        interval.tick().await;
-        ping_count += 1;
-
-        let alive_duration = connection_start.elapsed();
-        tracing::debug!(
-            "💓 Ping 检测 #{}, 连接已存活: {}s",
-            ping_count,
-            alive_duration.as_secs()
-        );
-
-        if !handler.is_backend_available() {
-            let disconnect_reason =
-                format!("后端连接已关闭（存活时长: {}s）", alive_duration.as_secs());
-            if !quiet {
-                tracing::error!("❌ {}", disconnect_reason);
-            }
-            return disconnect_reason;
-        }
-
-        let check_result = tokio::time::timeout(
-            Duration::from_secs(ping_timeout),
-            handler.is_terminated_async(),
-        )
-        .await;
-
-        match check_result {
-            Ok(true) => {
-                let disconnect_reason = format!(
-                    "Ping 检测失败（服务错误），存活时长: {}s",
-                    alive_duration.as_secs()
-                );
-                if !quiet {
-                    tracing::error!("❌ {}", disconnect_reason);
-                }
-                return disconnect_reason;
-            }
-            Ok(false) => {
-                tracing::trace!("✅ Ping #{} 成功", ping_count);
-            }
-            Err(_) => {
-                let disconnect_reason = format!(
-                    "Ping 检测超时（{}s），存活时长: {}s",
-                    ping_timeout,
-                    alive_duration.as_secs()
-                );
-                if !quiet {
-                    eprintln!("❌ {}", disconnect_reason);
-                }
-                return disconnect_reason;
-            }
-        }
-    }
+    super::common::monitor_connection_health(handler, ping_interval, ping_timeout, quiet, "Stream")
+        .await
 }

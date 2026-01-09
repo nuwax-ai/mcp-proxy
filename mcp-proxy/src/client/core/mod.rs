@@ -3,6 +3,7 @@
 //! 包含协议转换的核心实现，与 CLI 接口解耦
 
 pub mod command;
+pub mod common;
 pub mod convert;
 pub mod sse;
 pub mod stream;

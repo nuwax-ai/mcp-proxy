@@ -227,47 +227,83 @@ impl ServerHandler for ProxyHandler {
                     start.elapsed().as_millis()
                 );
 
-                // 使用 tokio::select! 同时等待取消和结果
-                tokio::select! {
-                    result = inner.peer.call_tool(request.clone()) => {
-                        let elapsed = start.elapsed();
-                        match &result {
-                            Ok(call_result) => {
-                                // 记录工具调用结果
-                                let is_error = call_result.is_error.unwrap_or(false);
-                                info!(
-                                    "[call_tool:{}] 收到响应 - 工具: {}, 耗时: {}ms, is_error: {}, MCP ID: {}",
-                                    request_id, request.name, elapsed.as_millis(), is_error, self.mcp_id
-                                );
-                                if is_error {
-                                    debug!(
-                                        "[call_tool:{}] 错误响应内容: {:?}",
-                                        request_id, call_result.content
-                                    );
-                                }
-                                Ok(call_result.clone())
-                            }
-                            Err(err) => {
-                                error!(
-                                    "[call_tool:{}] 后端返回错误 - 工具: {}, 耗时: {}ms, 错误: {:?}, MCP ID: {}",
-                                    request_id, request.name, elapsed.as_millis(), err, self.mcp_id
-                                );
-                                // Return an error result instead of propagating the error
-                                Ok(CallToolResult::error(vec![Content::text(format!(
-                                    "Error: {err}"
-                                ))]))
-                            }
+                // 创建后端调用的 Future，使用 pin 固定
+                let call_future = inner.peer.call_tool(request.clone());
+                tokio::pin!(call_future);
+
+                // 等待心跳间隔（30秒）
+                const HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+                let mut heartbeat_interval = tokio::time::interval(HEARTBEAT_INTERVAL);
+                // 跳过第一次立即触发
+                heartbeat_interval.tick().await;
+
+                // 使用循环 + select! 实现等待心跳
+                let call_result = loop {
+                    tokio::select! {
+                        // biased 确保按顺序优先检查，避免心跳检查抢占实际结果
+                        biased;
+
+                        result = &mut call_future => {
+                            break result;
+                        }
+                        _ = context.ct.cancelled() => {
+                            let elapsed = start.elapsed();
+                            warn!(
+                                "[call_tool:{}] 请求被取消 - 工具: {}, 耗时: {}ms, MCP ID: {}",
+                                request_id, request.name, elapsed.as_millis(), self.mcp_id
+                            );
+                            return Ok(CallToolResult::error(vec![Content::text(
+                                "Request cancelled"
+                            )]));
+                        }
+                        _ = heartbeat_interval.tick() => {
+                            // 定期打印等待日志，证明 mcp-proxy 在等待后端响应
+                            let elapsed = start.elapsed();
+                            let transport_closed = inner.peer.is_transport_closed();
+                            info!(
+                                "[call_tool:{}] 等待后端响应中... - 工具: {}, 已等待: {}ms, \
+                                transport_closed: {}, MCP ID: {}",
+                                request_id, request.name, elapsed.as_millis(),
+                                transport_closed, self.mcp_id
+                            );
                         }
                     }
-                    _ = context.ct.cancelled() => {
-                        let elapsed = start.elapsed();
-                        warn!(
-                            "[call_tool:{}] 请求被取消 - 工具: {}, 耗时: {}ms, MCP ID: {}",
-                            request_id, request.name, elapsed.as_millis(), self.mcp_id
+                };
+
+                let elapsed = start.elapsed();
+                match &call_result {
+                    Ok(call_result) => {
+                        // 记录工具调用结果
+                        let is_error = call_result.is_error.unwrap_or(false);
+                        info!(
+                            "[call_tool:{}] 收到响应 - 工具: {}, 耗时: {}ms, is_error: {}, MCP ID: {}",
+                            request_id,
+                            request.name,
+                            elapsed.as_millis(),
+                            is_error,
+                            self.mcp_id
                         );
-                        Ok(CallToolResult::error(vec![Content::text(
-                            "Request cancelled"
-                        )]))
+                        if is_error {
+                            debug!(
+                                "[call_tool:{}] 错误响应内容: {:?}",
+                                request_id, call_result.content
+                            );
+                        }
+                        Ok(call_result.clone())
+                    }
+                    Err(err) => {
+                        error!(
+                            "[call_tool:{}] 后端返回错误 - 工具: {}, 耗时: {}ms, 错误: {:?}, MCP ID: {}",
+                            request_id,
+                            request.name,
+                            elapsed.as_millis(),
+                            err,
+                            self.mcp_id
+                        );
+                        // Return an error result instead of propagating the error
+                        Ok(CallToolResult::error(vec![Content::text(format!(
+                            "Error: {err}"
+                        ))]))
                     }
                 }
             }

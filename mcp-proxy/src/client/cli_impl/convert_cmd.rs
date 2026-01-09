@@ -10,13 +10,6 @@ use crate::proxy::ToolFilter;
 
 /// 运行转换命令 - 核心功能
 pub async fn run_convert_command(args: ConvertArgs, verbose: bool, quiet: bool) -> Result<()> {
-    // 记录命令启动
-    tracing::info!("========================================");
-    tracing::info!("MCP-Proxy CLI 启动");
-    tracing::info!("版本: {}", env!("CARGO_PKG_VERSION"));
-    tracing::info!("诊断模式: {}", args.logging.diagnostic);
-    tracing::info!("========================================");
-
     // 检查 --allow-tools 和 --deny-tools 互斥
     if args.allow_tools.is_some() && args.deny_tools.is_some() {
         anyhow::bail!("--allow-tools 和 --deny-tools 不能同时使用，请只选择其中一个");
@@ -58,6 +51,14 @@ pub async fn run_convert_command(args: ConvertArgs, verbose: bool, quiet: bool) 
     // 初始化日志系统
     init_logging(&args, mcp_name, quiet, verbose)?;
     tracing::debug!("日志系统初始化完成");
+
+    // 记录命令启动（必须在日志系统初始化之后）
+    tracing::info!("========================================");
+    tracing::info!("MCP-Proxy CLI 启动");
+    tracing::info!("命令: convert (stdio 桥接模式)");
+    tracing::info!("版本: {}", env!("CARGO_PKG_VERSION"));
+    tracing::info!("诊断模式: {}", args.logging.diagnostic);
+    tracing::info!("========================================");
 
     // 根据配置源执行不同逻辑
     match config_source {

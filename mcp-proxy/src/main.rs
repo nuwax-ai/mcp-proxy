@@ -128,7 +128,12 @@ async fn run_server_mode() -> Result<()> {
 
     // 记录服务信息
     log_service_info("mcp-proxy", "0.1.0")?;
-    tracing::info!("服务启动，监听端口: {}", server_port);
+    tracing::info!("========================================");
+    tracing::info!("MCP-Proxy 服务启动");
+    tracing::info!("命令: proxy (HTTP 服务器模式)");
+    tracing::info!("版本: {}", env!("CARGO_PKG_VERSION"));
+    tracing::info!("监听端口: {}", server_port);
+    tracing::info!("========================================");
 
     // 监听地址
     let addr = format!("0.0.0.0:{server_port}");
