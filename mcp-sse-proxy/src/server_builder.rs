@@ -14,11 +14,12 @@ use rmcp::{
     ServiceExt,
     model::{ClientCapabilities, ClientInfo},
     transport::{
-        TokioChildProcess,
-        SseClientTransport,
+        SseClientTransport, TokioChildProcess,
         sse_client::SseClientConfig,
         sse_server::{SseServer, SseServerConfig},
-        streamable_http_client::{StreamableHttpClientTransport, StreamableHttpClientTransportConfig},
+        streamable_http_client::{
+            StreamableHttpClientTransport, StreamableHttpClientTransportConfig,
+        },
     },
 };
 
@@ -155,7 +156,11 @@ impl SseServerBuilder {
     /// The CancellationToken can be used to gracefully shut down the service.
     /// The SseHandler can be used for status checks and management.
     pub async fn build(self) -> Result<(axum::Router, CancellationToken, SseHandler)> {
-        let mcp_id = self.server_config.mcp_id.clone().unwrap_or_else(|| "sse-proxy".into());
+        let mcp_id = self
+            .server_config
+            .mcp_id
+            .clone()
+            .unwrap_or_else(|| "sse-proxy".into());
 
         // Create client info for connecting to backend
         let client_info = ClientInfo {
@@ -253,8 +258,9 @@ impl SseServerBuilder {
                 req_headers.insert(
                     reqwest::header::HeaderName::try_from(key)
                         .map_err(|e| anyhow::anyhow!("Invalid header name '{}': {}", key, e))?,
-                    value.parse()
-                        .map_err(|e| anyhow::anyhow!("Invalid header value for '{}': {}", key, e))?,
+                    value.parse().map_err(|e| {
+                        anyhow::anyhow!("Invalid header value for '{}': {}", key, e)
+                    })?,
                 );
             }
         }
@@ -284,7 +290,10 @@ impl SseServerBuilder {
         headers: &Option<HashMap<String, String>>,
         client_info: &ClientInfo,
     ) -> Result<rmcp::service::RunningService<rmcp::RoleClient, ClientInfo>> {
-        info!("[SseServerBuilder] Connecting to Streamable HTTP URL backend: {}", url);
+        info!(
+            "[SseServerBuilder] Connecting to Streamable HTTP URL backend: {}",
+            url
+        );
 
         // Build HTTP client with custom headers (excluding Authorization)
         let mut req_headers = reqwest::header::HeaderMap::new();
@@ -301,8 +310,9 @@ impl SseServerBuilder {
                 req_headers.insert(
                     reqwest::header::HeaderName::try_from(key)
                         .map_err(|e| anyhow::anyhow!("Invalid header name '{}': {}", key, e))?,
-                    value.parse()
-                        .map_err(|e| anyhow::anyhow!("Invalid header value for '{}': {}", key, e))?,
+                    value.parse().map_err(|e| {
+                        anyhow::anyhow!("Invalid header value for '{}': {}", key, e)
+                    })?,
                 );
             }
         }
@@ -327,10 +337,7 @@ impl SseServerBuilder {
     }
 
     /// Create the SSE server
-    fn create_server(
-        &self,
-        sse_handler: SseHandler,
-    ) -> Result<(axum::Router, CancellationToken)> {
+    fn create_server(&self, sse_handler: SseHandler) -> Result<(axum::Router, CancellationToken)> {
         // SSE server uses bind address 0.0.0.0:0 since we're returning a router
         // The actual binding will be done by the caller
         let config = SseServerConfig {
@@ -338,7 +345,9 @@ impl SseServerBuilder {
             sse_path: self.server_config.sse_path.clone(),
             post_path: self.server_config.post_path.clone(),
             ct: CancellationToken::new(),
-            sse_keep_alive: Some(std::time::Duration::from_secs(self.server_config.keep_alive_secs)),
+            sse_keep_alive: Some(std::time::Duration::from_secs(
+                self.server_config.keep_alive_secs,
+            )),
         };
 
         let (sse_server, router) = SseServer::new(config);

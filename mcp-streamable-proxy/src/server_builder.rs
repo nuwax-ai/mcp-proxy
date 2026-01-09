@@ -16,12 +16,14 @@ use rmcp::{
     model::{ClientCapabilities, ClientInfo},
     transport::{
         TokioChildProcess,
+        streamable_http_client::{
+            StreamableHttpClientTransport, StreamableHttpClientTransportConfig,
+        },
         streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService},
-        streamable_http_client::{StreamableHttpClientTransport, StreamableHttpClientTransportConfig},
     },
 };
 
-use crate::{ProxyHandler, ProxyAwareSessionManager, ToolFilter};
+use crate::{ProxyAwareSessionManager, ProxyHandler, ToolFilter};
 pub use mcp_common::ToolFilter as CommonToolFilter;
 
 /// Backend configuration for the MCP server
@@ -120,7 +122,11 @@ impl StreamServerBuilder {
     /// The CancellationToken can be used to gracefully shut down the service.
     /// The ProxyHandler can be used for status checks and management.
     pub async fn build(self) -> Result<(axum::Router, CancellationToken, ProxyHandler)> {
-        let mcp_id = self.server_config.mcp_id.clone().unwrap_or_else(|| "stream-proxy".into());
+        let mcp_id = self
+            .server_config
+            .mcp_id
+            .clone()
+            .unwrap_or_else(|| "stream-proxy".into());
 
         // Create client info for connecting to backend
         let client_info = ClientInfo {
@@ -222,8 +228,9 @@ impl StreamServerBuilder {
                 req_headers.insert(
                     reqwest::header::HeaderName::try_from(key)
                         .map_err(|e| anyhow::anyhow!("Invalid header name '{}': {}", key, e))?,
-                    value.parse()
-                        .map_err(|e| anyhow::anyhow!("Invalid header value for '{}': {}", key, e))?,
+                    value.parse().map_err(|e| {
+                        anyhow::anyhow!("Invalid header value for '{}': {}", key, e)
+                    })?,
                 );
             }
         }

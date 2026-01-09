@@ -12,7 +12,9 @@ use crate::{
         CheckMcpStatusResponseStatus, McpConfig, McpProtocol, McpProtocolPath, McpRouterPath,
         McpServerCommandConfig, McpServerConfig, McpServiceStatus, McpType,
     },
-    proxy::{McpHandler, SseBackendConfig, SseServerBuilder, StreamBackendConfig, StreamServerBuilder},
+    proxy::{
+        McpHandler, SseBackendConfig, SseServerBuilder, StreamBackendConfig, StreamServerBuilder,
+    },
 };
 
 use anyhow::Result;
@@ -74,22 +76,26 @@ pub async fn integrate_server_with_axum(
             if let Some(type_str) = &url_config.r#type {
                 match type_str.parse::<McpProtocol>() {
                     Ok(protocol) => {
-                        debug!("Using configured protocol type: {} -> {:?}", type_str, protocol);
+                        debug!(
+                            "Using configured protocol type: {} -> {:?}",
+                            type_str, protocol
+                        );
                         protocol
                     }
                     Err(_) => {
                         // If parsing fails, auto-detect
                         debug!("Protocol type '{}' unrecognized, auto-detecting", type_str);
-                        let detected_protocol =
-                            crate::server::detect_mcp_protocol(url_config.get_url())
-                                .await
-                                .map_err(|e| {
-                                    anyhow::anyhow!(
-                                        "Protocol type '{}' unrecognized and auto-detection failed: {}",
-                                        type_str,
-                                        e
-                                    )
-                                })?;
+                        let detected_protocol = crate::server::detect_mcp_protocol(
+                            url_config.get_url(),
+                        )
+                        .await
+                        .map_err(|e| {
+                            anyhow::anyhow!(
+                                "Protocol type '{}' unrecognized and auto-detection failed: {}",
+                                type_str,
+                                e
+                            )
+                        })?;
                         debug!(
                             "Auto-detected protocol: {:?} (original config: '{}')",
                             detected_protocol, type_str
@@ -199,7 +205,10 @@ pub async fn integrate_server_with_axum(
     };
 
     // Register route to global route table
-    info!("Registering route: base_path={}, mcp_id={}", base_path, mcp_id);
+    info!(
+        "Registering route: base_path={}, mcp_id={}",
+        base_path, mcp_id
+    );
     info!(
         "SSE path config: sse_path={}, post_path={}",
         match &mcp_router_path.mcp_protocol_path {
@@ -231,27 +240,28 @@ fn build_sse_backend_config(
                 env: cmd_config.env.clone(),
             })
         }
-        McpServerConfig::Url(url_config) => {
-            match backend_protocol {
-                McpProtocol::Stdio => {
-                    Err(anyhow::anyhow!("URL-based MCP service cannot use Stdio protocol"))
-                }
-                McpProtocol::Sse => {
-                    info!("Connecting to SSE backend: {}", url_config.get_url());
-                    Ok(SseBackendConfig::SseUrl {
-                        url: url_config.get_url().to_string(),
-                        headers: url_config.headers.clone(),
-                    })
-                }
-                McpProtocol::Stream => {
-                    info!("Connecting to Streamable HTTP backend (SSE frontend): {}", url_config.get_url());
-                    Ok(SseBackendConfig::StreamUrl {
-                        url: url_config.get_url().to_string(),
-                        headers: url_config.headers.clone(),
-                    })
-                }
+        McpServerConfig::Url(url_config) => match backend_protocol {
+            McpProtocol::Stdio => Err(anyhow::anyhow!(
+                "URL-based MCP service cannot use Stdio protocol"
+            )),
+            McpProtocol::Sse => {
+                info!("Connecting to SSE backend: {}", url_config.get_url());
+                Ok(SseBackendConfig::SseUrl {
+                    url: url_config.get_url().to_string(),
+                    headers: url_config.headers.clone(),
+                })
             }
-        }
+            McpProtocol::Stream => {
+                info!(
+                    "Connecting to Streamable HTTP backend (SSE frontend): {}",
+                    url_config.get_url()
+                );
+                Ok(SseBackendConfig::StreamUrl {
+                    url: url_config.get_url().to_string(),
+                    headers: url_config.headers.clone(),
+                })
+            }
+        },
     }
 }
 
@@ -271,9 +281,9 @@ fn build_stream_backend_config(
         }
         McpServerConfig::Url(url_config) => {
             match backend_protocol {
-                McpProtocol::Stdio => {
-                    Err(anyhow::anyhow!("URL-based MCP service cannot use Stdio protocol"))
-                }
+                McpProtocol::Stdio => Err(anyhow::anyhow!(
+                    "URL-based MCP service cannot use Stdio protocol"
+                )),
                 McpProtocol::Sse => {
                     // Note: StreamServerBuilder currently only supports Streamable HTTP URL backend
                     // SSE backend with Stream frontend would require protocol conversion
@@ -284,7 +294,10 @@ fn build_stream_backend_config(
                     ))
                 }
                 McpProtocol::Stream => {
-                    info!("Connecting to Streamable HTTP backend: {}", url_config.get_url());
+                    info!(
+                        "Connecting to Streamable HTTP backend: {}",
+                        url_config.get_url()
+                    );
                     Ok(StreamBackendConfig::Url {
                         url: url_config.get_url().to_string(),
                         headers: url_config.headers.clone(),
