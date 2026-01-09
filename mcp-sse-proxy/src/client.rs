@@ -81,12 +81,25 @@ impl SseClientConnection {
             .context("Failed to initialize MCP client")?;
 
         let total_elapsed = start.elapsed();
-        info!(
-            "✅ SSE 连接建立成功，总耗时: {:?} (传输层: {:?}, 握手: {:?})",
-            total_elapsed,
-            transport_elapsed,
-            total_elapsed - transport_elapsed
-        );
+
+        // 记录详细的连接状态信息
+        {
+            use std::ops::Deref;
+            let transport_closed = running.deref().is_transport_closed();
+            let peer_info = running.peer_info();
+            info!(
+                "✅ SSE 连接建立成功 - 总耗时: {:?}, transport_closed: {}, peer_info: {:?}",
+                total_elapsed, transport_closed, peer_info
+            );
+            if let Some(info) = peer_info {
+                info!(
+                    "   服务器信息: name={}, version={}, capabilities={:?}",
+                    info.server_info.name,
+                    info.server_info.version,
+                    info.capabilities
+                );
+            }
+        }
 
         Ok(Self { inner: running })
     }

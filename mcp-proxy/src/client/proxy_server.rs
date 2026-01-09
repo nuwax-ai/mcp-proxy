@@ -166,7 +166,10 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
         match result {
             Ok(_) => {
                 // 正常退出（如 Ctrl+C）
-                info!("[服务停止] MCP Proxy 服务正常停止 - 服务名: {}", parsed.name);
+                info!(
+                    "[服务停止] MCP Proxy 服务正常停止 - 服务名: {}",
+                    parsed.name
+                );
                 if !quiet {
                     eprintln!("🛑 服务已停止");
                 }

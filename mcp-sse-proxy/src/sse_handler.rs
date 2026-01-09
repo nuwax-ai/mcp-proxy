@@ -11,9 +11,13 @@ use rmcp::{
     },
     service::{NotificationContext, Peer, RequestContext, RunningService},
 };
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
 use tracing::{debug, error, info, warn};
+
+/// 全局请求计数器，用于生成唯一的请求 ID
+static REQUEST_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 /// 包装后端连接和运行服务
 /// 用于 ArcSwap 热替换
@@ -152,15 +156,21 @@ impl ServerHandler for SseHandler {
         request: CallToolRequestParam,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
+        // 生成唯一请求 ID 用于追踪
+        let request_id = REQUEST_COUNTER.fetch_add(1, Ordering::Relaxed);
         let start = Instant::now();
         let start_time = SystemTime::now();
-        info!("🔧 开始执行工具: {}, 时间: {:?}", request.name, start_time);
+
+        info!(
+            "[call_tool:{}] 开始 - 工具: {}, MCP ID: {}, 时间: {:?}",
+            request_id, request.name, self.mcp_id, start_time
+        );
 
         // 首先检查工具是否被过滤
         if !self.tool_filter.is_allowed(&request.name) {
             info!(
-                "[call_tool] 工具被过滤 - MCP ID: {}, 工具: {}",
-                self.mcp_id, request.name
+                "[call_tool:{}] 工具被过滤 - MCP ID: {}, 工具: {}",
+                request_id, self.mcp_id, request.name
             );
             return Ok(CallToolResult::error(vec![Content::text(format!(
                 "Tool '{}' is not allowed by filter configuration",
@@ -171,9 +181,19 @@ impl ServerHandler for SseHandler {
         // 原子加载后端连接
         let inner_guard = self.peer.load();
         let inner = match inner_guard.as_ref() {
-            Some(inner) => inner,
+            Some(inner) => {
+                let transport_closed = inner.peer.is_transport_closed();
+                info!(
+                    "[call_tool:{}] 后端连接存在 - transport_closed: {}",
+                    request_id, transport_closed
+                );
+                inner
+            }
             None => {
-                error!("Backend connection is not available (reconnecting)");
+                error!(
+                    "[call_tool:{}] 后端连接不可用 (正在重连) - MCP ID: {}",
+                    request_id, self.mcp_id
+                );
                 return Ok(CallToolResult::error(vec![Content::text(
                     "Backend connection is not available, reconnecting...",
                 )]));
@@ -182,7 +202,10 @@ impl ServerHandler for SseHandler {
 
         // 检查后端连接是否已关闭
         if inner.peer.is_transport_closed() {
-            error!("Backend transport is closed");
+            error!(
+                "[call_tool:{}] 后端 transport 已关闭 - MCP ID: {}",
+                request_id, self.mcp_id
+            );
             return Ok(CallToolResult::error(vec![Content::text(
                 "Backend connection closed, please retry",
             )]));
@@ -191,24 +214,38 @@ impl ServerHandler for SseHandler {
         // Check if the server has tools capability and forward the request
         let result = match self.capabilities().tools {
             Some(_) => {
+                // 记录发送请求到后端的时间点
+                info!(
+                    "[call_tool:{}] 发送请求到后端... - 工具: {}, 已耗时: {}ms",
+                    request_id, request.name, start.elapsed().as_millis()
+                );
+
                 // 使用 tokio::select! 同时等待取消和结果
                 tokio::select! {
                     result = inner.peer.call_tool(request.clone()) => {
-                        match result {
-                            Ok(result) => {
+                        let elapsed = start.elapsed();
+                        match &result {
+                            Ok(call_result) => {
                                 // 记录工具调用结果，这些结果会通过 SSE 推送给客户端
-                                let elapsed = start.elapsed();
+                                let is_error = call_result.is_error.unwrap_or(false);
                                 info!(
-                                    "[call_tool] 工具调用成功 - MCP ID: {}, 工具: {}, 耗时: {}ms",
-                                    self.mcp_id, request.name, elapsed.as_millis()
+                                    "[call_tool:{}] 收到响应 - 工具: {}, 耗时: {}ms, is_error: {}, MCP ID: {}",
+                                    request_id, request.name, elapsed.as_millis(), is_error, self.mcp_id
                                 );
-
-                                debug!("Tool call succeeded");
-                                Ok(result)
+                                if is_error {
+                                    // 记录错误响应的内容（用于调试）
+                                    debug!(
+                                        "[call_tool:{}] 错误响应内容: {:?}",
+                                        request_id, call_result.content
+                                    );
+                                }
+                                Ok(call_result.clone())
                             }
                             Err(err) => {
-                                let elapsed = start.elapsed();
-                                error!("Error calling tool: {:?}, 耗时: {}ms", err, elapsed.as_millis());
+                                error!(
+                                    "[call_tool:{}] 后端返回错误 - 工具: {}, 耗时: {}ms, 错误: {:?}, MCP ID: {}",
+                                    request_id, request.name, elapsed.as_millis(), err, self.mcp_id
+                                );
                                 // Return an error result instead of propagating the error
                                 Ok(CallToolResult::error(vec![Content::text(format!(
                                     "Error: {err}"
@@ -218,9 +255,9 @@ impl ServerHandler for SseHandler {
                     }
                     _ = context.ct.cancelled() => {
                         let elapsed = start.elapsed();
-                        info!(
-                            "[call_tool] 请求被取消 - MCP ID: {}, 工具: {}, 耗时: {}ms",
-                            self.mcp_id, request.name, elapsed.as_millis()
+                        warn!(
+                            "[call_tool:{}] 请求被取消 - 工具: {}, 耗时: {}ms, MCP ID: {}",
+                            request_id, request.name, elapsed.as_millis(), self.mcp_id
                         );
                         Ok(CallToolResult::error(vec![Content::text(
                             "Request cancelled"
@@ -229,7 +266,10 @@ impl ServerHandler for SseHandler {
                 }
             }
             None => {
-                error!("Server doesn't support tools capability");
+                error!(
+                    "[call_tool:{}] 服务器不支持 tools capability - MCP ID: {}",
+                    request_id, self.mcp_id
+                );
                 Ok(CallToolResult::error(vec![Content::text(
                     "Server doesn't support tools capability",
                 )]))
@@ -238,9 +278,8 @@ impl ServerHandler for SseHandler {
 
         let total_elapsed = start.elapsed();
         info!(
-            "✅ 工具执行完成: {}, 总耗时: {}ms",
-            request.name,
-            total_elapsed.as_millis()
+            "[call_tool:{}] 完成 - 工具: {}, 总耗时: {}ms",
+            request_id, request.name, total_elapsed.as_millis()
         );
         result
     }

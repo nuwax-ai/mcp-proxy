@@ -3,6 +3,10 @@ use log::{debug, info};
 use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
 
 use crate::model::McpProtocol;
+use rmcp::model::{
+    ClientCapabilities, ClientRequest, Implementation, InitializeRequestParam, ProtocolVersion,
+    RequestId,
+};
 
 /// 自动检测 MCP 服务的协议类型
 ///
@@ -49,7 +53,7 @@ async fn is_streamable_http(url: &str) -> bool {
         }
     };
 
-    // 构造一个标准的 MCP initialize 请求
+    // 构造一个标准的 MCP initialize 请求（使用 rmcp 类型）
     let mut headers = HeaderMap::new();
     headers.insert(
         ACCEPT,
@@ -57,20 +61,23 @@ async fn is_streamable_http(url: &str) -> bool {
     );
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
 
-    // 发送 initialize 请求（MCP 协议标准方法）
-    let body = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "initialize",
-        "params": {
-            "protocolVersion": "2024-11-05",
-            "capabilities": {},
-            "clientInfo": {
-                "name": "mcp-proxy-detector",
-                "version": "0.1.0"
-            }
-        }
-    });
+    // 使用 rmcp 的类型构造 initialize 请求
+    let init_request = rmcp::model::ClientRequest::InitializeRequest(rmcp::model::Request::new(
+        InitializeRequestParam {
+            protocol_version: ProtocolVersion::V_2024_11_05,
+            capabilities: ClientCapabilities::default(),
+            client_info: Implementation {
+                name: "mcp-proxy-detector".to_string(),
+                version: "0.1.0".to_string(),
+                title: None,
+                icons: None,
+                website_url: None,
+            },
+        },
+    ));
+
+    // 序列化为 JSON-RPC 消息
+    let body = rmcp::model::ClientJsonRpcMessage::request(init_request, RequestId::Number(1));
 
     match client.post(url).headers(headers).json(&body).send().await {
         Ok(response) => {
