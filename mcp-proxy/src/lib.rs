@@ -11,7 +11,8 @@ mod tests;
 pub use config::AppConfig;
 pub use mcp_error::AppError;
 pub use model::{AppState, DynamicRouterService, ProxyHandlerManager, get_proxy_manager};
-pub use proxy::ProxyHandler;
+pub use proxy::{McpHandler, ProxyHandler, StreamProxyHandler};
+pub use proxy::{SseBackendConfig, SseServerBuilder, StreamBackendConfig, StreamServerBuilder};
 pub use server::{
     create_telemetry_layer, get_health, get_ready, get_router, init_tracer_provider,
     log_service_info, mcp_start_task, schedule_check_mcp_live, set_layer, shutdown_telemetry,

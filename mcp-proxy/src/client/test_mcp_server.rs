@@ -4,8 +4,12 @@
 //!
 //! 运行方式:
 //! ```bash
-//! cargo run --bin test-mcp-server
+//! cargo run --bin test-mcp-server --features test-server
 //! ```
+//!
+//! 此文件仅在启用 `test-server` feature 时编译。
+
+#![cfg(feature = "test-server")]
 
 use rmcp::{
     ErrorData, RoleServer, ServerHandler, ServiceExt,

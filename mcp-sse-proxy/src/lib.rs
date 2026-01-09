@@ -33,11 +33,15 @@
 pub mod client;
 pub mod config;
 pub mod server;
+pub mod server_builder;
 pub mod sse_handler;
 
 // Re-export main types
 pub use server::{McpServiceConfig, run_sse_server, run_sse_server_from_config};
 pub use sse_handler::{SseHandler, ToolFilter};
+
+// Re-export server builder API
+pub use server_builder::{BackendConfig, SseServerBuilder, SseServerBuilderConfig};
 
 // Re-export client connection types
 pub use client::{SseClientConnection, ToolInfo};

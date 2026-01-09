@@ -8,7 +8,7 @@ use tokio_util::sync::CancellationToken;
 
 use anyhow::Result;
 
-use crate::ProxyHandler;
+use crate::proxy::McpHandler;
 
 use super::{CheckMcpStatusResponseStatus, McpProtocol, McpRouterPath, McpType};
 
@@ -73,12 +73,12 @@ impl std::fmt::Debug for DynamicRouterService {
 
 //mcp 代理管理器,包含路由,取消令牌,透明mcp代理处理器
 
-//根据用户的 mcp_id ,获取对应的 ProxyHandler;
+//根据用户的 mcp_id ,获取对应的 McpHandler;
 //定义结构体
 #[derive(Debug, Clone)]
 pub struct ProxyHandlerManager {
-    // 存储 ProxyHandler 透明代理服务
-    proxy_handlers: DashMap<String, ProxyHandler>,
+    // 存储 McpHandler 透明代理服务 (支持 SSE 和 Stream 两种类型)
+    proxy_handlers: DashMap<String, McpHandler>,
     // 存储 MCP 服务状态,包含路径,类型,取消令牌,mcp_id,状态
     mcp_service_statuses: DashMap<String, McpServiceStatus>,
 }
@@ -137,7 +137,7 @@ impl ProxyHandlerManager {
     pub fn add_mcp_service_status_and_proxy(
         &self,
         mcp_service_status: McpServiceStatus,
-        proxy_handler: Option<ProxyHandler>,
+        proxy_handler: Option<McpHandler>,
     ) {
         let mcp_id = mcp_service_status.mcp_id.clone();
         self.mcp_service_statuses
@@ -179,13 +179,13 @@ impl ProxyHandlerManager {
         }
     }
 
-    pub fn get_proxy_handler(&self, mcp_id: &str) -> Option<ProxyHandler> {
+    pub fn get_proxy_handler(&self, mcp_id: &str) -> Option<McpHandler> {
         self.proxy_handlers
             .get(mcp_id)
             .map(|entry| entry.value().clone())
     }
 
-    pub fn add_proxy_handler(&self, mcp_id: &str, proxy_handler: ProxyHandler) {
+    pub fn add_proxy_handler(&self, mcp_id: &str, proxy_handler: McpHandler) {
         self.proxy_handlers
             .insert(mcp_id.to_string(), proxy_handler);
     }

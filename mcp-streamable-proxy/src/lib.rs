@@ -35,14 +35,22 @@
 
 pub mod client;
 pub mod config;
+pub mod detector;
 pub mod proxy_handler;
 pub mod server;
+pub mod server_builder;
 pub mod session_manager;
 
 // Re-export main types
 pub use proxy_handler::{ProxyHandler, ToolFilter};
 pub use server::{McpServiceConfig, run_stream_server, run_stream_server_from_config};
 pub use session_manager::ProxyAwareSessionManager;
+
+// Re-export protocol detection function
+pub use detector::is_streamable_http;
+
+// Re-export server builder API
+pub use server_builder::{BackendConfig, StreamServerBuilder, StreamServerConfig};
 
 // Re-export client connection types
 pub use client::{StreamClientConnection, ToolInfo};

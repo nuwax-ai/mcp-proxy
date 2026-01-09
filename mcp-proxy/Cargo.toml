@@ -17,9 +17,15 @@ exclude = [
     "benches/",
 ]
 
+[features]
+default = []
+# Enable test-mcp-server binary (requires rmcp)
+test-server = ["rmcp"]
+
 [dependencies]
-# MCP protocol - 使用 0.10 版本（不从 workspace 继承，因为有多版本共存）
-rmcp = { version = "0.10", features = [
+# MCP protocol - 可选依赖，仅用于 test-mcp-server 二进制
+# 主项目通过 mcp-sse-proxy 和 mcp-streamable-proxy 使用 rmcp
+rmcp = { version = "0.10", optional = true, features = [
     "server",
     "client",
     "transport-sse-server",
@@ -83,6 +89,7 @@ path = "src/main.rs"
 [[bin]]
 name = "test-mcp-server"
 path = "src/client/test_mcp_server.rs"
+required-features = ["test-server"]
 
 [dev-dependencies]
 criterion = "0.6"

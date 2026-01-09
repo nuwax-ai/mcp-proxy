@@ -7,8 +7,7 @@ use uuid::Uuid;
 use crate::AppError;
 use crate::model::{AddRouteParams, HttpResult, McpProtocolPath, McpServerConfig, McpType};
 use crate::model::{AppState, McpRouterPath};
-use crate::server::task::integrate_sse_server_with_axum;
-use anyhow::anyhow;
+use crate::server::task::integrate_server_with_axum;
 use serde_json::json;
 
 // 修改 add_route_handler 函数，使用新的集成方法
@@ -45,7 +44,7 @@ pub async fn add_route_handler(
         debug!("客户端协议: {:?}", mcp_router_path.mcp_protocol);
 
         // 使用新的集成方法，后端协议在函数内部解析
-        integrate_sse_server_with_axum(
+        let _ = integrate_server_with_axum(
             mcp_server_config.clone(),
             mcp_router_path.clone(),
             mcp_type.clone(),
