@@ -17,6 +17,11 @@ use tracing_subscriber::{EnvFilter, Layer as _};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // 初始化 Rustls CryptoProvider（必须在任何使用 TLS 的代码之前）
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     // 解析命令行参数
     let cli = Cli::parse();
 
@@ -214,4 +219,32 @@ async fn run_server_mode() -> Result<()> {
 // 监听多种终止信号
 async fn shutdown_signal() {
     signal::ctrl_c().await.expect("无法安装Ctrl+C处理器");
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_crypto_provider_install() {
+        // 测试 CryptoProvider 可以正常安装
+        let result = std::panic::catch_unwind(|| {
+            rustls::crypto::ring::default_provider()
+                .install_default()
+                .expect("Failed to install rustls crypto provider");
+        });
+        assert!(result.is_ok(), "CryptoProvider installation should not panic");
+    }
+
+    #[test]
+    fn test_crypto_provider_get_default() {
+        // 首先确保 CryptoProvider 已安装
+        let _ = rustls::crypto::ring::default_provider()
+            .install_default();
+
+        // 测试可以正常获取默认 CryptoProvider
+        let provider = rustls::crypto::CryptoProvider::get_default();
+        assert!(
+            provider.is_some(),
+            "CryptoProvider should be available after installation"
+        );
+    }
 }
