@@ -4,7 +4,6 @@
 mod cli;
 mod protocol;
 pub(crate) mod proxy_server;
-pub mod test_mcp_server;
 
 // 新的模块化架构 (按功能层次分组)
 pub mod cli_impl; // CLI 命令实现

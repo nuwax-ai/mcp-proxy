@@ -59,7 +59,7 @@ pub use mcp_common::McpClientConfig;
 // Re-export commonly used rmcp types
 pub use rmcp::{
     RoleClient, RoleServer, ServerHandler, ServiceExt,
-    model::{ClientCapabilities, ClientInfo, ServerInfo},
+    model::{ClientCapabilities, ClientInfo, Implementation, ServerInfo},
     service::{Peer, RunningService},
 };
 

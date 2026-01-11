@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Once;
 use std::time::Duration;
 
 use anyhow::{Result, bail};
@@ -13,6 +14,9 @@ use tracing::{error, info, warn};
 
 use crate::client::support::{LoggingArgs, init_logging_with_config};
 use crate::proxy::ToolFilter;
+
+/// Panic hook 初始化标志（确保只设置一次）
+static INIT_PANIC_HOOK: Once = Once::new();
 
 /// 输出协议类型
 #[derive(clap::ValueEnum, Clone, Debug, Default)]
@@ -95,6 +99,20 @@ struct ParsedConfig {
 
 /// 运行代理命令
 pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> Result<()> {
+    // 设置 panic hook 以记录详细的 panic 信息（只设置一次）
+    INIT_PANIC_HOOK.call_once(|| {
+        std::panic::set_hook(Box::new(|panic_info| {
+            let backtrace = std::backtrace::Backtrace::capture();
+            error!(
+                "[PANIC] 程序 panic - 位置: {}:{}, 消息: {:?}",
+                panic_info.location().map(|l| l.file()).unwrap_or("unknown"),
+                panic_info.location().map(|l| l.line()).unwrap_or(0),
+                panic_info.payload().downcast_ref::<String>()
+            );
+            error!("[PANIC] 堆栈跟踪:\n{:?}", backtrace);
+        }));
+    });
+
     // 1. 验证互斥参数
     if args.allow_tools.is_some() && args.deny_tools.is_some() {
         bail!("--allow-tools 和 --deny-tools 不能同时使用，请只选择其中一个");

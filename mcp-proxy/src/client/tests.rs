@@ -16,12 +16,15 @@ mod test_helpers {
     pub const TEST_PORT_PROTOCOL: u16 = 19881; // protocol detection 使用
     pub const TEST_PORT_RECONNECT: u16 = 19876; // reconnection_tests 使用
 
-    /// 获取预编译的 test-mcp-server 二进制路径
+    /// 获取预编译的 test_mcp_server 二进制路径
+    ///
+    /// 注意：test_mcp_server 现在是 mcp-sse-proxy 的 example，
+    /// 编译输出在 target/debug/examples/test_mcp_server
     pub fn get_test_mcp_server_path() -> String {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
         let workspace_root = std::path::Path::new(manifest_dir).parent().unwrap();
         workspace_root
-            .join("target/debug/test-mcp-server")
+            .join("target/debug/examples/test_mcp_server")
             .to_string_lossy()
             .to_string()
     }
@@ -435,7 +438,6 @@ mod reconnection_tests {
     use tokio::time::timeout;
 
     /// 测试配置
-    const SERVER_STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
     const CLIENT_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
     const RECONNECT_DETECT_TIMEOUT: Duration = Duration::from_secs(30);
 

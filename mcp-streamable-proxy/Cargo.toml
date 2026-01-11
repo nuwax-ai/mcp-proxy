@@ -1,6 +1,6 @@
 [package]
 name = "mcp-streamable-proxy"
-version = "0.1.13"
+version = "0.1.14"
 edition = "2024"
 authors = ["nuwax-ai"]
 description = "Streamable HTTP proxy implementation for MCP protocol using rmcp 0.12"
@@ -11,7 +11,7 @@ categories = ["web-programming", "network-programming"]
 
 [dependencies]
 # 共享类型和工具
-mcp-common = { version = "0.1.13", path = "../mcp-common" }
+mcp-common = { version = "0.1.14", path = "../mcp-common" }
 
 # MCP protocol implementation - using 0.12 for enhanced Streamable HTTP support
 rmcp = { version = "0.12", features = [
@@ -56,3 +56,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true }
+
+# 进程组管理（跨平台子进程清理）
+# 版本需要与 rmcp 0.12 兼容
+process-wrap = { version = "9.0", features = ["tokio1"] }

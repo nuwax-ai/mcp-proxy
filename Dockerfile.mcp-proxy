@@ -1,0 +1,25 @@
+# mcp-proxy 服务运行时镜像
+FROM debian:bookworm-slim
+
+# 安装 tini（用于正确清理僵尸进程）
+RUN apt-get update && apt-get install -y \
+    tini \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# 创建非 root 用户
+RUN useradd -m -u 1000 mcpproxy
+
+# 设置工作目录
+WORKDIR /app
+
+# 复制编译好的二进制文件
+COPY target/x86_64-unknown-linux-gnu/release/mcp-proxy /app/mcp-proxy
+RUN chown mcpproxy:mcpproxy /app/mcp-proxy
+
+# 切换到非 root 用户
+USER mcpproxy
+
+# 使用 tini 作为 PID 1，确保正确清理僵尸进程
+ENTRYPOINT ["/tini", "--"]
+CMD ["./mcp-proxy"]

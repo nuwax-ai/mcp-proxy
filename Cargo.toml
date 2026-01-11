@@ -87,7 +87,7 @@ sled = "0.34"
 # Audio format detection and processing
 symphonia = { version = "0.5", features = ["all"] }
 bincode = "2.0"
-tokio-stream = "0.1.17"
+tokio-stream = "0.1.18"
 backtrace = "0.3"
 tracing-futures = "0.2.5"
 urlencoding = "2.1.3"

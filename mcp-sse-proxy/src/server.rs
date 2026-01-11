@@ -12,9 +12,14 @@ use rmcp::{
         sse_server::{SseServer, SseServerConfig},
     },
 };
-use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
+
+// 进程组管理（跨平台子进程清理）
+use process_wrap::tokio::{TokioCommandWrap, ProcessGroup, KillOnDrop};
+
+#[cfg(windows)]
+use process_wrap::tokio::JobObject;
 
 use crate::SseHandler;
 
@@ -36,21 +41,27 @@ pub async fn run_sse_server_from_config(
     bind_addr: &str,
     quiet: bool,
 ) -> Result<()> {
-    // 1. 创建子进程命令
-    let mut command = Command::new(&config.command);
-
-    if let Some(ref cmd_args) = config.args {
-        command.args(cmd_args);
-    }
-
-    if let Some(ref env_vars) = config.env {
-        for (k, v) in env_vars {
-            command.env(k, v);
+    // 1. 使用 process-wrap 创建子进程命令（跨平台进程清理）
+    // process-wrap 会自动处理进程组（Unix）或 Job Object（Windows）
+    // 并且在 Drop 时自动清理子进程树
+    let mut wrapped_cmd = TokioCommandWrap::with_new(&config.command, |command| {
+        if let Some(ref cmd_args) = config.args {
+            command.args(cmd_args);
         }
-    }
+        if let Some(ref env_vars) = config.env {
+            for (k, v) in env_vars {
+                command.env(k, v);
+            }
+        }
+    });
+    // Unix: 创建进程组，支持 killpg 清理整个进程树
+    #[cfg(unix)]
+    wrapped_cmd.wrap(ProcessGroup::leader());
+    // 所有平台: Drop 时自动清理进程
+    wrapped_cmd.wrap(KillOnDrop);
 
-    // 2. 启动子进程
-    let tokio_process = TokioChildProcess::new(command)?;
+    // 2. 启动子进程（rmcp 的 TokioChildProcess 已经支持 process-wrap）
+    let tokio_process = TokioChildProcess::new(wrapped_cmd)?;
 
     // 3. 创建客户端信息
     let client_info = ClientInfo {

@@ -4,21 +4,24 @@
 
 use anyhow::Result;
 use std::collections::HashMap;
-use tokio::process::Command;
 
-use crate::proxy::{ProxyHandler, ToolFilter};
+use crate::proxy::{StreamProxyHandler, ToolFilter};
 
-// SSE 模式需要的类型（rmcp 0.10）
-use mcp_sse_proxy::{
-    ClientCapabilities as SseClientCapabilities, ClientInfo as SseClientInfo,
-    Implementation as SseImplementation, ServiceExt as SseServiceExt, TokioChildProcess,
-    stdio as sse_stdio,
+// 使用 mcp-streamable-proxy 的类型（rmcp 0.12，process-wrap 9.0）
+use mcp_streamable_proxy::{
+    ClientCapabilities, ClientInfo, Implementation, ServiceExt, TokioChildProcess, stdio,
 };
 
 use crate::client::support::utils::truncate_str;
 
+// 进程组管理（跨平台子进程清理）
+use process_wrap::tokio::{CommandWrap, ProcessGroup, KillOnDrop};
+
+#[cfg(windows)]
+use process_wrap::tokio::JobObject;
+
 /// 命令模式执行（本地子进程）
-/// 使用 SSE 库（rmcp 0.10）的类型
+/// 使用 mcp-streamable-proxy（rmcp 0.12）实现 stdio CLI 模式
 pub async fn run_command_mode(
     name: &str,
     command: &str,
@@ -49,23 +52,34 @@ pub async fn run_command_mode(
         }
     }
 
-    // 创建子进程命令
-    let mut cmd = Command::new(command);
-    cmd.args(&cmd_args);
-    for (k, v) in &env {
-        cmd.env(k, v);
-    }
+    // 使用 process-wrap 创建子进程命令（跨平台进程清理）
+    // process-wrap 会自动处理进程组（Unix）或 Job Object（Windows）
+    // 并且在 Drop 时自动清理子进程树
+    let mut wrapped_cmd = CommandWrap::with_new(command, |cmd| {
+        cmd.args(&cmd_args);
+        for (k, v) in &env {
+            cmd.env(k, v);
+        }
+    });
+    // Unix: 创建进程组，支持 killpg 清理整个进程树
+    #[cfg(unix)]
+    wrapped_cmd.wrap(ProcessGroup::leader());
+    // Windows: 使用 Job Object 管理进程树
+    #[cfg(windows)]
+    wrapped_cmd.wrap(JobObject::new());
+    // 所有平台: Drop 时自动清理进程
+    wrapped_cmd.wrap(KillOnDrop);
 
     // 启动子进程
     tracing::debug!("启动子进程...");
-    let tokio_process = TokioChildProcess::new(cmd)?;
+    let tokio_process = TokioChildProcess::new(wrapped_cmd)?;
 
     if !quiet {
         eprintln!("🔗 启动子进程...");
     }
 
-    // 创建 ClientInfo（使用 SSE 库的类型，rmcp 0.10）
-    let client_info = create_sse_client_info();
+    // 创建 ClientInfo（使用 rmcp 0.12 类型）
+    let client_info = create_client_info();
 
     // 连接到子进程
     let running = client_info.serve(tokio_process).await?;
@@ -96,25 +110,35 @@ pub async fn run_command_mode(
         eprintln!("💡 现在可以通过 stdin 发送 JSON-RPC 请求");
     }
 
-    // 使用 ProxyHandler + stdio 将本地 MCP 服务透明暴露为 stdio
-    let proxy_handler = ProxyHandler::with_tool_filter(running, name.to_string(), tool_filter);
-    let server = proxy_handler.serve(sse_stdio()).await?;
-    server.waiting().await?;
+    // 使用 StreamProxyHandler + stdio 将本地 MCP 服务透明暴露为 stdio
+    let proxy_handler = StreamProxyHandler::with_tool_filter(running, name.to_string(), tool_filter);
+    let server = proxy_handler.serve(stdio()).await?;
+
+    // 设置 Ctrl+C 信号处理
+    tokio::select! {
+        result = server.waiting() => {
+            result?;
+        }
+        _ = tokio::signal::ctrl_c() => {
+            tracing::info!("收到 Ctrl+C 信号，正在关闭...");
+            // tokio runtime 会清理资源，包括子进程
+        }
+    }
 
     Ok(())
 }
 
-/// 创建 SSE 库的 ClientInfo（rmcp 0.10）
-fn create_sse_client_info() -> SseClientInfo {
-    SseClientInfo {
+/// 创建 ClientInfo（使用 rmcp 0.12 类型）
+fn create_client_info() -> ClientInfo {
+    ClientInfo {
         protocol_version: Default::default(),
-        capabilities: SseClientCapabilities::builder()
+        capabilities: ClientCapabilities::builder()
             .enable_experimental()
             .enable_roots()
             .enable_roots_list_changed()
             .enable_sampling()
             .build(),
-        client_info: SseImplementation {
+        client_info: Implementation {
             name: "mcp-proxy-cli".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
             title: None,

@@ -1,6 +1,6 @@
 [package]
 name = "mcp-stdio-proxy"
-version = "0.1.26"
+version = "0.1.27"
 edition = "2024"
 authors = ["nuwax-ai"]
 description = "MCP (Model Context Protocol) proxy server and CLI tool for protocol conversion and remote service access"
@@ -19,30 +19,13 @@ exclude = [
 
 [features]
 default = []
-# Enable test-mcp-server binary (requires rmcp)
-test-server = ["rmcp"]
 
 [dependencies]
-# MCP protocol - 可选依赖，仅用于 test-mcp-server 二进制
-# 主项目通过 mcp-sse-proxy 和 mcp-streamable-proxy 使用 rmcp
-rmcp = { version = "0.10", optional = true, features = [
-    "server",
-    "client",
-    "transport-sse-server",
-    "transport-sse-client",
-    "transport-streamable-http-client",
-    "transport-streamable-http-client-reqwest",
-    "transport-streamable-http-server",
-    "transport-child-process",
-    "transport-io",
-    "reqwest",
-    "transport-sse-client-reqwest"
-] }
 # 共享类型和工具
-mcp-common = { version = "0.1.13", path = "../mcp-common", features = ["otlp"] }
+mcp-common = { version = "0.1.14", path = "../mcp-common", features = ["otlp"] }
 # 新增：协议特定的代理库
-mcp-streamable-proxy = { version = "0.1.13", path = "../mcp-streamable-proxy" }
-mcp-sse-proxy = { version = "0.1.13", path = "../mcp-sse-proxy" }
+mcp-streamable-proxy = { version = "0.1.14", path = "../mcp-streamable-proxy" }
+mcp-sse-proxy = { version = "0.1.14", path = "../mcp-sse-proxy" }
 axum = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
@@ -83,14 +66,13 @@ base64 = { workspace = true }
 async-trait.workspace = true
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 
+# 进程组管理（跨平台子进程清理）
+# 版本需要与 mcp-streamable-proxy 的 rmcp 0.12 兼容
+process-wrap = { version = "9.0", features = ["tokio1"] }
+
 [[bin]]
 name = "mcp-proxy"
 path = "src/main.rs"
-
-[[bin]]
-name = "test-mcp-server"
-path = "src/client/test_mcp_server.rs"
-required-features = ["test-server"]
 
 [dev-dependencies]
 criterion = "0.6"
