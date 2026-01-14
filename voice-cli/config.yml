@@ -1,0 +1,100 @@
+# Voice CLI Server Configuration with TTS support
+
+server:
+  # Server binding address (0.0.0.0 for all interfaces)
+  host: "0.0.0.0"
+  # Server port
+  port: 8087
+  # Maximum file size for uploads (in bytes) - 200MB default
+  max_file_size: 209715200
+  # Enable CORS for web browser access
+  cors_enabled: true
+
+whisper:
+  # Default model to use for transcription
+  default_model: "large-v3"
+  # Directory to store whisper models
+  models_dir: "./models"
+  # Automatically download models when needed
+  auto_download: true
+  # List of supported whisper models
+  supported_models:
+    - "tiny"
+    - "tiny.en"
+    - "base"
+    - "base.en"
+    - "small"
+    - "small.en"
+    - "medium"
+    - "medium.en"
+    - "large-v1"
+    - "large-v2"
+    - "large-v3"
+  
+  # Audio processing settings
+  audio_processing:
+    supported_formats: ["mp3", "wav", "flac", "m4a", "ogg", "aac", "opus", "amr", "wma", "aiff", "caf", "mp4", "mov", "avi", "mkv", "webm", "3gp", "flv", "wmv", "mpeg", "mxf"]
+    auto_convert: true
+    conversion_timeout: 60  # seconds
+    temp_file_cleanup: true
+    temp_file_retention: 300  # 5 minutes
+    
+  # Worker-based concurrency settings
+  workers:
+    transcription_workers: 3  # Number of worker threads for transcription
+    channel_buffer_size: 100  # Channel buffer size for task queue
+    worker_timeout: 3600  # Worker processing timeout in seconds
+
+# TTS (Text-to-Speech) configuration
+tts:
+  # Python interpreter path (relative to project directory)
+  python_path: ".venv/bin/python"
+  # TTS model directory (optional, for advanced TTS models)
+  model_path: "./checkpoints"
+  # Default voice model
+  default_model: "default"
+  # Supported audio formats for TTS output
+  supported_formats: ["mp3", "wav"]
+  # Maximum text length for TTS processing
+  max_text_length: 5000
+  # Default speech speed (0.5 to 2.0)
+  default_speed: 1.0
+  # Default pitch adjustment (-20 to 20)
+  default_pitch: 0
+  # Default volume (0.5 to 2.0)
+  default_volume: 1.0
+  # TTS processing timeout in seconds
+  timeout_seconds: 300
+  # Path to TTS service script (relative to project directory)
+  script_path: "tts_service.py"
+
+logging:
+  # Log level (trace, debug, info, warn, error)
+  level: "info"
+  # Directory for log files
+  log_dir: "./logs"
+  # Maximum size per log file
+  max_file_size: "100MB"
+  # Maximum number of log files to keep
+  max_files: 20
+
+daemon:
+  # PID file for daemon mode
+  pid_file: "./voice-cli-server.pid"
+  # Log file for daemon output
+  log_file: "./logs/server-daemon.log"
+  # Working directory for daemon
+  work_dir: "./"
+
+# Async task management configuration
+task_management:
+  
+  # Apalis worker configuration
+  max_concurrent_tasks: 4  # Max concurrent async tasks
+  retry_attempts: 2  # Number of retry attempts for failed tasks
+  task_timeout_seconds: 3600  # Task processing timeout in seconds
+  catch_panic: true  # Catch panics in execution and pipe them as errors
+  task_retention_minutes: 1440 # task retention in minutes (1440 minutes = 24 hours)
+  
+  # SQLite database configuration  
+  sqlite_db_path: "./data/tasks.db"  # Path to SQLite database file

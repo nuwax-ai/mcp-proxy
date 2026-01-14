@@ -1,0 +1,45 @@
+[package]
+name = "mcp-common"
+version = "0.1.14"
+edition = "2024"
+authors = ["nuwax-ai"]
+description = "Common types and utilities shared across MCP proxy components"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/nuwax-ai/mcp-proxy"
+keywords = ["mcp", "proxy", "protocol"]
+categories = ["web-programming", "network-programming"]
+
+[dependencies]
+# 基础依赖
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# 日志
+tracing = { workspace = true }
+
+# 异步
+async-trait = { workspace = true }
+
+# 并发
+arc-swap = { workspace = true }
+dashmap = { workspace = true }
+
+# 错误处理
+anyhow = { workspace = true }
+
+# OpenTelemetry 核心（条件依赖）
+opentelemetry = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true }
+
+# OTLP exporter（条件依赖）
+opentelemetry-otlp = { workspace = true, optional = true }
+tonic = { workspace = true, optional = true }
+
+[features]
+default = []
+# 基础 OpenTelemetry 支持
+telemetry = ["opentelemetry", "opentelemetry_sdk", "tracing-opentelemetry", "tracing-subscriber"]
+# OTLP exporter（需要 telemetry）
+otlp = ["telemetry", "opentelemetry-otlp", "tonic"]

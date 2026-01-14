@@ -1,0 +1,89 @@
+[package]
+name = "mcp-stdio-proxy"
+version = "0.1.27"
+edition = "2024"
+authors = ["nuwax-ai"]
+description = "MCP (Model Context Protocol) proxy server and CLI tool for protocol conversion and remote service access"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/nuwax-ai/mcp-proxy"
+keywords = ["mcp", "proxy", "protocol", "sse", "cli"]
+categories = ["web-programming", "command-line-utilities", "network-programming"]
+readme = "README.md"
+exclude = [
+    "logs/",
+    "tmp/",
+    "*.log",
+    "target/",
+    "benches/",
+]
+
+[features]
+default = []
+
+[dependencies]
+# 共享类型和工具
+mcp-common = { version = "0.1.14", path = "../mcp-common", features = ["otlp"] }
+# 新增：协议特定的代理库
+mcp-streamable-proxy = { version = "0.1.14", path = "../mcp-streamable-proxy" }
+mcp-sse-proxy = { version = "0.1.14", path = "../mcp-sse-proxy" }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tokio = { workspace = true, features = ["macros", "net", "rt", "rt-multi-thread", "signal", "io-util"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+tracing-opentelemetry = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry-jaeger = { workspace = true }
+opentelemetry-semantic-conventions = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+hostname = { workspace = true }
+log = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+once_cell = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+reqwest = { workspace = true }
+http = { workspace = true }
+clap = { workspace = true }
+uuid = { workspace = true }
+dashmap = { workspace = true }
+arc-swap = { workspace = true }
+futures = { workspace = true }
+chrono = { workspace = true }
+tokio-stream = { workspace = true }
+backtrace = { workspace = true }
+tracing-futures = { workspace = true }
+rand = { workspace = true }
+# 执行js/ts/python代码,通过 uv/deno 命令方式执行
+run_code_rmcp = { workspace = true }
+urlencoding = { workspace = true }
+base64 = { workspace = true }
+async-trait.workspace = true
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+
+# 进程组管理（跨平台子进程清理）
+# 版本需要与 mcp-streamable-proxy 的 rmcp 0.12 兼容
+process-wrap = { version = "9.0", features = ["tokio1"] }
+
+[[bin]]
+name = "mcp-proxy"
+path = "src/main.rs"
+
+[dev-dependencies]
+criterion = "0.6"
+env_logger = "0.11"
+futures-util = "0.3.31"
+
+
+[[bench]]
+name = "run_code_bench"
+harness = false
+
+[[bench]]
+name = "run_code_advanced_bench"
+harness = false

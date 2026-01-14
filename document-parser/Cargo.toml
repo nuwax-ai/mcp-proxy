@@ -1,0 +1,117 @@
+[package]
+name = "document-parser"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# HTTP框架和异步运行时
+axum = { workspace = true }
+tokio = { workspace = true, features = [
+    "macros",
+    "net",
+    "rt",
+    "rt-multi-thread",
+    "signal",
+    "io-util",
+    "process",
+] }
+tokio-stream = "0.1"
+tokio-util = { version = "0.7", features = ["io"] }
+tower = { workspace = true }
+tower-http = { workspace = true, features = [
+    "compression-full",
+    "cors",
+    "fs",
+    "trace",
+] }
+
+# 序列化和配置
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+
+# OpenAPI文档生成
+utoipa = { workspace = true, features = ["axum_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { workspace = true, features = ["axum"] }
+
+# 数据库和存储
+sled = "0.34"
+aliyun-oss-rust-sdk = { workspace = true }
+oss-client = { workspace = true }
+
+# Markdown处理
+pulldown-cmark = "0.13"
+pulldown-cmark-toc = "0.7"
+
+# 工具库
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+uuid = { workspace = true, features = ["v4", "v7", "serde"] }
+log = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+async-trait = "0.1"
+once_cell = "1.19"
+parking_lot = "0.12"
+derive_builder = { workspace = true }
+
+# HTTP客户端
+reqwest = { workspace = true, features = ["stream", "json"] }
+http = { workspace = true }
+url = "2.5"
+
+# 文件处理
+mime = "0.3"
+futures = { workspace = true }
+futures-util = "0.3"
+flate2 = "1.0"
+tar = "0.4"
+
+# 配置管理
+clap = { workspace = true, features = ["derive", "env"] }
+dashmap.workspace = true
+moka = { workspace = true, features = ["future"] }
+regex = "1.11.1"
+tempfile = "3.20.0"
+sha2 = "0.10"
+async-recursion = "1.0"
+num_cpus = "1.16"
+rand = { workspace = true }
+pulldown-cmark-to-cmark = "21.0.0"
+
+
+# 系统调用（Unix系统）
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# Windows API
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["fileapi"] }
+
+[dev-dependencies]
+criterion = { workspace = true }
+env_logger = "0.11"
+tokio-test = "0.4"
+quickcheck = "1.0"
+quickcheck_macros = "1.0"
+proptest = "1.4"
+axum-test = "17.3"
+mockall = "0.13"
+wiremock = "0.6"
+rstest = "0.26"
+test-case = "3.3"
+serial_test = "3.1"
+insta = "1.40"
+fake = { version = "4.4", features = ["derive", "chrono", "uuid"] }
+bytes = "1.0"
+
+[[bench]]
+name = "document_parsing_bench"
+harness = false
+
+# 命令行二进制配置
+[[bin]]
+name = "document-parser"
+path = "src/main.rs"

@@ -1,0 +1,56 @@
+[package]
+name = "mcp-sse-proxy"
+version = "0.1.14"
+edition = "2024"
+authors = ["nuwax-ai"]
+description = "SSE (Server-Sent Events) proxy implementation for MCP protocol using rmcp 0.10"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/nuwax-ai/mcp-proxy"
+keywords = ["mcp", "proxy", "sse", "protocol"]
+categories = ["web-programming", "network-programming"]
+
+[dependencies]
+# 共享类型和工具
+mcp-common = { version = "0.1.14", path = "../mcp-common" }
+
+# MCP protocol implementation - using 0.10 for SSE support (removed in 0.12)
+# Note: rmcp 0.10 uses workspace dependencies, so we only specify transport features
+rmcp = { version = "0.10", features = [
+    "server",
+    "client",
+    "transport-sse-server",
+    "transport-sse-client",
+    "transport-streamable-http-client",
+    "transport-streamable-http-client-reqwest",
+    "transport-streamable-http-server",
+    "transport-child-process",
+    "transport-io",
+    "reqwest",
+    "transport-sse-client-reqwest"
+] }
+
+# Async runtime (添加 signal feature 用于 Ctrl+C 处理)
+tokio = { workspace = true, features = ["signal"] }
+tokio-util = { workspace = true }
+
+# Web framework
+axum = { workspace = true }
+tower = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# HTTP client
+reqwest = { workspace = true }
+
+# Utilities
+arc-swap = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+futures = { workspace = true }
+
+# 进程组管理（跨平台子进程清理）
+# 版本需要与 rmcp 0.10 兼容
+process-wrap = { version = "8.2", features = ["tokio1"] }

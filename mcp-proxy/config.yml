@@ -1,0 +1,10 @@
+server:
+  # The port to listen on for incoming connections
+  port: 8085
+# The log level to use
+log:
+  level: debug
+  # The path to the log file
+  path: logs
+  # The number of log files to retain (default: 5)
+  retain_days: 5
