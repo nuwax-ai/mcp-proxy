@@ -47,12 +47,21 @@ impl PublicOssClient {
     /// * 公开访问的下载URL，任何人都可以访问
     ///
     /// # 示例
-    /// ```rust
-    /// use oss_client::PublicOssClient;
+    /// ```rust,no_run
+    /// use oss_client::{PublicOssClient, OssConfig};
     ///
-    /// let client = PublicOssClient::from_env()?;
+    /// let config = OssConfig::new(
+    ///     "oss-rg-china-mainland.aliyuncs.com".to_string(),
+    ///     "bucket".to_string(),
+    ///     "".to_string(),
+    ///     "".to_string(),
+    ///     "oss-rg-china-mainland".to_string(),
+    ///     "upload_directory".to_string(),
+    /// );
+    /// let client = PublicOssClient::new(config)?;
     /// let url = client.generate_public_download_url("documents/manual.pdf")?;
     /// println!("公开下载URL: {}", url);
+    /// # Ok::<(), oss_client::OssError>(())
     /// ```
     pub fn generate_public_download_url(&self, object_key: &str) -> Result<String> {
         // 获取带前缀的object key
@@ -74,12 +83,21 @@ impl PublicOssClient {
     /// * 公开访问的URL，任何人都可以访问
     ///
     /// # 示例
-    /// ```rust
-    /// use oss_client::PublicOssClient;
+    /// ```rust,no_run
+    /// use oss_client::{PublicOssClient, OssConfig};
     ///
-    /// let client = PublicOssClient::from_env()?;
+    /// let config = OssConfig::new(
+    ///     "oss-rg-china-mainland.aliyuncs.com".to_string(),
+    ///     "bucket".to_string(),
+    ///     "".to_string(),
+    ///     "".to_string(),
+    ///     "oss-rg-china-mainland".to_string(),
+    ///     "upload_directory".to_string(),
+    /// );
+    /// let client = PublicOssClient::new(config)?;
     /// let url = client.generate_public_access_url("images/logo.png")?;
     /// println!("公开访问URL: {}", url);
+    /// # Ok::<(), oss_client::OssError>(())
     /// ```
     pub fn generate_public_access_url(&self, object_key: &str) -> Result<String> {
         // 获取带前缀的object key
@@ -101,16 +119,25 @@ impl PublicOssClient {
     /// * 对象键到公开URL的映射
     ///
     /// # 示例
-    /// ```rust
-    /// use oss_client::PublicOssClient;
+    /// ```rust,no_run
+    /// use oss_client::{PublicOssClient, OssConfig};
     ///
-    /// let client = PublicOssClient::from_env()?;
+    /// let config = OssConfig::new(
+    ///     "oss-rg-china-mainland.aliyuncs.com".to_string(),
+    ///     "bucket".to_string(),
+    ///     "".to_string(),
+    ///     "".to_string(),
+    ///     "oss-rg-china-mainland".to_string(),
+    ///     "upload_directory".to_string(),
+    /// );
+    /// let client = PublicOssClient::new(config)?;
     /// let keys = vec!["doc1.pdf", "doc2.pdf", "image.jpg"];
     /// let urls = client.generate_public_urls_batch(&keys)?;
     ///
     /// for (key, url) in urls {
     ///     println!("{}: {}", key, url);
     /// }
+    /// # Ok::<(), oss_client::OssError>(())
     /// ```
     pub fn generate_public_urls_batch(
         &self,

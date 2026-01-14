@@ -1293,22 +1293,10 @@ impl DocumentService {
     /// * `Err(AnyhowResult)` - 如果获取任务信息失败
     ///
     /// # 示例
-    /// ```rust
-    /// // 生成Markdown文件的对象键
-    /// let md_key = service.generate_unified_oss_object_key("task_123", "processed_markdown", "task_123.md").await?;
-    /// // 无bucket_dir: "processed_markdown/task_123/task_123.md"
-    /// // 有bucket_dir: "my_bucket/processed_markdown/task_123/task_123.md"
     ///
-    /// // 生成图片文件的对象键
-    /// let img_key = service.generate_unified_oss_object_key("task_123", "parsed_images", "sha256/abc123.jpg").await?;
-    /// // 无bucket_dir: "parsed_images/task_123/sha256/abc123.jpg"
-    /// // 有bucket_dir: "my_bucket/parsed_images/task_123/sha256/abc123.jpg"
+    /// 无bucket_dir: `"processed_markdown/task_123/task_123.md"`
     ///
-    /// // 生成其他资源类型的对象键
-    /// let other_key = service.generate_unified_oss_object_key("task_123", "temp_files", "cache.dat").await?;
-    /// // 无bucket_dir: "temp_files/task_123/cache.dat"
-    /// // 有bucket_dir: "my_bucket/temp_files/task_123/cache.dat"
-    /// ```
+    /// 有bucket_dir: `"my_bucket/processed_markdown/task_123/task_123.md"`
     async fn generate_unified_oss_object_key(
         &self,
         task_id: &str,
@@ -1352,15 +1340,10 @@ impl DocumentService {
     /// * `Err(AnyhowResult)` - 如果获取任务信息失败
     ///
     /// # 示例
-    /// ```rust
-    /// // 无bucket_dir的情况
-    /// let object_key = service.generate_oss_object_key("task_123").await?;
-    /// // 结果: "processed_markdown/task_123/task_123.md"
     ///
-    /// // 有bucket_dir的情况
-    /// let object_key = service.generate_oss_object_key("task_456").await?;
-    /// // 结果: "my_bucket/processed_markdown/task_456/task_456.md"
-    /// ```
+    /// 无bucket_dir: `"processed_markdown/task_123/task_123.md"`
+    ///
+    /// 有bucket_dir: `"my_bucket/processed_markdown/task_456/task_456.md"`
     async fn generate_oss_object_key(&self, task_id: &str) -> AnyhowResult<String> {
         self.generate_unified_oss_object_key(
             task_id,
@@ -1385,15 +1368,10 @@ impl DocumentService {
     /// * `Err(AnyhowResult)` - 如果获取任务信息失败
     ///
     /// # 示例
-    /// ```rust
-    /// // 无bucket_dir的情况
-    /// let object_key = service.generate_image_oss_object_key("task_123", "abc123", ".jpg").await?;
-    /// // 结果: "parsed_images/task_123/sha256/abc123.jpg"
     ///
-    /// // 有bucket_dir的情况
-    /// let object_key = service.generate_image_oss_object_key("task_456", "def456", ".png").await?;
-    /// // 结果: "my_bucket/parsed_images/task_456/sha256/def456.png"
-    /// ```
+    /// 无bucket_dir: `"parsed_images/task_123/sha256/abc123.jpg"`
+    ///
+    /// 有bucket_dir: `"my_bucket/parsed_images/task_456/sha256/def456.png"`
     async fn generate_image_oss_object_key(
         &self,
         task_id: &str,

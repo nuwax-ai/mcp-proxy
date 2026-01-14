@@ -1,4 +1,5 @@
 {
+  "model": "opus",
   "permissions": {
     "allow": [
       "Bash(curl:*)",
@@ -7,9 +8,14 @@
       "Bash(cargo run:*)",
       "Bash(chmod:*)",
       "Bash(./test_connection_close.sh:*)",
-      "Bash(/Volumes/soddy/git_workspace/mcp-proxy/test_connection_close.sh)"
+      "Bash(/Volumes/soddy/git_workspace/mcp-proxy/test_connection_close.sh)",
+      "Bash(git:*)",
+      "Bash(find:*)",
+      "Edit",
+      "Bash(cargo:*)"
     ],
     "deny": [],
     "ask": []
-  }
+  },
+  "alwaysThinkingEnabled": true
 }

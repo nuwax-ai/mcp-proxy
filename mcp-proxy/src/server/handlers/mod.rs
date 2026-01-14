@@ -4,7 +4,6 @@ mod health;
 mod mcp_add_handler;
 mod mcp_check_status_handler;
 pub mod run_code_handler;
-mod sse_server;
 pub use check_mcp_is_status::check_mcp_is_status_handler;
 pub use delete_route_handler::delete_route_handler;
 pub use health::get_health;

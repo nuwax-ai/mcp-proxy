@@ -1,0 +1,7 @@
+server:
+  host: 0.0.0.0
+  port: 8080
+fastembed:
+  cache_dir: .fastembed_cache
+  default_model: BGELargeZHV15
+  batch_size: 256

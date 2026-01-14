@@ -1,21 +1,86 @@
 mod config;
 use anyhow::Result;
 use backtrace::Backtrace;
+use clap::Parser;
 use log::{error, info, warn};
-use mcp_proxy::{
-    AppConfig, AppState, get_proxy_manager, get_router, init_tracer_provider, log_service_info,
-    start_schedule_task,
+use mcp_stdio_proxy::{
+    AppConfig, AppState, Cli, get_proxy_manager, get_router, init_tracer_provider,
+    log_service_info, run_cli, start_schedule_task,
 };
 use run_code_rmcp::warm_up_all_envs;
 use tokio::net::TcpListener;
 use tokio::signal;
+use tracing_appender::rolling::{Builder, Rotation};
 use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 use tracing_subscriber::{EnvFilter, Layer as _};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 配置日志
+    // 初始化 Rustls CryptoProvider（必须在任何使用 TLS 的代码之前）
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
+    // 解析命令行参数
+    let cli = Cli::parse();
+
+    // 如果有子命令，运行 CLI 模式
+    if cli.command.is_some() || cli.url.is_some() {
+        return run_cli_mode(cli).await;
+    }
+
+    // 否则运行传统的服务器模式
+    run_server_mode().await
+}
+
+/// 运行 CLI 模式
+async fn run_cli_mode(cli: Cli) -> Result<()> {
+    // 检查是否是需要自定义日志初始化的命令
+    // convert 和 proxy 命令会根据自己的参数（--log-dir、--log-file）初始化日志，所以这里跳过
+    let is_convert_command = matches!(cli.command, Some(mcp_stdio_proxy::Commands::Convert(_)));
+    let is_proxy_command = matches!(cli.command, Some(mcp_stdio_proxy::Commands::Proxy(_)));
+    let is_health_command = matches!(cli.command, Some(mcp_stdio_proxy::Commands::Health(_)));
+    let has_custom_logging = is_convert_command || is_proxy_command;
+
+    // CLI 模式独立的日志配置
+    // 跳过会自己初始化日志的命令，避免重复初始化导致 panic
+    if !has_custom_logging && !cli.quiet {
+        // CLI 模式默认只显示错误，避免 info/debug 日志污染输出
+        let log_level = if cli.verbose {
+            "debug"
+        } else if is_health_command {
+            // health 命令使用更严格的过滤，屏蔽 rmcp 库的噪音日志
+            "off"
+        } else {
+            "error" // 默认只显示错误，屏蔽 info/warn/debug
+        };
+
+        // CLI 模式的日志配置：
+        // 1. 禁用 ANSI 颜色（避免污染 JSON）
+        // 2. 输出到 stderr（stdout 用于 JSON-RPC 通信）
+        // 3. 简化格式（无时间戳、无目标）
+        // 4. 优先使用 RUST_LOG 环境变量，否则使用默认日志级别
+        let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+            .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(log_level));
+
+        tracing_subscriber::fmt()
+            .with_env_filter(env_filter)
+            .with_target(false)
+            .without_time()
+            .with_ansi(false)
+            .with_writer(std::io::stderr)
+            .compact()
+            .init();
+    }
+
+    // 运行 CLI 命令
+    run_cli(cli).await
+}
+
+/// 运行传统的服务器模式
+async fn run_server_mode() -> Result<()> {
+    // 配置日志（保持原有的完整日志配置）
     let app_config = AppConfig::load_config()?;
     app_config.log_path_init()?;
     let log_level = app_config.log.level.clone();
@@ -33,13 +98,19 @@ async fn main() -> Result<()> {
         .pretty()
         .with_writer(std::io::stdout)
         .with_filter(console_filter);
-    // 日志写入到文件
+
+    // 日志写入到文件，使用 Builder 模式配置日志轮转和保留策略
     let log_path_for_file = log_path.clone();
-    let file_appender = tracing_appender::rolling::daily(log_path_for_file, "log");
+    let file_appender = Builder::new()
+        .rotation(Rotation::DAILY) // 按天滚动
+        .filename_prefix("log") // 文件名前缀
+        .max_log_files(retain_days as usize) // 保留最近 N 个日志文件
+        .build(&log_path_for_file)?;
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     let log_filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level));
+
     // 配置文件日志层：使用 compact 格式，避免显示完整的 span 嵌套链，减少日志膨胀
     let file_layer = tracing_subscriber::fmt::layer()
         .compact()
@@ -62,7 +133,12 @@ async fn main() -> Result<()> {
 
     // 记录服务信息
     log_service_info("mcp-proxy", "0.1.0")?;
-    tracing::info!("服务启动，监听端口: {}", server_port);
+    tracing::info!("========================================");
+    tracing::info!("MCP-Proxy 服务启动");
+    tracing::info!("命令: proxy (HTTP 服务器模式)");
+    tracing::info!("版本: {}", env!("CARGO_PKG_VERSION"));
+    tracing::info!("监听端口: {}", server_port);
+    tracing::info!("========================================");
 
     // 监听地址
     let addr = format!("0.0.0.0:{server_port}");
@@ -77,27 +153,7 @@ async fn main() -> Result<()> {
     // 启动定时任务，定期检查MCP服务状态
     tokio::spawn(start_schedule_task());
     info!("MCP服务状态检查定时任务已启动");
-
-    // 启动日志清理任务，定期清理超过配置天数的日志文件
-    let log_path = log_path.clone();
-    tokio::spawn(async move {
-        // 先执行一次清理
-        info!("清理旧日志文件start,路径: {log_path}, 保留天数: {retain_days}");
-        if let Err(e) = clean_old_logs(&log_path, retain_days).await {
-            warn!("清理旧日志文件失败: {}", e);
-        }
-
-        // 每小时执行一次
-        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3600));
-        loop {
-            interval.tick().await;
-            info!("清理旧日志文件start,路径: {log_path}, 保留天数: {retain_days}");
-            if let Err(e) = clean_old_logs(&log_path, retain_days).await {
-                warn!("清理旧日志文件失败: {}", e);
-            }
-        }
-    });
-    info!("日志清理任务已启动（保留最近{}天的日志）", retain_days);
+    info!("日志自动轮转已配置（保留最近 {} 个日志文件）", retain_days);
 
     // 注册关闭处理函数，确保在程序退出前执行清理
     tokio::spawn(async move {
@@ -127,7 +183,7 @@ async fn main() -> Result<()> {
         }));
     });
 
-    //预热 uv /deno 环境依赖
+    // 预热 uv/deno 环境依赖
     tokio::spawn(async move {
         info!("开始预热 uv/deno 环境依赖...");
         if let Err(e) = warm_up_all_envs(None, None, None, None).await {
@@ -165,49 +221,30 @@ async fn shutdown_signal() {
     signal::ctrl_c().await.expect("无法安装Ctrl+C处理器");
 }
 
-/// 清理超过指定天数的日志文件
-async fn clean_old_logs(log_path: &str, retain_days: u32) -> Result<()> {
-    use std::fs;
-    use std::path::Path;
-
-    let log_dir = Path::new(log_path);
-    if !log_dir.exists() {
-        info!("清理旧日志文件,路径: {log_path} 不存在");
-        return Ok(());
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_crypto_provider_install() {
+        // 测试 CryptoProvider 可以正常安装
+        let result = std::panic::catch_unwind(|| {
+            rustls::crypto::ring::default_provider()
+                .install_default()
+                .expect("Failed to install rustls crypto provider");
+        });
+        assert!(result.is_ok(), "CryptoProvider installation should not panic");
     }
 
-    let entries = fs::read_dir(log_dir)?;
+    #[test]
+    fn test_crypto_provider_get_default() {
+        // 首先确保 CryptoProvider 已安装
+        let _ = rustls::crypto::ring::default_provider()
+            .install_default();
 
-    for entry in entries {
-        let entry = entry?;
-        let path = entry.path();
-
-        // 只处理日志文件（文件名包含日期 log.YYYY-MM-DD）
-        if path.is_file() {
-            if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-                // 尝试从文件名中提取日期（格式: log.YYYY-MM-DD）
-                if let Some(date_str) = file_name.strip_prefix("log.") {
-                    if let Ok(file_date) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
-                        // 基于文件名中的日期判断是否过期
-                        let today = chrono::Local::now().date_naive();
-                        let age_days = (today - file_date).num_days();
-                        if age_days > retain_days as i64 {
-                            if let Err(e) = fs::remove_file(&path) {
-                                warn!("删除旧日志文件失败: {:?}, 错误: {}", path, e);
-                            } else {
-                                log::debug!(
-                                    "已删除旧日志文件: {:?} (文件日期: {}, 超过{}天)",
-                                    path,
-                                    file_date,
-                                    retain_days
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        // 测试可以正常获取默认 CryptoProvider
+        let provider = rustls::crypto::CryptoProvider::get_default();
+        assert!(
+            provider.is_some(),
+            "CryptoProvider should be available after installation"
+        );
     }
-    info!("清理旧日志文件完成");
-    Ok(())
 }

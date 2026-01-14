@@ -39,3 +39,6 @@ voice-cli/server_debug.log
 voice-cli/test_audio.txt
 voice-cli/checkpoints/*
 mcp-proxy/tmp/*
+fastembed/.fastembed_cache
+.fastembed_cache/
+voice-cli/models/

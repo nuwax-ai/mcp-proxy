@@ -110,6 +110,7 @@ pub mod test_helpers {
                     log: crate::config::LogConfig {
                         level: "debug".to_string(),
                         path: format!("/tmp/test_{unique_id}.log"),
+                        retain_days: 20,
                     },
                     document_parser: crate::config::DocumentParserConfig {
                         max_concurrent: 2,

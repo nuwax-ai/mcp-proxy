@@ -5,12 +5,22 @@
 //! # 快速开始
 //!
 //! ```rust,no_run
-//! use oss_client::{OssClient, OssConfig};
+//! use oss_client::{PrivateOssClient, OssConfig, OssClientTrait};
 //!
 //! #[tokio::main]
 //! async fn main() -> oss_client::Result<()> {
-//!     // 从环境变量创建客户端（使用默认配置）
-//!     let client = oss_client::create_client_from_env()?;
+//!     // 创建配置
+//!     let config = OssConfig::new(
+//!         "oss-rg-china-mainland.aliyuncs.com".to_string(),
+//!         "bucket_name".to_string(),
+//!         "access_key_id".to_string(),
+//!         "access_key_secret".to_string(),
+//!         "oss-rg-china-mainland".to_string(),
+//!         "upload_directory".to_string(),
+//!     );
+//!
+//!     // 创建客户端
+//!     let client = PrivateOssClient::new(config)?;
 //!
 //!     // 上传文件
 //!     let url = client.upload_file("local/file.txt", "remote/file.txt").await?;

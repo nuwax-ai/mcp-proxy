@@ -319,7 +319,7 @@ mod tests {
         match metadata {
             Ok(meta) => {
                 assert!(!meta.format.is_empty());
-                assert_eq!(meta.file_size_bytes, 17); // "dummy audio data" 的长度
+                assert_eq!(meta.file_size_bytes, 16); // "dummy audio data" 的长度
             }
             Err(e) => {
                 println!("提取失败: {}", e);

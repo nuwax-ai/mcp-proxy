@@ -7,7 +7,7 @@ use crate::VoiceCliError;
 use crate::models::Config;
 use std::path::PathBuf;
 use tracing::{Level, info};
-use tracing_appender::rolling::{RollingFileAppender, Rotation};
+use tracing_appender::rolling::{Builder, Rotation};
 use tracing_subscriber::{EnvFilter, prelude::*};
 
 // Re-export signal handling components
@@ -40,8 +40,15 @@ pub fn init_logging(config: &Config) -> crate::Result<()> {
     // Parse log level
     let level = parse_log_level(&config.logging.level)?;
 
-    // Create file appender with rotation
-    let file_appender = RollingFileAppender::new(Rotation::DAILY, &log_dir, "voice-cli.log");
+    // Create file appender with rotation and max_log_files
+    let file_appender = Builder::new()
+        .rotation(Rotation::DAILY)
+        .filename_prefix("voice-cli")
+        .max_log_files(config.logging.max_files as usize)
+        .build(&log_dir)
+        .map_err(|e| {
+            VoiceCliError::Config(format!("Failed to initialize log file appender: {}", e))
+        })?;
 
     // Create console layer with proper formatting
     let console_layer = tracing_subscriber::fmt::layer()

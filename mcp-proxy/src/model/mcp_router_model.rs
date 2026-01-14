@@ -367,6 +367,16 @@ pub enum McpProtocol {
     Stream,
 }
 
+impl std::fmt::Display for McpProtocol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            McpProtocol::Stdio => write!(f, "Stdio"),
+            McpProtocol::Sse => write!(f, "SSE"),
+            McpProtocol::Stream => write!(f, "Streamable HTTP"),
+        }
+    }
+}
+
 impl std::str::FromStr for McpProtocol {
     type Err = String;
 
@@ -1064,7 +1074,6 @@ mod tests {
         println!("✅ 自定义字段名配置测试跳过（需要完善解析逻辑）");
         Ok(())
     }
-
 
     #[test]
     fn test_flexible_config_through_mcp_json_server_parameters() -> Result<()> {
