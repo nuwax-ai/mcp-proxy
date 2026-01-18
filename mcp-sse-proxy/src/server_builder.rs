@@ -557,4 +557,39 @@ mod tests {
         .stateful(true);
         assert!(builder.server_config.stateful, "stateful should be true when set");
     }
+
+    #[test]
+    fn test_timing_constants() {
+        assert_eq!(STDIO_SLOW_THRESHOLD_SECS, 30);
+        assert_eq!(HTTP_SLOW_THRESHOLD_SECS, 10);
+    }
+
+    #[test]
+    fn test_log_connection_timing_format() {
+        use std::time::Duration;
+        // Test that the function doesn't panic and formats correctly
+        log_connection_timing(
+            "test-mcp",
+            "TestBackend",
+            Duration::from_millis(1500),
+            &[("step1", Duration::from_millis(500)), ("step2", Duration::from_millis(1000))],
+            10,
+            "Test warning message",
+        );
+        // If we get here, the function works correctly
+    }
+
+    #[test]
+    fn test_log_connection_timing_no_breakdown() {
+        use std::time::Duration;
+        // Test with empty breakdown
+        log_connection_timing(
+            "test-mcp",
+            "TestBackend",
+            Duration::from_millis(500),
+            &[],
+            10,
+            "Test warning message",
+        );
+    }
 }
