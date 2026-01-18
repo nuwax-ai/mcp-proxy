@@ -460,6 +460,7 @@ impl RestartTracker {
     ///
     /// 当服务启动失败时，可选择调用此方法清除时间戳，
     /// 允许立即重试而不必等待冷却期。
+    #[allow(dead_code)]
     pub fn clear_restart(&self, mcp_id: &str) {
         self.last_restart.remove(mcp_id);
         info!("已清除服务 {} 的重启时间戳", mcp_id);
