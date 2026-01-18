@@ -405,5 +405,41 @@ mod tests {
         assert_eq!(config.sse_path, "/sse");
         assert_eq!(config.post_path, "/message");
         assert_eq!(config.keep_alive_secs, 15);
+        assert!(config.stateful, "default stateful should be true for backward compatibility");
+    }
+
+    #[test]
+    fn test_stateful_flag_default() {
+        let builder = SseServerBuilder::new(BackendConfig::Stdio {
+            command: "echo".into(),
+            args: None,
+            env: None,
+        });
+        assert!(
+            builder.server_config.stateful,
+            "stateful should default to true"
+        );
+    }
+
+    #[test]
+    fn test_stateful_flag_disabled() {
+        let builder = SseServerBuilder::new(BackendConfig::Stdio {
+            command: "echo".into(),
+            args: None,
+            env: None,
+        })
+        .stateful(false);
+        assert!(!builder.server_config.stateful, "stateful should be false when set");
+    }
+
+    #[test]
+    fn test_stateful_flag_enabled() {
+        let builder = SseServerBuilder::new(BackendConfig::Stdio {
+            command: "echo".into(),
+            args: None,
+            env: None,
+        })
+        .stateful(true);
+        assert!(builder.server_config.stateful, "stateful should be true when set");
     }
 }
