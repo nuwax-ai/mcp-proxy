@@ -51,17 +51,15 @@ where
 
     fn call(&mut self, req: Request<B>) -> Self::Future {
         let path = req.uri().path().to_string();
-        //检查请求路径,是否 /mcp 开头
+
+        // ===== 复用现有逻辑：检查是否为 MCP 请求 =====
         let check_mcp_path = McpRouterPath::check_mcp_path(&path);
-        if check_mcp_path {
-            //请求路径,可能是: /mcp/{mcp_id}/sse,或者 /mcp/{mcp_id}/message
-            let mcp_router_path = McpRouterPath::from_url(&path);
-            if let Some(mcp_router_path) = mcp_router_path {
-                let mcp_id = mcp_router_path.mcp_id.clone();
-                debug!("更新最后访问时间,请求访问MCP ID: {mcp_id}");
-                // 更新最后访问时间
-                get_proxy_manager().update_last_accessed(&mcp_id);
-            }
+        if check_mcp_path && let Some(mcp_router_path) = McpRouterPath::from_url(&path) {
+            let mcp_id = mcp_router_path.mcp_id.clone();
+
+            // ===== 更新最后访问时间 =====
+            debug!("更新最后访问时间,请求访问MCP ID: {}", mcp_id);
+            get_proxy_manager().update_last_accessed(&mcp_id);
         }
 
         self.inner.call(req)

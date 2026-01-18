@@ -231,14 +231,16 @@ mod tests {
                 .install_default()
                 .expect("Failed to install rustls crypto provider");
         });
-        assert!(result.is_ok(), "CryptoProvider installation should not panic");
+        assert!(
+            result.is_ok(),
+            "CryptoProvider installation should not panic"
+        );
     }
 
     #[test]
     fn test_crypto_provider_get_default() {
         // 首先确保 CryptoProvider 已安装
-        let _ = rustls::crypto::ring::default_provider()
-            .install_default();
+        let _ = rustls::crypto::ring::default_provider().install_default();
 
         // 测试可以正常获取默认 CryptoProvider
         let provider = rustls::crypto::CryptoProvider::get_default();

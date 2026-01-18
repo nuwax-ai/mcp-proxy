@@ -24,6 +24,7 @@ pub struct AddRouteParams {
 }
 
 /// Settings for the SSE server
+#[allow(dead_code)]  // 为未来的功能预留
 pub struct SseServerSettings {
     pub bind_addr: SocketAddr,
     pub keep_alive: Option<Duration>,
@@ -165,7 +166,7 @@ impl McpServerUrlConfig {
     pub fn get_url(&self) -> &str {
         self.url
             .as_deref()
-            .or_else(|| self.base_url.as_deref())
+            .or(self.base_url.as_deref())
             .expect("至少需要提供 url 或 baseUrl 字段")
     }
 

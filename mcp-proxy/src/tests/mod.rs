@@ -1,5 +1,3 @@
-pub mod mcp_sse_test;
-
 #[cfg(test)]
 pub mod test_utils {
     use log::LevelFilter;

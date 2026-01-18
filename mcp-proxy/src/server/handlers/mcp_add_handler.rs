@@ -5,7 +5,9 @@ use tracing::instrument;
 use uuid::Uuid;
 
 use crate::AppError;
-use crate::model::{AddRouteParams, HttpResult, McpProtocolPath, McpServerConfig, McpType};
+use crate::model::{
+    AddRouteParams, HttpResult, McpConfig, McpProtocolPath, McpServerConfig, McpType,
+};
 use crate::model::{AppState, McpRouterPath};
 use crate::server::task::integrate_server_with_axum;
 use serde_json::json;
@@ -25,29 +27,36 @@ pub async fn add_route_handler(
 
     let mcp_protocol = McpRouterPath::from_uri_prefix_protocol(&request_path);
     if let Some(mcp_protocol) = mcp_protocol {
-        let mcp_protocol = mcp_protocol;
-
         // 生成mcp_id, 使用uuid,去掉-
         let mcp_id = Uuid::now_v7().to_string().replace("-", "");
 
         //根据 mcp_id 和协议,生成 mcp_router_path
         let mcp_router_path =
-            McpRouterPath::new(mcp_id, mcp_protocol).map_err(|e| AppError::McpServerError(e))?;
+            McpRouterPath::new(mcp_id, mcp_protocol).map_err(AppError::McpServerError)?;
 
         let mcp_plugin_json = params.mcp_json_config;
         // 将mcp_plugin_json转换为 McpServerConfig 结构体
         let mcp_server_config =
-            McpServerConfig::try_from(mcp_plugin_json).expect("解析 MCP 配置失败");
+            McpServerConfig::try_from(mcp_plugin_json.clone()).expect("解析 MCP 配置失败");
 
         let mcp_type = params.mcp_type.unwrap_or(McpType::default());
 
         debug!("客户端协议: {:?}", mcp_router_path.mcp_protocol);
 
+        // 构建完整的 McpConfig（用于自动重启）
+        let full_mcp_config = McpConfig {
+            mcp_id: mcp_router_path.mcp_id.clone(),
+            client_protocol: mcp_router_path.mcp_protocol.clone(),
+            mcp_type: mcp_type.clone(),
+            mcp_json_config: Some(mcp_plugin_json),
+            server_config: Some(mcp_server_config.clone()),
+        };
+
         // 使用新的集成方法，后端协议在函数内部解析
         let _ = integrate_server_with_axum(
             mcp_server_config.clone(),
             mcp_router_path.clone(),
-            mcp_type.clone(),
+            full_mcp_config,
         )
         .await
         .map_err(|e| {

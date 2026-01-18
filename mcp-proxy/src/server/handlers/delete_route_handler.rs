@@ -12,7 +12,7 @@ pub async fn delete_route_handler(
     get_proxy_manager()
         .cleanup_resources(&mcp_id)
         .await
-        .map_err(|e| AppError::McpServerError(e))?;
+        .map_err(AppError::McpServerError)?;
 
     // 返回成功信息
     let data = json!({

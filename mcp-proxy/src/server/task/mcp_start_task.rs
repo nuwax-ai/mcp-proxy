@@ -33,7 +33,7 @@ pub async fn mcp_start_task(
 
     // Create router path based on client protocol (determines exposed API interface)
     let mcp_router_path: McpRouterPath =
-        McpRouterPath::new(mcp_id, client_protocol).map_err(|e| AppError::McpServerError(e))?;
+        McpRouterPath::new(mcp_id, client_protocol).map_err(AppError::McpServerError)?;
 
     let mcp_json_config = mcp_config
         .mcp_json_config
@@ -46,7 +46,7 @@ pub async fn mcp_start_task(
     integrate_server_with_axum(
         mcp_server_config.clone(),
         mcp_router_path.clone(),
-        mcp_config.mcp_type,
+        mcp_config.clone(),
     )
     .await
 }
@@ -61,8 +61,9 @@ pub async fn mcp_start_task(
 pub async fn integrate_server_with_axum(
     mcp_config: McpServerConfig,
     mcp_router_path: McpRouterPath,
-    mcp_type: McpType,
+    full_mcp_config: McpConfig,
 ) -> Result<(axum::Router, tokio_util::sync::CancellationToken)> {
+    let mcp_type = full_mcp_config.mcp_type.clone();
     let base_path = mcp_router_path.base_path.clone();
     let mcp_id = mcp_router_path.mcp_id.clone();
 
@@ -106,10 +107,10 @@ pub async fn integrate_server_with_axum(
             } else {
                 // No type field, auto-detect
                 debug!("No type field specified, auto-detecting protocol");
-                let detected_protocol = crate::server::detect_mcp_protocol(url_config.get_url())
+
+                crate::server::detect_mcp_protocol(url_config.get_url())
                     .await
-                    .map_err(|e| anyhow::anyhow!("Auto-detection failed: {}", e))?;
-                detected_protocol
+                    .map_err(|e| anyhow::anyhow!("Auto-detection failed: {}", e))?
             }
         }
     };
@@ -136,10 +137,19 @@ pub async fn integrate_server_with_axum(
                 sse_path.sse_path, sse_path.message_path
             );
 
+            // 对于 OneShot 服务，使用更短的 keep_alive 间隔（5秒）来保持后端活跃
+            // 防止后端进程因空闲超时而退出
+            let keep_alive_secs = if matches!(mcp_type, McpType::OneShot) {
+                5
+            } else {
+                15
+            };
+
             let (router, ct, handler) = SseServerBuilder::new(backend_config)
                 .mcp_id(mcp_id.clone())
                 .sse_path(sse_path.sse_path.clone())
                 .post_path(sse_path.message_path.clone())
+                .keep_alive(keep_alive_secs)
                 .build()
                 .await?;
 
@@ -182,18 +192,24 @@ pub async fn integrate_server_with_axum(
     let ct_clone = ct.clone();
     let mcp_id_clone = mcp_id.clone();
 
-    // Store MCP service status
+    // Store MCP service status with full mcp_config for auto-restart
     let mcp_service_status = McpServiceStatus::new(
         mcp_id_clone.clone(),
         mcp_type.clone(),
         mcp_router_path.clone(),
         ct_clone.clone(),
         CheckMcpStatusResponseStatus::Ready,
-    );
+    )
+    .with_mcp_config(full_mcp_config.clone());
 
     // Add MCP service status and proxy handler to global manager
     let proxy_manager = get_proxy_manager();
     proxy_manager.add_mcp_service_status_and_proxy(mcp_service_status, Some(handler));
+
+    // ===== 新增：注册配置到缓存 =====
+    proxy_manager
+        .register_mcp_config(&mcp_id, full_mcp_config.clone())
+        .await;
 
     // Add base path fallback handler for SSE protocol
     let router = if matches!(mcp_router_path.mcp_protocol, McpProtocol::Sse) {

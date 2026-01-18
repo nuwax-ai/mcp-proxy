@@ -20,11 +20,9 @@ pub use mcp_sse_proxy::{McpClientConfig, SseClientConnection};
 pub use mcp_streamable_proxy::StreamClientConnection;
 
 // Re-export Builder APIs for server creation
-pub use mcp_sse_proxy::server_builder::{
-    BackendConfig as SseBackendConfig, SseServerBuilder, SseServerBuilderConfig,
-};
+pub use mcp_sse_proxy::server_builder::{BackendConfig as SseBackendConfig, SseServerBuilder};
 pub use mcp_streamable_proxy::server_builder::{
-    BackendConfig as StreamBackendConfig, StreamServerBuilder, StreamServerConfig,
+    BackendConfig as StreamBackendConfig, StreamServerBuilder,
 };
 
 /// Unified handler enum that can hold either SSE or Stream handler
