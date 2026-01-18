@@ -424,39 +424,45 @@ impl RestartTracker {
     /// 检查是否可以重启服务
     ///
     /// 返回 true 表示可以重启，false 表示在冷却期内
+    ///
+    /// 注意：此方法仅检查是否可以重启，不会自动插入时间戳。
+    /// 时间戳只在服务成功启动后通过 `record_restart()` 方法记录。
     pub fn can_restart(&self, mcp_id: &str) -> bool {
         let now = Instant::now();
         let min_restart_interval = Duration::from_secs(30); // 30 秒最小重启间隔
 
-        // 使用 DashMap 的 entry API 原子性地检查和更新
-        let can_restart = self
-            .last_restart
-            .entry(mcp_id.to_string())
-            .and_modify(|last_restart| {
-                let elapsed = now.duration_since(*last_restart);
-                if elapsed < min_restart_interval {
-                    warn!(
-                        "服务 {} 在冷却期内，距离上次重启仅 {} 秒，跳过重启",
-                        mcp_id,
-                        elapsed.as_secs()
-                    );
-                }
-            })
-            .or_insert_with(|| {
-                // 第一次记录重启时间
-                now
-            });
-
-        // 检查是否可以重启
-        let elapsed = now.duration_since(*can_restart);
-        if elapsed >= min_restart_interval {
-            // 可以重启，更新时间戳
-            *self.last_restart.get_mut(mcp_id).unwrap() = now;
-            true
-        } else {
-            // 在冷却期内
-            false
+        // 只检查，不自动插入时间戳
+        if let Some(last_restart) = self.last_restart.get(mcp_id) {
+            let elapsed = now.duration_since(*last_restart);
+            if elapsed < min_restart_interval {
+                warn!(
+                    "服务 {} 在冷却期内，距离上次重启仅 {} 秒，跳过重启",
+                    mcp_id,
+                    elapsed.as_secs()
+                );
+                return false;
+            }
         }
+        // 不在冷却期内，但不自动更新时间戳
+        true
+    }
+
+    /// 记录服务成功重启
+    ///
+    /// 此方法应在服务成功启动后调用，用于记录重启时间戳。
+    /// 配合 `can_restart()` 使用，避免在服务启动失败时插入时间戳。
+    pub fn record_restart(&self, mcp_id: &str) {
+        self.last_restart.insert(mcp_id.to_string(), Instant::now());
+        info!("服务启动成功，记录重启时间: {}", mcp_id);
+    }
+
+    /// 清除重启时间戳
+    ///
+    /// 当服务启动失败时，可选择调用此方法清除时间戳，
+    /// 允许立即重试而不必等待冷却期。
+    pub fn clear_restart(&self, mcp_id: &str) {
+        self.last_restart.remove(mcp_id);
+        info!("已清除服务 {} 的重启时间戳", mcp_id);
     }
 }
 

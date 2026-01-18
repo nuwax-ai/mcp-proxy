@@ -19,7 +19,7 @@ pub struct CheckMcpStatusRequestParams {
     //后端MCP服务的协议类型（可选），用于指定连接到后端服务时使用的协议
     //如果不指定，则使用客户端协议（由路由路径决定）
     #[serde(rename = "backendProtocol")]
-    #[allow(dead_code)]  // 为未来的功能预留
+    #[allow(dead_code)] // 为未来的功能预留
     pub backend_protocol: Option<McpProtocol>,
 }
 

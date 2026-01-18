@@ -8,6 +8,7 @@
 
 use crate::{
     AppError, DynamicRouterService, get_proxy_manager,
+    model::GLOBAL_RESTART_TRACKER,
     model::{
         CheckMcpStatusResponseStatus, McpConfig, McpProtocol, McpProtocolPath, McpRouterPath,
         McpServerCommandConfig, McpServerConfig, McpServiceStatus, McpType,
@@ -238,6 +239,9 @@ pub async fn integrate_server_with_axum(
     );
     DynamicRouterService::register_route(&base_path, router.clone());
     info!("Route registration complete: base_path={}", base_path);
+
+    // 记录重启时间戳（仅在服务成功启动后）
+    GLOBAL_RESTART_TRACKER.record_restart(&mcp_id);
 
     Ok((router, ct))
 }

@@ -24,7 +24,7 @@ pub struct AddRouteParams {
 }
 
 /// Settings for the SSE server
-#[allow(dead_code)]  // 为未来的功能预留
+#[allow(dead_code)] // 为未来的功能预留
 pub struct SseServerSettings {
     pub bind_addr: SocketAddr,
     pub keep_alive: Option<Duration>,
