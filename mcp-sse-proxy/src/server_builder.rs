@@ -7,9 +7,14 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use anyhow::Result;
-use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
+
+// 进程组管理（跨平台子进程清理）
+use process_wrap::tokio::{KillOnDrop, ProcessGroup, TokioCommandWrap};
+
+#[cfg(windows)]
+use process_wrap::tokio::JobObject;
 
 use rmcp::{
     ServiceExt,
@@ -281,17 +286,30 @@ impl SseServerBuilder {
         let start_time = Instant::now();
         let mcp_id = self.server_config.mcp_id.clone().unwrap_or_else(|| "unknown".into());
 
-        let mut cmd = Command::new(command);
-
-        if let Some(cmd_args) = args {
-            cmd.args(cmd_args);
-        }
-
-        if let Some(env_vars) = env {
-            for (k, v) in env_vars {
-                cmd.env(k, v);
+        // 使用 process-wrap 创建子进程命令（跨平台进程清理）
+        // process-wrap 会自动处理进程组（Unix）或 Job Object（Windows）
+        // 并且在 Drop 时自动清理子进程树
+        let mut wrapped_cmd = TokioCommandWrap::with_new(command, |cmd| {
+            if let Some(cmd_args) = args {
+                cmd.args(cmd_args);
             }
-        }
+            if let Some(env_vars) = env {
+                for (k, v) in env_vars {
+                    cmd.env(k, v);
+                }
+            }
+        });
+
+        // Unix: 创建进程组，支持 killpg 清理整个进程树
+        #[cfg(unix)]
+        wrapped_cmd.wrap(ProcessGroup::leader());
+
+        // 所有平台: Drop 时自动清理进程
+        wrapped_cmd.wrap(KillOnDrop);
+
+        // Windows: 使用 Job Object 进行进程管理
+        #[cfg(windows)]
+        wrapped_cmd.wrap(JobObject::new(None)?);
 
         info!(
             "[SseServerBuilder] Starting child process - MCP ID: {}, command: {}, args: {:?}",
@@ -301,7 +319,7 @@ impl SseServerBuilder {
         );
 
         let process_start = Instant::now();
-        let tokio_process = TokioChildProcess::new(cmd)?;
+        let tokio_process = TokioChildProcess::new(wrapped_cmd)?;
         let process_duration = process_start.elapsed();
 
         debug!(
