@@ -4,6 +4,7 @@
 //! It encapsulates all rmcp-specific types and provides a simple interface for mcp-proxy.
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use anyhow::Result;
 use tokio::process::Command;
@@ -24,6 +25,12 @@ use rmcp::{
 };
 
 use crate::{SseHandler, ToolFilter};
+
+/// Performance warning threshold for stdio (child process) backend connections
+const STDIO_SLOW_THRESHOLD_SECS: u64 = 30;
+
+/// Performance warning threshold for HTTP-based backend connections (SSE/Stream)
+const HTTP_SLOW_THRESHOLD_SECS: u64 = 10;
 
 /// Backend configuration for the MCP server
 ///
@@ -84,6 +91,45 @@ impl Default for SseServerBuilderConfig {
             keep_alive_secs: 15,
             stateful: true,
         }
+    }
+}
+
+/// Log connection timing with optional performance warning
+///
+/// # Arguments
+///
+/// * `mcp_id` - MCP service identifier
+/// * `backend_type` - Type of backend (e.g., "stdio", "SSE", "Streamable HTTP")
+/// * `total_duration` - Total connection time
+/// * `breakdown` - Optional breakdown of timing components
+/// * `warn_threshold_secs` - Threshold for performance warning
+/// * `warn_message` - Message to show if threshold exceeded
+fn log_connection_timing(
+    mcp_id: &str,
+    backend_type: &str,
+    total_duration: Duration,
+    breakdown: &[(&str, Duration)],
+    warn_threshold_secs: u64,
+    warn_message: &str,
+) {
+    let breakdown_str: Vec<String> = breakdown
+        .iter()
+        .map(|(name, dur)| format!("{}: {:?}", name, dur))
+        .collect();
+
+    info!(
+        "[SseServerBuilder] {} backend connected successfully - MCP ID: {}, total: {:?} ({})",
+        backend_type,
+        mcp_id,
+        total_duration,
+        breakdown_str.join(", ")
+    );
+
+    if total_duration.as_secs() >= warn_threshold_secs {
+        warn!(
+            "[SseServerBuilder] {} 后端连接耗时较长 - MCP ID: {}, 耗时: {:?}, {}",
+            backend_type, mcp_id, total_duration, warn_message
+        );
     }
 }
 
@@ -268,25 +314,20 @@ impl SseServerBuilder {
         let serve_duration = serve_start.elapsed();
         let total_duration = start_time.elapsed();
 
-        info!(
-            "[SseServerBuilder] Child process connected successfully - MCP ID: {}, total: {:?} (spawn: {:?}, serve: {:?})",
-            mcp_id, total_duration, process_duration, serve_duration
-        );
+        let warn_msg = "建议的优化方案: \
+            1) 检查网络连接速度 (npm 包下载) \
+            2) 配置国内 npm 镜像 (如淘宝镜像: npm config set registry https://registry.npmmirror.com) \
+            3) 预热服务 (启动 mcp-proxy 时预先加载常用服务) \
+            4) 检查命令参数是否正确";
 
-        // 性能警告：如果启动超过 30 秒，记录警告并提示可能的优化方案
-        if total_duration.as_secs() >= 30 {
-            warn!(
-                "[SseServerBuilder] 子进程启动耗时较长 - MCP ID: {}, 耗时: {:?}",
-                mcp_id, total_duration
-            );
-            warn!(
-                "[SseServerBuilder] 可能的优化方案: \
-                 1) 检查网络连接速度 (npm 包下载) \
-                 2) 配置国内 npm 镜像 (如淘宝镜像: npm config set registry https://registry.npmmirror.com) \
-                 3) 预热服务 (启动 mcp-proxy 时预先加载常用服务) \
-                 4) 检查命令参数是否正确"
-            );
-        }
+        log_connection_timing(
+            &mcp_id,
+            "Stdio",
+            total_duration,
+            &[("spawn", process_duration), ("serve", serve_duration)],
+            STDIO_SLOW_THRESHOLD_SECS,
+            warn_msg,
+        );
 
         Ok(client)
     }
@@ -343,17 +384,14 @@ impl SseServerBuilder {
         let serve_duration = serve_start.elapsed();
         let total_duration = start_time.elapsed();
 
-        info!(
-            "[SseServerBuilder] SSE URL backend connected successfully - MCP ID: {}, total: {:?} (transport: {:?}, serve: {:?})",
-            mcp_id, total_duration, transport_duration, serve_duration
+        log_connection_timing(
+            &mcp_id,
+            "SSE",
+            total_duration,
+            &[("transport", transport_duration), ("serve", serve_duration)],
+            HTTP_SLOW_THRESHOLD_SECS,
+            "建议: 检查网络连接和后端服务状态",
         );
-
-        if total_duration.as_secs() >= 10 {
-            warn!(
-                "[SseServerBuilder] SSE 后端连接耗时较长 - MCP ID: {}, 耗时: {:?}, 建议: 检查网络连接和后端服务状态",
-                mcp_id, total_duration
-            );
-        }
 
         Ok(client)
     }
@@ -415,17 +453,14 @@ impl SseServerBuilder {
         let serve_duration = serve_start.elapsed();
         let total_duration = start_time.elapsed();
 
-        info!(
-            "[SseServerBuilder] Streamable HTTP URL backend connected successfully - MCP ID: {}, total: {:?} (serve: {:?})",
-            mcp_id, total_duration, serve_duration
+        log_connection_timing(
+            &mcp_id,
+            "Streamable HTTP",
+            total_duration,
+            &[("serve", serve_duration)],
+            HTTP_SLOW_THRESHOLD_SECS,
+            "建议: 检查网络连接和后端服务状态",
         );
-
-        if total_duration.as_secs() >= 10 {
-            warn!(
-                "[SseServerBuilder] Streamable HTTP 后端连接耗时较长 - MCP ID: {}, 耗时: {:?}, 建议: 检查网络连接和后端服务状态",
-                mcp_id, total_duration
-            );
-        }
 
         Ok(client)
     }
