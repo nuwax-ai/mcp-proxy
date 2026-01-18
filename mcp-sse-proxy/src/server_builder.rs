@@ -69,6 +69,9 @@ pub struct SseServerBuilderConfig {
     pub tool_filter: Option<ToolFilter>,
     /// Keep-alive interval in seconds (default: 15)
     pub keep_alive_secs: u64,
+    /// Enable stateful mode with full MCP initialization (default: true)
+    /// When false, uses `with_service_directly` which skips initialization for faster responses
+    pub stateful: bool,
 }
 
 impl Default for SseServerBuilderConfig {
@@ -79,6 +82,7 @@ impl Default for SseServerBuilderConfig {
             mcp_id: None,
             tool_filter: None,
             keep_alive_secs: 15,
+            stateful: true,
         }
     }
 }
@@ -101,6 +105,7 @@ impl Default for SseServerBuilderConfig {
 /// .mcp_id("my-server")
 /// .sse_path("/custom/sse")
 /// .post_path("/custom/message")
+/// .stateful(false)  // Disable stateful mode for OneShot services (faster responses)
 /// .build()
 /// .await?;
 /// ```
@@ -147,6 +152,15 @@ impl SseServerBuilder {
     /// Set the keep-alive interval in seconds
     pub fn keep_alive(mut self, secs: u64) -> Self {
         self.server_config.keep_alive_secs = secs;
+        self
+    }
+
+    /// Set stateful mode (default: true)
+    ///
+    /// When false, uses `with_service_directly` which skips MCP initialization
+    /// for faster responses. This is recommended for OneShot services.
+    pub fn stateful(mut self, stateful: bool) -> Self {
+        self.server_config.stateful = stateful;
         self
     }
 
@@ -351,7 +365,14 @@ impl SseServerBuilder {
         };
 
         let (sse_server, router) = SseServer::new(config);
-        let ct = sse_server.with_service(move || sse_handler.clone());
+
+        // Use with_service_directly for non-stateful mode (OneShot services)
+        // This skips MCP initialization for faster responses
+        let ct = if self.server_config.stateful {
+            sse_server.with_service(move || sse_handler.clone())
+        } else {
+            sse_server.with_service_directly(move || sse_handler.clone())
+        };
 
         Ok((router, ct))
     }

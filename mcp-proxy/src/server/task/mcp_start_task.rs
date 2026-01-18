@@ -146,11 +146,16 @@ pub async fn integrate_server_with_axum(
                 15
             };
 
+            // 对于 OneShot 服务，禁用 stateful 模式以加快响应速度
+            // stateful=false 会跳过 MCP 初始化步骤，直接处理请求
+            let stateful = !matches!(mcp_type, McpType::OneShot);
+
             let (router, ct, handler) = SseServerBuilder::new(backend_config)
                 .mcp_id(mcp_id.clone())
                 .sse_path(sse_path.sse_path.clone())
                 .post_path(sse_path.message_path.clone())
                 .keep_alive(keep_alive_secs)
+                .stateful(stateful)
                 .build()
                 .await?;
 
