@@ -4,6 +4,7 @@ use log::{debug, error, info};
 use moka::future::Cache;
 use once_cell::sync::Lazy;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use tokio::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
@@ -382,6 +383,8 @@ pub struct RestartTracker {
     last_restart: DashMap<String, Instant>,
     // mcp_id -> (健康状态, 检查时间)
     health_status: DashMap<String, (bool, Instant)>,
+    // mcp_id -> 启动锁，防止并发启动同一服务
+    startup_locks: DashMap<String, Arc<Mutex<()>>>,
 }
 
 impl RestartTracker {
@@ -389,6 +392,7 @@ impl RestartTracker {
         Self {
             last_restart: DashMap::new(),
             health_status: DashMap::new(),
+            startup_locks: DashMap::new(),
         }
     }
 
@@ -464,6 +468,52 @@ impl RestartTracker {
     pub fn clear_restart(&self, mcp_id: &str) {
         self.last_restart.remove(mcp_id);
         info!("已清除服务 {} 的重启时间戳", mcp_id);
+    }
+
+    /// 尝试获取服务启动锁
+    ///
+    /// 返回 Some(Arc<Mutex>) 表示获取成功，可以继续启动服务
+    /// 返回 None 表示服务正在启动中，应该跳过本次启动
+    ///
+    /// # 使用方式
+    ///
+    /// ```ignore
+    /// if let Some(lock) = GLOBAL_RESTART_TRACKER.try_acquire_startup_lock(&mcp_id) {
+    ///     // 获取到锁，可以启动服务
+    ///     let guard = lock.lock().await;
+    ///     let result = start_service().await;
+    ///     // guard 自动释放
+    /// } else {
+    ///     // 未获取到锁，服务正在启动中
+    ///     return Ok(Response::503);
+    /// }
+    /// ```
+    pub fn try_acquire_startup_lock(&self, mcp_id: &str) -> Option<Arc<Mutex<()>>> {
+        // 首先检查该服务是否已经有正在进行的启动
+        if let Some(lock) = self.startup_locks.get(mcp_id) {
+            // 服务已经有锁，尝试获取
+            match lock.try_lock() {
+                Ok(_) => Some(lock.clone()),
+                Err(_) => {
+                    debug!("服务 {} 正在启动中，跳过本次启动", mcp_id);
+                    None
+                }
+            }
+        } else {
+            // 服务没有锁，创建并返回
+            let lock = Arc::new(Mutex::new(()));
+            self.startup_locks.insert(mcp_id.to_string(), lock.clone());
+            Some(lock)
+        }
+    }
+
+    /// 清理服务启动锁
+    ///
+    /// 当服务启动完成或失败后，应该清理启动锁以允许后续重试
+    /// 注意：正常情况下锁会随 MutexGuard 自动释放，此方法用于异常清理
+    pub fn cleanup_startup_lock(&self, mcp_id: &str) {
+        self.startup_locks.remove(mcp_id);
+        debug!("已清理服务 {} 的启动锁", mcp_id);
     }
 }
 

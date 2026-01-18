@@ -203,11 +203,31 @@ impl Service<Request<Body>> for DynamicRouterService {
                             return Ok(http_result.into_response());
                         }
 
+                        // 尝试获取启动锁，防止并发启动同一服务
+                        let startup_lock = match GLOBAL_RESTART_TRACKER.try_acquire_startup_lock(&mcp_config.mcp_id) {
+                            Some(lock) => lock,
+                            None => {
+                                warn!("服务 {} 正在启动中，跳过本次启动", mcp_config.mcp_id);
+                                span.record("error.startup_in_progress", true);
+                                let message =
+                                    format!("服务 {} 正在启动中，请稍后再试", mcp_config.mcp_id);
+                                let http_result: HttpResult<String> =
+                                    HttpResult::error("0003", &message, None);
+                                span.record("http.response.status_code", 503u16); // Service Unavailable
+                                return Ok(http_result.into_response());
+                            }
+                        };
+
+                        // 获取锁，确保服务启动期间其他请求等待
+                        let _guard = startup_lock.lock().await;
+
                         info!("使用请求 header 配置启动服务: {}", mcp_config.mcp_id);
                         // 同时更新缓存
                         proxy_manager
                             .register_mcp_config(&mcp_config.mcp_id, mcp_config.clone())
                             .await;
+
+                        // _guard 会在作用域结束时自动释放
                         return start_mcp_and_handle_request(req, mcp_config).await;
                     }
 
@@ -230,7 +250,26 @@ impl Service<Request<Body>> for DynamicRouterService {
                             return Ok(http_result.into_response());
                         }
 
+                        // 尝试获取启动锁，防止并发启动同一服务
+                        let startup_lock = match GLOBAL_RESTART_TRACKER.try_acquire_startup_lock(mcp_id_for_cache) {
+                            Some(lock) => lock,
+                            None => {
+                                warn!("服务 {} 正在启动中，跳过本次启动", mcp_id_for_cache);
+                                span.record("error.startup_in_progress", true);
+                                let message =
+                                    format!("服务 {} 正在启动中，请稍后再试", mcp_id_for_cache);
+                                let http_result: HttpResult<String> =
+                                    HttpResult::error("0003", &message, None);
+                                span.record("http.response.status_code", 503u16); // Service Unavailable
+                                return Ok(http_result.into_response());
+                            }
+                        };
+
+                        // 获取锁，确保服务启动期间其他请求等待
+                        let _guard = startup_lock.lock().await;
+
                         info!("使用缓存配置启动服务: {}", mcp_id_for_cache);
+                        // _guard 会在作用域结束时自动释放
                         return start_mcp_and_handle_request(req, mcp_config).await;
                     }
 
