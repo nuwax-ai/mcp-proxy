@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use anyhow::Result;
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{debug, info, warn};
 
 use rmcp::{
     ServiceExt,
@@ -230,6 +230,11 @@ impl SseServerBuilder {
         env: &Option<HashMap<String, String>>,
         client_info: &ClientInfo,
     ) -> Result<rmcp::service::RunningService<rmcp::RoleClient, ClientInfo>> {
+        use std::time::Instant;
+
+        let start_time = Instant::now();
+        let mcp_id = self.server_config.mcp_id.clone().unwrap_or_else(|| "unknown".into());
+
         let mut cmd = Command::new(command);
 
         if let Some(cmd_args) = args {
@@ -243,15 +248,46 @@ impl SseServerBuilder {
         }
 
         info!(
-            "[SseServerBuilder] Starting child process - command: {}, args: {:?}",
+            "[SseServerBuilder] Starting child process - MCP ID: {}, command: {}, args: {:?}",
+            mcp_id,
             command,
             args.as_ref().unwrap_or(&vec![])
         );
 
+        let process_start = Instant::now();
         let tokio_process = TokioChildProcess::new(cmd)?;
-        let client = client_info.clone().serve(tokio_process).await?;
+        let process_duration = process_start.elapsed();
 
-        info!("[SseServerBuilder] Child process connected successfully");
+        debug!(
+            "[SseServerBuilder] Child process spawned - MCP ID: {}, spawn time: {:?}",
+            mcp_id, process_duration
+        );
+
+        let serve_start = Instant::now();
+        let client = client_info.clone().serve(tokio_process).await?;
+        let serve_duration = serve_start.elapsed();
+        let total_duration = start_time.elapsed();
+
+        info!(
+            "[SseServerBuilder] Child process connected successfully - MCP ID: {}, total: {:?} (spawn: {:?}, serve: {:?})",
+            mcp_id, total_duration, process_duration, serve_duration
+        );
+
+        // 性能警告：如果启动超过 30 秒，记录警告并提示可能的优化方案
+        if total_duration.as_secs() >= 30 {
+            warn!(
+                "[SseServerBuilder] 子进程启动耗时较长 - MCP ID: {}, 耗时: {:?}",
+                mcp_id, total_duration
+            );
+            warn!(
+                "[SseServerBuilder] 可能的优化方案: \
+                 1) 检查网络连接速度 (npm 包下载) \
+                 2) 配置国内 npm 镜像 (如淘宝镜像: npm config set registry https://registry.npmmirror.com) \
+                 3) 预热服务 (启动 mcp-proxy 时预先加载常用服务) \
+                 4) 检查命令参数是否正确"
+            );
+        }
+
         Ok(client)
     }
 
@@ -262,7 +298,15 @@ impl SseServerBuilder {
         headers: &Option<HashMap<String, String>>,
         client_info: &ClientInfo,
     ) -> Result<rmcp::service::RunningService<rmcp::RoleClient, ClientInfo>> {
-        info!("[SseServerBuilder] Connecting to SSE URL backend: {}", url);
+        use std::time::Instant;
+
+        let start_time = Instant::now();
+        let mcp_id = self.server_config.mcp_id.clone().unwrap_or_else(|| "unknown".into());
+
+        info!(
+            "[SseServerBuilder] Connecting to SSE URL backend - MCP ID: {}, URL: {}",
+            mcp_id, url
+        );
 
         // Build HTTP client with custom headers
         let mut req_headers = reqwest::header::HeaderMap::new();
@@ -290,10 +334,27 @@ impl SseServerBuilder {
             ..Default::default()
         };
 
+        let transport_start = Instant::now();
         let sse_transport = SseClientTransport::start_with_client(http_client, sse_config).await?;
-        let client = client_info.clone().serve(sse_transport).await?;
+        let transport_duration = transport_start.elapsed();
 
-        info!("[SseServerBuilder] SSE URL backend connected successfully");
+        let serve_start = Instant::now();
+        let client = client_info.clone().serve(sse_transport).await?;
+        let serve_duration = serve_start.elapsed();
+        let total_duration = start_time.elapsed();
+
+        info!(
+            "[SseServerBuilder] SSE URL backend connected successfully - MCP ID: {}, total: {:?} (transport: {:?}, serve: {:?})",
+            mcp_id, total_duration, transport_duration, serve_duration
+        );
+
+        if total_duration.as_secs() >= 10 {
+            warn!(
+                "[SseServerBuilder] SSE 后端连接耗时较长 - MCP ID: {}, 耗时: {:?}, 建议: 检查网络连接和后端服务状态",
+                mcp_id, total_duration
+            );
+        }
+
         Ok(client)
     }
 
@@ -304,9 +365,14 @@ impl SseServerBuilder {
         headers: &Option<HashMap<String, String>>,
         client_info: &ClientInfo,
     ) -> Result<rmcp::service::RunningService<rmcp::RoleClient, ClientInfo>> {
+        use std::time::Instant;
+
+        let start_time = Instant::now();
+        let mcp_id = self.server_config.mcp_id.clone().unwrap_or_else(|| "unknown".into());
+
         info!(
-            "[SseServerBuilder] Connecting to Streamable HTTP URL backend: {}",
-            url
+            "[SseServerBuilder] Connecting to Streamable HTTP URL backend - MCP ID: {}, URL: {}",
+            mcp_id, url
         );
 
         // Build HTTP client with custom headers (excluding Authorization)
@@ -343,10 +409,24 @@ impl SseServerBuilder {
             ..Default::default()
         };
 
+        let serve_start = Instant::now();
         let transport = StreamableHttpClientTransport::with_client(http_client, config);
         let client = client_info.clone().serve(transport).await?;
+        let serve_duration = serve_start.elapsed();
+        let total_duration = start_time.elapsed();
 
-        info!("[SseServerBuilder] Streamable HTTP URL backend connected successfully");
+        info!(
+            "[SseServerBuilder] Streamable HTTP URL backend connected successfully - MCP ID: {}, total: {:?} (serve: {:?})",
+            mcp_id, total_duration, serve_duration
+        );
+
+        if total_duration.as_secs() >= 10 {
+            warn!(
+                "[SseServerBuilder] Streamable HTTP 后端连接耗时较长 - MCP ID: {}, 耗时: {:?}, 建议: 检查网络连接和后端服务状态",
+                mcp_id, total_duration
+            );
+        }
+
         Ok(client)
     }
 
