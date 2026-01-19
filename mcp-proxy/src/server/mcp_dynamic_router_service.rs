@@ -204,7 +204,9 @@ impl Service<Request<Body>> for DynamicRouterService {
                         }
 
                         // 尝试获取启动锁，防止并发启动同一服务
-                        let startup_lock = match GLOBAL_RESTART_TRACKER.try_acquire_startup_lock(&mcp_config.mcp_id) {
+                        let startup_lock = match GLOBAL_RESTART_TRACKER
+                            .try_acquire_startup_lock(&mcp_config.mcp_id)
+                        {
                             Some(lock) => lock,
                             None => {
                                 warn!("服务 {} 正在启动中，跳过本次启动", mcp_config.mcp_id);
@@ -251,7 +253,9 @@ impl Service<Request<Body>> for DynamicRouterService {
                         }
 
                         // 尝试获取启动锁，防止并发启动同一服务
-                        let startup_lock = match GLOBAL_RESTART_TRACKER.try_acquire_startup_lock(mcp_id_for_cache) {
+                        let startup_lock = match GLOBAL_RESTART_TRACKER
+                            .try_acquire_startup_lock(mcp_id_for_cache)
+                        {
                             Some(lock) => lock,
                             None => {
                                 warn!("服务 {} 正在启动中，跳过本次启动", mcp_id_for_cache);

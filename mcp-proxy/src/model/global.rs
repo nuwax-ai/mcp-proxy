@@ -511,6 +511,7 @@ impl RestartTracker {
     ///
     /// 当服务启动完成或失败后，应该清理启动锁以允许后续重试
     /// 注意：正常情况下锁会随 MutexGuard 自动释放，此方法用于异常清理
+    #[allow(dead_code)]
     pub fn cleanup_startup_lock(&self, mcp_id: &str) {
         self.startup_locks.remove(mcp_id);
         debug!("已清理服务 {} 的启动锁", mcp_id);

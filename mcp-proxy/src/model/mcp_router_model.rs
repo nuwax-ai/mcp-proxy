@@ -997,7 +997,7 @@ mod tests {
     #[test]
     fn test_flexible_config_through_mcp_json_server_parameters() -> Result<()> {
         // 测试通过 McpJsonServerParameters 使用灵活配置
-        let json = r#"{
+        let _json = r#"{
             "myCustomFieldName": {
                 "test-service": {
                     "command": "npx",
@@ -1168,15 +1168,15 @@ mod tests {
         println!("✅ 测试5：混合字段解析成功");
 
         // 测试6：field别名测试（auth_token, authToken, AUTH_TOKEN）
-        let test_cases = vec![
+        let test_cases = [
             r#"{"auth_token": "test1"}"#,
             r#"{"authToken": "test2"}"#,
             r#"{"AUTH_TOKEN": "test3"}"#,
         ];
 
         for (i, json) in test_cases.iter().enumerate() {
-            let result: McpServerUrlConfig =
-                serde_json::from_str(json).expect(&format!("别名测试 {} 解析失败", i + 1));
+            let result: McpServerUrlConfig = serde_json::from_str(json)
+                .unwrap_or_else(|_| panic!("别名测试 {} 解析失败", i + 1));
             assert_eq!(
                 result.auth_token,
                 Some("test".to_string() + &(i + 1).to_string())

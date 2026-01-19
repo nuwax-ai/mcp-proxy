@@ -25,10 +25,7 @@ pub enum AppError {
 
     /// 服务启动失败 (0004)
     #[error("服务启动失败: {mcp_id}: {reason}")]
-    ServiceStartupFailed {
-        mcp_id: String,
-        reason: String,
-    },
+    ServiceStartupFailed { mcp_id: String, reason: String },
 
     /// 后端连接错误 (0005)
     #[error("后端连接错误: {0}")]
@@ -102,13 +99,6 @@ pub struct ErrorOutput {
 }
 
 impl ErrorOutput {
-    pub fn new(code: impl Into<String>, error: impl Into<String>) -> Self {
-        Self {
-            code: code.into(),
-            error: error.into(),
-        }
-    }
-
     pub fn with_code(code: &'static str, error: impl Into<String>) -> Self {
         Self {
             code: code.to_string(),
@@ -124,47 +114,5 @@ impl IntoResponse for AppError {
             Json(ErrorOutput::with_code(self.error_code(), self.to_string())),
         )
             .into_response()
-    }
-}
-
-/// HTTP 响应结果（用于成功响应）
-#[derive(Debug, Serialize, Deserialize)]
-pub struct HttpResult<T> {
-    pub code: String,
-    pub message: String,
-    pub data: Option<T>,
-}
-
-impl<T> HttpResult<T> {
-    pub fn ok(code: impl Into<String>, message: impl Into<String>, data: T) -> Self {
-        Self {
-            code: code.into(),
-            message: message.into(),
-            data: Some(data),
-        }
-    }
-
-    pub fn error(code: impl Into<String>, message: impl Into<String>, data: Option<T>) -> Self {
-        Self {
-            code: code.into(),
-            message: message.into(),
-            data,
-        }
-    }
-}
-
-impl<T: Serialize> IntoResponse for HttpResult<T> {
-    fn into_response(self) -> Response<axum::body::Body> {
-        let status = if self.code.starts_with('2') {
-            StatusCode::OK
-        } else if self.code == "0002" {
-            StatusCode::TOO_MANY_REQUESTS
-        } else if self.code == "0003" {
-            StatusCode::SERVICE_UNAVAILABLE
-        } else {
-            StatusCode::INTERNAL_SERVER_ERROR
-        };
-
-        (status, Json(self)).into_response()
     }
 }
