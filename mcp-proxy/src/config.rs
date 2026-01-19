@@ -64,10 +64,10 @@ impl AppConfig {
         let log_path = &self.log.path;
 
         // 获取日志文件的父目录
-        if let Some(parent) = Path::new(log_path).parent() {
-            if !parent.exists() {
-                std::fs::create_dir_all(parent)?;
-            }
+        if let Some(parent) = Path::new(log_path).parent()
+            && !parent.exists()
+        {
+            std::fs::create_dir_all(parent)?;
         }
         Ok(())
     }

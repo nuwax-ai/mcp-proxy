@@ -3,7 +3,6 @@
 //! 定义所有命令行参数结构体
 
 use clap::Parser;
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// 通用日志配置参数

@@ -15,7 +15,7 @@ use mcp_streamable_proxy::{
 use crate::client::support::utils::truncate_str;
 
 // 进程组管理（跨平台子进程清理）
-use process_wrap::tokio::{CommandWrap, ProcessGroup, KillOnDrop};
+use process_wrap::tokio::{CommandWrap, KillOnDrop, ProcessGroup};
 
 #[cfg(windows)]
 use process_wrap::tokio::JobObject;
@@ -46,10 +46,8 @@ pub async fn run_command_mode(
     }
 
     // 显示过滤器配置
-    if !quiet {
-        if tool_filter.is_enabled() {
-            eprintln!("🔧 工具过滤已启用");
-        }
+    if !quiet && tool_filter.is_enabled() {
+        eprintln!("🔧 工具过滤已启用");
     }
 
     // 使用 process-wrap 创建子进程命令（跨平台进程清理）
@@ -111,7 +109,8 @@ pub async fn run_command_mode(
     }
 
     // 使用 StreamProxyHandler + stdio 将本地 MCP 服务透明暴露为 stdio
-    let proxy_handler = StreamProxyHandler::with_tool_filter(running, name.to_string(), tool_filter);
+    let proxy_handler =
+        StreamProxyHandler::with_tool_filter(running, name.to_string(), tool_filter);
     let server = proxy_handler.serve(stdio()).await?;
 
     // 设置 Ctrl+C 信号处理

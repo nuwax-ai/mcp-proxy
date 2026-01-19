@@ -7,9 +7,8 @@ target
 mcp-proxy/logs
 logs
 .venv
-venv
-.idea/rmcp_proxy.iml
-
+.claude
+/tmp
 packages
 
 
@@ -51,3 +50,4 @@ voice-cli/models/
 # Internal development tools and docs
 .qoder/
 spec/
+mcp-proxy/docs/

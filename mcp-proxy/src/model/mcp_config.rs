@@ -3,10 +3,7 @@ use std::str::FromStr;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use super::{
-    McpProtocol,
-    mcp_router_model::{McpJsonServerParameters, McpServerConfig},
-};
+use super::{McpProtocol, mcp_router_model::McpServerConfig};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpConfig {

@@ -12,4 +12,4 @@ pub mod stream;
 // 注意: run_sse_mode 和 run_stream_mode 是内部实现细节，
 // 只被 convert 模块使用，不需要对外暴露
 pub use command::run_command_mode;
-pub use convert::{build_mcp_config, run_url_mode_with_retry};
+pub use convert::run_url_mode_with_retry;

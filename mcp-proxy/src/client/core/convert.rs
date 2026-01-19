@@ -4,10 +4,9 @@
 
 use anyhow::Result;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use crate::client::support::{ConvertArgs, protocol_name};
-use crate::proxy::{McpClientConfig, ProxyHandler, ToolFilter};
+use crate::proxy::{McpClientConfig, ToolFilter};
 
 use super::sse::run_sse_mode;
 use super::stream::run_stream_mode;

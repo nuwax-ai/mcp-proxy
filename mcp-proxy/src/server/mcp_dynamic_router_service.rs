@@ -13,8 +13,8 @@ use log::{debug, error, info, warn};
 use tower::Service;
 
 use crate::{
-    DynamicRouterService, mcp_start_task,
-    model::{HttpResult, McpConfig, McpRouterPath},
+    DynamicRouterService, get_proxy_manager, mcp_start_task,
+    model::{GLOBAL_RESTART_TRACKER, HttpResult, McpConfig, McpRouterPath},
     server::middlewares::extract_trace_id,
 };
 
@@ -93,8 +93,78 @@ impl Service<Request<Body>> for DynamicRouterService {
                             "✅ 找到已注册的路由: base_path={}, path={}",
                             base_path, path
                         );
-                        debug!("=== 路由查找结束(成功) ===");
-                        return handle_request_with_router(req, router_entry).await;
+
+                        // ===== 检查后端健康状态 =====
+                        // 提前提取 mcp_id，用于后续配置获取和重启逻辑
+                        let mcp_id_for_check = McpRouterPath::from_url(&path);
+                        let should_restart = if let Some(router_path) = mcp_id_for_check {
+                            let proxy_manager = get_proxy_manager();
+
+                            if let Some(handler) =
+                                proxy_manager.get_proxy_handler(&router_path.mcp_id)
+                            {
+                                // 先检查缓存的健康状态（5秒缓存）
+                                let is_healthy = if let Some(cached) = GLOBAL_RESTART_TRACKER
+                                    .get_cached_health_status(&router_path.mcp_id)
+                                {
+                                    debug!(
+                                        "使用缓存的健康状态: mcp_id={}, is_healthy={}",
+                                        router_path.mcp_id, cached
+                                    );
+                                    cached
+                                } else {
+                                    // 缓存未命中，检查实际状态
+                                    let status = handler.is_mcp_server_ready().await;
+                                    GLOBAL_RESTART_TRACKER
+                                        .update_health_status(&router_path.mcp_id, status);
+                                    debug!(
+                                        "检查后端健康状态: mcp_id={}, is_healthy={}",
+                                        router_path.mcp_id, status
+                                    );
+                                    status
+                                };
+
+                                if is_healthy {
+                                    debug!(
+                                        "后端服务正常，直接使用路由: mcp_id={}",
+                                        router_path.mcp_id
+                                    );
+                                    false // 不需要重启
+                                } else {
+                                    warn!(
+                                        "后端服务已终止，清理并尝试重启: mcp_id={}",
+                                        router_path.mcp_id
+                                    );
+                                    // 清理资源（包括路由）
+                                    if let Err(e) =
+                                        proxy_manager.cleanup_resources(&router_path.mcp_id).await
+                                    {
+                                        error!(
+                                            "清理资源失败: mcp_id={}, error={}",
+                                            router_path.mcp_id, e
+                                        );
+                                    }
+                                    true // 需要重启
+                                }
+                            } else {
+                                // handler 不存在，说明服务已被清理，需要重启
+                                warn!(
+                                    "路由存在但 handler 不存在，需要重启: base_path={}",
+                                    base_path
+                                );
+                                true
+                            }
+                        } else {
+                            // 无法解析路由路径，直接使用路由（不应该发生）
+                            false
+                        };
+
+                        if !should_restart {
+                            debug!("=== 路由查找结束(成功) ===");
+                            return handle_request_with_router(req, router_entry, &path).await;
+                        }
+                        // 后端已死，继续执行后续逻辑尝试重启
+                        debug!("后端已死，进入重启流程");
                     } else {
                         debug!(
                             "❌ 未找到已注册的路由: base_path='{}', path='{}'",
@@ -111,23 +181,108 @@ impl Service<Request<Body>> for DynamicRouterService {
                     warn!("未找到匹配的路径,尝试启动服务:base_path={base_path},path={path}");
                     span.record("error.route_not_found", true);
 
-                    // 从请求扩展中获取MCP配置
-                    if let Some(mcp_config) = req.extensions().get::<McpConfig>().cloned() {
-                        //mcp_config.mcp_json_config 非空判断
-                        if mcp_config.mcp_json_config.is_some() {
-                            return start_mcp_and_handle_request(req, mcp_config).await;
+                    // ===== 提前解析 mcp_id 用于配置获取 =====
+                    let mcp_router_path_for_config = McpRouterPath::from_url(&path);
+
+                    // ===== 配置获取优先级 =====
+                    let proxy_manager = get_proxy_manager();
+
+                    // 优先级 1: 从请求 header 中获取配置（最新）
+                    if let Some(mcp_config) = req.extensions().get::<McpConfig>().cloned()
+                        && mcp_config.mcp_json_config.is_some()
+                    {
+                        // 检查重启限制（防止无限循环）
+                        if !GLOBAL_RESTART_TRACKER.can_restart(&mcp_config.mcp_id) {
+                            warn!("服务 {} 在重启冷却期内，跳过启动", mcp_config.mcp_id);
+                            span.record("error.restart_in_cooldown", true);
+                            let message =
+                                format!("服务 {} 在重启冷却期内，请稍后再试", mcp_config.mcp_id);
+                            let http_result: HttpResult<String> =
+                                HttpResult::error("0002", &message, None);
+                            span.record("http.response.status_code", 429u16); // Too Many Requests
+                            return Ok(http_result.into_response());
                         }
+
+                        // 尝试获取启动锁，防止并发启动同一服务
+                        let startup_lock = match GLOBAL_RESTART_TRACKER
+                            .try_acquire_startup_lock(&mcp_config.mcp_id)
+                        {
+                            Some(lock) => lock,
+                            None => {
+                                warn!("服务 {} 正在启动中，跳过本次启动", mcp_config.mcp_id);
+                                span.record("error.startup_in_progress", true);
+                                let message =
+                                    format!("服务 {} 正在启动中，请稍后再试", mcp_config.mcp_id);
+                                let http_result: HttpResult<String> =
+                                    HttpResult::error("0003", &message, None);
+                                span.record("http.response.status_code", 503u16); // Service Unavailable
+                                return Ok(http_result.into_response());
+                            }
+                        };
+
+                        // 获取锁，确保服务启动期间其他请求等待
+                        let _guard = startup_lock.lock().await;
+
+                        info!("使用请求 header 配置启动服务: {}", mcp_config.mcp_id);
+                        // 同时更新缓存
+                        proxy_manager
+                            .register_mcp_config(&mcp_config.mcp_id, mcp_config.clone())
+                            .await;
+
+                        // _guard 会在作用域结束时自动释放
+                        return start_mcp_and_handle_request(req, mcp_config).await;
                     }
 
-                    // 没有配置，无法启动服务
-                    warn!(
-                        "未找到匹配的路径,且未获取到header[x-mcp-json]配置,无法启动MCP服务: {path}"
-                    );
+                    // 优先级 2: 从 moka 缓存中获取配置（兜底）
+                    if let Some(mcp_id_for_cache) =
+                        mcp_router_path_for_config.as_ref().map(|p| &p.mcp_id)
+                        && let Some(mcp_config) = proxy_manager
+                            .get_mcp_config_from_cache(mcp_id_for_cache)
+                            .await
+                    {
+                        // 检查重启限制（防止无限循环）
+                        if !GLOBAL_RESTART_TRACKER.can_restart(mcp_id_for_cache) {
+                            warn!("服务 {} 在重启冷却期内，跳过启动", mcp_id_for_cache);
+                            span.record("error.restart_in_cooldown", true);
+                            let message =
+                                format!("服务 {} 在重启冷却期内，请稍后再试", mcp_id_for_cache);
+                            let http_result: HttpResult<String> =
+                                HttpResult::error("0002", &message, None);
+                            span.record("http.response.status_code", 429u16); // Too Many Requests
+                            return Ok(http_result.into_response());
+                        }
+
+                        // 尝试获取启动锁，防止并发启动同一服务
+                        let startup_lock = match GLOBAL_RESTART_TRACKER
+                            .try_acquire_startup_lock(mcp_id_for_cache)
+                        {
+                            Some(lock) => lock,
+                            None => {
+                                warn!("服务 {} 正在启动中，跳过本次启动", mcp_id_for_cache);
+                                span.record("error.startup_in_progress", true);
+                                let message =
+                                    format!("服务 {} 正在启动中，请稍后再试", mcp_id_for_cache);
+                                let http_result: HttpResult<String> =
+                                    HttpResult::error("0003", &message, None);
+                                span.record("http.response.status_code", 503u16); // Service Unavailable
+                                return Ok(http_result.into_response());
+                            }
+                        };
+
+                        // 获取锁，确保服务启动期间其他请求等待
+                        let _guard = startup_lock.lock().await;
+
+                        info!("使用缓存配置启动服务: {}", mcp_id_for_cache);
+                        // _guard 会在作用域结束时自动释放
+                        return start_mcp_and_handle_request(req, mcp_config).await;
+                    }
+
+                    // 优先级 3: 无法获取配置，返回错误
+                    warn!("未找到匹配的路径,且未获取到配置,无法启动MCP服务: {path}");
                     span.record("error.mcp_config_missing", true);
 
-                    let message = format!(
-                        "未找到匹配的路径,且未获取到header[x-mcp-json]配置,无法启动MCP服务: {path}"
-                    );
+                    let message =
+                        format!("未找到匹配的路径,且未获取到配置,无法启动MCP服务: {path}");
                     let http_result: HttpResult<String> = HttpResult::error("0001", &message, None);
                     span.record("http.response.status_code", 404u16);
                     span.record("error.message", &message);
@@ -155,43 +310,43 @@ impl Service<Request<Body>> for DynamicRouterService {
 async fn handle_request_with_router(
     req: Request<Body>,
     router_entry: axum::Router,
+    path: &str,
 ) -> Result<Response, Infallible> {
     // 获取匹配路径的Router，并处理请求
     let trace_id = extract_trace_id();
 
     let method = req.method().clone();
     let uri = req.uri().clone();
-    let path = uri.path();
 
     info!("[handle_request_with_router]处理请求: {} {}", method, path);
 
     // 记录请求头中的关键信息
-    if let Some(content_type) = req.headers().get("content-type") {
-        if let Ok(content_type_str) = content_type.to_str() {
-            debug!(
-                "[handle_request_with_router] Content-Type: {}",
-                content_type_str
-            );
-        }
+    if let Some(content_type) = req.headers().get("content-type")
+        && let Ok(content_type_str) = content_type.to_str()
+    {
+        debug!(
+            "[handle_request_with_router] Content-Type: {}",
+            content_type_str
+        );
     }
 
-    if let Some(content_length) = req.headers().get("content-length") {
-        if let Ok(content_length_str) = content_length.to_str() {
-            debug!(
-                "[handle_request_with_router] Content-Length: {}",
-                content_length_str
-            );
-        }
+    if let Some(content_length) = req.headers().get("content-length")
+        && let Ok(content_length_str) = content_length.to_str()
+    {
+        debug!(
+            "[handle_request_with_router] Content-Length: {}",
+            content_length_str
+        );
     }
 
     // 记录 x-mcp-json 头信息（如果存在）
-    if let Some(mcp_json) = req.headers().get("x-mcp-json") {
-        if let Ok(mcp_json_str) = mcp_json.to_str() {
-            debug!(
-                "[handle_request_with_router] MCP-JSON Header: {}",
-                mcp_json_str
-            );
-        }
+    if let Some(mcp_json) = req.headers().get("x-mcp-json")
+        && let Ok(mcp_json_str) = mcp_json.to_str()
+    {
+        debug!(
+            "[handle_request_with_router] MCP-JSON Header: {}",
+            mcp_json_str
+        );
     }
 
     // 记录查询参数
@@ -216,7 +371,6 @@ async fn handle_request_with_router(
     match service.call(req).await {
         Ok(response) => {
             let status = response.status();
-            span.record("http.response.status_code", status.as_u16());
 
             // 记录响应头信息
             debug!(
@@ -224,6 +378,7 @@ async fn handle_request_with_router(
                 status
             );
 
+            span.record("http.response.status_code", status.as_u16());
             Ok(response)
         }
         Err(error) => {
@@ -261,7 +416,7 @@ async fn start_mcp_and_handle_request(
 
     if let Ok((router, _)) = ret {
         span.record("mcp.startup.success", true);
-        handle_request_with_router(req, router).await
+        handle_request_with_router(req, router, &request_path).await
     } else {
         span.record("mcp.startup.failed", true);
         span.record("error.mcp_startup_failed", true);

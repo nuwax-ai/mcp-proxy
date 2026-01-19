@@ -4,11 +4,17 @@
 //! It encapsulates all rmcp-specific types and provides a simple interface for mcp-proxy.
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use anyhow::Result;
-use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{debug, info, warn};
+
+// 进程组管理（跨平台子进程清理）
+use process_wrap::tokio::{KillOnDrop, ProcessGroup, TokioCommandWrap};
+
+#[cfg(windows)]
+use process_wrap::tokio::JobObject;
 
 use rmcp::{
     ServiceExt,
@@ -24,6 +30,12 @@ use rmcp::{
 };
 
 use crate::{SseHandler, ToolFilter};
+
+/// Performance warning threshold for stdio (child process) backend connections
+const STDIO_SLOW_THRESHOLD_SECS: u64 = 30;
+
+/// Performance warning threshold for HTTP-based backend connections (SSE/Stream)
+const HTTP_SLOW_THRESHOLD_SECS: u64 = 10;
 
 /// Backend configuration for the MCP server
 ///
@@ -69,6 +81,9 @@ pub struct SseServerBuilderConfig {
     pub tool_filter: Option<ToolFilter>,
     /// Keep-alive interval in seconds (default: 15)
     pub keep_alive_secs: u64,
+    /// Enable stateful mode with full MCP initialization (default: true)
+    /// When false, uses `with_service_directly` which skips initialization for faster responses
+    pub stateful: bool,
 }
 
 impl Default for SseServerBuilderConfig {
@@ -79,7 +94,47 @@ impl Default for SseServerBuilderConfig {
             mcp_id: None,
             tool_filter: None,
             keep_alive_secs: 15,
+            stateful: true,
         }
+    }
+}
+
+/// Log connection timing with optional performance warning
+///
+/// # Arguments
+///
+/// * `mcp_id` - MCP service identifier
+/// * `backend_type` - Type of backend (e.g., "stdio", "SSE", "Streamable HTTP")
+/// * `total_duration` - Total connection time
+/// * `breakdown` - Optional breakdown of timing components
+/// * `warn_threshold_secs` - Threshold for performance warning
+/// * `warn_message` - Message to show if threshold exceeded
+fn log_connection_timing(
+    mcp_id: &str,
+    backend_type: &str,
+    total_duration: Duration,
+    breakdown: &[(&str, Duration)],
+    warn_threshold_secs: u64,
+    warn_message: &str,
+) {
+    let breakdown_str: Vec<String> = breakdown
+        .iter()
+        .map(|(name, dur)| format!("{}: {:?}", name, dur))
+        .collect();
+
+    info!(
+        "[SseServerBuilder] {} backend connected successfully - MCP ID: {}, total: {:?} ({})",
+        backend_type,
+        mcp_id,
+        total_duration,
+        breakdown_str.join(", ")
+    );
+
+    if total_duration.as_secs() >= warn_threshold_secs {
+        warn!(
+            "[SseServerBuilder] {} 后端连接耗时较长 - MCP ID: {}, 耗时: {:?}, {}",
+            backend_type, mcp_id, total_duration, warn_message
+        );
     }
 }
 
@@ -101,6 +156,7 @@ impl Default for SseServerBuilderConfig {
 /// .mcp_id("my-server")
 /// .sse_path("/custom/sse")
 /// .post_path("/custom/message")
+/// .stateful(false)  // Disable stateful mode for OneShot services (faster responses)
 /// .build()
 /// .await?;
 /// ```
@@ -147,6 +203,15 @@ impl SseServerBuilder {
     /// Set the keep-alive interval in seconds
     pub fn keep_alive(mut self, secs: u64) -> Self {
         self.server_config.keep_alive_secs = secs;
+        self
+    }
+
+    /// Set stateful mode (default: true)
+    ///
+    /// When false, uses `with_service_directly` which skips MCP initialization
+    /// for faster responses. This is recommended for OneShot services.
+    pub fn stateful(mut self, stateful: bool) -> Self {
+        self.server_config.stateful = stateful;
         self
     }
 
@@ -216,28 +281,72 @@ impl SseServerBuilder {
         env: &Option<HashMap<String, String>>,
         client_info: &ClientInfo,
     ) -> Result<rmcp::service::RunningService<rmcp::RoleClient, ClientInfo>> {
-        let mut cmd = Command::new(command);
+        use std::time::Instant;
 
-        if let Some(cmd_args) = args {
-            cmd.args(cmd_args);
-        }
+        let start_time = Instant::now();
+        let mcp_id = self.server_config.mcp_id.clone().unwrap_or_else(|| "unknown".into());
 
-        if let Some(env_vars) = env {
-            for (k, v) in env_vars {
-                cmd.env(k, v);
+        // 使用 process-wrap 创建子进程命令（跨平台进程清理）
+        // process-wrap 会自动处理进程组（Unix）或 Job Object（Windows）
+        // 并且在 Drop 时自动清理子进程树
+        let mut wrapped_cmd = TokioCommandWrap::with_new(command, |cmd| {
+            if let Some(cmd_args) = args {
+                cmd.args(cmd_args);
             }
-        }
+            if let Some(env_vars) = env {
+                for (k, v) in env_vars {
+                    cmd.env(k, v);
+                }
+            }
+        });
+
+        // Unix: 创建进程组，支持 killpg 清理整个进程树
+        #[cfg(unix)]
+        wrapped_cmd.wrap(ProcessGroup::leader());
+
+        // 所有平台: Drop 时自动清理进程
+        wrapped_cmd.wrap(KillOnDrop);
+
+        // Windows: 使用 Job Object 进行进程管理
+        #[cfg(windows)]
+        wrapped_cmd.wrap(JobObject::new(None)?);
 
         info!(
-            "[SseServerBuilder] Starting child process - command: {}, args: {:?}",
+            "[SseServerBuilder] Starting child process - MCP ID: {}, command: {}, args: {:?}",
+            mcp_id,
             command,
             args.as_ref().unwrap_or(&vec![])
         );
 
-        let tokio_process = TokioChildProcess::new(cmd)?;
-        let client = client_info.clone().serve(tokio_process).await?;
+        let process_start = Instant::now();
+        let tokio_process = TokioChildProcess::new(wrapped_cmd)?;
+        let process_duration = process_start.elapsed();
 
-        info!("[SseServerBuilder] Child process connected successfully");
+        debug!(
+            "[SseServerBuilder] Child process spawned - MCP ID: {}, spawn time: {:?}",
+            mcp_id, process_duration
+        );
+
+        let serve_start = Instant::now();
+        let client = client_info.clone().serve(tokio_process).await?;
+        let serve_duration = serve_start.elapsed();
+        let total_duration = start_time.elapsed();
+
+        let warn_msg = "建议的优化方案: \
+            1) 检查网络连接速度 (npm 包下载) \
+            2) 配置国内 npm 镜像 (如淘宝镜像: npm config set registry https://registry.npmmirror.com) \
+            3) 预热服务 (启动 mcp-proxy 时预先加载常用服务) \
+            4) 检查命令参数是否正确";
+
+        log_connection_timing(
+            &mcp_id,
+            "Stdio",
+            total_duration,
+            &[("spawn", process_duration), ("serve", serve_duration)],
+            STDIO_SLOW_THRESHOLD_SECS,
+            warn_msg,
+        );
+
         Ok(client)
     }
 
@@ -248,7 +357,15 @@ impl SseServerBuilder {
         headers: &Option<HashMap<String, String>>,
         client_info: &ClientInfo,
     ) -> Result<rmcp::service::RunningService<rmcp::RoleClient, ClientInfo>> {
-        info!("[SseServerBuilder] Connecting to SSE URL backend: {}", url);
+        use std::time::Instant;
+
+        let start_time = Instant::now();
+        let mcp_id = self.server_config.mcp_id.clone().unwrap_or_else(|| "unknown".into());
+
+        info!(
+            "[SseServerBuilder] Connecting to SSE URL backend - MCP ID: {}, URL: {}",
+            mcp_id, url
+        );
 
         // Build HTTP client with custom headers
         let mut req_headers = reqwest::header::HeaderMap::new();
@@ -276,10 +393,24 @@ impl SseServerBuilder {
             ..Default::default()
         };
 
+        let transport_start = Instant::now();
         let sse_transport = SseClientTransport::start_with_client(http_client, sse_config).await?;
-        let client = client_info.clone().serve(sse_transport).await?;
+        let transport_duration = transport_start.elapsed();
 
-        info!("[SseServerBuilder] SSE URL backend connected successfully");
+        let serve_start = Instant::now();
+        let client = client_info.clone().serve(sse_transport).await?;
+        let serve_duration = serve_start.elapsed();
+        let total_duration = start_time.elapsed();
+
+        log_connection_timing(
+            &mcp_id,
+            "SSE",
+            total_duration,
+            &[("transport", transport_duration), ("serve", serve_duration)],
+            HTTP_SLOW_THRESHOLD_SECS,
+            "建议: 检查网络连接和后端服务状态",
+        );
+
         Ok(client)
     }
 
@@ -290,9 +421,14 @@ impl SseServerBuilder {
         headers: &Option<HashMap<String, String>>,
         client_info: &ClientInfo,
     ) -> Result<rmcp::service::RunningService<rmcp::RoleClient, ClientInfo>> {
+        use std::time::Instant;
+
+        let start_time = Instant::now();
+        let mcp_id = self.server_config.mcp_id.clone().unwrap_or_else(|| "unknown".into());
+
         info!(
-            "[SseServerBuilder] Connecting to Streamable HTTP URL backend: {}",
-            url
+            "[SseServerBuilder] Connecting to Streamable HTTP URL backend - MCP ID: {}, URL: {}",
+            mcp_id, url
         );
 
         // Build HTTP client with custom headers (excluding Authorization)
@@ -329,10 +465,21 @@ impl SseServerBuilder {
             ..Default::default()
         };
 
+        let serve_start = Instant::now();
         let transport = StreamableHttpClientTransport::with_client(http_client, config);
         let client = client_info.clone().serve(transport).await?;
+        let serve_duration = serve_start.elapsed();
+        let total_duration = start_time.elapsed();
 
-        info!("[SseServerBuilder] Streamable HTTP URL backend connected successfully");
+        log_connection_timing(
+            &mcp_id,
+            "Streamable HTTP",
+            total_duration,
+            &[("serve", serve_duration)],
+            HTTP_SLOW_THRESHOLD_SECS,
+            "建议: 检查网络连接和后端服务状态",
+        );
+
         Ok(client)
     }
 
@@ -351,7 +498,14 @@ impl SseServerBuilder {
         };
 
         let (sse_server, router) = SseServer::new(config);
-        let ct = sse_server.with_service(move || sse_handler.clone());
+
+        // Use with_service_directly for non-stateful mode (OneShot services)
+        // This skips MCP initialization for faster responses
+        let ct = if self.server_config.stateful {
+            sse_server.with_service(move || sse_handler.clone())
+        } else {
+            sse_server.with_service_directly(move || sse_handler.clone())
+        };
 
         Ok((router, ct))
     }
@@ -384,5 +538,76 @@ mod tests {
         assert_eq!(config.sse_path, "/sse");
         assert_eq!(config.post_path, "/message");
         assert_eq!(config.keep_alive_secs, 15);
+        assert!(config.stateful, "default stateful should be true for backward compatibility");
+    }
+
+    #[test]
+    fn test_stateful_flag_default() {
+        let builder = SseServerBuilder::new(BackendConfig::Stdio {
+            command: "echo".into(),
+            args: None,
+            env: None,
+        });
+        assert!(
+            builder.server_config.stateful,
+            "stateful should default to true"
+        );
+    }
+
+    #[test]
+    fn test_stateful_flag_disabled() {
+        let builder = SseServerBuilder::new(BackendConfig::Stdio {
+            command: "echo".into(),
+            args: None,
+            env: None,
+        })
+        .stateful(false);
+        assert!(!builder.server_config.stateful, "stateful should be false when set");
+    }
+
+    #[test]
+    fn test_stateful_flag_enabled() {
+        let builder = SseServerBuilder::new(BackendConfig::Stdio {
+            command: "echo".into(),
+            args: None,
+            env: None,
+        })
+        .stateful(true);
+        assert!(builder.server_config.stateful, "stateful should be true when set");
+    }
+
+    #[test]
+    fn test_timing_constants() {
+        assert_eq!(STDIO_SLOW_THRESHOLD_SECS, 30);
+        assert_eq!(HTTP_SLOW_THRESHOLD_SECS, 10);
+    }
+
+    #[test]
+    fn test_log_connection_timing_format() {
+        use std::time::Duration;
+        // Test that the function doesn't panic and formats correctly
+        log_connection_timing(
+            "test-mcp",
+            "TestBackend",
+            Duration::from_millis(1500),
+            &[("step1", Duration::from_millis(500)), ("step2", Duration::from_millis(1000))],
+            10,
+            "Test warning message",
+        );
+        // If we get here, the function works correctly
+    }
+
+    #[test]
+    fn test_log_connection_timing_no_breakdown() {
+        use std::time::Duration;
+        // Test with empty breakdown
+        log_connection_timing(
+            "test-mcp",
+            "TestBackend",
+            Duration::from_millis(500),
+            &[],
+            10,
+            "Test warning message",
+        );
     }
 }

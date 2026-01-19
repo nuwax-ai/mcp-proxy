@@ -1,6 +1,6 @@
 use anyhow::Result;
 use axum::{Json, extract::State, http::uri::Uri};
-use log::{error, info};
+use log::error;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
@@ -10,9 +10,9 @@ use crate::{
     model::{
         AppState, CheckMcpStatusRequestParams, CheckMcpStatusResponseParams,
         CheckMcpStatusResponseStatus, HttpResult, McpConfig, McpProtocol, McpRouterPath,
-        McpServerConfig, McpServiceStatus, McpType,
+        McpServiceStatus, McpType,
     },
-    server::{detect_mcp_protocol, mcp_start_task},
+    server::mcp_start_task,
 };
 
 /// 创建响应结果的辅助函数
@@ -155,7 +155,7 @@ fn spawn_mcp_service(
 
     // 设置初始化状态 - 使用客户端协议创建路由路径
     let mcp_router_path = McpRouterPath::new(mcp_id.clone(), client_protocol.clone())
-        .map_err(|e| AppError::McpServerError(e))?;
+        .map_err(AppError::McpServerError)?;
     let mcp_service_status = McpServiceStatus::new(
         mcp_id.clone(),
         mcp_type.clone(),

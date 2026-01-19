@@ -4,8 +4,6 @@
 
 use super::args::{ConvertArgs, LoggingArgs};
 use super::config::{McpConfigSource, parse_convert_config};
-use std::collections::HashMap;
-use std::path::PathBuf;
 
 #[cfg(test)]
 mod config_parsing_tests {
