@@ -176,12 +176,9 @@ impl ProxyHandlerManager {
 
     // 更新最后访问时间
     pub fn update_last_accessed(&self, mcp_id: &str) {
-        self.mcp_service_statuses
-            .get_mut(mcp_id)
-            .iter_mut()
-            .for_each(|entry| {
-                entry.value_mut().update_last_accessed();
-            })
+        if let Some(mut entry) = self.mcp_service_statuses.get_mut(mcp_id) {
+            entry.value_mut().update_last_accessed();
+        }
     }
 
     //修改 mcp服务状态,Ready/Pending/Error
@@ -276,13 +273,17 @@ impl ProxyHandlerManager {
 
     // 系统关闭,清理所有资源
     pub async fn cleanup_all_resources(&self) -> Result<()> {
-        for mcp_service_entry in self.mcp_service_statuses.iter() {
-            if let Err(e) = self.cleanup_resources(mcp_service_entry.key()).await {
-                error!(
-                    "Failed to cleanup resources for {}: {}",
-                    mcp_service_entry.key(),
-                    e
-                );
+        // 先收集所有 mcp_id，避免在遍历时修改 DashMap
+        let mcp_ids: Vec<String> = self
+            .mcp_service_statuses
+            .iter()
+            .map(|entry| entry.key().clone())
+            .collect();
+
+        // 再逐个清理资源
+        for mcp_id in mcp_ids {
+            if let Err(e) = self.cleanup_resources(&mcp_id).await {
+                error!("Failed to cleanup resources for {}: {}", mcp_id, e);
                 // 继续清理其他资源，不中断整个清理过程
             }
         }
@@ -489,21 +490,21 @@ impl RestartTracker {
     /// }
     /// ```
     pub fn try_acquire_startup_lock(&self, mcp_id: &str) -> Option<Arc<Mutex<()>>> {
-        // 首先检查该服务是否已经有正在进行的启动
-        if let Some(lock) = self.startup_locks.get(mcp_id) {
-            // 服务已经有锁，尝试获取
-            match lock.try_lock() {
-                Ok(_) => Some(lock.clone()),
-                Err(_) => {
-                    debug!("服务 {} 正在启动中，跳过本次启动", mcp_id);
-                    None
-                }
-            }
-        } else {
-            // 服务没有锁，创建并返回
-            let lock = Arc::new(Mutex::new(()));
-            self.startup_locks.insert(mcp_id.to_string(), lock.clone());
+        // 使用 entry API 确保原子性，避免竞态条件
+        let lock = self
+            .startup_locks
+            .entry(mcp_id.to_string())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone();
+
+        // 尝试获取锁，检查是否可用
+        if lock.try_lock().is_ok() {
+            // 锁可用，返回锁（try_lock 返回的 guard 已被 drop）
             Some(lock)
+        } else {
+            // 锁被占用，服务正在启动中
+            debug!("服务 {} 正在启动中，跳过本次启动", mcp_id);
+            None
         }
     }
 
