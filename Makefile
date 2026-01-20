@@ -114,7 +114,17 @@ build-image-document-parser:
 # 运行 Docker 镜像（mcp-proxy）
 .PHONY: run
 run: build-image
-	@echo "🚀 使用 docker-compose 启动 mcp-proxy..."
+	@echo "🚀 使用 docker-compose 后台启动 mcp-proxy..."
+	cd docker && docker-compose up -d
+	@echo "✅ mcp-proxy 已在后台启动"
+	@echo "📋 查看日志: cd docker && docker-compose logs -f"
+	@echo "🛑 停止服务: cd docker && docker-compose down"
+	@echo "📊 查看状态: cd docker && docker-compose ps"
+
+# 运行 Docker 镜像（mcp-proxy，前台模式）
+.PHONY: run-fg
+run-fg: build-image
+	@echo "🚀 使用 docker-compose 前台启动 mcp-proxy..."
 	cd docker && docker-compose up
 
 # 运行 Docker 镜像（document-parser）
@@ -301,7 +311,8 @@ help:
 	@echo "    make build-image-document-parser    - 构建 document-parser Docker 运行镜像"
 	@echo ""
 	@echo "  🚀 运行命令:"
-	@echo "    make run                            - 构建 + 使用 docker-compose 启动 mcp-proxy"
+	@echo "    make run                            - 构建 + 后台启动 mcp-proxy（docker-compose -d）"
+	@echo "    make run-fg                         - 构建 + 前台启动 mcp-proxy（docker-compose）"
 	@echo "    make run-document-parser            - 运行 document-parser Docker 镜像"
 	@echo ""
 	@echo "  🛠️ 工具命令:"
@@ -327,7 +338,8 @@ help:
 	@echo "    make build-mcp-proxy                # 构建 mcp-proxy（当前架构）"
 	@echo "    make build-all                      # 构建所有组件（当前架构）"
 	@echo "    make build-image                    # 构建 mcp-proxy Docker 镜像"
-	@echo "    make run                            # 构建 + 启动 mcp-proxy 服务"
+	@echo "    make run                            # 构建 + 后台启动 mcp-proxy 服务"
+	@echo "    make run-fg                         # 构建 + 前台启动 mcp-proxy 服务"
 	@echo "    make mcp-version-show               # 查看当前版本号"
 	@echo "    make mcp-publish-dry-run            # 预览 MCP 发布（建议先运行此命令）"
 	@echo ""
