@@ -60,12 +60,8 @@ pub async fn check_mcp_status_handler(
                 );
             }
             CheckMcpStatusResponseStatus::Pending => {
-                // 如果正在初始化，返回PENDING状态
-                return create_response(
-                    false,
-                    CheckMcpStatusResponseStatus::Pending,
-                    Some("服务正在初始化中...".to_string()),
-                );
+                // 如果状态是 Pending，继续检查 proxy_handler 是否已经创建
+                // 不要直接返回，让下面的代码检查实际状态
             }
             CheckMcpStatusResponseStatus::Ready => {
                 // 如果已经在运行，继续检查服务是否真的可用
