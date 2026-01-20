@@ -1,5 +1,5 @@
 # 多阶段构建 Dockerfile，用于跨平台编译 document-parser 和 voice-cli
-FROM rust:1.85 AS builder
+FROM rust:1.90 AS builder
 
 # 安装必要的构建依赖
 RUN apt-get update && apt-get install -y \

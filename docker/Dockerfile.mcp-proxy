@@ -1,0 +1,170 @@
+# Dockerfile for mcp-proxy
+# 多阶段构建，用于构建 mcp-proxy
+# 与线上环境保持依赖一致
+
+# ==============================================================================
+# 第一阶段：构建阶段
+# ==============================================================================
+FROM rust:1.90 AS builder
+
+# 设置环境变量避免交互式提示
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Asia/Shanghai
+
+# 设置 ARG TARGETARCH
+ARG TARGETARCH
+
+# 设置工作目录
+WORKDIR /build
+
+# 安装构建依赖
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    openssl \
+    ca-certificates \
+    build-essential \
+    libc6-dev \
+    gcc \
+    g++ \
+    libclang-dev \
+    clang \
+    cmake \
+    make \
+    && rm -rf /var/lib/apt/lists/*
+
+# 设置 libclang 路径 (bindgen 需要)
+ENV LIBCLANG_PATH=/usr/lib/llvm-14/lib
+
+# 复制源代码
+COPY . .
+
+# 根据 TARGETARCH 设置交叉编译环境
+RUN echo "=== Starting build process ==="
+RUN echo "Target architecture: $TARGETARCH"
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+        echo "Building for ARM64 architecture..." && \
+        apt-get update && apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu && \
+    else \
+        echo "Building for x86_64 architecture..." && \
+    fi
+
+# 构建 mcp-stdio-proxy
+RUN cargo build --release --bin mcp-proxy
+
+# ==============================================================================
+# 第二阶段：运行阶段
+# ==============================================================================
+FROM rust:1.90 AS runtime
+
+# 设置环境变量
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Asia/Shanghai
+ENV PATH="/root/.deno/bin:/root/.cargo/bin:/root/.local/bin:${PATH}"
+ENV UV_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
+
+# 安装基础依赖（与线上环境保持一致）
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-venv \
+    python3-dev \
+    python3-pip \
+    curl \
+    vim \
+    net-tools \
+    gettext-base \
+    telnet \
+    wget \
+    ffmpeg \
+    ca-certificates \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime \
+    && echo $TZ > /etc/timezone
+
+# 安装 Node.js 22.x（与线上环境保持一致）
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
+    && npm install -g npm@latest
+
+# ==============================================================================
+# 安装 Go
+# ==============================================================================
+# 设置 Go 环境变量
+ENV GOPATH=/root/go
+ENV PATH=$PATH:/usr/local/go/bin:/root/go/bin
+
+# 创建 Go 工作目录
+RUN mkdir -p $GOPATH/bin $GOPATH/src $GOPATH/pkg
+
+# 安装 Go 1.24（根据架构自动选择下载链接）
+ARG TARGETARCH
+RUN echo "Target Architecture: $TARGETARCH" \
+    && if [ "$TARGETARCH" = "amd64" ]; then \
+        GO_URL="https://go.dev/dl/go1.24.3.linux-amd64.tar.gz"; \
+    elif [ "$TARGETARCH" = "arm64" ]; then \
+        GO_URL="https://go.dev/dl/go1.24.3.linux-arm64.tar.gz"; \
+    else \
+        echo "Unsupported architecture: $TARGETARCH"; \
+        exit 1; \
+    fi \
+    && echo "Downloading Go from: $GO_URL" \
+    && curl -fsSL "$GO_URL" -o go.tar.gz \
+    && tar -C /usr/local -xzf go.tar.gz \
+    && rm go.tar.gz \
+    && ln -s /usr/local/go/bin/go /usr/local/bin/go \
+    && ln -s /usr/local/go/bin/gofmt /usr/local/bin/gofmt
+
+# 验证 Go 安装
+RUN go version
+
+# 测试mcp用 go-mcp-mysql@latest
+RUN go install -v github.com/Zhwt/go-mcp-mysql@latest
+
+# ==============================================================================
+# 安装 Deno
+# ==============================================================================
+RUN curl -fsSL https://deno.land/install.sh | sh
+
+# ==============================================================================
+# 安装 uv
+# ==============================================================================
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 创建虚拟环境
+RUN uv venv
+
+# ==============================================================================
+# 应用配置
+# ==============================================================================
+# 设置工作目录
+WORKDIR /app
+
+# 复制构建产物
+COPY --from=builder /build/target/release/mcp-proxy ./mcp-proxy
+
+# 复制默认配置文件
+COPY docker/config.yml /app/config.yml
+
+# 复制 npm 配置文件（配置国内镜像源）
+COPY docker/.npmrc /root/.npmrc
+
+# 复制 pip 配置文件（配置国内镜像源）
+COPY docker/pip.conf /etc/pip.conf
+
+# 创建日志目录
+RUN mkdir -p /app/logs
+
+# ==============================================================================
+# 暴露端口和健康检查
+# ==============================================================================
+# 暴露端口
+EXPOSE 8080
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+# 入口点
+ENTRYPOINT ["/app/mcp-proxy"]
+CMD ["--config", "/app/config.yml"]
