@@ -96,7 +96,7 @@ build-image:
 		--target runtime \
 		-t mcp-proxy:latest \
 		-f docker/Dockerfile.mcp-proxy \
-		..
+		$(shell pwd)
 	@echo "✅ Docker 镜像构建完成: mcp-proxy:latest"
 
 # 构建 Docker 镜像（document-parser）

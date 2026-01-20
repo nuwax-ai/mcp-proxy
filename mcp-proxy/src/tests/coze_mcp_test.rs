@@ -29,9 +29,9 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 
 use crate::{
+    mcp_start_task,
     model::{McpConfig, McpProtocol, McpType},
     proxy::{McpClientConfig, SseClientConnection},
-    mcp_start_task,
 };
 
 /// Builds Coze MCP configuration from environment variables
@@ -68,9 +68,7 @@ fn get_coze_config() -> Result<String> {
 #[ignore] // Mark as ignored since it requires network access
 async fn test_coze_streamable_to_sse_proxy() -> Result<()> {
     // Initialize logging for test
-    let _ = tracing_subscriber::fmt()
-        .with_test_writer()
-        .try_init();
+    let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
     println!("🧪 Starting Coze MCP test: Streamable HTTP -> SSE conversion");
 
@@ -109,7 +107,10 @@ async fn test_coze_streamable_to_sse_proxy() -> Result<()> {
 
     // Step 5: Construct SSE endpoint path
     // The SSE server exposes endpoints at /mcp/sse/proxy/{mcp_id}/sse
-    let sse_url = format!("http://127.0.0.1:{}/mcp/sse/proxy/coze_plugin_tianyancha/sse", port);
+    let sse_url = format!(
+        "http://127.0.0.1:{}/mcp/sse/proxy/coze_plugin_tianyancha/sse",
+        port
+    );
 
     // Step 6: Connect SSE client
     let client_config = McpClientConfig::new(sse_url.to_string());
@@ -123,13 +124,10 @@ async fn test_coze_streamable_to_sse_proxy() -> Result<()> {
     println!("✅ SSE client connected to {}", sse_url);
 
     // Step 7: Get tools list using the high-level API
-    let tools = tokio::time::timeout(
-        Duration::from_secs(30),
-        conn.list_tools(),
-    )
-    .await
-    .map_err(|_| anyhow::anyhow!("list_tools timeout (30s)"))?
-    .map_err(|e| anyhow::anyhow!("list_tools failed: {}", e))?;
+    let tools = tokio::time::timeout(Duration::from_secs(30), conn.list_tools())
+        .await
+        .map_err(|_| anyhow::anyhow!("list_tools timeout (30s)"))?
+        .map_err(|e| anyhow::anyhow!("list_tools failed: {}", e))?;
     println!("📋 Received tools/list response: {} tools", tools.len());
 
     // Step 8: Verify response structure

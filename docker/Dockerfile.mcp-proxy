@@ -36,18 +36,21 @@ RUN apt-get update && apt-get install -y \
 # 设置 libclang 路径 (bindgen 需要)
 ENV LIBCLANG_PATH=/usr/lib/llvm-14/lib
 
-# 复制源代码
-COPY . .
+# 复制源代码（复制所有 workspace 成员）
+COPY Cargo.toml Cargo.lock ./
+COPY mcp-common/ ./mcp-common/
+COPY mcp-sse-proxy/ ./mcp-sse-proxy/
+COPY mcp-streamable-proxy/ ./mcp-streamable-proxy/
+COPY mcp-proxy/ ./mcp-proxy/
+COPY oss-client/ ./oss-client/
+COPY document-parser/ ./document-parser/
+COPY voice-cli/ ./voice-cli/
+COPY fastembed/ ./fastembed/
 
 # 根据 TARGETARCH 设置交叉编译环境
 RUN echo "=== Starting build process ==="
 RUN echo "Target architecture: $TARGETARCH"
-RUN if [ "$TARGETARCH" = "arm64" ]; then \
-        echo "Building for ARM64 architecture..." && \
-        apt-get update && apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu && \
-    else \
-        echo "Building for x86_64 architecture..." && \
-    fi
+RUN if [ "$TARGETARCH" = "arm64" ]; then echo "Building for ARM64 architecture..." && apt-get update && apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu; else echo "Building for x86_64 architecture..."; fi
 
 # 构建 mcp-stdio-proxy
 RUN cargo build --release --bin mcp-proxy
@@ -165,6 +168,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
-# 入口点
+# 入口点 - 服务器模式会自动加载 /app/config.yml
 ENTRYPOINT ["/app/mcp-proxy"]
-CMD ["--config", "/app/config.yml"]
