@@ -7,7 +7,7 @@ use rmcp::{
     ErrorData, RoleClient, RoleServer, ServerHandler,
     model::{
         CallToolRequestParam, CallToolResult, ClientInfo, Content, Implementation, ListToolsResult,
-        PaginatedRequestParam, ServerInfo,
+        PaginatedRequestParam, ProtocolVersion, ServerInfo,
     },
     service::{NotificationContext, Peer, RequestContext, RunningService},
 };
@@ -734,7 +734,7 @@ impl SseHandler {
     fn default_server_info(mcp_id: &str) -> ServerInfo {
         warn!("[SseHandler] 创建默认 ServerInfo - MCP ID: {}", mcp_id);
         ServerInfo {
-            protocol_version: Default::default(),
+            protocol_version: ProtocolVersion::V_2024_11_05,
             server_info: Implementation {
                 name: "MCP Proxy".to_string(),
                 version: "0.1.0".to_string(),

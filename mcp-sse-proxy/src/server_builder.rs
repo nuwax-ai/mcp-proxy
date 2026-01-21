@@ -18,7 +18,7 @@ use process_wrap::tokio::JobObject;
 
 use rmcp::{
     ServiceExt,
-    model::{ClientCapabilities, ClientInfo},
+    model::{ClientCapabilities, ClientInfo, ProtocolVersion},
     transport::{
         SseClientTransport, TokioChildProcess,
         sse_client::SseClientConfig,
@@ -229,7 +229,7 @@ impl SseServerBuilder {
 
         // Create client info for connecting to backend
         let client_info = ClientInfo {
-            protocol_version: Default::default(),
+            protocol_version: ProtocolVersion::V_2024_11_05,
             capabilities: ClientCapabilities::builder()
                 .enable_experimental()
                 .enable_roots()

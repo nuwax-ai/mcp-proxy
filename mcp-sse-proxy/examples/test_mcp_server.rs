@@ -11,7 +11,7 @@ use rmcp::{
     ErrorData, RoleServer, ServerHandler, ServiceExt,
     model::{
         CallToolRequestParam, CallToolResult, Content, Implementation, JsonObject, ListToolsResult,
-        PaginatedRequestParam, ServerCapabilities, ServerInfo, Tool,
+        PaginatedRequestParam, ProtocolVersion, ServerCapabilities, ServerInfo, Tool,
     },
     service::RequestContext,
     transport::stdio,
@@ -121,7 +121,7 @@ impl Default for TestMcpServer {
 impl ServerHandler for TestMcpServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
-            protocol_version: Default::default(),
+            protocol_version: ProtocolVersion::V_2024_11_05,
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: Implementation {
                 name: "test-mcp-server".to_string(),
