@@ -1,0 +1,37 @@
+# Docker Compose 配置文件 for mcp-proxy
+# 用于快速启动和测试 mcp-proxy 服务
+
+version: '3.8'
+
+services:
+  mcp-proxy:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.mcp-proxy
+    image: mcp-proxy:latest
+    container_name: mcp-proxy
+    ports:
+      - "8080:8080"
+    volumes:
+      # 挂载配置文件（可选，用于覆盖默认配置）
+      - ./config.yml:/app/config.yml:ro
+      # 挂载日志目录（可选，用于持久化日志）
+      - ./logs:/app/logs
+    environment:
+      # 日志级别（可通过环境变量覆盖配置文件）
+      - RUST_LOG=info
+      # 服务端口（可通过环境变量覆盖配置文件）
+      - MCP_PROXY_PORT=8080
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    networks:
+      - mcp-network
+
+networks:
+  mcp-network:
+    driver: bridge

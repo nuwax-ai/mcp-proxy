@@ -6,7 +6,7 @@ use anyhow::{Result, bail};
 pub use mcp_common::McpServiceConfig;
 use rmcp::{
     ServiceExt,
-    model::{ClientCapabilities, ClientInfo},
+    model::{ClientCapabilities, ClientInfo, ProtocolVersion},
     transport::{
         TokioChildProcess,
         sse_server::{SseServer, SseServerConfig},
@@ -16,7 +16,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 // 进程组管理（跨平台子进程清理）
-use process_wrap::tokio::{TokioCommandWrap, ProcessGroup, KillOnDrop};
+use process_wrap::tokio::{KillOnDrop, ProcessGroup, TokioCommandWrap};
 
 #[cfg(windows)]
 use process_wrap::tokio::JobObject;
@@ -65,7 +65,7 @@ pub async fn run_sse_server_from_config(
 
     // 3. 创建客户端信息
     let client_info = ClientInfo {
-        protocol_version: Default::default(),
+        protocol_version: ProtocolVersion::V_2024_11_05,
         capabilities: ClientCapabilities::builder()
             .enable_experimental()
             .enable_roots()

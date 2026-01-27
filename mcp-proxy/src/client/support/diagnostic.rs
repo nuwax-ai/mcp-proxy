@@ -128,7 +128,7 @@ pub fn print_diagnostic_report(
 
     // 分析可能的原因
     eprintln!("\n可能原因分析:");
-    if alive_duration_secs >= 28 && alive_duration_secs <= 32 {
+    if (28..=32).contains(&alive_duration_secs) {
         eprintln!("  ⚠️  连接在约 30 秒时断开，极有可能是:");
         eprintln!("     1. 服务器端设置了 30 秒超时限制");
         eprintln!("     2. 负载均衡器（如 Nginx/ALB）的默认超时");

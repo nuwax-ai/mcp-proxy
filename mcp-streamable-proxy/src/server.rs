@@ -18,7 +18,7 @@ use tracing::{error, info, warn};
 
 // 进程组管理（跨平台子进程清理）
 // process-wrap 9.0 使用 CommandWrap 而不是 TokioCommandWrap
-use process_wrap::tokio::{CommandWrap, ProcessGroup, KillOnDrop};
+use process_wrap::tokio::{CommandWrap, KillOnDrop, ProcessGroup};
 
 #[cfg(windows)]
 use process_wrap::tokio::JobObject;

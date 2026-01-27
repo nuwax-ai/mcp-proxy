@@ -138,21 +138,21 @@ pub fn extract_trace_id() -> String {
 #[allow(dead_code)]
 pub fn extract_trace_from_headers(headers: &HeaderMap) -> Option<String> {
     // 尝试从 W3C Trace Context 中提取
-    if let Some(traceparent) = headers.get("traceparent") {
-        if let Ok(traceparent_str) = traceparent.to_str() {
-            // traceparent 格式: 00-{trace_id}-{span_id}-{flags}
-            let parts: Vec<&str> = traceparent_str.split('-').collect();
-            if parts.len() >= 2 {
-                return Some(parts[1].to_string());
-            }
+    if let Some(traceparent) = headers.get("traceparent")
+        && let Ok(traceparent_str) = traceparent.to_str()
+    {
+        // traceparent 格式: 00-{trace_id}-{span_id}-{flags}
+        let parts: Vec<&str> = traceparent_str.split('-').collect();
+        if parts.len() >= 2 {
+            return Some(parts[1].to_string());
         }
     }
 
     // 尝试从自定义头中提取
-    if let Some(trace_id) = headers.get("x-trace-id") {
-        if let Ok(trace_id_str) = trace_id.to_str() {
-            return Some(trace_id_str.to_string());
-        }
+    if let Some(trace_id) = headers.get("x-trace-id")
+        && let Ok(trace_id_str) = trace_id.to_str()
+    {
+        return Some(trace_id_str.to_string());
     }
 
     None

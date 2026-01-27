@@ -2,8 +2,7 @@ use std::str::FromStr;
 
 use axum::{extract::Request, http::StatusCode, middleware::Next, response::Response};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use log::debug;
-use tracing::info;
+use tracing::debug;
 
 use crate::model::{McpConfig, McpRouterPath, McpType};
 
@@ -33,7 +32,7 @@ pub(crate) async fn mcp_json_config_extract(
                         .decode(encoded)
                         .ok()
                         .and_then(|bytes| String::from_utf8(bytes).ok());
-                    info!("解析出来的MCP配置,x-mcp-json={:?}", &decoded);
+                    debug!("解析出来的MCP配置,x-mcp-json={:?}", &decoded);
 
                     decoded
                 });

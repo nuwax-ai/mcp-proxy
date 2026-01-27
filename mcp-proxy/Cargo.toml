@@ -65,9 +65,9 @@ urlencoding = { workspace = true }
 base64 = { workspace = true }
 async-trait.workspace = true
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
+moka = { workspace = true, features = ["future"] }
 
 # 进程组管理（跨平台子进程清理）
-# 版本需要与 mcp-streamable-proxy 的 rmcp 0.12 兼容
 process-wrap = { version = "9.0", features = ["tokio1"] }
 
 [[bin]]

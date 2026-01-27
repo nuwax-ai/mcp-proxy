@@ -163,10 +163,8 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
             parsed.config.command,
             parsed.config.args.as_ref().unwrap_or(&vec![])
         );
-        if verbose {
-            if let Some(ref env) = parsed.config.env {
-                eprintln!("   环境变量: {:?}", env);
-            }
+        if verbose && let Some(ref env) = parsed.config.env {
+            eprintln!("   环境变量: {:?}", env);
         }
         // 显示过滤器配置
         if let Some(ref allow_tools) = args.allow_tools {

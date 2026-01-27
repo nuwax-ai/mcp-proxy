@@ -1,4 +1,4 @@
-# Makefile for cross-platform compilation of document-parser and voice-cli
+# Makefile for cross-platform compilation of document-parser, voice-cli and mcp-proxy
 
 # 默认目标平台
 TARGET_PLATFORM ?= linux/amd64
@@ -14,7 +14,7 @@ define build_target
 	@echo "🚀 构建 $(1) $(2) 版本..."
 	@git pull
 	@mkdir -p $(3)
-	docker buildx build --platform $(4) --target export --output type=local,dest=$(3) .
+	docker buildx build --platform $(4) --target export --output type=local,dest=$(3) -f docker/Dockerfile.document-parser ..
 	@echo "✅ $(1) $(2) 版本构建完成"
 endef
 
@@ -63,43 +63,75 @@ build-voice-cli-arm64:
 build-voice-cli-multi: build-voice-cli-x86_64 build-voice-cli-arm64
 
 # ============================================================================
+# MCP Proxy 构建目标
+# ============================================================================
+
+# 构建 mcp-proxy（按照当前系统架构）
+.PHONY: build-mcp-proxy
+build-mcp-proxy:
+	@echo "🚀 构建 mcp-proxy（当前系统架构）..."
+	@git pull
+	@mkdir -p ./dist/mcp-proxy
+	docker buildx build \
+		--target export \
+		--output type=local,dest=./dist/mcp-proxy \
+		-f docker/Dockerfile.mcp-proxy \
+		..
+	@echo "✅ mcp-proxy 构建完成"
+
+# ============================================================================
 # 所有组件构建目标
 # ============================================================================
 
-# 构建所有组件 Linux x86_64 版本
-.PHONY: build-all-x86_64
-build-all-x86_64: build-document-parser-x86_64 build-voice-cli-x86_64
-
-# 构建所有组件 Linux ARM64 版本
-.PHONY: build-all-arm64
-build-all-arm64: build-document-parser-arm64 build-voice-cli-arm64
-
-# 构建所有组件多平台版本
-.PHONY: build-all-multi
-build-all-multi: build-document-parser-multi build-voice-cli-multi
+# 构建所有组件（当前系统架构）
+.PHONY: build-all
+build-all: build-document-parser-x86_64 build-voice-cli-x86_64 build-mcp-proxy
 
 # 构建 Docker 镜像（用于运行）
 .PHONY: build-image
 build-image:
-	@echo "🚀 构建 Docker 运行镜像..."
+	@echo "🚀 构建 mcp-proxy Docker 运行镜像..."
 	docker buildx build \
 		--platform $(TARGET_PLATFORM) \
 		--target runtime \
-		-t $(IMAGE_NAME):latest \
-		-f Dockerfile .
-	@echo "✅ Docker 镜像构建完成: $(IMAGE_NAME):latest"
+		-t mcp-proxy:latest \
+		-f docker/Dockerfile.mcp-proxy \
+		$(shell pwd)
+	@echo "✅ Docker 镜像构建完成: mcp-proxy:latest"
 
-# 运行 Docker 镜像
+# 构建 Docker 镜像（document-parser）
+.PHONY: build-image-document-parser
+build-image-document-parser:
+	@echo "🚀 构建 document-parser Docker 运行镜像..."
+	docker buildx build \
+		--platform $(TARGET_PLATFORM) \
+		--target runtime \
+		-t document-parser:latest \
+		-f docker/Dockerfile.document-parser \
+		..
+	@echo "✅ Docker 镜像构建完成: document-parser:latest"
+
+# 运行 Docker 镜像（mcp-proxy）
 .PHONY: run
-run:
-	@echo "🚀 运行 document-parser..."
-	docker run --rm -p 8080:8080 $(IMAGE_NAME):latest
+run: build-image
+	@echo "🚀 使用 docker-compose 后台启动 mcp-proxy..."
+	cd docker && docker-compose up -d
+	@echo "✅ mcp-proxy 已在后台启动"
+	@echo "📋 查看日志: cd docker && docker-compose logs -f"
+	@echo "🛑 停止服务: cd docker && docker-compose down"
+	@echo "📊 查看状态: cd docker && docker-compose ps"
 
-# 启动 mcp-proxy
-.PHONY: run-mcp-proxy
-run-mcp-proxy:
-	@echo "🚀 启动 mcp-proxy..."
-	cargo run --bin mcp-proxy 2>&1 | tee mcp-proxy/tmp/test.log
+# 运行 Docker 镜像（mcp-proxy，前台模式）
+.PHONY: run-fg
+run-fg: build-image
+	@echo "🚀 使用 docker-compose 前台启动 mcp-proxy..."
+	cd docker && docker-compose up
+
+# 运行 Docker 镜像（document-parser）
+.PHONY: run-document-parser
+run-document-parser:
+	@echo "🚀 运行 document-parser..."
+	docker run --rm -p 8080:8080 document-parser:latest
 
 # 检查 Docker buildx 是否可用
 .PHONY: check-buildx
@@ -268,15 +300,20 @@ help:
 	@echo "    make build-voice-cli-arm64          - 构建 voice-cli Linux ARM64 版本"
 	@echo "    make build-voice-cli-multi          - 构建 voice-cli 多平台版本"
 	@echo ""
+	@echo "  🔌 MCP Proxy 构建:"
+	@echo "    make build-mcp-proxy                - 构建 mcp-proxy（当前系统架构）"
+	@echo ""
 	@echo "  🔧 所有组件构建:"
-	@echo "    make build-all-x86_64               - 构建所有组件 Linux x86_64 版本"
-	@echo "    make build-all-arm64                - 构建所有组件 Linux ARM64 版本"
-	@echo "    make build-all-multi                - 构建所有组件多平台版本"
-	@echo "    make build-image                    - 构建 Docker 运行镜像"
+	@echo "    make build-all                      - 构建所有组件（当前系统架构）"
+	@echo ""
+	@echo "  🐳 Docker 镜像:"
+	@echo "    make build-image                    - 构建 mcp-proxy Docker 运行镜像"
+	@echo "    make build-image-document-parser    - 构建 document-parser Docker 运行镜像"
 	@echo ""
 	@echo "  🚀 运行命令:"
-	@echo "    make run                            - 运行 document-parser Docker 镜像"
-	@echo "    make run-mcp-proxy                  - 启动 mcp-proxy 并输出日志到 tmp/test.log"
+	@echo "    make run                            - 构建 + 后台启动 mcp-proxy（docker-compose -d）"
+	@echo "    make run-fg                         - 构建 + 前台启动 mcp-proxy（docker-compose）"
+	@echo "    make run-document-parser            - 运行 document-parser Docker 镜像"
 	@echo ""
 	@echo "  🛠️ 工具命令:"
 	@echo "    make check-buildx                   - 检查 Docker buildx 状态"
@@ -298,17 +335,23 @@ help:
 	@echo ""
 	@echo "📝 示例用法:"
 	@echo "    make                                # 构建 document-parser Linux x86_64 版本"
-	@echo "    make build-voice-cli-x86_64         # 构建 voice-cli Linux x86_64 版本"
-	@echo "    make build-voice-cli-multi          # 构建 voice-cli 多平台版本"
-	@echo "    make build-all-x86_64               # 构建所有组件 Linux x86_64 版本"
-	@echo "    make build-all-multi                # 构建所有组件多平台版本"
+	@echo "    make build-mcp-proxy                # 构建 mcp-proxy（当前架构）"
+	@echo "    make build-all                      # 构建所有组件（当前架构）"
+	@echo "    make build-image                    # 构建 mcp-proxy Docker 镜像"
+	@echo "    make run                            # 构建 + 后台启动 mcp-proxy 服务"
+	@echo "    make run-fg                         # 构建 + 前台启动 mcp-proxy 服务"
 	@echo "    make mcp-version-show               # 查看当前版本号"
-	@echo "    make mcp-version-update             # 更新版本号（0.1.0 -> 0.1.1）"
 	@echo "    make mcp-publish-dry-run            # 预览 MCP 发布（建议先运行此命令）"
-	@echo "    make mcp-publish                    # 发布 MCP 包到 crates.io"
 	@echo ""
 	@echo "📊 输出目录: ./dist/"
+	@echo "    mcp-proxy/                          # MCP Proxy 二进制文件（当前架构）"
 	@echo "    document-parser-x86_64/             # Document Parser x86_64 二进制文件"
 	@echo "    document-parser-arm64/              # Document Parser ARM64 二进制文件"
 	@echo "    voice-cli-x86_64/                   # Voice CLI x86_64 二进制文件"
 	@echo "    voice-cli-arm64/                    # Voice CLI ARM64 二进制文件"
+	@echo ""
+	@echo "📁 Docker 目录: ./docker/"
+	@echo "    Dockerfile.mcp-proxy                # mcp-proxy Docker 构建文件"
+	@echo "    Dockerfile.document-parser          # document-parser/voice-cli Docker 构建文件"
+	@echo "    config.yml                          # mcp-proxy 默认配置文件"
+	@echo "    docker-compose.yml                  # Docker Compose 配置文件"

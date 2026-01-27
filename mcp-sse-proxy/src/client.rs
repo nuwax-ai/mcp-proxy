@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use mcp_common::McpClientConfig;
 use rmcp::{
     RoleClient, ServiceExt,
-    model::{ClientCapabilities, ClientInfo, Implementation},
+    model::{ClientCapabilities, ClientInfo, Implementation, ProtocolVersion},
     service::RunningService,
     transport::{
         SseClientTransport, common::client_side_sse::SseRetryPolicy, sse_client::SseClientConfig,
@@ -256,7 +256,7 @@ fn build_http_client(config: &McpClientConfig) -> Result<reqwest::Client> {
 /// Create default client info for MCP handshake
 fn create_default_client_info() -> ClientInfo {
     ClientInfo {
-        protocol_version: Default::default(),
+        protocol_version: ProtocolVersion::V_2024_11_05,
         capabilities: ClientCapabilities::builder()
             .enable_experimental()
             .enable_roots()
