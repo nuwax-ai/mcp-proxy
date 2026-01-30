@@ -14,7 +14,7 @@ use tower::Service;
 
 use crate::{
     DynamicRouterService, get_proxy_manager, mcp_start_task,
-    model::{GLOBAL_RESTART_TRACKER, HttpResult, McpConfig, McpRouterPath},
+    model::{CheckMcpStatusResponseStatus, GLOBAL_RESTART_TRACKER, HttpResult, McpConfig, McpRouterPath, McpType},
     server::middlewares::extract_trace_id,
 };
 
@@ -95,30 +95,115 @@ impl Service<Request<Body>> for DynamicRouterService {
                         );
 
                         // ===== 检查后端健康状态 =====
-                        // 提前提取 mcp_id，用于后续配置获取和重启逻辑
                         let mcp_id_for_check = McpRouterPath::from_url(&path);
-                        let should_restart = if let Some(router_path) = mcp_id_for_check {
+                        if let Some(router_path) = mcp_id_for_check {
                             let proxy_manager = get_proxy_manager();
+
+                            // ===== 首先检查服务状态 =====
+                            // 如果服务状态是 Pending，说明服务正在初始化中（uvx/npx 下载中）
+                            // 此时不应该做健康检查，应该等待
+                            if let Some(service_status) =
+                                proxy_manager.get_mcp_service_status(&router_path.mcp_id)
+                            {
+                                match &service_status.check_mcp_status_response_status {
+                                    CheckMcpStatusResponseStatus::Pending => {
+                                        debug!(
+                                            "[MCP状态检查] mcp_id={} 状态为 Pending，服务正在初始化中，返回 503",
+                                            router_path.mcp_id
+                                        );
+                                        let message = format!(
+                                            "服务 {} 正在初始化中，请稍后再试",
+                                            router_path.mcp_id
+                                        );
+                                        let http_result: HttpResult<String> =
+                                            HttpResult::error("0003", &message, None);
+                                        return Ok(http_result.into_response());
+                                    }
+                                    CheckMcpStatusResponseStatus::Error(err) => {
+                                        // Error 状态：只清理，不重启
+                                        // 避免有问题的 MCP 服务无限重启循环
+                                        warn!(
+                                            "[MCP状态检查] mcp_id={} 状态为 Error: {}，清理资源并返回错误",
+                                            router_path.mcp_id, err
+                                        );
+                                        // 清理资源
+                                        if let Err(e) =
+                                            proxy_manager.cleanup_resources(&router_path.mcp_id).await
+                                        {
+                                            error!(
+                                                "[MCP状态检查] mcp_id={} 清理资源失败: {}",
+                                                router_path.mcp_id, e
+                                            );
+                                        }
+                                        // 返回错误，不尝试重启
+                                        let message = format!(
+                                            "服务 {} 启动失败: {}",
+                                            router_path.mcp_id, err
+                                        );
+                                        let http_result: HttpResult<String> =
+                                            HttpResult::error("0005", &message, None);
+                                        return Ok(http_result.into_response());
+                                    }
+                                    CheckMcpStatusResponseStatus::Ready => {
+                                        debug!(
+                                            "[MCP状态检查] mcp_id={} 状态为 Ready，继续检查后端健康状态",
+                                            router_path.mcp_id
+                                        );
+                                    }
+                                }
+                            }
+
+                            // ===== 检查启动锁状态 =====
+                            // 如果锁被占用，说明服务正在启动中
+                            let startup_guard = GLOBAL_RESTART_TRACKER
+                                .try_acquire_startup_lock(&router_path.mcp_id);
+
+                            if startup_guard.is_none() {
+                                // 锁被占用，服务正在启动中，返回 503
+                                debug!(
+                                    "[启动锁检查] mcp_id={} 启动锁被占用，服务正在启动中，返回 503",
+                                    router_path.mcp_id
+                                );
+                                span.record("mcp.startup_in_progress", true);
+                                let message = format!(
+                                    "服务 {} 正在启动中，请稍后再试",
+                                    router_path.mcp_id
+                                );
+                                let http_result: HttpResult<String> =
+                                    HttpResult::error("0003", &message, None);
+                                span.record("http.response.status_code", 503u16);
+                                return Ok(http_result.into_response());
+                            }
+
+                            // 获取到锁，现在可以安全地检查健康状态
+                            let _startup_guard = startup_guard.unwrap();
+                            debug!(
+                                "[启动锁检查] mcp_id={} 成功获取启动锁，开始健康检查",
+                                router_path.mcp_id
+                            );
 
                             if let Some(handler) =
                                 proxy_manager.get_proxy_handler(&router_path.mcp_id)
                             {
-                                // 先检查缓存的健康状态（5秒缓存）
+                                // ===== 健康检查（带缓存）=====
                                 let is_healthy = if let Some(cached) = GLOBAL_RESTART_TRACKER
                                     .get_cached_health_status(&router_path.mcp_id)
                                 {
                                     debug!(
-                                        "使用缓存的健康状态: mcp_id={}, is_healthy={}",
+                                        "[健康检查] mcp_id={} 使用缓存状态: is_healthy={}",
                                         router_path.mcp_id, cached
                                     );
                                     cached
                                 } else {
-                                    // 缓存未命中，检查实际状态
+                                    debug!(
+                                        "[健康检查] mcp_id={} 缓存未命中，开始实际健康检查...",
+                                        router_path.mcp_id
+                                    );
                                     let status = handler.is_mcp_server_ready().await;
                                     GLOBAL_RESTART_TRACKER
                                         .update_health_status(&router_path.mcp_id, status);
                                     debug!(
-                                        "检查后端健康状态: mcp_id={}, is_healthy={}",
+                                        "[健康检查] mcp_id={} 实际健康检查结果: is_healthy={}",
                                         router_path.mcp_id, status
                                     );
                                     status
@@ -126,45 +211,141 @@ impl Service<Request<Body>> for DynamicRouterService {
 
                                 if is_healthy {
                                     debug!(
-                                        "后端服务正常，直接使用路由: mcp_id={}",
+                                        "[健康检查] mcp_id={} 后端服务正常，释放锁并使用路由",
                                         router_path.mcp_id
                                     );
-                                    false // 不需要重启
+                                    // 释放锁，使用路由
+                                    drop(_startup_guard);
+                                    debug!("=== 路由查找结束(成功) ===");
+                                    return handle_request_with_router(req, router_entry, &path)
+                                        .await;
+                                }
+
+                                // 不健康，获取服务类型以决定是否重启
+                                let mcp_type = proxy_manager
+                                    .get_mcp_service_status(&router_path.mcp_id)
+                                    .map(|s| s.mcp_type.clone());
+
+                                // 清理资源
+                                warn!(
+                                    "[健康检查] mcp_id={} 后端服务不健康，清理资源",
+                                    router_path.mcp_id
+                                );
+                                if let Err(e) =
+                                    proxy_manager.cleanup_resources(&router_path.mcp_id).await
+                                {
+                                    error!(
+                                        "[清理资源] mcp_id={} 清理资源失败: error={}",
+                                        router_path.mcp_id, e
+                                    );
                                 } else {
-                                    warn!(
-                                        "后端服务已终止，清理并尝试重启: mcp_id={}",
+                                    debug!(
+                                        "[清理资源] mcp_id={} 清理资源成功",
                                         router_path.mcp_id
                                     );
-                                    // 清理资源（包括路由）
+                                }
+
+                                // OneShot 类型：只清理，不重启
+                                // OneShot 服务执行完成后进程会退出，这是正常行为，不应该自动重启
+                                // 用户需要通过 check_status 接口显式启动新的 OneShot 服务
+                                if matches!(mcp_type, Some(McpType::OneShot)) {
+                                    debug!(
+                                        "[健康检查] mcp_id={} 是 OneShot 类型，不自动重启，返回服务已结束",
+                                        router_path.mcp_id
+                                    );
+                                    let message = format!(
+                                        "OneShot 服务 {} 已结束，请重新启动",
+                                        router_path.mcp_id
+                                    );
+                                    let http_result: HttpResult<String> =
+                                        HttpResult::error("0006", &message, None);
+                                    return Ok(http_result.into_response());
+                                }
+
+                                // Persistent 类型：清理后重启
+                                info!("[重启流程] mcp_id={} 是 Persistent 类型，开始重启服务", router_path.mcp_id);
+
+                                // 从配置获取 mcp_config 并启动服务
+                                // 优先从请求 header 获取配置
+                                if let Some(mcp_config) =
+                                    req.extensions().get::<McpConfig>().cloned()
+                                    && mcp_config.mcp_json_config.is_some()
+                                {
+                                    info!(
+                                        "[重启流程] mcp_id={} 使用请求 header 配置重启服务",
+                                        mcp_config.mcp_id
+                                    );
+                                    proxy_manager
+                                        .register_mcp_config(&mcp_config.mcp_id, mcp_config.clone())
+                                        .await;
+                                    return start_mcp_and_handle_request(req, mcp_config).await;
+                                }
+
+                                // 从缓存获取配置
+                                if let Some(mcp_config) = proxy_manager
+                                    .get_mcp_config_from_cache(&router_path.mcp_id)
+                                    .await
+                                {
+                                    info!(
+                                        "[重启流程] mcp_id={} 使用缓存配置重启服务",
+                                        router_path.mcp_id
+                                    );
+                                    return start_mcp_and_handle_request(req, mcp_config).await;
+                                }
+
+                                // 无法获取配置
+                                warn!(
+                                    "[重启流程] mcp_id={} 无法获取配置，无法重启服务",
+                                    router_path.mcp_id
+                                );
+                                let message = format!(
+                                    "服务 {} 不健康且无法获取配置",
+                                    router_path.mcp_id
+                                );
+                                let http_result: HttpResult<String> =
+                                    HttpResult::error("0004", &message, None);
+                                return Ok(http_result.into_response());
+                            } else {
+                                // handler 不存在，但路由存在
+                                // 检查服务类型，OneShot 不自动重启
+                                let mcp_type = proxy_manager
+                                    .get_mcp_service_status(&router_path.mcp_id)
+                                    .map(|s| s.mcp_type.clone());
+
+                                if matches!(mcp_type, Some(McpType::OneShot)) {
+                                    debug!(
+                                        "[服务检查] mcp_id={} 是 OneShot 类型且 handler 不存在，不自动重启",
+                                        router_path.mcp_id
+                                    );
+                                    // 清理残留状态
                                     if let Err(e) =
                                         proxy_manager.cleanup_resources(&router_path.mcp_id).await
                                     {
                                         error!(
-                                            "清理资源失败: mcp_id={}, error={}",
+                                            "[清理资源] mcp_id={} 清理资源失败: {}",
                                             router_path.mcp_id, e
                                         );
                                     }
-                                    true // 需要重启
+                                    let message = format!(
+                                        "OneShot 服务 {} 已结束，请重新启动",
+                                        router_path.mcp_id
+                                    );
+                                    let http_result: HttpResult<String> =
+                                        HttpResult::error("0006", &message, None);
+                                    return Ok(http_result.into_response());
                                 }
-                            } else {
-                                // handler 不存在，说明服务已被清理，需要重启
+
+                                // Persistent 类型：继续进入启动流程
                                 warn!(
-                                    "路由存在但 handler 不存在，需要重启: base_path={}",
+                                    "路由存在但 handler 不存在，进入重启流程: base_path={}",
                                     base_path
                                 );
-                                true
                             }
                         } else {
-                            // 无法解析路由路径，直接使用路由（不应该发生）
-                            false
-                        };
-
-                        if !should_restart {
+                            // 无法解析路由路径，直接使用路由
                             debug!("=== 路由查找结束(成功) ===");
                             return handle_request_with_router(req, router_entry, &path).await;
                         }
-                        // 后端已死，继续执行后续逻辑尝试重启
-                        debug!("后端已死，进入重启流程");
                     } else {
                         debug!(
                             "❌ 未找到已注册的路由: base_path='{}', path='{}'",
@@ -204,10 +385,10 @@ impl Service<Request<Body>> for DynamicRouterService {
                         }
 
                         // 尝试获取启动锁，防止并发启动同一服务
-                        let startup_lock = match GLOBAL_RESTART_TRACKER
+                        let _startup_guard = match GLOBAL_RESTART_TRACKER
                             .try_acquire_startup_lock(&mcp_config.mcp_id)
                         {
-                            Some(lock) => lock,
+                            Some(guard) => guard,
                             None => {
                                 warn!("服务 {} 正在启动中，跳过本次启动", mcp_config.mcp_id);
                                 span.record("error.startup_in_progress", true);
@@ -220,26 +401,40 @@ impl Service<Request<Body>> for DynamicRouterService {
                             }
                         };
 
-                        // 获取锁，确保服务启动期间其他请求等待
-                        let _guard = startup_lock.lock().await;
-
                         info!("使用请求 header 配置启动服务: {}", mcp_config.mcp_id);
                         // 同时更新缓存
                         proxy_manager
                             .register_mcp_config(&mcp_config.mcp_id, mcp_config.clone())
                             .await;
 
-                        // _guard 会在作用域结束时自动释放
+                        // _startup_guard 会在作用域结束时自动释放
                         return start_mcp_and_handle_request(req, mcp_config).await;
                     }
 
                     // 优先级 2: 从 moka 缓存中获取配置（兜底）
+                    // 注意：OneShot 类型不从缓存自动启动，需要用户显式请求（带 header 配置）
                     if let Some(mcp_id_for_cache) =
                         mcp_router_path_for_config.as_ref().map(|p| &p.mcp_id)
                         && let Some(mcp_config) = proxy_manager
                             .get_mcp_config_from_cache(mcp_id_for_cache)
                             .await
                     {
+                        // OneShot 类型不从缓存自动启动
+                        // 避免已回收的 OneShot 服务被意外重启
+                        if matches!(mcp_config.mcp_type, McpType::OneShot) {
+                            info!(
+                                "[启动检查] mcp_id={} 是 OneShot 类型，不从缓存自动启动，需要用户显式请求",
+                                mcp_id_for_cache
+                            );
+                            let message = format!(
+                                "OneShot 服务 {} 需要通过 check_status 接口启动",
+                                mcp_id_for_cache
+                            );
+                            let http_result: HttpResult<String> =
+                                HttpResult::error("0007", &message, None);
+                            return Ok(http_result.into_response());
+                        }
+
                         // 检查重启限制（防止无限循环）
                         if !GLOBAL_RESTART_TRACKER.can_restart(mcp_id_for_cache) {
                             warn!("服务 {} 在重启冷却期内，跳过启动", mcp_id_for_cache);
@@ -253,10 +448,10 @@ impl Service<Request<Body>> for DynamicRouterService {
                         }
 
                         // 尝试获取启动锁，防止并发启动同一服务
-                        let startup_lock = match GLOBAL_RESTART_TRACKER
+                        let _startup_guard = match GLOBAL_RESTART_TRACKER
                             .try_acquire_startup_lock(mcp_id_for_cache)
                         {
-                            Some(lock) => lock,
+                            Some(guard) => guard,
                             None => {
                                 warn!("服务 {} 正在启动中，跳过本次启动", mcp_id_for_cache);
                                 span.record("error.startup_in_progress", true);
@@ -269,11 +464,8 @@ impl Service<Request<Body>> for DynamicRouterService {
                             }
                         };
 
-                        // 获取锁，确保服务启动期间其他请求等待
-                        let _guard = startup_lock.lock().await;
-
                         info!("使用缓存配置启动服务: {}", mcp_id_for_cache);
-                        // _guard 会在作用域结束时自动释放
+                        // _startup_guard 会在作用域结束时自动释放
                         return start_mcp_and_handle_request(req, mcp_config).await;
                     }
 

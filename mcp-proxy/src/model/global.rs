@@ -4,7 +4,7 @@ use log::{debug, error, info};
 use moka::future::Cache;
 use once_cell::sync::Lazy;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, OwnedMutexGuard};
 use tokio::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
@@ -74,33 +74,221 @@ impl std::fmt::Debug for DynamicRouterService {
     }
 }
 
-//mcp 代理管理器,包含路由,取消令牌,透明mcp代理处理器
+// =============================================================================
+// RAII 进程管理设计
+// =============================================================================
+//
+// 设计目标：当 mcp_id 从 map 中移除时，自动释放对应的 MCP 进程资源
+//
+// 核心结构：
+// - McpProcessGuard: 进程生命周期守护器，实现 Drop trait 自动取消 CancellationToken
+// - McpService: 封装 McpHandler + McpProcessGuard + 服务状态，作为 map 的 value
+// - ProxyHandlerManager: 使用单一 DashMap<String, McpService> 管理所有服务
+//
+// 资源释放流程：
+// 1. 从 map 中 remove mcp_id
+// 2. McpService 被 drop
+// 3. McpProcessGuard::drop() 被调用
+// 4. CancellationToken 被 cancel
+// 5. 监听该 token 的 SseServer/子进程收到信号，自动退出
+// =============================================================================
 
-//根据用户的 mcp_id ,获取对应的 McpHandler;
-//定义结构体
-#[derive(Debug, Clone)]
-pub struct ProxyHandlerManager {
-    // 存储 McpHandler 透明代理服务 (支持 SSE 和 Stream 两种类型)
-    proxy_handlers: DashMap<String, McpHandler>,
-    // 存储 MCP 服务状态,包含路径,类型,取消令牌,mcp_id,状态
-    mcp_service_statuses: DashMap<String, McpServiceStatus>,
+/// MCP 进程生命周期守护器
+///
+/// 实现 RAII 模式：当此结构体被 drop 时，自动取消 CancellationToken，
+/// 触发关联的 SseServer 和子进程退出。
+///
+/// # 使用场景
+///
+/// 1. 从 `ProxyHandlerManager` 移除 mcp_id 时，自动清理进程
+/// 2. 服务重启时，旧服务自动被清理
+/// 3. 系统关闭时，所有服务自动清理
+pub struct McpProcessGuard {
+    mcp_id: String,
+    cancellation_token: CancellationToken,
 }
-//定义 mcp服务结构,包含:mcpType,McpRouterPath,CancellationToken,mcp_id,CheckMcpStatusResponseStatus
+
+impl McpProcessGuard {
+    pub fn new(mcp_id: String, cancellation_token: CancellationToken) -> Self {
+        debug!("[RAII] 创建进程守护器: mcp_id={}", mcp_id);
+        Self {
+            mcp_id,
+            cancellation_token,
+        }
+    }
+
+    /// 克隆 CancellationToken（用于传递给异步任务）
+    pub fn clone_token(&self) -> CancellationToken {
+        self.cancellation_token.clone()
+    }
+}
+
+impl Drop for McpProcessGuard {
+    fn drop(&mut self) {
+        info!(
+            "[RAII] 进程守护器被 drop，取消 CancellationToken: mcp_id={}",
+            self.mcp_id
+        );
+        self.cancellation_token.cancel();
+    }
+}
+
+// McpProcessGuard 不实现 Clone，确保唯一所有权
+impl std::fmt::Debug for McpProcessGuard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("McpProcessGuard")
+            .field("mcp_id", &self.mcp_id)
+            .field("is_cancelled", &self.cancellation_token.is_cancelled())
+            .finish()
+    }
+}
+
+/// MCP 服务封装
+///
+/// 将 McpHandler、McpProcessGuard 和服务状态封装在一起，
+/// 作为 `ProxyHandlerManager` 中 DashMap 的 value。
+///
+/// # RAII 保证
+///
+/// 当 McpService 被 drop 时：
+/// 1. McpProcessGuard 被 drop，触发 CancellationToken 取消
+/// 2. 关联的子进程收到信号，自动退出
+pub struct McpService {
+    /// 进程守护器（RAII 核心）
+    process_guard: McpProcessGuard,
+    /// MCP 透明代理处理器（可选，启动中时为 None）
+    handler: Option<McpHandler>,
+    /// 服务状态信息
+    status: McpServiceStatusInfo,
+}
+
+/// MCP 服务状态信息（不包含 CancellationToken，由 McpProcessGuard 管理）
+#[derive(Debug, Clone)]
+pub struct McpServiceStatusInfo {
+    pub mcp_id: String,
+    pub mcp_type: McpType,
+    pub mcp_router_path: McpRouterPath,
+    pub check_mcp_status_response_status: CheckMcpStatusResponseStatus,
+    pub last_accessed: Instant,
+    pub mcp_config: Option<McpConfig>,
+}
+
+impl McpServiceStatusInfo {
+    pub fn new(
+        mcp_id: String,
+        mcp_type: McpType,
+        mcp_router_path: McpRouterPath,
+        check_mcp_status_response_status: CheckMcpStatusResponseStatus,
+    ) -> Self {
+        Self {
+            mcp_id,
+            mcp_type,
+            mcp_router_path,
+            check_mcp_status_response_status,
+            last_accessed: Instant::now(),
+            mcp_config: None,
+        }
+    }
+
+    pub fn update_last_accessed(&mut self) {
+        self.last_accessed = Instant::now();
+    }
+}
+
+impl McpService {
+    /// 创建新的 MCP 服务
+    ///
+    /// # 参数
+    /// - `mcp_id`: 服务唯一标识
+    /// - `mcp_type`: 服务类型
+    /// - `mcp_router_path`: 路由路径
+    /// - `cancellation_token`: 用于控制进程生命周期的取消令牌
+    pub fn new(
+        mcp_id: String,
+        mcp_type: McpType,
+        mcp_router_path: McpRouterPath,
+        cancellation_token: CancellationToken,
+    ) -> Self {
+        let process_guard = McpProcessGuard::new(mcp_id.clone(), cancellation_token);
+        let status = McpServiceStatusInfo::new(
+            mcp_id,
+            mcp_type,
+            mcp_router_path,
+            CheckMcpStatusResponseStatus::Pending,
+        );
+        Self {
+            process_guard,
+            handler: None,
+            status,
+        }
+    }
+
+    /// 设置 MCP Handler
+    pub fn set_handler(&mut self, handler: McpHandler) {
+        self.handler = Some(handler);
+    }
+
+    /// 获取 MCP Handler
+    pub fn handler(&self) -> Option<&McpHandler> {
+        self.handler.as_ref()
+    }
+
+    /// 获取服务状态
+    pub fn status(&self) -> &McpServiceStatusInfo {
+        &self.status
+    }
+
+    /// 获取可变服务状态
+    pub fn status_mut(&mut self) -> &mut McpServiceStatusInfo {
+        &mut self.status
+    }
+
+    /// 克隆 CancellationToken
+    pub fn clone_token(&self) -> CancellationToken {
+        self.process_guard.clone_token()
+    }
+
+    /// 更新服务状态
+    pub fn update_status(&mut self, status: CheckMcpStatusResponseStatus) {
+        self.status.check_mcp_status_response_status = status;
+    }
+
+    /// 更新最后访问时间
+    pub fn update_last_accessed(&mut self) {
+        self.status.update_last_accessed();
+    }
+
+    /// 设置 MCP 配置
+    pub fn set_mcp_config(&mut self, config: McpConfig) {
+        self.status.mcp_config = Some(config);
+    }
+}
+
+impl std::fmt::Debug for McpService {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("McpService")
+            .field("process_guard", &self.process_guard)
+            .field("handler", &self.handler.is_some())
+            .field("status", &self.status)
+            .finish()
+    }
+}
+
+// =============================================================================
+// 兼容层：保留 McpServiceStatus 以兼容现有代码
+// =============================================================================
+
+/// MCP 服务状态（兼容层）
+///
+/// 保留此结构体以兼容现有代码，内部委托给 McpServiceStatusInfo
 #[derive(Debug, Clone)]
 pub struct McpServiceStatus {
-    // mcp_id
     pub mcp_id: String,
-    // mcp类型
     pub mcp_type: McpType,
-    // mcp路由路径
     pub mcp_router_path: McpRouterPath,
-    // 用于控制与此 mcp_id 关联的 SseServer 和 command 终端
     pub cancellation_token: CancellationToken,
-    // mcp服务状态
     pub check_mcp_status_response_status: CheckMcpStatusResponseStatus,
-    // 最后访问时间
     pub last_accessed: Instant,
-    // MCP 配置（用于自动重启服务）
     pub mcp_config: Option<McpConfig>,
 }
 
@@ -123,87 +311,199 @@ impl McpServiceStatus {
         }
     }
 
-    /// 设置 MCP 配置（用于自动重启）
     pub fn with_mcp_config(mut self, mcp_config: McpConfig) -> Self {
         self.mcp_config = Some(mcp_config);
         self
     }
 
-    // 更新最后访问时间
     pub fn update_last_accessed(&mut self) {
         self.last_accessed = Instant::now();
     }
 }
 
+// =============================================================================
+// ProxyHandlerManager：使用 RAII 模式管理 MCP 服务
+// =============================================================================
+
+/// MCP 代理管理器
+///
+/// 使用 RAII 模式管理 MCP 服务：
+/// - 从 map 中移除 mcp_id 时，自动释放对应的进程资源
+/// - 不需要显式调用 cleanup 方法（但仍提供显式清理接口）
+#[derive(Debug)]
+pub struct ProxyHandlerManager {
+    /// 使用单一 DashMap 管理所有 MCP 服务（RAII 核心）
+    services: DashMap<String, McpService>,
+}
+
 impl Default for ProxyHandlerManager {
     fn default() -> Self {
         ProxyHandlerManager {
-            proxy_handlers: DashMap::new(),
-            mcp_service_statuses: DashMap::new(),
+            services: DashMap::new(),
         }
     }
 }
 
 impl ProxyHandlerManager {
-    // 添加 MCP 服务状态
+    /// 添加 MCP 服务（RAII 模式）
+    ///
+    /// 使用新的 RAII 结构创建服务，当服务被移除时会自动清理资源
+    pub fn add_mcp_service(
+        &self,
+        mcp_id: String,
+        mcp_type: McpType,
+        mcp_router_path: McpRouterPath,
+        cancellation_token: CancellationToken,
+    ) {
+        let service = McpService::new(mcp_id.clone(), mcp_type, mcp_router_path, cancellation_token);
+
+        // RAII: 如果已存在同名服务，insert 会返回旧服务，旧服务被 drop 时自动清理
+        if let Some(old_service) = self.services.insert(mcp_id.clone(), service) {
+            info!(
+                "[RAII] 覆盖已存在的服务，旧服务将被自动清理: mcp_id={}",
+                mcp_id
+            );
+            drop(old_service);
+        }
+    }
+
+    /// 添加 MCP 服务状态（兼容旧 API）
+    ///
+    /// 保持与现有代码的兼容性，内部转换为新的 RAII 结构
+    ///
+    /// 注意：`last_accessed` 会被重置为当前时间（插入视为新访问）
     pub fn add_mcp_service_status_and_proxy(
         &self,
         mcp_service_status: McpServiceStatus,
         proxy_handler: Option<McpHandler>,
     ) {
         let mcp_id = mcp_service_status.mcp_id.clone();
-        self.mcp_service_statuses
-            .insert(mcp_id.clone(), mcp_service_status);
-        // 如果 proxy_handler 不为 None,则添加到 proxy_handlers; 为空的时候,是记录一个空代理处理器,正在启动中
-        if let Some(proxy_handler) = proxy_handler {
-            self.proxy_handlers.insert(mcp_id, proxy_handler);
+
+        // 创建 McpService 使用 RAII 模式
+        // 注意：last_accessed 会在 McpServiceStatusInfo::new() 中重置为 Instant::now()
+        let mut service = McpService::new(
+            mcp_id.clone(),
+            mcp_service_status.mcp_type,
+            mcp_service_status.mcp_router_path,
+            mcp_service_status.cancellation_token,
+        );
+
+        // 设置初始状态
+        service.status_mut().check_mcp_status_response_status =
+            mcp_service_status.check_mcp_status_response_status;
+
+        // 设置配置（如果有）
+        if let Some(config) = mcp_service_status.mcp_config {
+            service.set_mcp_config(config);
+        }
+
+        // 设置 handler（如果有）
+        if let Some(handler) = proxy_handler {
+            service.set_handler(handler);
+        }
+
+        // RAII: 如果已存在同名服务，insert 会返回旧服务，旧服务被 drop 时自动清理
+        if let Some(old_service) = self.services.insert(mcp_id.clone(), service) {
+            info!(
+                "[RAII] 覆盖已存在的服务，旧服务将被自动清理: mcp_id={}",
+                mcp_id
+            );
+            // old_service 在此作用域结束时 drop，触发 McpProcessGuard::drop()
+            drop(old_service);
         }
     }
-    //获取所有的 mcp 服务状态
+
+    /// 获取所有的 MCP 服务状态（兼容旧 API）
+    ///
+    /// 优化：先快速收集所有 keys，然后逐个获取详细信息
+    /// 避免 iter() 长时间锁住多个分片，让其他写操作有机会执行
     pub fn get_all_mcp_service_status(&self) -> Vec<McpServiceStatus> {
-        self.mcp_service_statuses
+        // 第一步：快速收集所有 keys（只 clone String，锁持有时间短）
+        let keys: Vec<String> = self.services
             .iter()
-            .map(|entry| entry.value().clone())
+            .map(|entry| entry.key().clone())
+            .collect();
+
+        // 第二步：逐个获取详细信息（每次只锁一个分片）
+        keys.into_iter()
+            .filter_map(|mcp_id| self.get_mcp_service_status(&mcp_id))
             .collect()
     }
 
-    // 获取 MCP 服务状态
+    /// 获取 MCP 服务状态（兼容旧 API）
     pub fn get_mcp_service_status(&self, mcp_id: &str) -> Option<McpServiceStatus> {
-        self.mcp_service_statuses
-            .get(mcp_id)
-            .map(|entry| entry.value().clone())
+        self.services.get(mcp_id).map(|entry| {
+            let service = entry.value();
+            let status = service.status();
+            McpServiceStatus {
+                mcp_id: status.mcp_id.clone(),
+                mcp_type: status.mcp_type.clone(),
+                mcp_router_path: status.mcp_router_path.clone(),
+                cancellation_token: service.clone_token(),
+                check_mcp_status_response_status: status.check_mcp_status_response_status.clone(),
+                last_accessed: status.last_accessed,
+                mcp_config: status.mcp_config.clone(),
+            }
+        })
     }
 
-    // 更新最后访问时间
+    /// 更新最后访问时间
+    ///
+    /// 使用 entry API 确保原子性操作
     pub fn update_last_accessed(&self, mcp_id: &str) {
-        if let Some(mut entry) = self.mcp_service_statuses.get_mut(mcp_id) {
-            entry.value_mut().update_last_accessed();
-        }
+        self.services
+            .entry(mcp_id.to_string())
+            .and_modify(|service| service.update_last_accessed());
     }
 
-    //修改 mcp服务状态,Ready/Pending/Error
+    /// 修改 MCP 服务状态 (Ready/Pending/Error)
+    ///
+    /// 使用 entry API 确保原子性操作
     pub fn update_mcp_service_status(&self, mcp_id: &str, status: CheckMcpStatusResponseStatus) {
-        if let Some(mut mcp_service_status) = self.mcp_service_statuses.get_mut(mcp_id) {
-            mcp_service_status.check_mcp_status_response_status = status;
-        }
+        self.services
+            .entry(mcp_id.to_string())
+            .and_modify(|service| service.update_status(status));
     }
 
+    /// 获取 MCP Handler
     pub fn get_proxy_handler(&self, mcp_id: &str) -> Option<McpHandler> {
-        self.proxy_handlers
+        self.services
             .get(mcp_id)
-            .map(|entry| entry.value().clone())
+            .and_then(|entry| entry.value().handler().cloned())
     }
 
     /// 获取服务的 MCP 配置（用于自动重启）
     pub fn get_mcp_config(&self, mcp_id: &str) -> Option<McpConfig> {
-        self.mcp_service_statuses
+        self.services
             .get(mcp_id)
-            .and_then(|status| status.value().mcp_config.clone())
+            .and_then(|entry| entry.value().status().mcp_config.clone())
     }
 
+    /// 添加 MCP Handler 到已存在的服务
+    ///
+    /// 使用 entry API 确保原子性操作
     pub fn add_proxy_handler(&self, mcp_id: &str, proxy_handler: McpHandler) {
-        self.proxy_handlers
-            .insert(mcp_id.to_string(), proxy_handler);
+        match self.services.entry(mcp_id.to_string()) {
+            dashmap::mapref::entry::Entry::Occupied(mut entry) => {
+                entry.get_mut().set_handler(proxy_handler);
+            }
+            dashmap::mapref::entry::Entry::Vacant(_) => {
+                warn!(
+                    "[RAII] 尝试添加 handler 到不存在的服务: mcp_id={}",
+                    mcp_id
+                );
+            }
+        }
+    }
+
+    /// 检查服务是否存在
+    pub fn contains_service(&self, mcp_id: &str) -> bool {
+        self.services.contains_key(mcp_id)
+    }
+
+    /// 获取服务数量
+    pub fn service_count(&self) -> usize {
+        self.services.len()
     }
 
     /// 注册 MCP 配置到缓存
@@ -231,8 +531,17 @@ impl ProxyHandlerManager {
         info!("MCP 配置已从缓存删除: {}", mcp_id);
     }
 
-    // 清理资源,根据 mcp_id 清理资源
+    /// 清理资源 (RAII 模式简化版)
+    ///
+    /// 通过 RAII 模式，从 DashMap 中移除服务会自动：
+    /// 1. 触发 McpProcessGuard::drop()
+    /// 2. 取消 CancellationToken
+    /// 3. 关联的子进程收到信号退出
+    ///
+    /// 此方法额外清理路由和缓存
     pub async fn cleanup_resources(&self, mcp_id: &str) -> Result<()> {
+        info!("[RAII] 开始清理资源: mcp_id={}", mcp_id);
+
         // 创建路径以构建要删除的路由路径
         let mcp_sse_router_path = McpRouterPath::new(mcp_id.to_string(), McpProtocol::Sse)
             .map_err(|e| {
@@ -250,16 +559,16 @@ impl ProxyHandlerManager {
         DynamicRouterService::delete_route(&base_sse_path);
         DynamicRouterService::delete_route(&base_stream_path);
 
-        // 取消取消令牌并移除资源
-        if let Some(status) = self.mcp_service_statuses.get_mut(mcp_id) {
-            info!("Cleaning up resources for mcp_id: {mcp_id}");
-            // 取消与此 mcp_id 关联的 SseServer/command 终端的 CancellationToken
-            status.cancellation_token.cancel();
-            info!("CancellationToken cancelled for mcp_id: {mcp_id}");
+        // RAII 核心：从 DashMap 移除会触发 McpProcessGuard::drop()
+        // 这会自动取消 CancellationToken，进而触发子进程退出
+        if self.services.remove(mcp_id).is_some() {
+            info!(
+                "[RAII] 服务已从 map 移除，McpProcessGuard 将自动取消令牌: mcp_id={}",
+                mcp_id
+            );
+        } else {
+            debug!("[RAII] 服务不存在，跳过移除: mcp_id={}", mcp_id);
         }
-
-        self.proxy_handlers.remove(mcp_id);
-        self.mcp_service_statuses.remove(mcp_id);
 
         // 清理配置缓存
         self.unregister_mcp_config(mcp_id).await;
@@ -267,27 +576,52 @@ impl ProxyHandlerManager {
         // 清理健康状态缓存
         GLOBAL_RESTART_TRACKER.clear_health_status(mcp_id);
 
-        info!("MCP 服务 {mcp_id} 的资源清理已完成");
+        info!("[RAII] MCP 服务资源清理完成: mcp_id={}", mcp_id);
         Ok(())
     }
 
-    // 系统关闭,清理所有资源
+    /// 系统关闭，清理所有资源
+    ///
+    /// RAII 模式下，清除 DashMap 会自动释放所有资源
     pub async fn cleanup_all_resources(&self) -> Result<()> {
-        // 先收集所有 mcp_id，避免在遍历时修改 DashMap
+        info!("[RAII] 开始清理所有 MCP 服务资源");
+
+        // 收集所有 mcp_id
         let mcp_ids: Vec<String> = self
-            .mcp_service_statuses
+            .services
             .iter()
             .map(|entry| entry.key().clone())
             .collect();
 
-        // 再逐个清理资源
+        let count = mcp_ids.len();
+
+        // 逐个清理（包括路由和缓存）
         for mcp_id in mcp_ids {
             if let Err(e) = self.cleanup_resources(&mcp_id).await {
-                error!("Failed to cleanup resources for {}: {}", mcp_id, e);
-                // 继续清理其他资源，不中断整个清理过程
+                error!("[RAII] 清理资源失败: mcp_id={}, error={}", mcp_id, e);
+                // 继续清理其他资源
             }
         }
+
+        info!("[RAII] 所有 MCP 服务资源清理完成，共清理 {} 个服务", count);
         Ok(())
+    }
+
+    /// 仅移除服务（依赖 RAII 自动清理进程）
+    ///
+    /// 从 DashMap 中移除服务，触发 RAII 自动清理。
+    /// 不会清理路由和缓存，适用于需要快速移除服务的场景。
+    pub fn remove_service(&self, mcp_id: &str) -> bool {
+        if self.services.remove(mcp_id).is_some() {
+            info!(
+                "[RAII] 服务已移除，进程将自动清理: mcp_id={}",
+                mcp_id
+            );
+            true
+        } else {
+            debug!("[RAII] 服务不存在: mcp_id={}", mcp_id);
+            false
+        }
     }
 }
 
@@ -473,23 +807,22 @@ impl RestartTracker {
 
     /// 尝试获取服务启动锁
     ///
-    /// 返回 Some(Arc<Mutex>) 表示获取成功，可以继续启动服务
+    /// 返回 Some(OwnedMutexGuard) 表示获取成功，可以继续启动服务
     /// 返回 None 表示服务正在启动中，应该跳过本次启动
     ///
     /// # 使用方式
     ///
     /// ```ignore
-    /// if let Some(lock) = GLOBAL_RESTART_TRACKER.try_acquire_startup_lock(&mcp_id) {
+    /// if let Some(_guard) = GLOBAL_RESTART_TRACKER.try_acquire_startup_lock(&mcp_id) {
     ///     // 获取到锁，可以启动服务
-    ///     let guard = lock.lock().await;
     ///     let result = start_service().await;
-    ///     // guard 自动释放
+    ///     // _guard 在作用域结束时自动释放
     /// } else {
     ///     // 未获取到锁，服务正在启动中
     ///     return Ok(Response::503);
     /// }
     /// ```
-    pub fn try_acquire_startup_lock(&self, mcp_id: &str) -> Option<Arc<Mutex<()>>> {
+    pub fn try_acquire_startup_lock(&self, mcp_id: &str) -> Option<OwnedMutexGuard<()>> {
         // 使用 entry API 确保原子性，避免竞态条件
         let lock = self
             .startup_locks
@@ -497,14 +830,14 @@ impl RestartTracker {
             .or_insert_with(|| Arc::new(Mutex::new(())))
             .clone();
 
-        // 尝试获取锁，检查是否可用
-        if lock.try_lock().is_ok() {
-            // 锁可用，返回锁（try_lock 返回的 guard 已被 drop）
-            Some(lock)
-        } else {
-            // 锁被占用，服务正在启动中
-            debug!("服务 {} 正在启动中，跳过本次启动", mcp_id);
-            None
+        // 尝试获取 owned 锁，锁会一直保持到返回的 guard 被 drop
+        match lock.try_lock_owned() {
+            Ok(guard) => Some(guard),
+            Err(_) => {
+                // 锁被占用，服务正在启动中
+                debug!("服务 {} 正在启动中，跳过本次启动", mcp_id);
+                None
+            }
         }
     }
 

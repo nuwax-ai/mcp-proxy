@@ -1,7 +1,6 @@
 use anyhow::Result;
 use axum::{Json, extract::State, http::uri::Uri};
-use log::error;
-use tokio::time::Instant;
+use log::{error, info, debug};
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 
@@ -10,7 +9,7 @@ use crate::{
     model::{
         AppState, CheckMcpStatusRequestParams, CheckMcpStatusResponseParams,
         CheckMcpStatusResponseStatus, HttpResult, McpConfig, McpProtocol, McpRouterPath,
-        McpServiceStatus, McpType,
+        McpServiceStatus, McpType, GLOBAL_RESTART_TRACKER,
     },
     server::mcp_start_task,
 };
@@ -40,7 +39,7 @@ pub async fn check_mcp_status_handler(
     // 使用全局 ProxyHandlerManager
     let proxy_manager = get_proxy_manager();
 
-    // 专门调用 mcp_service_status 字段上的 get 方法（而不是 mcp_service_statuses）
+    // 检查服务状态
     let status = proxy_manager
         .get_mcp_service_status(&params.mcp_id)
         .map(|mcp_service_status| mcp_service_status.check_mcp_status_response_status.clone());
@@ -49,6 +48,7 @@ pub async fn check_mcp_status_handler(
         match status {
             CheckMcpStatusResponseStatus::Error(error_msg) => {
                 // 如果有错误状态，返回错误信息,另外删除掉 ERROR 的记录,方便下次检查状态,重新启动服务
+                // Error 状态不更新 last_accessed，因为服务已失败
                 if let Err(e) = proxy_manager.cleanup_resources(&params.mcp_id).await {
                     error!("Failed to cleanup resources for {}: {}", params.mcp_id, e);
                 }
@@ -60,29 +60,47 @@ pub async fn check_mcp_status_handler(
                 );
             }
             CheckMcpStatusResponseStatus::Pending => {
-                // 如果状态是 Pending，继续检查 proxy_handler 是否已经创建
-                // 不要直接返回，让下面的代码检查实际状态
+                // 如果状态是 Pending，说明服务正在启动中，直接返回 Pending
+                // 不要再次尝试启动！
+                debug!(
+                    "[check_mcp_status] mcp_id={} 状态为 Pending，服务正在启动中",
+                    params.mcp_id
+                );
+                // 更新最后访问时间，避免启动过程中因超时被清理
+                // 用户调用 check_status 表明对服务有兴趣，应该延长超时
+                proxy_manager.update_last_accessed(&params.mcp_id);
+                return create_response(
+                    false,
+                    CheckMcpStatusResponseStatus::Pending,
+                    Some("服务正在启动中...".to_string()),
+                );
             }
             CheckMcpStatusResponseStatus::Ready => {
                 // 如果已经在运行，继续检查服务是否真的可用
+                debug!(
+                    "[check_mcp_status] mcp_id={} 状态为 Ready，检查后端健康状态",
+                    params.mcp_id
+                );
             }
         }
     }
 
+    // 检查 proxy_handler 是否存在
     let proxy_handler = proxy_manager.get_proxy_handler(&params.mcp_id);
 
-    if let Some(some_porxy_handler) = proxy_handler {
-        //调用透明代理的 list_tools 方法,如果成功返回结果,则认为成功
-        let ready_status = some_porxy_handler.is_mcp_server_ready().await;
+    if let Some(handler) = proxy_handler {
+        // 调用透明代理的 is_mcp_server_ready 方法检查健康状态
+        let ready_status = handler.is_mcp_server_ready().await;
 
-        // 如果服务已经就绪，更新状态为Ready
-        if let Some(mut mcp_service_status) = proxy_manager.get_mcp_service_status(&params.mcp_id) {
-            mcp_service_status.last_accessed = Instant::now();
-            if ready_status {
-                mcp_service_status.check_mcp_status_response_status =
-                    CheckMcpStatusResponseStatus::Ready;
-            }
+        // 使用 update 方法更新状态（不是修改克隆）
+        if ready_status {
+            proxy_manager.update_mcp_service_status(
+                &params.mcp_id,
+                CheckMcpStatusResponseStatus::Ready,
+            );
         }
+        // 更新最后访问时间
+        proxy_manager.update_last_accessed(&params.mcp_id);
 
         let status = if ready_status {
             CheckMcpStatusResponseStatus::Ready
@@ -91,22 +109,68 @@ pub async fn check_mcp_status_handler(
         };
 
         return create_response(ready_status, status, None);
-    } else {
-        // 如果服务不存在,则取 mcp_json_config 中的配置,生成mcp透明代理服务
-        spawn_mcp_service(
-            &params.mcp_id,
-            params.mcp_json_config,
-            params.mcp_type,
-            mcp_protocol.clone(),
-        )?;
+    }
 
-        // 返回 PENDING 状态,表示服务正在启动
+    // ===== 服务不存在，需要启动 =====
+    // 使用启动锁防止并发启动同一服务
+    let _startup_guard = match GLOBAL_RESTART_TRACKER.try_acquire_startup_lock(&params.mcp_id) {
+        Some(guard) => {
+            debug!(
+                "[check_mcp_status] mcp_id={} 获取启动锁成功，开始启动服务",
+                params.mcp_id
+            );
+            guard
+        }
+        None => {
+            // 锁被占用，服务正在启动中
+            debug!(
+                "[check_mcp_status] mcp_id={} 启动锁被占用，服务正在启动中，返回 Pending",
+                params.mcp_id
+            );
+            return create_response(
+                false,
+                CheckMcpStatusResponseStatus::Pending,
+                Some("服务正在启动中...".to_string()),
+            );
+        }
+    };
+
+    // 双重检查：获取锁后再次检查服务是否已存在
+    if proxy_manager.get_proxy_handler(&params.mcp_id).is_some() {
+        debug!(
+            "[check_mcp_status] mcp_id={} 双重检查发现服务已存在，返回 Ready",
+            params.mcp_id
+        );
+        return create_response(true, CheckMcpStatusResponseStatus::Ready, None);
+    }
+
+    // 如果服务状态已存在（可能是 Pending），也不要重复启动
+    if proxy_manager.get_mcp_service_status(&params.mcp_id).is_some() {
+        debug!(
+            "[check_mcp_status] mcp_id={} 服务状态已存在，可能正在启动中，返回 Pending",
+            params.mcp_id
+        );
         return create_response(
             false,
             CheckMcpStatusResponseStatus::Pending,
             Some("服务正在启动中...".to_string()),
         );
     }
+
+    // 启动服务（持有锁的情况下）
+    spawn_mcp_service(
+        &params.mcp_id,
+        params.mcp_json_config,
+        params.mcp_type,
+        mcp_protocol.clone(),
+    )?;
+
+    // 返回 PENDING 状态，锁会在函数返回时自动释放
+    create_response(
+        false,
+        CheckMcpStatusResponseStatus::Pending,
+        Some("服务正在启动中...".to_string()),
+    )
 }
 
 // SSE协议专用的状态检查处理函数
@@ -133,6 +197,8 @@ pub async fn check_mcp_status_handler_stream(
 
 /// 异步启动MCP服务
 ///
+/// 注意：此函数假设调用方已持有启动锁，不会重复检查！
+///
 /// # 参数
 /// - `mcp_id`: MCP服务的唯一标识
 /// - `mcp_json_config`: MCP服务的JSON配置
@@ -145,6 +211,7 @@ fn spawn_mcp_service(
     client_protocol: McpProtocol,
 ) -> Result<(), AppError> {
     let mcp_id = mcp_id.to_string();
+    info!("[spawn_mcp_service] mcp_id={} 开始启动服务", mcp_id);
 
     // 使用全局 ProxyHandlerManager
     let proxy_manager = get_proxy_manager();
@@ -156,12 +223,14 @@ fn spawn_mcp_service(
         mcp_id.clone(),
         mcp_type.clone(),
         mcp_router_path,
-        CancellationToken::new(), // This will be the single cancellation_token
+        CancellationToken::new(),
         CheckMcpStatusResponseStatus::Pending,
     );
+
+    // RAII: 如果已存在同名服务，会自动清理旧服务
     proxy_manager.add_mcp_service_status_and_proxy(mcp_service_status, None);
 
-    //异步添加 mcp 透明代理服务
+    // 异步启动 mcp 透明代理服务
     let mcp_id_clone = mcp_id.clone();
 
     // 使用客户端协议创建配置
@@ -171,17 +240,27 @@ fn spawn_mcp_service(
         mcp_type,
         client_protocol,
     );
+
     tokio::spawn(async move {
+        info!(
+            "[spawn_mcp_service] mcp_id={} tokio::spawn 开始执行 mcp_start_task",
+            mcp_id_clone
+        );
         match mcp_start_task(mcp_config).await {
             Ok(_) => {
-                // 设置运行状态
+                info!(
+                    "[spawn_mcp_service] mcp_id={} mcp_start_task 成功，设置状态为 Ready",
+                    mcp_id_clone
+                );
                 get_proxy_manager()
                     .update_mcp_service_status(&mcp_id_clone, CheckMcpStatusResponseStatus::Ready);
             }
             Err(e) => {
-                // 设置错误状态
                 let error_msg = format!("启动MCP服务失败: {e}");
-                error!("启动MCP服务失败[{mcp_id_clone}]: {e}");
+                error!(
+                    "[spawn_mcp_service] mcp_id={} mcp_start_task 失败: {}",
+                    mcp_id_clone, e
+                );
                 get_proxy_manager().update_mcp_service_status(
                     &mcp_id_clone,
                     CheckMcpStatusResponseStatus::Error(error_msg),
@@ -190,5 +269,6 @@ fn spawn_mcp_service(
         }
     });
 
+    info!("[spawn_mcp_service] mcp_id={} 服务启动任务已提交", mcp_id);
     Ok(())
 }
