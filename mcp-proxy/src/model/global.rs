@@ -539,7 +539,51 @@ impl ProxyHandlerManager {
     /// 3. 关联的子进程收到信号退出
     ///
     /// 此方法额外清理路由和缓存
+    ///
+    /// # 参数
+    /// - `force`: 如果为 true，则强制清理（忽略最小存活时间检查）
+    ///            用于 delete API、系统关闭等场景
     pub async fn cleanup_resources(&self, mcp_id: &str) -> Result<()> {
+        self.cleanup_resources_internal(mcp_id, false).await
+    }
+
+    /// 强制清理资源（忽略最小存活时间检查）
+    pub async fn cleanup_resources_force(&self, mcp_id: &str) -> Result<()> {
+        self.cleanup_resources_internal(mcp_id, true).await
+    }
+
+    /// 内部清理资源实现
+    async fn cleanup_resources_internal(&self, mcp_id: &str, force: bool) -> Result<()> {
+        // 记录调用信息，便于追踪清理触发源
+        info!(
+            "[RAII] cleanup_resources 被调用: mcp_id={}, force={}",
+            mcp_id, force
+        );
+
+        // OneShot 服务最小存活时间检查（与超时时间一致：5分钟）
+        // 防止服务因后端进程退出而被立即清理，确保客户端在 5 分钟内可以继续使用服务
+        const ONESHOT_MIN_ALIVE_SECS: u64 = 5 * 60;
+
+        if !force {
+            if let Some(service) = self.services.get(mcp_id) {
+                let status = service.status();
+                let alive_time = status.last_accessed.elapsed();
+
+                // 如果是 OneShot 类型且未达到最小存活时间，跳过清理
+                if matches!(status.mcp_type, McpType::OneShot)
+                    && alive_time.as_secs() < ONESHOT_MIN_ALIVE_SECS
+                {
+                    info!(
+                        "[RAII] OneShot 服务 {} 存活时间仅 {}秒，未达到最小存活时间（{}秒），跳过清理",
+                        mcp_id,
+                        alive_time.as_secs(),
+                        ONESHOT_MIN_ALIVE_SECS
+                    );
+                    return Ok(());
+                }
+            }
+        }
+
         info!("[RAII] 开始清理资源: mcp_id={}", mcp_id);
 
         // 创建路径以构建要删除的路由路径
@@ -596,8 +640,9 @@ impl ProxyHandlerManager {
         let count = mcp_ids.len();
 
         // 逐个清理（包括路由和缓存）
+        // 使用强制清理，因为系统关闭时必须清理所有资源
         for mcp_id in mcp_ids {
-            if let Err(e) = self.cleanup_resources(&mcp_id).await {
+            if let Err(e) = self.cleanup_resources_force(&mcp_id).await {
                 error!("[RAII] 清理资源失败: mcp_id={}, error={}", mcp_id, e);
                 // 继续清理其他资源
             }

@@ -1,10 +1,14 @@
 use crate::get_proxy_manager;
 use crate::model::{CheckMcpStatusResponseStatus, McpType};
 use tokio::time::Duration;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 // OneShot 服务超时时间：5分钟无活动则清理
 const ONESHOT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+
+// OneShot 服务最小存活时间：与超时时间一致（5分钟）
+// 防止服务因后端进程退出而被立即清理，确保客户端在 5 分钟内可以继续使用服务
+const ONESHOT_MIN_ALIVE_TIME: Duration = Duration::from_secs(5 * 60);
 
 //定期检查 全局动态router里的 短时 mcp服务,如果超过5分钟,没有被访问,则认为服务已经结束,则清理资源
 pub async fn schedule_check_mcp_live() {
@@ -68,8 +72,13 @@ pub async fn schedule_check_mcp_live() {
                 // 检查最后访问时间（基于所有请求的活动）
                 let idle_time = mcp_service_status.last_accessed.elapsed();
 
-                // OneShot 服务清理条件：后端结束 或 超过5分钟无活动
-                if handler_terminated || idle_time > ONESHOT_TIMEOUT {
+                // OneShot 服务清理条件：
+                // 1. 必须满足最小存活时间（防止刚创建就被清理）
+                // 2. 后端已结束 或 超过5分钟无活动
+                let should_cleanup = idle_time > ONESHOT_MIN_ALIVE_TIME
+                    && (handler_terminated || idle_time > ONESHOT_TIMEOUT);
+
+                if should_cleanup {
                     info!(
                         "OneShot 服务 {} 清理资源（后端结束: {}, 空闲时间: {}秒）",
                         mcp_id,
@@ -79,6 +88,14 @@ pub async fn schedule_check_mcp_live() {
                     if let Err(e) = proxy_manager.cleanup_resources(&mcp_id).await {
                         error!("Failed to cleanup resources for {}: {}", mcp_id, e);
                     }
+                } else if handler_terminated && idle_time <= ONESHOT_MIN_ALIVE_TIME {
+                    // 后端已结束，但未达到最小存活时间，跳过清理
+                    debug!(
+                        "OneShot 服务 {} 后端已结束，但存活时间仅 {}秒，等待最小存活时间（{}秒）",
+                        mcp_id,
+                        idle_time.as_secs(),
+                        ONESHOT_MIN_ALIVE_TIME.as_secs()
+                    );
                 }
             }
         }

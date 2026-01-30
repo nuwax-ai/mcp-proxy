@@ -313,8 +313,8 @@ impl Service<Request<Body>> for DynamicRouterService {
                                     .map(|s| s.mcp_type.clone());
 
                                 if matches!(mcp_type, Some(McpType::OneShot)) {
-                                    debug!(
-                                        "[服务检查] mcp_id={} 是 OneShot 类型且 handler 不存在，不自动重启",
+                                    info!(
+                                        "[服务检查] mcp_id={} 是 OneShot 类型且 handler 不存在，不自动重启，准备清理",
                                         router_path.mcp_id
                                     );
                                     // 清理残留状态

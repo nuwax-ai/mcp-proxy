@@ -9,8 +9,9 @@ pub async fn delete_route_handler(
     Path(mcp_id): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
     // 删除动态路由,以及清理资源
+    // 使用强制清理，因为用户显式请求删除
     get_proxy_manager()
-        .cleanup_resources(&mcp_id)
+        .cleanup_resources_force(&mcp_id)
         .await
         .map_err(AppError::McpServerError)?;
 
