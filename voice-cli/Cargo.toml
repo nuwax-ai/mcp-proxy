@@ -7,6 +7,9 @@ description = "Speech-to-text HTTP service with CLI interface"
 license = "MIT"
 repository = "https://github.com/nuwax-ai/mcp-proxy"
 
+[package.metadata.dist]
+dist = false
+
 [[bin]]
 name = "voice-cli"
 path = "src/main.rs"
