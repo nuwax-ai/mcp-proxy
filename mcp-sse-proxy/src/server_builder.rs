@@ -11,7 +11,10 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 // 进程组管理（跨平台子进程清理）
-use process_wrap::tokio::{KillOnDrop, ProcessGroup, TokioCommandWrap};
+use process_wrap::tokio::{KillOnDrop, TokioCommandWrap};
+
+#[cfg(unix)]
+use process_wrap::tokio::ProcessGroup;
 
 use rmcp::{
     ServiceExt,
