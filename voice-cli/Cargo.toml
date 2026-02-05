@@ -1,6 +1,6 @@
 [package]
 name = "voice-cli"
-version = "0.1.0"
+version = "0.1.28"
 edition = "2024"
 authors = ["soddygo <soddygo@qq.com>"]
 description = "Speech-to-text HTTP service with CLI interface"
