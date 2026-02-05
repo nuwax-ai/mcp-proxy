@@ -23,9 +23,6 @@ use process_wrap::tokio::{CommandWrap, KillOnDrop};
 #[cfg(unix)]
 use process_wrap::tokio::ProcessGroup;
 
-#[cfg(windows)]
-use process_wrap::tokio::JobObject;
-
 use crate::{ProxyAwareSessionManager, ProxyHandler};
 
 /// 从配置启动 Streamable HTTP 服务器

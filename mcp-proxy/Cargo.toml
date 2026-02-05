@@ -68,7 +68,8 @@ rustls = { version = "0.23", default-features = false, features = ["ring"] }
 moka = { workspace = true, features = ["future"] }
 
 # 进程组管理（跨平台子进程清理）
-process-wrap = { version = "9.0", features = ["tokio1"] }
+# 添加 process-group 特性用于 Unix 平台的进程组管理
+process-wrap = { version = "9.0", features = ["tokio1", "process-group"] }
 
 [[bin]]
 name = "mcp-proxy"
