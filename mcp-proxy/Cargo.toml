@@ -69,7 +69,8 @@ moka = { workspace = true, features = ["future"] }
 
 # 进程组管理（跨平台子进程清理）
 # 添加 process-group 特性用于 Unix 平台的进程组管理
-process-wrap = { version = "9.0", features = ["tokio1", "process-group"] }
+# 添加 job-object 特性用于 Windows 平台的进程树管理
+process-wrap = { version = "9.0", features = ["tokio1", "process-group", "job-object"] }
 
 [[bin]]
 name = "mcp-proxy"

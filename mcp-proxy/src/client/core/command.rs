@@ -67,7 +67,7 @@ pub async fn run_command_mode(
     wrapped_cmd.wrap(ProcessGroup::leader());
     // Windows: 使用 Job Object 管理进程树
     #[cfg(windows)]
-    wrapped_cmd.wrap(JobObject::new());
+    wrapped_cmd.wrap(JobObject);
     // 所有平台: Drop 时自动清理进程
     wrapped_cmd.wrap(KillOnDrop);
 

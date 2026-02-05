@@ -58,4 +58,5 @@ futures = { workspace = true }
 # 进程组管理（跨平台子进程清理）
 # 版本需要与 rmcp 0.13 兼容
 # 添加 process-group 特性用于 Unix 平台的进程组管理
-process-wrap = { version = "9.0", features = ["tokio1", "process-group"] }
+# 添加 job-object 特性用于 Windows 平台的进程树管理
+process-wrap = { version = "9.0", features = ["tokio1", "process-group", "job-object"] }
