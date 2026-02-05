@@ -13,9 +13,6 @@ use tracing::{debug, info, warn};
 // 进程组管理（跨平台子进程清理）
 use process_wrap::tokio::{KillOnDrop, ProcessGroup, TokioCommandWrap};
 
-#[cfg(windows)]
-use process_wrap::tokio::JobObject;
-
 use rmcp::{
     ServiceExt,
     model::{ClientCapabilities, ClientInfo, ProtocolVersion},
@@ -306,10 +303,6 @@ impl SseServerBuilder {
 
         // 所有平台: Drop 时自动清理进程
         wrapped_cmd.wrap(KillOnDrop);
-
-        // Windows: 使用 Job Object 进行进程管理
-        #[cfg(windows)]
-        wrapped_cmd.wrap(JobObject::new(None)?);
 
         info!(
             "[SseServerBuilder] Starting child process - MCP ID: {}, command: {}, args: {:?}",
