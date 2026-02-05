@@ -20,6 +20,9 @@ use process_wrap::tokio::{CommandWrap, KillOnDrop};
 #[cfg(unix)]
 use process_wrap::tokio::ProcessGroup;
 
+#[cfg(windows)]
+use process_wrap::tokio::JobObject;
+
 /// 命令模式执行（本地子进程）
 /// 使用 mcp-streamable-proxy（rmcp 0.12）实现 stdio CLI 模式
 pub async fn run_command_mode(
@@ -62,6 +65,9 @@ pub async fn run_command_mode(
     // Unix: 创建进程组，支持 killpg 清理整个进程树
     #[cfg(unix)]
     wrapped_cmd.wrap(ProcessGroup::leader());
+    // Windows: 使用 Job Object 管理进程树
+    #[cfg(windows)]
+    wrapped_cmd.wrap(JobObject::new());
     // 所有平台: Drop 时自动清理进程
     wrapped_cmd.wrap(KillOnDrop);
 
