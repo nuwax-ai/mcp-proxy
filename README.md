@@ -34,8 +34,52 @@ A comprehensive Rust workspace implementing MCP (Model Context Protocol) proxy s
 
 ### Installation
 
+#### Method 1: Pre-built Binaries (Recommended)
+
+**Using installation script (Linux/macOS):**
 ```bash
-# Clone the repository
+# Install mcp-proxy
+curl --proto '=https' --tlsv1.2 -sSf https://github.com/nuwax-ai/mcp-proxy/releases/latest/download/mcp-stdio-proxy-installer.sh | sh
+
+# Install document-parser
+curl --proto '=https' --tlsv1.2 -sSf https://github.com/nuwax-ai/mcp-proxy/releases/latest/download/document-parser-installer.sh | sh
+
+# Install voice-cli
+curl --proto '=https' --tlsv1.2 -sSf https://github.com/nuwax-ai/mcp-proxy/releases/latest/download/voice-cli-installer.sh | sh
+```
+
+**Using installation script (Windows PowerShell):**
+```powershell
+# Install mcp-proxy
+irm https://github.com/nuwax-ai/mcp-proxy/releases/latest/download/mcp-stdio-proxy-installer.ps1 | iex
+
+# Install document-parser
+irm https://github.com/nuwax-ai/mcp-proxy/releases/latest/download/document-parser-installer.ps1 | iex
+
+# Install voice-cli
+irm https://github.com/nuwax-ai/mcp-proxy/releases/latest/download/voice-cli-installer.ps1 | iex
+```
+
+**Download from GitHub Releases:**
+Visit [GitHub Releases](https://github.com/nuwax-ai/mcp-proxy/releases) to download binaries for your platform.
+
+Supported platforms:
+- Linux x86_64
+- Linux ARM64
+- macOS Intel (x86_64)
+- macOS Apple Silicon (ARM64)
+- Windows x86_64
+
+#### Method 2: cargo install
+
+```bash
+cargo install mcp-stdio-proxy
+```
+
+#### Method 3: Build from Source
+
+```bash
+# Clone repository
 git clone https://github.com/nuwax-ai/mcp-proxy.git
 cd mcp-proxy
 
