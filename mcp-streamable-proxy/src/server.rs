@@ -20,6 +20,9 @@ use tracing::{error, info, warn};
 // process-wrap 9.0 使用 CommandWrap 而不是 TokioCommandWrap
 use process_wrap::tokio::{CommandWrap, KillOnDrop};
 
+#[cfg(unix)]
+use process_wrap::tokio::ProcessGroup;
+
 #[cfg(windows)]
 use process_wrap::tokio::JobObject;
 
@@ -56,6 +59,9 @@ pub async fn run_stream_server_from_config(
             }
         }
     });
+    // Unix: 创建进程组，支持 killpg 清理整个进程树
+    #[cfg(unix)]
+    wrapped_cmd.wrap(ProcessGroup::leader());
     // 所有平台: Drop 时自动清理进程
     wrapped_cmd.wrap(KillOnDrop);
 
