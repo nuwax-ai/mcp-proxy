@@ -3,6 +3,9 @@ name = "fastembed"
 version = "0.1.28"
 edition = "2024"
 
+[package.metadata.dist]
+dist = false
+
 [[bin]]
 name = "fastembed"
 path = "src/main.rs"
