@@ -5,6 +5,7 @@ use crate::models::{DocumentFormat, ParseResult, ParserEngine};
 use crate::parsers::FormatDetector;
 use crate::utils::environment_manager::EnvironmentManager;
 use async_trait::async_trait;
+#[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::Stdio;
@@ -640,7 +641,10 @@ impl MinerUParser {
                                     return Ok(());
                                 } else {
                                     let exit_code = status.code().unwrap_or(-1);
+                                    #[cfg(unix)]
                                     let signal = status.signal();
+                                    #[cfg(not(unix))]
+                                    let signal: Option<i32> = None;
 
                                     let error_msg = if let Some(sig) = signal {
                                         format!(

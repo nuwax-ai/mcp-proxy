@@ -206,36 +206,45 @@ impl GracefulShutdownManager {
     }
 
     async fn setup_signal_handlers(&self) -> Result<(), AppError> {
-        let shutdown_manager = Arc::new(self.clone());
+        #[cfg(unix)]
+        {
+            let shutdown_manager = Arc::new(self.clone());
 
-        // 处理SIGTERM信号
-        tokio::spawn(async move {
-            let mut sigterm = signal::unix::signal(signal::unix::SignalKind::terminate())
-                .expect("Failed to register SIGTERM handler");
+            // 处理SIGTERM信号
+            tokio::spawn(async move {
+                let mut sigterm = signal::unix::signal(signal::unix::SignalKind::terminate())
+                    .expect("Failed to register SIGTERM handler");
 
-            sigterm.recv().await;
-            tracing::info!("Received SIGTERM, initiating graceful shutdown");
+                sigterm.recv().await;
+                tracing::info!("Received SIGTERM, initiating graceful shutdown");
 
-            if let Err(e) = shutdown_manager.shutdown().await {
-                tracing::error!("Graceful shutdown failed: {}", e);
-                std::process::exit(1);
-            }
-        });
+                if let Err(e) = shutdown_manager.shutdown().await {
+                    tracing::error!("Graceful shutdown failed: {}", e);
+                    std::process::exit(1);
+                }
+            });
 
-        // 处理SIGINT信号 (Ctrl+C)
-        let shutdown_manager = Arc::new(self.clone());
-        tokio::spawn(async move {
-            let mut sigint = signal::unix::signal(signal::unix::SignalKind::interrupt())
-                .expect("Failed to register SIGINT handler");
+            // 处理SIGINT信号 (Ctrl+C)
+            let shutdown_manager = Arc::new(self.clone());
+            tokio::spawn(async move {
+                let mut sigint = signal::unix::signal(signal::unix::SignalKind::interrupt())
+                    .expect("Failed to register SIGINT handler");
 
-            sigint.recv().await;
-            tracing::info!("Received SIGINT, initiating graceful shutdown");
+                sigint.recv().await;
+                tracing::info!("Received SIGINT, initiating graceful shutdown");
 
-            if let Err(e) = shutdown_manager.shutdown().await {
-                tracing::error!("Graceful shutdown failed: {}", e);
-                std::process::exit(1);
-            }
-        });
+                if let Err(e) = shutdown_manager.shutdown().await {
+                    tracing::error!("Graceful shutdown failed: {}", e);
+                    std::process::exit(1);
+                }
+            });
+        }
+
+        #[cfg(not(unix))]
+        {
+            // Windows uses ctrl_c signal handling which is set up elsewhere
+            tracing::debug!("Unix signal handlers not available on this platform");
+        }
 
         Ok(())
     }
