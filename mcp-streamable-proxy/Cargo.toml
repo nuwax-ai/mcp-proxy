@@ -1,6 +1,6 @@
 [package]
 name = "mcp-streamable-proxy"
-version = "0.1.15"
+version = "0.1.16"
 edition = "2024"
 authors = ["nuwax-ai"]
 description = "Streamable HTTP proxy implementation for MCP protocol using rmcp 0.13"
@@ -11,7 +11,7 @@ categories = ["web-programming", "network-programming"]
 
 [dependencies]
 # 共享类型和工具
-mcp-common = { version = "0.1.15", path = "../mcp-common" }
+mcp-common = { version = "0.1.16", path = "../mcp-common" }
 
 # MCP protocol implementation - using 0.13 for enhanced Streamable HTTP support
 rmcp = { version = "0.13.0", features = [

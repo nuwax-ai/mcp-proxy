@@ -1,6 +1,6 @@
 [package]
 name = "mcp-stdio-proxy"
-version = "0.1.28"
+version = "0.1.29"
 edition = "2024"
 authors = ["nuwax-ai"]
 description = "MCP (Model Context Protocol) proxy server and CLI tool for protocol conversion and remote service access"
@@ -22,10 +22,10 @@ default = []
 
 [dependencies]
 # 共享类型和工具
-mcp-common = { version = "0.1.15", path = "../mcp-common", features = ["otlp"] }
+mcp-common = { version = "0.1.16", path = "../mcp-common", features = ["otlp"] }
 # 新增：协议特定的代理库
-mcp-streamable-proxy = { version = "0.1.15", path = "../mcp-streamable-proxy" }
-mcp-sse-proxy = { version = "0.1.15", path = "../mcp-sse-proxy" }
+mcp-streamable-proxy = { version = "0.1.16", path = "../mcp-streamable-proxy" }
+mcp-sse-proxy = { version = "0.1.16", path = "../mcp-sse-proxy" }
 axum = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
