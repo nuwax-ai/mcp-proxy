@@ -16,6 +16,9 @@ use process_wrap::tokio::{KillOnDrop, TokioCommandWrap};
 #[cfg(unix)]
 use process_wrap::tokio::ProcessGroup;
 
+#[cfg(windows)]
+use process_wrap::tokio::JobObject;
+
 use rmcp::{
     ServiceExt,
     model::{ClientCapabilities, ClientInfo, ProtocolVersion},
@@ -284,7 +287,11 @@ impl SseServerBuilder {
         use std::time::Instant;
 
         let start_time = Instant::now();
-        let mcp_id = self.server_config.mcp_id.clone().unwrap_or_else(|| "unknown".into());
+        let mcp_id = self
+            .server_config
+            .mcp_id
+            .clone()
+            .unwrap_or_else(|| "unknown".into());
 
         // 使用 process-wrap 创建子进程命令（跨平台进程清理）
         // process-wrap 会自动处理进程组（Unix）或 Job Object（Windows）
@@ -303,6 +310,9 @@ impl SseServerBuilder {
         // Unix: 创建进程组，支持 killpg 清理整个进程树
         #[cfg(unix)]
         wrapped_cmd.wrap(ProcessGroup::leader());
+        // Windows: 使用 Job Object 管理进程树
+        #[cfg(windows)]
+        wrapped_cmd.wrap(JobObject);
 
         // 所有平台: Drop 时自动清理进程
         wrapped_cmd.wrap(KillOnDrop);
@@ -356,7 +366,11 @@ impl SseServerBuilder {
         use std::time::Instant;
 
         let start_time = Instant::now();
-        let mcp_id = self.server_config.mcp_id.clone().unwrap_or_else(|| "unknown".into());
+        let mcp_id = self
+            .server_config
+            .mcp_id
+            .clone()
+            .unwrap_or_else(|| "unknown".into());
 
         info!(
             "[SseServerBuilder] Connecting to SSE URL backend - MCP ID: {}, URL: {}",
@@ -420,7 +434,11 @@ impl SseServerBuilder {
         use std::time::Instant;
 
         let start_time = Instant::now();
-        let mcp_id = self.server_config.mcp_id.clone().unwrap_or_else(|| "unknown".into());
+        let mcp_id = self
+            .server_config
+            .mcp_id
+            .clone()
+            .unwrap_or_else(|| "unknown".into());
 
         info!(
             "[SseServerBuilder] Connecting to Streamable HTTP URL backend - MCP ID: {}, URL: {}",
@@ -534,7 +552,10 @@ mod tests {
         assert_eq!(config.sse_path, "/sse");
         assert_eq!(config.post_path, "/message");
         assert_eq!(config.keep_alive_secs, 15);
-        assert!(config.stateful, "default stateful should be true for backward compatibility");
+        assert!(
+            config.stateful,
+            "default stateful should be true for backward compatibility"
+        );
     }
 
     #[test]
@@ -558,7 +579,10 @@ mod tests {
             env: None,
         })
         .stateful(false);
-        assert!(!builder.server_config.stateful, "stateful should be false when set");
+        assert!(
+            !builder.server_config.stateful,
+            "stateful should be false when set"
+        );
     }
 
     #[test]
@@ -569,7 +593,10 @@ mod tests {
             env: None,
         })
         .stateful(true);
-        assert!(builder.server_config.stateful, "stateful should be true when set");
+        assert!(
+            builder.server_config.stateful,
+            "stateful should be true when set"
+        );
     }
 
     #[test]
@@ -586,7 +613,10 @@ mod tests {
             "test-mcp",
             "TestBackend",
             Duration::from_millis(1500),
-            &[("step1", Duration::from_millis(500)), ("step2", Duration::from_millis(1000))],
+            &[
+                ("step1", Duration::from_millis(500)),
+                ("step2", Duration::from_millis(1000)),
+            ],
             10,
             "Test warning message",
         );

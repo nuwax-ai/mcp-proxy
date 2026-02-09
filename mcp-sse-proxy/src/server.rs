@@ -21,6 +21,9 @@ use process_wrap::tokio::{KillOnDrop, TokioCommandWrap};
 #[cfg(unix)]
 use process_wrap::tokio::ProcessGroup;
 
+#[cfg(windows)]
+use process_wrap::tokio::JobObject;
+
 use crate::SseHandler;
 
 /// 从配置启动 SSE 服务器
@@ -57,6 +60,9 @@ pub async fn run_sse_server_from_config(
     // Unix: 创建进程组，支持 killpg 清理整个进程树
     #[cfg(unix)]
     wrapped_cmd.wrap(ProcessGroup::leader());
+    // Windows: 使用 Job Object 管理进程树
+    #[cfg(windows)]
+    wrapped_cmd.wrap(JobObject);
     // 所有平台: Drop 时自动清理进程
     wrapped_cmd.wrap(KillOnDrop);
 
