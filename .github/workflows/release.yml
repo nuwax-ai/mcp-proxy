@@ -365,8 +365,8 @@ jobs:
           GITHUB_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
           OSS_URL="https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/mcp-stdio-proxy/${TAG}"
 
-          for release in $(echo "$PLAN" | jq --compact-output '.releases[] | select([.artifacts[] | endswith("-npm-package.tar.gz")] | any)'); do
-            pkg=$(echo "$release" | jq '.artifacts[] | select(endswith("-npm-package.tar.gz"))' --raw-output)
+          for release in $(echo "$PLAN" | jq --compact-output ".releases[] | select([.artifacts[] | endswith("-npm-package.tar.gz")] | any)"); do
+            pkg=$(echo "$release" | jq ".artifacts[] | select(endswith("-npm-package.tar.gz"))" --raw-output)
             echo "==> Processing: $pkg"
 
             # 创建临时目录
@@ -393,6 +393,7 @@ jobs:
           name: artifacts-npm-packages
           path: npm/*-npm-package.tar.gz
           if-no-files-found: error
+
 
   publish-npm:
     needs:

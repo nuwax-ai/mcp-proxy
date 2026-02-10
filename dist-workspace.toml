@@ -17,3 +17,5 @@ publish-jobs = ["npm"]
 install-path = "CARGO_HOME"
 # Whether to install an updater program
 install-updater = false
+# Allow manual modifications to the CI workflow file
+allow-dirty = ["./.github/workflows/release.yml"]
