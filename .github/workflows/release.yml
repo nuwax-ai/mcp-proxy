@@ -367,26 +367,31 @@ jobs:
           GITHUB_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
           OSS_URL="https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/mcp-stdio-proxy/${TAG}"
 
-          for release in $(echo "$PLAN" | jq --compact-output ".releases[] | select([.artifacts[] | endswith("-npm-package.tar.gz")] | any)"); do
-            pkg=$(echo "$release" | jq ".artifacts[] | select(endswith("-npm-package.tar.gz"))" --raw-output)
-            echo "==> Processing: $pkg"
+          # 查找 npm 包并处理
+          for release in $(echo "$PLAN" | jq --compact-output '.releases[]'); do
+            # 从 release 对象中提取 artifacts 数组，并查找 npm 包
+            pkg=$(echo "$release" | jq -r '.artifacts[] | select(. | test("-npm-package\\.tar\\.gz$"))')
 
-            # 创建临时目录
-            mkdir -p temp-workspace
+            if [ -n "$pkg" ]; then
+              echo "==> Processing: $pkg"
 
-            # 解压 npm 包
-            tar -xzf "npm/${pkg}" -C temp-workspace
+              # 创建临时目录
+              mkdir -p temp-workspace
 
-            # 修改 package.json 中的 artifactDownloadUrl
-            sed -i "s|\"artifactDownloadUrl\": \"${GITHUB_URL}\"|\"artifactDownloadUrl\": \"${OSS_URL}\"|g" temp-workspace/package/package.json
+              # 解压 npm 包
+              tar -xzf "npm/${pkg}" -C temp-workspace
 
-            # 验证修改
-            echo "==> Modified artifactDownloadUrl:"
-            grep -A1 "artifactDownloadUrl" temp-workspace/package/package.json || true
+              # 修改 package.json 中的 artifactDownloadUrl
+              sed -i "s|\"artifactDownloadUrl\": \"${GITHUB_URL}\"|\"artifactDownloadUrl\": \"${OSS_URL}\"|g" temp-workspace/package/package.json
 
-            # 重新打包
-            tar -czf "npm/${pkg}" -C temp-workspace package
-            rm -rf temp-workspace
+              # 验证修改
+              echo "==> Modified artifactDownloadUrl:"
+              grep -A1 "artifactDownloadUrl" temp-workspace/package/package.json || true
+
+              # 重新打包
+              tar -czf "npm/${pkg}" -C temp-workspace package
+              rm -rf temp-workspace
+            fi
           done
 
       - name: Upload modified npm packages
