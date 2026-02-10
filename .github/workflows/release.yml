@@ -358,6 +358,13 @@ jobs:
       TAG: ${{ needs.plan.outputs.tag }}
       OSS_SYNC_SUCCESS: ${{ needs.sync-to-oss.result == 'success' && needs.sync-to-oss.outputs.oss_upload_success == 'true' }}
     steps:
+      - name: Fetch npm packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: artifacts-*
+          path: npm/
+          merge-multiple: true
+
       - id: modify
         name: Modify npm package URLs
         run: |
@@ -373,9 +380,6 @@ jobs:
 
           echo "==> OSS sync successful, modifying npm packages to use OSS URLs"
           echo "modified=true" >> "$GITHUB_OUTPUT"
-
-          # Fetch npm packages
-          gh run download "$GITHUB_RUN_ID" --pattern "artifacts-build-global" --dir npm/
 
           # 查找 npm 包并处理
           for release in $(echo "$PLAN" | jq --compact-output '.releases[]'); do
@@ -424,19 +428,18 @@ jobs:
       PLAN: ${{ needs.plan.outputs.val }}
     if: ${{ !fromJson(needs.plan.outputs.val).announcement_is_prerelease || fromJson(needs.plan.outputs.val).publish_prereleases }}
     steps:
-      # Fetch modified npm packages (with OSS URLs) - only if OSS sync succeeded
-      - name: Fetch modified npm packages (OSS URLs)
+      # Try to fetch modified npm packages (with OSS URLs)
+      - name: Fetch modified npm packages
         id: fetch-modified
-        if: ${{ needs.sync-to-oss.result == 'success' && needs.sync-to-oss.outputs.oss_upload_success == 'true' }}
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:
           name: artifacts-npm-packages
           path: npm/
 
-      # If modified packages don't exist (OSS sync failed/skipped), fetch original packages
-      - name: Fetch original npm packages (GitHub URLs)
-        if: ${{ needs.sync-to-oss.result != 'success' || needs.sync-to-oss.outputs.oss_upload_success != 'true' || steps.fetch-modified.outcome == 'failure' || steps.fetch-modified.outcome == 'skipped' }}
+      # If modified packages don't exist, fetch original packages
+      - name: Fetch original npm packages
+        if: ${{ steps.fetch-modified.outcome == 'failure' || steps.fetch-modified.outcome == 'skipped' || needs.modify-npm-packages.outputs.modified != 'true' }}
         uses: actions/download-artifact@v4
         with:
           pattern: artifacts-*
