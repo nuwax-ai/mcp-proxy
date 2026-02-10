@@ -287,6 +287,8 @@ jobs:
     # Only run during actual release, not in PR mode
     if: ${{ needs.plan.outputs.publishing == 'true' }}
     continue-on-error: true
+    outputs:
+      oss_upload_success: ${{ steps.verify.outputs.oss_upload_success }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       TAG: ${{ needs.plan.outputs.tag }}
