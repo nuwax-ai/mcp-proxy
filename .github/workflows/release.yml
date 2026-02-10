@@ -278,15 +278,80 @@ jobs:
 
           gh release create "${{ needs.plan.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
 
-  publish-npm:
+  sync-to-oss:
+    name: Sync release assets to Alibaba Cloud OSS
     needs:
       - plan
       - host
     runs-on: "ubuntu-22.04"
+    # Only run during actual release, not in PR mode
+    if: ${{ needs.plan.outputs.publishing == 'true' }}
+    continue-on-error: true
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ needs.plan.outputs.tag }}
+    steps:
+      - name: Install ossutil v2
+        run: |
+          curl -fSL -o /tmp/ossutil.zip \
+            "https://gosspublic.alicdn.com/ossutil/v2/2.2.0/ossutil-2.2.0-linux-amd64.zip"
+          unzip -q /tmp/ossutil.zip -d /tmp
+          sudo mv /tmp/ossutil-2.2.0-linux-amd64/ossutil /usr/local/bin/
+          ossutil version
+
+      - name: Download release assets
+        run: |
+          mkdir -p /tmp/release-assets
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir /tmp/release-assets
+          echo "==> Downloaded assets:"
+          ls -lh /tmp/release-assets/
+
+      - name: Upload assets to OSS
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+        run: |
+          OSS_ENDPOINT="https://oss-rg-china-mainland.aliyuncs.com"
+          OSS_REGION="rg-china-mainland"
+          OSS_BUCKET="oss://nuwa-packages"
+          OSS_PREFIX="mcp-stdio-proxy/${TAG}"
+
+          for file in /tmp/release-assets/*.tar.xz /tmp/release-assets/*.zip; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              echo "Uploading: ${filename}"
+              ossutil cp --force "$file" "${OSS_BUCKET}/${OSS_PREFIX}/${filename}" \
+                --endpoint "$OSS_ENDPOINT" \
+                --region "$OSS_REGION" \
+                --access-key-id "$OSS_ACCESS_KEY_ID" \
+                --access-key-secret "$OSS_ACCESS_KEY_SECRET"
+            fi
+          done
+
+      - name: Verify OSS upload
+        id: verify
+        run: |
+          VERIFY_URL="https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/mcp-stdio-proxy/${TAG}/mcp-stdio-proxy-x86_64-apple-darwin.tar.xz"
+          HTTP_STATUS=$(curl -sS -o /tmp/verify.txt -w "%{http_code}" "$VERIFY_URL")
+          if [ "$HTTP_STATUS" = "200" ]; then
+            echo "==> OSS verification passed (HTTP ${HTTP_STATUS})"
+            echo "oss_upload_success=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::OSS verification failed: ${VERIFY_URL} returned HTTP ${HTTP_STATUS}"
+            echo "oss_upload_success=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  modify-npm-packages:
+    name: Modify npm package download URLs
+    needs:
+      - plan
+      - sync-to-oss
+    runs-on: "ubuntu-22.04"
+    # Only run if publishing and OSS sync was successful
+    if: ${{ needs.plan.outputs.publishing == 'true' && needs.sync-to-oss.result == 'success' && needs.sync-to-oss.outputs.oss_upload_success == 'true' }}
+    env:
       PLAN: ${{ needs.plan.outputs.val }}
-    if: ${{ !fromJson(needs.plan.outputs.val).announcement_is_prerelease || fromJson(needs.plan.outputs.val).publish_prereleases }}
+      TAG: ${{ needs.plan.outputs.tag }}
     steps:
       - name: Fetch npm packages
         uses: actions/download-artifact@v4
@@ -294,10 +359,76 @@ jobs:
           pattern: artifacts-*
           path: npm/
           merge-multiple: true
+
+      - name: Modify npm package URLs
+        run: |
+          GITHUB_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+          OSS_URL="https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/mcp-stdio-proxy/${TAG}"
+
+          for release in $(echo "$PLAN" | jq --compact-output '.releases[] | select([.artifacts[] | endswith("-npm-package.tar.gz")] | any)'); do
+            pkg=$(echo "$release" | jq '.artifacts[] | select(endswith("-npm-package.tar.gz"))' --raw-output)
+            echo "==> Processing: $pkg"
+
+            # 创建临时目录
+            mkdir -p temp-workspace
+
+            # 解压 npm 包
+            tar -xzf "npm/${pkg}" -C temp-workspace
+
+            # 修改 package.json 中的 artifactDownloadUrl
+            sed -i "s|\"artifactDownloadUrl\": \"${GITHUB_URL}\"|\"artifactDownloadUrl\": \"${OSS_URL}\"|g" temp-workspace/package/package.json
+
+            # 验证修改
+            echo "==> Modified artifactDownloadUrl:"
+            grep -A1 "artifactDownloadUrl" temp-workspace/package/package.json || true
+
+            # 重新打包
+            tar -czf "npm/${pkg}" -C temp-workspace package
+            rm -rf temp-workspace
+          done
+
+      - name: Upload modified npm packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-npm-packages
+          path: npm/*-npm-package.tar.gz
+          if-no-files-found: error
+
+  publish-npm:
+    needs:
+      - plan
+      - host
+      - sync-to-oss
+    runs-on: "ubuntu-22.04"
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PLAN: ${{ needs.plan.outputs.val }}
+    if: ${{ !fromJson(needs.plan.outputs.val).announcement_is_prerelease || fromJson(needs.plan.outputs.val).publish_prereleases }}
+    steps:
+      # Fetch modified npm packages (with OSS URLs) - only if OSS sync succeeded
+      - name: Fetch modified npm packages (OSS URLs)
+        id: fetch-modified
+        if: ${{ needs.sync-to-oss.result == 'success' && needs.sync-to-oss.outputs.oss_upload_success == 'true' }}
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: artifacts-npm-packages
+          path: npm/
+
+      # If modified packages don't exist (OSS sync failed/skipped), fetch original packages
+      - name: Fetch original npm packages (GitHub URLs)
+        if: ${{ needs.sync-to-oss.result != 'success' || needs.sync-to-oss.outputs.oss_upload_success != 'true' || steps.fetch-modified.outcome == 'failure' || steps.fetch-modified.outcome == 'skipped' }}
+        uses: actions/download-artifact@v4
+        with:
+          pattern: artifacts-*
+          path: npm/
+          merge-multiple: true
+
       - uses: actions/setup-node@v4
         with:
           node-version: '20.x'
           registry-url: 'https://registry.npmjs.org'
+
       - run: |
           for release in $(echo "$PLAN" | jq --compact-output '.releases[] | select([.artifacts[] | endswith("-npm-package.tar.gz")] | any)'); do
             pkg=$(echo "$release" | jq '.artifacts[] | select(endswith("-npm-package.tar.gz"))' --raw-output)
@@ -311,6 +442,7 @@ jobs:
       - plan
       - host
       - publish-npm
+      # sync-to-oss 和 modify-npm-packages 不需要等待（允许失败）
     # use "always() && ..." to allow us to wait for all publish jobs while
     # still allowing individual publish jobs to skip themselves (for prereleases).
     # "host" however must run to completion, no skipping allowed!
