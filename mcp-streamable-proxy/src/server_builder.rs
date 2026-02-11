@@ -9,7 +9,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{info, warn};
 
 use rmcp::{
     ServiceExt,
@@ -184,22 +184,40 @@ impl StreamServerBuilder {
         // 继承父进程的 PATH 环境变量（如果配置中未指定）
         if env.as_ref().map_or(true, |e| !e.contains_key("PATH")) {
             if let Ok(path) = std::env::var("PATH") {
+                info!("[StreamServerBuilder] Inheriting PATH from parent process");
                 // Windows: 添加 npm 全局 bin 目录到 PATH
                 #[cfg(target_os = "windows")]
                 let path = {
                     if let Ok(appdata) = std::env::var("APPDATA") {
                         let npm_path = format!(r"{}\npm", appdata);
                         if !path.contains(&npm_path) {
+                            info!(
+                                "[StreamServerBuilder] Windows: Adding npm global bin to PATH: {}",
+                                npm_path
+                            );
                             format!("{};{}", path, npm_path)
                         } else {
+                            info!(
+                                "[StreamServerBuilder] Windows: npm global bin already in PATH: {}",
+                                npm_path
+                            );
                             path
                         }
                     } else {
+                        warn!(
+                            "[StreamServerBuilder] Windows: APPDATA environment variable not found, using original PATH"
+                        );
                         path
                     }
                 };
                 cmd.env("PATH", path);
+            } else {
+                warn!(
+                    "[StreamServerBuilder] Failed to read PATH environment variable from parent process"
+                );
             }
+        } else {
+            info!("[StreamServerBuilder] Using PATH from MCP service configuration");
         }
 
         if let Some(cmd_args) = args {
