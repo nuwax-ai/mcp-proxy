@@ -297,6 +297,12 @@ impl SseServerBuilder {
         // process-wrap 会自动处理进程组（Unix）或 Job Object（Windows）
         // 并且在 Drop 时自动清理子进程树
         let mut wrapped_cmd = TokioCommandWrap::with_new(command, |cmd| {
+            // 继承父进程的 PATH 环境变量（如果配置中未指定）
+            if env.as_ref().map_or(true, |e| !e.contains_key("PATH")) {
+                if let Ok(path) = std::env::var("PATH") {
+                    cmd.env("PATH", path);
+                }
+            }
             if let Some(cmd_args) = args {
                 cmd.args(cmd_args);
             }

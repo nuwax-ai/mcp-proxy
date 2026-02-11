@@ -181,6 +181,13 @@ impl StreamServerBuilder {
     ) -> Result<rmcp::service::RunningService<rmcp::RoleClient, ClientInfo>> {
         let mut cmd = Command::new(command);
 
+        // 继承父进程的 PATH 环境变量（如果配置中未指定）
+        if env.as_ref().map_or(true, |e| !e.contains_key("PATH")) {
+            if let Ok(path) = std::env::var("PATH") {
+                cmd.env("PATH", path);
+            }
+        }
+
         if let Some(cmd_args) = args {
             cmd.args(cmd_args);
         }
