@@ -300,6 +300,20 @@ impl SseServerBuilder {
             // 继承父进程的 PATH 环境变量（如果配置中未指定）
             if env.as_ref().map_or(true, |e| !e.contains_key("PATH")) {
                 if let Ok(path) = std::env::var("PATH") {
+                    // Windows: 添加 npm 全局 bin 目录到 PATH
+                    #[cfg(target_os = "windows")]
+                    let path = {
+                        if let Ok(appdata) = std::env::var("APPDATA") {
+                            let npm_path = format!(r"{}\npm", appdata);
+                            if !path.contains(&npm_path) {
+                                format!("{};{}", path, npm_path)
+                            } else {
+                                path
+                            }
+                        } else {
+                            path
+                        }
+                    };
                     cmd.env("PATH", path);
                 }
             }
