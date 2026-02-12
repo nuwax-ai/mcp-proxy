@@ -8,19 +8,19 @@ use std::path::Path;
 const DEFAULT_CONFIG_YAML: &str = include_str!("../config.yml");
 
 #[allow(dead_code)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {
     pub server: ServerConfig,
     pub log: LogConfig,
 }
 #[allow(dead_code)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct ServerConfig {
     /// The port to listen on for incoming connections
     pub port: u16,
 }
 #[allow(dead_code)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct LogConfig {
     /// The log level to use
     pub level: String,
@@ -42,8 +42,13 @@ impl AppConfig {
     /// 1. /app/config.yml
     /// 2. config.yml
     /// 3. BOT_SERVER_CONFIG environment variable
+    ///
+    /// Environment variables can override config values:
+    /// - MCP_PROXY_PORT: Override server port
+    /// - MCP_PROXY_LOG_DIR: Override log directory path
+    /// - MCP_PROXY_LOG_LEVEL: Override log level
     pub fn load_config() -> Result<Self> {
-        let ret = match (
+        let mut config = match (
             File::open("/app/config.yml"),
             File::open("config.yml"),
             env::var("BOT_SERVER_CONFIG"),
@@ -55,9 +60,24 @@ impl AppConfig {
                 // 如果都没有，则使用默认配置
                 serde_yaml::from_str::<AppConfig>(DEFAULT_CONFIG_YAML)
             }
-        };
+        }?;
 
-        Ok(ret?)
+        // 环境变量覆盖配置（优先级最高）
+        if let Ok(port) = env::var("MCP_PROXY_PORT") {
+            if let Ok(port_num) = port.parse::<u16>() {
+                config.server.port = port_num;
+            }
+        }
+
+        if let Ok(log_dir) = env::var("MCP_PROXY_LOG_DIR") {
+            config.log.path = log_dir;
+        }
+
+        if let Ok(log_level) = env::var("MCP_PROXY_LOG_LEVEL") {
+            config.log.level = log_level;
+        }
+
+        Ok(config)
     }
 
     pub fn log_path_init(&self) -> Result<()> {

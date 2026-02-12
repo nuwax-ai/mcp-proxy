@@ -88,6 +88,18 @@ async fn run_cli_mode(cli: Cli) -> Result<()> {
 async fn run_server_mode() -> Result<()> {
     // 配置日志（保持原有的完整日志配置）
     let app_config = AppConfig::load_config()?;
+
+    // 打印配置信息到 stderr（在日志系统初始化之前）
+    eprintln!("========================================");
+    eprintln!("MCP-Proxy 启动中...");
+    eprintln!("版本: {}", env!("CARGO_PKG_VERSION"));
+    eprintln!("配置加载完成:");
+    eprintln!("  - 端口: {}", app_config.server.port);
+    eprintln!("  - 日志目录: {}", app_config.log.path);
+    eprintln!("  - 日志级别: {}", app_config.log.level);
+    eprintln!("  - 日志保留天数: {}", app_config.log.retain_days);
+    eprintln!("========================================");
+
     app_config.log_path_init()?;
     let log_level = app_config.log.level.clone();
     let log_path = app_config.log.path.clone();
@@ -163,23 +175,62 @@ async fn run_server_mode() -> Result<()> {
     tracing::info!("MCP-Proxy 服务启动");
     tracing::info!("命令: proxy (HTTP 服务器模式)");
     tracing::info!("版本: {}", env!("CARGO_PKG_VERSION"));
-    tracing::info!("监听端口: {}", server_port);
+    tracing::info!("配置信息:");
+    tracing::info!("  - 监听端口: {}", server_port);
+    tracing::info!("  - 日志目录: {}", log_path);
+    tracing::info!("  - 日志级别: {}", app_config.log.level);
+    tracing::info!("  - 日志保留: {} 天", retain_days);
+    tracing::info!("环境变量覆盖:");
+    if std::env::var("MCP_PROXY_PORT").is_ok() {
+        tracing::info!("  - MCP_PROXY_PORT: {}", server_port);
+    }
+    if let Ok(log_dir) = std::env::var("MCP_PROXY_LOG_DIR") {
+        tracing::info!("  - MCP_PROXY_LOG_DIR: {}", log_dir);
+    }
+    if let Ok(level) = std::env::var("MCP_PROXY_LOG_LEVEL") {
+        tracing::info!("  - MCP_PROXY_LOG_LEVEL: {}", level);
+    }
     tracing::info!("========================================");
 
     // 监听地址
     let addr = format!("0.0.0.0:{server_port}");
-    let listener = TcpListener::bind(&addr).await?;
+    tracing::info!("尝试绑定到地址: {}", addr);
+    let listener = TcpListener::bind(&addr).await.map_err(|e| {
+        tracing::error!("绑定地址 {} 失败: {}", addr, e);
+        e
+    })?;
+    tracing::info!("成功绑定到地址: {}", addr);
+
     // 构建 axum 路由
-    let state = AppState::new(app_config).await;
+    tracing::info!("初始化应用状态...");
+    let state = AppState::new(app_config.clone()).await;
+    tracing::info!("应用状态初始化完成");
 
     // 初始化 MCP 路由
+    tracing::info!("初始化路由...");
     let app = get_router(state.clone()).await?;
-    info!("服务启动，监听地址: {addr}");
+    tracing::info!("路由初始化完成");
+
+    info!("✅ 服务启动成功，监听地址: {}", addr);
+    info!("✅ 健康检查端点: http://{}/health", addr);
+    info!("✅ MCP 服务列表: http://{}/mcp", addr);
 
     // 启动定时任务，定期检查MCP服务状态
     tokio::spawn(start_schedule_task());
-    info!("MCP服务状态检查定时任务已启动");
-    info!("日志自动轮转已配置（保留最近 {} 个日志文件）", retain_days);
+    info!("✅ MCP服务状态检查定时任务已启动");
+    info!(
+        "✅ 日志自动轮转已配置（保留最近 {} 个日志文件）",
+        retain_days
+    );
+
+    // 打印系统信息
+    tracing::info!("系统信息:");
+    tracing::info!("  - 操作系统: {}", std::env::consts::OS);
+    tracing::info!("  - 架构: {}", std::env::consts::ARCH);
+    tracing::info!(
+        "  - 工作目录: {:?}",
+        std::env::current_dir().unwrap_or_default()
+    );
 
     // 注册关闭处理函数，确保在程序退出前执行清理
     tokio::spawn(async move {
@@ -211,34 +262,36 @@ async fn run_server_mode() -> Result<()> {
 
     // 预热 uv/deno 环境依赖
     tokio::spawn(async move {
-        info!("开始预热 uv/deno 环境依赖...");
-        if let Err(e) = warm_up_all_envs(None, None, None, None).await {
-            error!("预热 uv/deno 环境依赖失败: {e}");
+        info!("🔄 开始预热 uv/deno 环境依赖...");
+        match warm_up_all_envs(None, None, None, None).await {
+            Ok(_) => info!("✅ 预热 uv/deno 环境依赖完成"),
+            Err(e) => error!("❌ 预热 uv/deno 环境依赖失败: {}", e),
         }
-        info!("预热 uv/deno 环境依赖完成");
     });
 
     // 启动服务器，监听多种信号以实现优雅关闭
+    info!("🚀 HTTP 服务器启动，等待连接...");
     let server =
         axum::serve(listener, app.into_make_service()).with_graceful_shutdown(shutdown_signal());
 
     // 运行服务器
     if let Err(e) = server.await {
-        error!("服务运行错误: {e}");
+        error!("❌ 服务运行错误: {}", e);
     }
 
     // 服务器关闭后执行清理逻辑
-    info!("服务器已关闭，开始清理资源...");
+    warn!("⚠️  服务器收到关闭信号，开始清理资源...");
 
     // 清理所有SSE服务
-    if let Err(e) = get_proxy_manager().cleanup_all_resources().await {
-        error!("清理资源时出错: {}", e);
+    match get_proxy_manager().cleanup_all_resources().await {
+        Ok(_) => info!("✅ 资源清理成功"),
+        Err(e) => error!("❌ 清理资源时出错: {}", e),
     }
 
     // 等待一小段时间确保所有资源都被清理
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-    info!("资源清理完成，服务已完全关闭");
+    info!("✅ 资源清理完成，服务已完全关闭");
     Ok(())
 }
 
