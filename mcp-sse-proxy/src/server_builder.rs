@@ -348,9 +348,15 @@ impl SseServerBuilder {
         // Unix: 创建进程组，支持 killpg 清理整个进程树
         #[cfg(unix)]
         wrapped_cmd.wrap(ProcessGroup::leader());
-        // Windows: 使用 Job Object 管理进程树
+        // Windows: 使用 Job Object 管理进程树，并隐藏控制台窗口
         #[cfg(windows)]
-        wrapped_cmd.wrap(JobObject);
+        {
+            use process_wrap::tokio::CreationFlags;
+            // CREATE_NO_WINDOW = 0x08000000
+            // 隐藏控制台窗口，避免在 GUI 应用（如 Tauri）中显示 CMD 窗口
+            wrapped_cmd.wrap(CreationFlags(0x08000000));
+            wrapped_cmd.wrap(JobObject);
+        }
 
         // 所有平台: Drop 时自动清理进程
         wrapped_cmd.wrap(KillOnDrop);

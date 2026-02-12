@@ -1,3 +1,9 @@
+// Windows 平台配置：隐藏控制台窗口
+// 当从 Tauri 等 GUI 应用启动时，不显示 CMD 窗口
+// 注意：这会影响所有 Windows 平台的运行，独立运行时也不会有控制台输出
+// 日志会写入文件（默认 ./logs/），可以通过日志文件查看运行状态
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
 mod config;
 use anyhow::Result;
 use backtrace::Backtrace;

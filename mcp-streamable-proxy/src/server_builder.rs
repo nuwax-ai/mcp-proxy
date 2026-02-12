@@ -181,6 +181,15 @@ impl StreamServerBuilder {
     ) -> Result<rmcp::service::RunningService<rmcp::RoleClient, ClientInfo>> {
         let mut cmd = Command::new(command);
 
+        // Windows: 隐藏控制台窗口，避免在 GUI 应用（如 Tauri）中显示 CMD 窗口
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            // CREATE_NO_WINDOW = 0x08000000
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+
         // 继承父进程的 PATH 环境变量（如果配置中未指定）
         if env.as_ref().map_or(true, |e| !e.contains_key("PATH")) {
             if let Ok(path) = std::env::var("PATH") {
