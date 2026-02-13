@@ -1,6 +1,6 @@
 [package]
 name = "mcp-common"
-version = "0.1.17"
+version = "0.1.18"
 edition = "2024"
 authors = ["nuwax-ai"]
 description = "Common types and utilities shared across MCP proxy components"
