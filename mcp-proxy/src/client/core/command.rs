@@ -53,11 +53,56 @@ pub async fn run_command_mode(
         eprintln!("🔧 工具过滤已启用");
     }
 
+    // 诊断日志：记录将要传递给子进程的关键环境信息
+    let inherited_path = std::env::var("PATH").unwrap_or_default();
+    let user_env_path = env.get("PATH").cloned();
+    let effective_path = user_env_path
+        .as_deref()
+        .unwrap_or(&inherited_path);
+    tracing::info!(
+        "[子进程环境][{}] 命令: {} {:?}",
+        name, command, cmd_args
+    );
+    tracing::debug!(
+        "[子进程环境][{}] 继承 PATH: {}",
+        name, inherited_path
+    );
+    if let Some(ref user_path) = user_env_path {
+        tracing::info!(
+            "[子进程环境][{}] 用户覆盖 PATH: {}",
+            name, user_path
+        );
+    }
+    tracing::info!(
+        "[子进程环境][{}] 生效 PATH: {}",
+        name, effective_path
+    );
+    {
+        let non_path_keys: Vec<&String> = env.keys().filter(|k| *k != "PATH").collect();
+        if !non_path_keys.is_empty() {
+            tracing::info!(
+                "[子进程环境][{}] 用户自定义环境变量: {:?}",
+                name, non_path_keys
+            );
+        }
+    }
+
     // 使用 process-wrap 创建子进程命令（跨平台进程清理）
     // process-wrap 会自动处理进程组（Unix）或 Job Object（Windows）
     // 并且在 Drop 时自动清理子进程树
     let mut wrapped_cmd = CommandWrap::with_new(command, |cmd| {
         cmd.args(&cmd_args);
+
+        // ✅ 修复：先继承当前进程的所有环境变量（确保 PATH 等系统变量传递到孙进程）
+        // 这样当子服务动态执行 npm/npx 时能正确找到命令
+        // 注意：用户提供的 env 会在后面覆盖同名变量，优先级更高
+        for (key, value) in std::env::vars_os() {
+            if let (Ok(key_str), Ok(value_str)) = (key.into_string(), value.into_string()) {
+                cmd.env(key_str, value_str);
+            }
+        }
+
+        // 然后覆盖/添加用户配置的环境变量（用户配置优先级更高）
         for (k, v) in &env {
             cmd.env(k, v);
         }

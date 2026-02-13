@@ -18,6 +18,13 @@ use crate::proxy::ToolFilter;
 /// Panic hook 初始化标志（确保只设置一次）
 static INIT_PANIC_HOOK: Once = Once::new();
 
+/// 最大重试次数
+const MAX_RETRIES: u32 = 30;
+/// 初始重试间隔（秒）
+const INITIAL_RETRY_DELAY_SECS: u64 = 3;
+/// 最大重试间隔（秒）
+const MAX_RETRY_DELAY_SECS: u64 = 30;
+
 /// 输出协议类型
 #[derive(clap::ValueEnum, Clone, Debug, Default)]
 pub enum ProxyProtocol {
@@ -175,9 +182,21 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
         }
     }
 
-    // 5. 主循环 - 支持子进程崩溃后自动重启
+    // 5. 端口提前绑定（在重试循环之前），确保 ServiceManager 的 TCP 健康检查能检测到进程存活
+    let bind_addr = format!("{}:{}", args.host, args.port);
+    let std_listener = std::net::TcpListener::bind(&bind_addr)
+        .map_err(|e| anyhow::anyhow!("端口绑定失败 {}: {}", bind_addr, e))?;
+    std_listener
+        .set_nonblocking(true)
+        .map_err(|e| anyhow::anyhow!("设置非阻塞失败: {}", e))?;
+    info!("[端口绑定] 已绑定 {}", bind_addr);
+
+    // 6. 主循环 - 支持子进程崩溃后自动重启（指数退避，有上限）
+    let mut retry_count: u32 = 0;
+    let mut retry_delay = Duration::from_secs(INITIAL_RETRY_DELAY_SECS);
+
     loop {
-        let result = run_proxy_server(&args, &parsed, tool_filter.clone(), verbose, quiet).await;
+        let result = run_proxy_server(&args, &parsed, &std_listener, tool_filter.clone(), verbose, quiet).await;
 
         match result {
             Ok(_) => {
@@ -192,13 +211,30 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
                 break;
             }
             Err(e) => {
-                // 异常退出，尝试重启
+                retry_count += 1;
+                if retry_count >= MAX_RETRIES {
+                    error!(
+                        "[服务终止] 达到最大重试次数 {}, 服务名: {}, 最后错误: {}",
+                        MAX_RETRIES, parsed.name, e
+                    );
+                    return Err(e);
+                }
                 error!(
-                    "[服务异常] MCP Proxy 服务异常退出 - 服务名: {}, 错误: {}, 3秒后重启",
-                    parsed.name, e
+                    "[服务异常] MCP Proxy 服务异常退出 - 服务名: {}, 错误: {}, {}秒后重启 (第{}/{}次)",
+                    parsed.name, e, retry_delay.as_secs(), retry_count, MAX_RETRIES
                 );
-                eprintln!("⚠️  服务异常: {}，3秒后重启...", e);
-                tokio::time::sleep(Duration::from_secs(3)).await;
+                eprintln!(
+                    "⚠️  服务异常: {}，{}秒后重启 (第{}/{}次)...",
+                    e,
+                    retry_delay.as_secs(),
+                    retry_count,
+                    MAX_RETRIES
+                );
+                tokio::time::sleep(retry_delay).await;
+                retry_delay = std::cmp::min(
+                    retry_delay * 2,
+                    Duration::from_secs(MAX_RETRY_DELAY_SECS),
+                );
                 warn!(
                     "[服务重启] 正在重启 MCP Proxy 服务 - 服务名: {}",
                     parsed.name
@@ -218,12 +254,11 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
 async fn run_proxy_server(
     args: &ProxyArgs,
     parsed: &ParsedConfig,
+    std_listener: &std::net::TcpListener,
     tool_filter: ToolFilter,
     _verbose: bool,
     quiet: bool,
 ) -> Result<()> {
-    let bind_addr = format!("{}:{}", args.host, args.port);
-
     // 根据协议类型选择对应的库并启动服务器
     // 每个库使用自己的 rmcp 版本创建完整的生命周期
     match args.protocol {
@@ -236,7 +271,7 @@ async fn run_proxy_server(
                 env: parsed.config.env.clone(),
                 tool_filter: Some(tool_filter),
             };
-            mcp_sse_proxy::run_sse_server_from_config(config, &bind_addr, quiet).await
+            mcp_sse_proxy::run_sse_server_from_config(config, std_listener, quiet).await
         }
         ProxyProtocol::Stream => {
             // 使用 mcp-streamable-proxy 库（rmcp 0.12）
@@ -247,7 +282,7 @@ async fn run_proxy_server(
                 env: parsed.config.env.clone(),
                 tool_filter: Some(tool_filter),
             };
-            mcp_streamable_proxy::run_stream_server_from_config(config, &bind_addr, quiet).await
+            mcp_streamable_proxy::run_stream_server_from_config(config, std_listener, quiet).await
         }
     }
 }

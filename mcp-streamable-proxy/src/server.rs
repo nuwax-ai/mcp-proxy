@@ -13,8 +13,10 @@ use rmcp::{
         streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService},
     },
 };
+use std::process::Stdio;
 use std::sync::Arc;
-use tracing::{error, info, warn};
+use tokio::io::AsyncBufReadExt;
+use tracing::{debug, error, info, warn};
 
 // 进程组管理（跨平台子进程清理）
 // process-wrap 9.0 使用 CommandWrap 而不是 TokioCommandWrap
@@ -39,20 +41,66 @@ use crate::{ProxyAwareSessionManager, ProxyHandler};
 /// # Arguments
 ///
 /// * `config` - MCP 服务配置
-/// * `bind_addr` - 绑定地址，例如 "127.0.0.1:3000"
+/// * `std_listener` - 预先绑定的 TCP 监听器（端口在重试循环前绑定，保证端口占用）
 /// * `quiet` - 静默模式，不输出启动信息
 pub async fn run_stream_server_from_config(
     config: McpServiceConfig,
-    bind_addr: &str,
+    std_listener: &std::net::TcpListener,
     quiet: bool,
 ) -> Result<()> {
     // 1. 使用 process-wrap 创建子进程命令（跨平台进程清理）
     // process-wrap 会自动处理进程组（Unix）或 Job Object（Windows）
     // 并且在 Drop 时自动清理子进程树
+
+    // 诊断日志：记录将要传递给子进程的关键环境信息
+    let inherited_path = std::env::var("PATH").unwrap_or_default();
+    let user_env_path = config.env.as_ref().and_then(|e| e.get("PATH").cloned());
+    let effective_path = user_env_path.as_deref().unwrap_or(&inherited_path);
+    info!(
+        "[子进程环境][{}] 命令: {} {:?}",
+        config.name,
+        config.command,
+        config.args.as_ref().unwrap_or(&vec![])
+    );
+    debug!(
+        "[子进程环境][{}] 继承 PATH: {}",
+        config.name, inherited_path
+    );
+    if let Some(ref user_path) = user_env_path {
+        info!(
+            "[子进程环境][{}] 用户覆盖 PATH: {}",
+            config.name, user_path
+        );
+    }
+    info!(
+        "[子进程环境][{}] 生效 PATH: {}",
+        config.name, effective_path
+    );
+    if let Some(ref env_vars) = config.env {
+        let non_path_keys: Vec<&String> = env_vars.keys().filter(|k| *k != "PATH").collect();
+        if !non_path_keys.is_empty() {
+            info!(
+                "[子进程环境][{}] 用户自定义环境变量: {:?}",
+                config.name, non_path_keys
+            );
+        }
+    }
+
     let mut wrapped_cmd = CommandWrap::with_new(&config.command, |command| {
         if let Some(ref cmd_args) = config.args {
             command.args(cmd_args);
         }
+
+        // ✅ 修复：先继承当前进程的所有环境变量（确保 PATH 等系统变量传递到孙进程）
+        // 这样当子服务动态执行 npm/npx 时能正确找到命令
+        // 注意：用户提供的 env 会在后面覆盖同名变量，优先级更高
+        for (key, value) in std::env::vars_os() {
+            if let (Ok(key_str), Ok(value_str)) = (key.into_string(), value.into_string()) {
+                command.env(key_str, value_str);
+            }
+        }
+
+        // 然后覆盖/添加用户配置的环境变量（用户配置优先级更高）
         if let Some(ref env_vars) = config.env {
             for (k, v) in env_vars {
                 command.env(k, v);
@@ -73,7 +121,32 @@ pub async fn run_stream_server_from_config(
     wrapped_cmd.wrap(KillOnDrop);
 
     // 2. 启动子进程（rmcp 的 TokioChildProcess 已经支持 process-wrap）
-    let tokio_process = TokioChildProcess::new(wrapped_cmd)?;
+    //    使用 builder 模式捕获 stderr，便于诊断子 MCP 服务初始化失败
+    let (tokio_process, child_stderr) = TokioChildProcess::builder(wrapped_cmd)
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    // 启动 stderr 日志读取任务
+    if let Some(stderr_pipe) = child_stderr {
+        let service_name = config.name.clone();
+        tokio::spawn(async move {
+            let mut reader = tokio::io::BufReader::new(stderr_pipe);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line).await {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        let trimmed = line.trim();
+                        if !trimmed.is_empty() {
+                            warn!("[子进程 stderr][{}] {}", service_name, trimmed);
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+    }
 
     // 3. 创建客户端信息
     let client_info = ClientInfo {
@@ -163,8 +236,9 @@ pub async fn run_stream_server_from_config(
         ProxyHandler::with_mcp_id(client, config.name.clone())
     };
 
-    // 6. 启动服务器
-    run_stream_server(proxy_handler, bind_addr, quiet).await
+    // 6. 启动服务器（使用预绑定的 listener）
+    let listener = tokio::net::TcpListener::from_std(std_listener.try_clone()?)?;
+    run_stream_server(proxy_handler, listener, quiet).await
 }
 
 /// Run Streamable HTTP server with ProxyAwareSessionManager
@@ -178,31 +252,17 @@ pub async fn run_stream_server_from_config(
 /// # Arguments
 ///
 /// * `proxy_handler` - ProxyHandler 实例（包含后端版本控制）
-/// * `bind_addr` - 绑定地址，例如 "127.0.0.1:3000"
+/// * `listener` - 已绑定的 tokio TcpListener
 /// * `quiet` - 静默模式，不输出启动信息
-///
-/// # Example
-///
-/// ```no_run
-/// use mcp_streamable_proxy::{ProxyHandler, run_stream_server};
-/// use mcp_common::ToolFilter;
-///
-/// # async fn example() -> anyhow::Result<()> {
-/// let handler = ProxyHandler::new_disconnected(
-///     "test-mcp".to_string(),
-///     ToolFilter::default(),
-///     Default::default(),
-/// );
-///
-/// run_stream_server(handler, "127.0.0.1:3000", false).await?;
-/// # Ok(())
-/// # }
-/// ```
 pub async fn run_stream_server(
     proxy_handler: ProxyHandler,
-    bind_addr: &str,
+    listener: tokio::net::TcpListener,
     quiet: bool,
 ) -> Result<()> {
+    let bind_addr = listener
+        .local_addr()
+        .map(|a| a.to_string())
+        .unwrap_or_else(|_| "<unknown>".to_string());
     let mcp_id = proxy_handler.mcp_id().to_string();
 
     // 记录服务启动到日志文件
@@ -240,8 +300,7 @@ pub async fn run_stream_server(
     // Streamable HTTP 直接在根路径提供服务
     let router = axum::Router::new().fallback_service(service);
 
-    // 启动 HTTP 服务器
-    let listener = tokio::net::TcpListener::bind(bind_addr).await?;
+    // 使用传入的 listener 启动 HTTP 服务器
 
     // 使用 select 处理 Ctrl+C 和服务器
     tokio::select! {
