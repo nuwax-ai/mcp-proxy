@@ -113,10 +113,9 @@ pub async fn run_command_mode(
     // Windows: 使用 Job Object 管理进程树，并隐藏控制台窗口
     #[cfg(windows)]
     {
-        use process_wrap::CreationFlags;
-        // CREATE_NO_WINDOW = 0x08000000
-        // 隐藏控制台窗口，避免在 GUI 应用（如 Tauri）中显示 CMD 窗口
-        wrapped_cmd.wrap(CreationFlags(0x08000000));
+        use process_wrap::tokio::CreationFlags;
+        use windows::Win32::System::Threading::CREATE_NO_WINDOW;
+        wrapped_cmd.wrap(CreationFlags(CREATE_NO_WINDOW));
         wrapped_cmd.wrap(JobObject);
     }
     // 所有平台: Drop 时自动清理进程

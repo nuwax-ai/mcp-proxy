@@ -60,3 +60,6 @@ futures = { workspace = true }
 # 添加 process-group 特性用于 Unix 平台的进程组管理
 # 添加 job-object 特性用于 Windows 平台的进程树管理
 process-wrap = { version = "9.0", features = ["tokio1", "process-group", "job-object"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = ["Win32_System_Threading"] }

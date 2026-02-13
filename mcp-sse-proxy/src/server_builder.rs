@@ -352,9 +352,8 @@ impl SseServerBuilder {
         #[cfg(windows)]
         {
             use process_wrap::tokio::CreationFlags;
-            // CREATE_NO_WINDOW = 0x08000000
-            // 隐藏控制台窗口，避免在 GUI 应用（如 Tauri）中显示 CMD 窗口
-            wrapped_cmd.wrap(CreationFlags(0x08000000));
+            use windows::Win32::System::Threading::CREATE_NO_WINDOW;
+            wrapped_cmd.wrap(CreationFlags(CREATE_NO_WINDOW));
             wrapped_cmd.wrap(JobObject);
         }
 
