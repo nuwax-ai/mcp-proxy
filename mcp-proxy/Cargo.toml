@@ -1,6 +1,6 @@
 [package]
 name = "mcp-stdio-proxy"
-version = "0.1.46"
+version = "0.1.47"
 edition = "2024"
 authors = ["nuwax-ai"]
 description = "MCP (Model Context Protocol) proxy server and CLI tool for protocol conversion and remote service access"
@@ -73,7 +73,7 @@ moka = { workspace = true, features = ["future"] }
 process-wrap = { version = "9.0", features = ["tokio1", "process-group", "job-object"] }
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.61", features = ["Win32_System_Threading"] }
+windows = { version = "0.62", features = ["Win32_System_Threading"] }
 
 [[bin]]
 name = "mcp-proxy"
