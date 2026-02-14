@@ -10,6 +10,7 @@
 
 pub mod client_config;
 pub mod config;
+pub mod diagnostic;
 pub mod mirror;
 pub mod process_compat;
 pub mod tool_filter;

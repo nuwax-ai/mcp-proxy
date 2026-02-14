@@ -246,7 +246,21 @@ impl StreamServerBuilder {
             args.as_ref().unwrap_or(&vec![])
         );
 
-        let tokio_process = TokioChildProcess::new(cmd)?;
+        let mcp_id = self
+            .server_config
+            .mcp_id
+            .as_deref()
+            .unwrap_or("unknown");
+
+        // 诊断日志：子进程关键环境变量
+        mcp_common::diagnostic::log_stdio_spawn_context("StreamServerBuilder", mcp_id, env);
+
+        let tokio_process = TokioChildProcess::new(cmd).map_err(|e| {
+            anyhow::anyhow!(
+                "{}",
+                mcp_common::diagnostic::format_spawn_error(mcp_id, command, args, e)
+            )
+        })?;
         let client = client_info.clone().serve(tokio_process).await?;
 
         info!("[StreamServerBuilder] Child process connected successfully");

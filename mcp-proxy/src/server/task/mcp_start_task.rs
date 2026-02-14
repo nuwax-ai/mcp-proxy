@@ -18,7 +18,7 @@ use crate::{
     },
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use log::{debug, info};
 
 /// Start an MCP service based on configuration
@@ -157,7 +157,13 @@ pub async fn integrate_server_with_axum(
                 .keep_alive(keep_alive_secs)
                 .stateful(stateful)
                 .build()
-                .await?;
+                .await
+                .with_context(|| {
+                    format!(
+                        "SSE server build failed - MCP ID: {}, type: {:?}",
+                        mcp_id, mcp_type
+                    )
+                })?;
 
             info!(
                 "SSE server started - MCP ID: {}, type: {:?}",
@@ -176,7 +182,13 @@ pub async fn integrate_server_with_axum(
                 .mcp_id(mcp_id.clone())
                 .stateful(false)
                 .build()
-                .await?;
+                .await
+                .with_context(|| {
+                    format!(
+                        "Stream server build failed - MCP ID: {}, type: {:?}",
+                        mcp_id, mcp_type
+                    )
+                })?;
 
             info!(
                 "Streamable HTTP server started - MCP ID: {}, type: {:?}",
@@ -339,27 +351,28 @@ fn log_command_details(mcp_config: &McpServerCommandConfig) {
         .args
         .as_ref()
         .map_or(String::new(), |args| args.join(" "));
-    let cmd_str = format!("Executing command: {} {}", mcp_config.command, args_str);
-    debug!("{cmd_str}");
 
+    info!(
+        "Executing command: {} {}",
+        mcp_config.command, args_str
+    );
+
+    // 只输出 env 变量的 key 列表，避免泄露敏感 value
     if let Some(env_vars) = &mcp_config.env {
-        let env_vars: Vec<String> = env_vars.iter().map(|(k, v)| format!("{k}={v}")).collect();
-        if !env_vars.is_empty() {
-            debug!("Environment variables: {}", env_vars.join(", "));
+        let keys: Vec<&String> = env_vars.keys().collect();
+        if !keys.is_empty() {
+            debug!("Config env keys: {:?}", keys);
         }
     }
 
-    debug!("Full command: {:?}", mcp_config.command);
-
-    let env_str = mcp_config.env.as_ref().map_or(String::new(), |env| {
-        env.iter()
-            .map(|(k, v)| format!("{k}={v}"))
-            .collect::<Vec<String>>()
-            .join(" ")
-    });
-
-    let full_command = format!("{} {} {}", mcp_config.command, args_str, env_str);
-    info!("Full command string: {:?}", full_command);
+    // 输出进程级关键环境变量（PATH 摘要 + 镜像变量）
+    debug!(
+        "Process PATH: {}",
+        mcp_common::diagnostic::format_path_summary(3)
+    );
+    for (key, val) in mcp_common::diagnostic::collect_mirror_env_vars() {
+        debug!("Process env: {}={}", key, val);
+    }
 }
 
 /// Base path fallback handler - supports direct access to base path with automatic redirection

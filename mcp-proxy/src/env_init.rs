@@ -16,6 +16,9 @@ pub fn init(app_config: &AppConfig) {
 
     // 2. 应用内置运行时 PATH 优先
     init_runtime_path();
+
+    // 3. 汇总诊断日志
+    mcp_common::diagnostic::eprint_env_summary();
 }
 
 /// 从 config.yml + 环境变量合并镜像配置，设为进程级环境变量
@@ -31,6 +34,7 @@ fn init_mirror(yml: &MirrorYamlConfig) {
     }
 
     if config.is_empty() {
+        eprintln!("  - 未配置镜像源（npm/PyPI），将使用默认源");
         return;
     }
 

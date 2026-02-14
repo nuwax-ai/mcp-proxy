@@ -367,8 +367,16 @@ impl SseServerBuilder {
             args.as_ref().unwrap_or(&vec![])
         );
 
+        // 诊断日志：子进程关键环境变量
+        mcp_common::diagnostic::log_stdio_spawn_context("SseServerBuilder", &mcp_id, env);
+
         let process_start = Instant::now();
-        let tokio_process = TokioChildProcess::new(wrapped_cmd)?;
+        let tokio_process = TokioChildProcess::new(wrapped_cmd).map_err(|e| {
+            anyhow::anyhow!(
+                "{}",
+                mcp_common::diagnostic::format_spawn_error(&mcp_id, command, args, e)
+            )
+        })?;
         let process_duration = process_start.elapsed();
 
         debug!(
