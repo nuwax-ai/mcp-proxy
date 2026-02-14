@@ -1,6 +1,7 @@
 [package]
 name = "mcp-stdio-proxy"
-version = "0.1.49"
+# 主入口版本，与 workspace 对外发布版本一致
+version = "0.1.50"
 edition = "2024"
 authors = ["nuwax-ai"]
 description = "MCP (Model Context Protocol) proxy server and CLI tool for protocol conversion and remote service access"

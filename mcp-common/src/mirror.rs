@@ -38,7 +38,9 @@ impl MirrorConfig {
                 if std::env::var("PIP_INDEX_URL").is_err() {
                     std::env::set_var("PIP_INDEX_URL", index_url);
                 }
-                if std::env::var("UV_INSECURE_HOST").is_err() {
+                if std::env::var("UV_INSECURE_HOST").is_err()
+                    && index_url.starts_with("http://")
+                {
                     if let Some(host) = extract_host(index_url) {
                         std::env::set_var("UV_INSECURE_HOST", &host);
                     }
