@@ -2604,7 +2604,7 @@ dependencies = [
 
 [[package]]
 name = "mcp-stdio-proxy"
-version = "0.1.53"
+version = "0.1.55"
 dependencies = [
  "anyhow",
  "arc-swap",
