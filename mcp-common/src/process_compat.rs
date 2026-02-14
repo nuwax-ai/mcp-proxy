@@ -61,7 +61,7 @@ pub fn check_windows_command(command: &str) {
         .and_then(|e| e.to_str())
         .map(|s| s.to_ascii_lowercase());
 
-    match cmd_ext {
+    match cmd_ext.as_deref() {
         Some("cmd" | "bat") => {
             warn!(
                 "[MCP] Windows 检测到 .cmd/.bat 命令: {} - 可能会弹 CMD 窗口！",
