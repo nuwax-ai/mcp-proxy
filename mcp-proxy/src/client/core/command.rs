@@ -59,7 +59,7 @@ pub async fn run_command_mode(
     let effective_path = user_env_path
         .as_deref()
         .unwrap_or(&inherited_path);
-    tracing::info!(
+    tracing::debug!(
         "[子进程环境][{}] 命令: {} {:?}",
         name, command, cmd_args
     );
@@ -68,19 +68,19 @@ pub async fn run_command_mode(
         name, inherited_path
     );
     if let Some(ref user_path) = user_env_path {
-        tracing::info!(
+        tracing::debug!(
             "[子进程环境][{}] 用户覆盖 PATH: {}",
             name, user_path
         );
     }
-    tracing::info!(
+    tracing::debug!(
         "[子进程环境][{}] 生效 PATH: {}",
         name, effective_path
     );
     {
         let non_path_keys: Vec<&String> = env.keys().filter(|k| *k != "PATH").collect();
         if !non_path_keys.is_empty() {
-            tracing::info!(
+            tracing::debug!(
                 "[子进程环境][{}] 用户自定义环境变量: {:?}",
                 name, non_path_keys
             );
@@ -90,7 +90,7 @@ pub async fn run_command_mode(
     // 打印进程继承的镜像源环境变量，便于诊断镜像是否生效
     for key in &["UV_INDEX_URL", "PIP_INDEX_URL", "npm_config_registry"] {
         if let Ok(val) = std::env::var(key) {
-            tracing::info!("[子进程环境][{}] {}={}", name, key, val);
+            tracing::debug!("[子进程环境][{}] {}={}", name, key, val);
         }
     }
 

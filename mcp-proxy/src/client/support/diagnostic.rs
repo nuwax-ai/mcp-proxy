@@ -93,7 +93,7 @@ pub fn print_diagnostic_report(
     eprintln!("\n========== 诊断报告 ==========");
     eprintln!("连接协议: {}", protocol);
 
-    // 隐藏 URL 中的敏感信息（如 token/ak 参数）
+    // 隐藏 URL 中的敏感信息（如 token/ak/key/secret 参数）
     let masked_url = if url.contains("?") {
         let parts: Vec<&str> = url.split('?').collect();
         if parts.len() == 2 {
@@ -102,9 +102,20 @@ pub fn print_diagnostic_report(
             let masked_params: Vec<String> = params
                 .iter()
                 .map(|p| {
-                    if p.starts_with("ak=") || p.starts_with("token=") || p.starts_with("auth=") {
-                        let key = p.split('=').next().unwrap_or("");
-                        format!("{}=***", key)
+                    let lower = p.to_lowercase();
+                    let key_part = lower.split('=').next().unwrap_or("");
+                    if key_part.contains("key")
+                        || key_part.contains("token")
+                        || key_part.contains("secret")
+                        || key_part.contains("auth")
+                        || key_part.contains("password")
+                        || key_part.contains("passwd")
+                        || key_part.contains("credential")
+                        || key_part == "ak"
+                        || key_part == "sk"
+                    {
+                        let original_key = p.split('=').next().unwrap_or("");
+                        format!("{}=***", original_key)
                     } else {
                         p.to_string()
                     }
