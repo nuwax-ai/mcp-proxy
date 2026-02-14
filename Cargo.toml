@@ -1,5 +1,7 @@
 [workspace]
 members = ["document-parser", "fastembed", "mcp-common", "mcp-proxy", "mcp-sse-proxy", "mcp-streamable-proxy", "oss-client", "voice-cli"]
+# 默认只构建 mcp-proxy（排除 fastembed 等不支持所有平台的包）
+default-members = ["mcp-proxy", "mcp-common", "mcp-sse-proxy", "mcp-streamable-proxy"]
 resolver = "2"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

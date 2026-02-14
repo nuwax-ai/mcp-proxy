@@ -3076,7 +3076,7 @@ dependencies = [
 
 [[package]]
 name = "mcp-stdio-proxy"
-version = "0.1.44"
+version = "0.1.45"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -3147,7 +3147,7 @@ dependencies = [
  "tokio-util",
  "tower",
  "tracing",
- "windows 0.61.3",
+ "windows 0.62.2",
 ]
 
 [[package]]
