@@ -128,6 +128,15 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
     // 2. 解析配置
     let parsed = parse_config(&args)?;
 
+    // 2.5 初始化镜像源环境变量（MCP_PROXY_NPM_REGISTRY → npm_config_registry 等）
+    // 必须在日志初始化之前、单线程阶段调用
+    {
+        let mirror = mcp_common::mirror::MirrorConfig::from_env();
+        if !mirror.is_empty() {
+            mirror.apply_to_process_env();
+        }
+    }
+
     // 3. 初始化日志系统（在启动服务之前）
     init_logging_with_config(&args.logging, Some(&parsed.name), quiet, verbose)?;
 
