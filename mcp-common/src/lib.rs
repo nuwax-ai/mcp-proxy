@@ -10,6 +10,7 @@
 
 pub mod client_config;
 pub mod config;
+pub mod mirror;
 pub mod process_compat;
 pub mod tool_filter;
 
@@ -20,6 +21,7 @@ pub mod telemetry;
 pub use client_config::McpClientConfig;
 pub use config::McpServiceConfig;
 pub use process_compat::check_windows_command;
+pub use process_compat::ensure_runtime_path;
 pub use tool_filter::ToolFilter;
 
 // Re-export telemetry types when feature is enabled

@@ -91,6 +91,34 @@ pub fn check_windows_command(_command: &str) {
     // 非 Windows 平台无需检测
 }
 
+/// 确保应用内置运行时路径（NUWAX_APP_RUNTIME_PATH）在 PATH 最前面。
+///
+/// 当应用捆绑了 node/uv 等运行时时，通过 `NUWAX_APP_RUNTIME_PATH` 传递其路径。
+/// 此函数将这些路径插入到给定 PATH 的最前面，确保优先使用应用内置版本，
+/// 即使用户在 MCP 配置的 `env` 中指定了自定义 PATH。
+///
+/// 如果 `NUWAX_APP_RUNTIME_PATH` 未设置或为空，直接返回原始 PATH。
+pub fn ensure_runtime_path(path: &str) -> String {
+    if let Ok(runtime_path) = std::env::var("NUWAX_APP_RUNTIME_PATH") {
+        let runtime_path = runtime_path.trim();
+        if !runtime_path.is_empty() {
+            let sep = if cfg!(windows) { ";" } else { ":" };
+            // 避免重复：如果 PATH 已经以 runtime_path 开头则不重复添加
+            if path == runtime_path
+                || path.starts_with(&format!("{}{}", runtime_path, sep))
+            {
+                return path.to_string();
+            }
+            tracing::info!(
+                "[ProcessCompat] 前置应用内置运行时到 PATH: {}",
+                runtime_path
+            );
+            return format!("{}{}{}", runtime_path, sep, path);
+        }
+    }
+    path.to_string()
+}
+
 /// 为 process-wrap 8.x 的 TokioCommandWrap 应用平台特定的包装
 ///
 /// 此宏会根据目标平台自动应用正确的进程包装：

@@ -1,5 +1,6 @@
 mod client;
 mod config;
+pub mod env_init;
 mod mcp_error;
 mod model;
 mod proxy;

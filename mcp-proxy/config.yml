@@ -8,3 +8,6 @@ log:
   path: logs
   # The number of log files to retain (default: 5)
   retain_days: 5
+mirror:
+  npm_registry: ""
+  pypi_index_url: ""

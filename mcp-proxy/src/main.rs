@@ -97,6 +97,7 @@ async fn run_server_mode() -> Result<()> {
     eprintln!("  - 日志目录: {}", app_config.log.path);
     eprintln!("  - 日志级别: {}", app_config.log.level);
     eprintln!("  - 日志保留天数: {}", app_config.log.retain_days);
+    mcp_stdio_proxy::env_init::init(&app_config);
     eprintln!("========================================");
 
     app_config.log_path_init()?;

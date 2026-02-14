@@ -7,11 +7,23 @@ use std::path::Path;
 /// The default config file
 const DEFAULT_CONFIG_YAML: &str = include_str!("../config.yml");
 
+/// config.yml 中 mirror 段的结构
+#[allow(dead_code)]
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct MirrorYamlConfig {
+    #[serde(default)]
+    pub npm_registry: String,
+    #[serde(default)]
+    pub pypi_index_url: String,
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {
     pub server: ServerConfig,
     pub log: LogConfig,
+    #[serde(default)]
+    pub mirror: MirrorYamlConfig,
 }
 #[allow(dead_code)]
 #[derive(Debug, Deserialize, Clone)]
