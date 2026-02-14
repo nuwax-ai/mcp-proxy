@@ -87,6 +87,13 @@ pub async fn run_command_mode(
         }
     }
 
+    // 打印进程继承的镜像源环境变量，便于诊断镜像是否生效
+    for key in &["UV_INDEX_URL", "PIP_INDEX_URL", "npm_config_registry"] {
+        if let Ok(val) = std::env::var(key) {
+            tracing::info!("[子进程环境][{}] {}={}", name, key, val);
+        }
+    }
+
     // 使用 process-wrap 创建子进程命令（跨平台进程清理）
     // process-wrap 会自动处理进程组（Unix）或 Job Object（Windows）
     // 并且在 Drop 时自动清理子进程树
