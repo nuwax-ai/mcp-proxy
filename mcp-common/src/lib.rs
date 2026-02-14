@@ -23,6 +23,7 @@ pub use client_config::McpClientConfig;
 pub use config::McpServiceConfig;
 pub use process_compat::check_windows_command;
 pub use process_compat::ensure_runtime_path;
+pub use process_compat::prepare_stdio_env;
 pub use tool_filter::ToolFilter;
 
 // Re-export telemetry types when feature is enabled

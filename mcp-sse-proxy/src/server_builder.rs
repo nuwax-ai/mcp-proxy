@@ -297,49 +297,17 @@ impl SseServerBuilder {
         // process-wrap 会自动处理进程组（Unix）或 Job Object（Windows）
         // 并且在 Drop 时自动清理子进程树
         let mut wrapped_cmd = TokioCommandWrap::with_new(command, |cmd| {
-            // 继承父进程的 PATH 环境变量（如果配置中未指定）
-            if env.as_ref().map_or(true, |e| !e.contains_key("PATH")) {
-                if let Ok(path) = std::env::var("PATH") {
-                    info!("[SseServerBuilder] Inheriting PATH from parent process");
-                    // Windows: 添加 npm 全局 bin 目录到 PATH
-                    #[cfg(target_os = "windows")]
-                    let path = {
-                        if let Ok(appdata) = std::env::var("APPDATA") {
-                            let npm_path = format!(r"{}\npm", appdata);
-                            if !path.contains(&npm_path) {
-                                info!(
-                                    "[SseServerBuilder] Windows: Adding npm global bin to PATH: {}",
-                                    npm_path
-                                );
-                                format!("{};{}", path, npm_path)
-                            } else {
-                                info!(
-                                    "[SseServerBuilder] Windows: npm global bin already in PATH: {}",
-                                    npm_path
-                                );
-                                path
-                            }
-                        } else {
-                            warn!(
-                                "[SseServerBuilder] Windows: APPDATA environment variable not found, using original PATH"
-                            );
-                            path
-                        }
-                    };
-                    cmd.env("PATH", path);
-                } else {
-                    warn!(
-                        "[SseServerBuilder] Failed to read PATH environment variable from parent process"
-                    );
-                }
+            let (final_path, filtered_env) = mcp_common::prepare_stdio_env(env);
+            if let Some(path) = final_path {
+                cmd.env("PATH", path);
             } else {
-                info!("[SseServerBuilder] Using PATH from MCP service configuration");
+                warn!("[SseServerBuilder] PATH not available from parent process or config");
             }
             if let Some(cmd_args) = args {
                 cmd.args(cmd_args);
             }
-            if let Some(env_vars) = env {
-                for (k, v) in env_vars {
+            if let Some(vars) = filtered_env {
+                for (k, v) in vars {
                     cmd.env(k, v);
                 }
             }

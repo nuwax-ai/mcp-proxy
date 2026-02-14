@@ -181,51 +181,19 @@ impl StreamServerBuilder {
     ) -> Result<rmcp::service::RunningService<rmcp::RoleClient, ClientInfo>> {
         let mut cmd = Command::new(command);
 
-        // 继承父进程的 PATH 环境变量（如果配置中未指定）
-        if env.as_ref().map_or(true, |e| !e.contains_key("PATH")) {
-            if let Ok(path) = std::env::var("PATH") {
-                info!("[StreamServerBuilder] Inheriting PATH from parent process");
-                // Windows: 添加 npm 全局 bin 目录到 PATH
-                #[cfg(target_os = "windows")]
-                let path = {
-                    if let Ok(appdata) = std::env::var("APPDATA") {
-                        let npm_path = format!(r"{}\npm", appdata);
-                        if !path.contains(&npm_path) {
-                            info!(
-                                "[StreamServerBuilder] Windows: Adding npm global bin to PATH: {}",
-                                npm_path
-                            );
-                            format!("{};{}", path, npm_path)
-                        } else {
-                            info!(
-                                "[StreamServerBuilder] Windows: npm global bin already in PATH: {}",
-                                npm_path
-                            );
-                            path
-                        }
-                    } else {
-                        warn!(
-                            "[StreamServerBuilder] Windows: APPDATA environment variable not found, using original PATH"
-                        );
-                        path
-                    }
-                };
-                cmd.env("PATH", path);
-            } else {
-                warn!(
-                    "[StreamServerBuilder] Failed to read PATH environment variable from parent process"
-                );
-            }
+        let (final_path, filtered_env) = mcp_common::prepare_stdio_env(env);
+        if let Some(path) = final_path {
+            cmd.env("PATH", path);
         } else {
-            info!("[StreamServerBuilder] Using PATH from MCP service configuration");
+            warn!("[StreamServerBuilder] PATH not available from parent process or config");
         }
 
         if let Some(cmd_args) = args {
             cmd.args(cmd_args);
         }
 
-        if let Some(env_vars) = env {
-            for (k, v) in env_vars {
+        if let Some(vars) = filtered_env {
+            for (k, v) in vars {
                 cmd.env(k, v);
             }
         }
