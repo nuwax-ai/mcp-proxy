@@ -10,6 +10,7 @@
 
 pub mod client_config;
 pub mod config;
+pub mod process_compat;
 pub mod tool_filter;
 
 #[cfg(feature = "telemetry")]
@@ -18,6 +19,7 @@ pub mod telemetry;
 // Re-export main types
 pub use client_config::McpClientConfig;
 pub use config::McpServiceConfig;
+pub use process_compat::check_windows_command;
 pub use tool_filter::ToolFilter;
 
 // Re-export telemetry types when feature is enabled

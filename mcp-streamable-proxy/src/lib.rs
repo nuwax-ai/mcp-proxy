@@ -43,8 +43,9 @@ pub mod session_manager;
 
 // Re-export main types
 pub use proxy_handler::{ProxyHandler, ToolFilter};
-pub use server::{McpServiceConfig, run_stream_server, run_stream_server_from_config};
+pub use server::{run_stream_server, run_stream_server_from_config};
 pub use session_manager::ProxyAwareSessionManager;
+pub use mcp_common::McpServiceConfig;
 
 // Re-export protocol detection function
 pub use detector::is_streamable_http;

@@ -4,7 +4,7 @@
 //! for stateful session management with backend version control.
 
 use anyhow::{Result, bail};
-pub use mcp_common::McpServiceConfig;
+use mcp_common::{McpServiceConfig, check_windows_command, wrap_process_v9};
 use rmcp::{
     ServiceExt,
     model::{ClientCapabilities, ClientInfo},
@@ -21,15 +21,6 @@ use tracing::{debug, error, info, warn};
 // 进程组管理（跨平台子进程清理）
 // process-wrap 9.0 使用 CommandWrap 而不是 TokioCommandWrap
 use process_wrap::tokio::{CommandWrap, KillOnDrop};
-
-#[cfg(unix)]
-use process_wrap::tokio::ProcessGroup;
-
-#[cfg(windows)]
-use process_wrap::tokio::{CreationFlags, JobObject};
-
-#[cfg(windows)]
-use windows::Win32::System::Threading::CREATE_NO_WINDOW;
 
 use crate::{ProxyAwareSessionManager, ProxyHandler};
 
@@ -59,6 +50,12 @@ pub async fn run_stream_server_from_config(
     let inherited_path = std::env::var("PATH").unwrap_or_default();
     let user_env_path = config.env.as_ref().and_then(|e| e.get("PATH").cloned());
     let effective_path = user_env_path.as_deref().unwrap_or(&inherited_path);
+
+    // 🔧 Windows 特殊处理：检测并转换 .cmd/.bat 文件避免弹窗
+    // 如果用户配置了 npm 全局安装的 MCP 服务（如 npx some-server 或 some-server.cmd），
+    // 直接运行会弹 CMD 窗口。这里尝试转换
+    check_windows_command(&config.command);
+
     info!(
         "[子进程环境][{}] 命令: {} {:?}",
         config.name,
@@ -110,15 +107,10 @@ pub async fn run_stream_server_from_config(
             }
         }
     });
-    // Unix: 创建进程组，支持 killpg 清理整个进程树
-    #[cfg(unix)]
-    wrapped_cmd.wrap(ProcessGroup::leader());
-    // Windows: 使用 CREATE_NO_WINDOW + Job Object 管理进程树并隐藏控制台窗口
-    #[cfg(windows)]
-    {
-        wrapped_cmd.wrap(CreationFlags(CREATE_NO_WINDOW));
-        wrapped_cmd.wrap(JobObject);
-    }
+
+    // 应用平台特定的进程包装（Unix: ProcessGroup, Windows: CREATE_NO_WINDOW + JobObject）
+    wrap_process_v9!(wrapped_cmd);
+
     // 所有平台: Drop 时自动清理进程
     wrapped_cmd.wrap(KillOnDrop);
 
