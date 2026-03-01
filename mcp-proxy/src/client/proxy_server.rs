@@ -18,8 +18,8 @@ use crate::proxy::ToolFilter;
 /// Panic hook 初始化标志（确保只设置一次）
 static INIT_PANIC_HOOK: Once = Once::new();
 
-/// 最大重试次数
-const MAX_RETRIES: u32 = 30;
+/// 最大重试次数 (0 = 无限重试)
+const MAX_RETRIES: u32 = 0;
 /// 初始重试间隔（秒）
 const INITIAL_RETRY_DELAY_SECS: u64 = 3;
 /// 最大重试间隔（秒）
@@ -237,23 +237,27 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
             }
             Err(e) => {
                 retry_count += 1;
-                if retry_count >= MAX_RETRIES {
+                if MAX_RETRIES > 0 && retry_count >= MAX_RETRIES {
                     error!(
                         "[服务终止] 达到最大重试次数 {}, 服务名: {}, 最后错误: {}",
                         MAX_RETRIES, parsed.name, e
                     );
                     return Err(e);
                 }
+                let retry_info = if MAX_RETRIES == 0 {
+                    format!("第{}次", retry_count)
+                } else {
+                    format!("第{}/{}次", retry_count, MAX_RETRIES)
+                };
                 error!(
-                    "[服务异常] MCP Proxy 服务异常退出 - 服务名: {}, 错误: {}, {}秒后重启 (第{}/{}次)",
-                    parsed.name, e, retry_delay.as_secs(), retry_count, MAX_RETRIES
+                    "[服务异常] MCP Proxy 服务异常退出 - 服务名: {}, 错误: {}, {}秒后重启 ({})",
+                    parsed.name, e, retry_delay.as_secs(), retry_info
                 );
                 eprintln!(
-                    "⚠️  服务异常: {}，{}秒后重启 (第{}/{}次)...",
+                    "⚠️  服务异常: {}，{}秒后重启 ({})...",
                     e,
                     retry_delay.as_secs(),
-                    retry_count,
-                    MAX_RETRIES
+                    retry_info
                 );
                 tokio::time::sleep(retry_delay).await;
                 retry_delay = std::cmp::min(
