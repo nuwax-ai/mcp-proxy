@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
-use tokio::process::Command;
+use process_wrap::tokio::{CommandWrap, KillOnDrop};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
@@ -22,6 +22,16 @@ use rmcp::{
         streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService},
     },
 };
+
+// Unix 进程组支持
+#[cfg(unix)]
+use process_wrap::tokio::ProcessGroup;
+
+// Windows 静默运行支持
+#[cfg(windows)]
+use process_wrap::tokio::{CreationFlags, JobObject};
+#[cfg(windows)]
+use windows::Win32::System::Threading::CREATE_NO_WINDOW;
 
 use crate::{ProxyAwareSessionManager, ProxyHandler, ToolFilter};
 pub use mcp_common::ToolFilter as CommonToolFilter;
@@ -179,33 +189,42 @@ impl StreamServerBuilder {
         env: &Option<HashMap<String, String>>,
         client_info: &ClientInfo,
     ) -> Result<rmcp::service::RunningService<rmcp::RoleClient, ClientInfo>> {
-        let mut cmd = Command::new(command);
-
-        let (final_path, filtered_env) = mcp_common::prepare_stdio_env(env);
-        if let Some(path) = final_path {
-            cmd.env("PATH", path);
-        } else {
-            warn!("[StreamServerBuilder] PATH not available from parent process or config");
-        }
-
-        if let Some(cmd_args) = args {
-            cmd.args(cmd_args);
-        }
-
-        if let Some(vars) = filtered_env {
-            for (k, v) in vars {
-                cmd.env(k, v);
+        // 使用 process-wrap 创建子进程命令（跨平台进程清理）
+        // process-wrap 会自动处理进程组（Unix）或 Job Object（Windows）
+        // 并且在 Drop 时自动清理子进程树
+        let mut wrapped_cmd = CommandWrap::with_new(command, |cmd| {
+            let (final_path, filtered_env) = mcp_common::prepare_stdio_env(env);
+            if let Some(path) = final_path {
+                cmd.env("PATH", path);
+            } else {
+                warn!("[StreamServerBuilder] PATH not available from parent process or config");
             }
-        }
 
-        // Windows: 隐藏控制台窗口，避免在 GUI 应用（如 Tauri）中显示 CMD 窗口
-        // 注意：必须在所有 env/args 配置之后设置，确保不被覆盖
+            if let Some(cmd_args) = args {
+                cmd.args(cmd_args);
+            }
+
+            if let Some(vars) = filtered_env {
+                for (k, v) in vars {
+                    cmd.env(k, v);
+                }
+            }
+        });
+
+        // Unix: 创建进程组，支持 killpg 清理整个进程树
+        #[cfg(unix)]
+        wrapped_cmd.wrap(ProcessGroup::leader());
+
+        // Windows: 使用 Job Object 管理进程树，并隐藏控制台窗口
+        // JobObject 确保所有子进程都在同一个 Job 中，可以被统一管理
         #[cfg(windows)]
         {
-            // CREATE_NO_WINDOW = 0x08000000
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
-            cmd.creation_flags(CREATE_NO_WINDOW);
+            wrapped_cmd.wrap(CreationFlags(CREATE_NO_WINDOW));
+            wrapped_cmd.wrap(JobObject);
         }
+
+        // 所有平台: Drop 时自动清理进程
+        wrapped_cmd.wrap(KillOnDrop);
 
         info!(
             "[StreamServerBuilder] Starting child process - command: {}, args: {:?}",
@@ -222,7 +241,7 @@ impl StreamServerBuilder {
         // 诊断日志：子进程关键环境变量
         mcp_common::diagnostic::log_stdio_spawn_context("StreamServerBuilder", mcp_id, env);
 
-        let tokio_process = TokioChildProcess::new(cmd).map_err(|e| {
+        let tokio_process = TokioChildProcess::new(wrapped_cmd).map_err(|e| {
             anyhow::anyhow!(
                 "{}",
                 mcp_common::diagnostic::format_spawn_error(mcp_id, command, args, e)
