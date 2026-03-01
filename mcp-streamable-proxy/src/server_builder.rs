@@ -221,7 +221,12 @@ impl StreamServerBuilder {
         #[cfg(windows)]
         {
             use windows::Win32::System::Threading::CREATE_NEW_PROCESS_GROUP;
-            wrapped_cmd.wrap(CreationFlags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP));
+            let flags = CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP;
+            info!(
+                "[StreamServerBuilder] Setting CreationFlags: CREATE_NO_WINDOW={:#x}, CREATE_NEW_PROCESS_GROUP={:#x}, combined={:#x}",
+                CREATE_NO_WINDOW.0, CREATE_NEW_PROCESS_GROUP.0, flags.0
+            );
+            wrapped_cmd.wrap(CreationFlags(flags));
             wrapped_cmd.wrap(JobObject);
         }
 
