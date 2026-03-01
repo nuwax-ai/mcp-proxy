@@ -91,6 +91,83 @@ pub fn check_windows_command(_command: &str) {
     // 非 Windows 平台无需检测
 }
 
+/// Windows 上解析命令路径，自动添加扩展名
+///
+/// 在 Windows 上，命令如 `npx` 实际上是 `npx.cmd` 批处理文件。
+/// `std::process::Command` 不会自动查找 `.cmd` 扩展名，需要手动指定。
+/// 此函数尝试在 PATH 中查找命令，并返回带扩展名的完整路径或原始命令。
+///
+/// # Arguments
+///
+/// * `command` - 要解析的命令字符串
+///
+/// # Returns
+///
+/// 如果找到，返回带扩展名的命令；否则返回原始命令
+///
+/// # Example
+///
+/// ```ignore
+/// use mcp_common::process_compat::resolve_windows_command;
+///
+/// let resolved = resolve_windows_command("npx");
+/// // 返回 "npx.cmd" 或 "C:\Program Files\nodejs\npx.cmd"
+/// ```
+#[cfg(target_os = "windows")]
+pub fn resolve_windows_command(command: &str) -> String {
+    use std::path::Path;
+
+    // 如果已经有扩展名，直接返回
+    if Path::new(command).extension().is_some() {
+        return command.to_string();
+    }
+
+    // 如果是绝对路径，直接返回
+    if Path::new(command).is_absolute() {
+        return command.to_string();
+    }
+
+    // 获取 PATH 环境变量
+    let path_env = match std::env::var("PATH") {
+        Ok(p) => p,
+        Err(_) => return command.to_string(),
+    };
+
+    // Windows 可执行文件扩展名（按优先级）
+    let extensions = [".cmd", ".exe", ".bat", ".ps1"];
+
+    // 遍历 PATH 中的每个目录
+    for dir in path_env.split(';') {
+        let dir = dir.trim();
+        if dir.is_empty() {
+            continue;
+        }
+
+        // 尝试每个扩展名
+        for ext in &extensions {
+            let full_path = Path::new(dir).join(format!("{}{}", command, ext));
+            if full_path.exists() {
+                tracing::debug!(
+                    "[MCP] Windows 命令解析: {} -> {}",
+                    command,
+                    full_path.display()
+                );
+                // 返回带扩展名的命令（不是完整路径，保持简洁）
+                return format!("{}{}", command, ext);
+            }
+        }
+    }
+
+    // 未找到，返回原始命令
+    command.to_string()
+}
+
+/// 非 Windows 平台的空实现
+#[cfg(not(target_os = "windows"))]
+pub fn resolve_windows_command(command: &str) -> String {
+    command.to_string()
+}
+
 /// 确保应用内置运行时路径（NUWAX_APP_RUNTIME_PATH）在 PATH 最前面。
 ///
 /// 当应用捆绑了 node/uv 等运行时时，通过 `NUWAX_APP_RUNTIME_PATH` 传递其路径。
@@ -277,6 +354,97 @@ macro_rules! wrap_process_v9 {
     };
 }
 
+/// Windows 上将 Unix 风格路径转换为 Windows 风格
+///
+/// 转换规则:
+/// - `/c/Program Files/...` -> `C:\Program Files\...`
+/// - `/cygdrive/c/...` -> `C:\...`
+/// - 已经是 Windows 格式的路径保持不变
+///
+/// # Arguments
+///
+/// * `path` - 要转换的路径字符串
+///
+/// # Example
+///
+/// ```ignore
+/// use mcp_common::process_compat::convert_unix_path_to_windows;
+///
+/// assert_eq!(convert_unix_path_to_windows("/c/Program Files/nodejs"), "C:\\Program Files\\nodejs");
+/// assert_eq!(convert_unix_path_to_windows("C:\\Windows"), "C:\\Windows");
+/// ```
+#[cfg(target_os = "windows")]
+pub fn convert_unix_path_to_windows(path: &str) -> String {
+    let path = path.trim();
+
+    // 检查是否已经是 Windows 格式 (如 C:\...)
+    if path.len() >= 2 && path.chars().nth(1) == Some(':') {
+        return path.to_string();
+    }
+
+    // 处理 /c/ 格式（Git Bash, MSYS2）
+    if path.starts_with('/') && path.len() > 2 {
+        let chars: Vec<char> = path.chars().collect();
+        if chars[2] == '/' {
+            let drive = chars[1].to_ascii_uppercase();
+            let rest = &path[3..];
+            return format!("{}:\\{}", drive, rest.replace('/', "\\"));
+        }
+    }
+
+    // 处理 /cygdrive/c/ 格式
+    if path.starts_with("/cygdrive/") && path.len() > 11 {
+        let rest = &path[10..];
+        let chars: Vec<char> = rest.chars().collect();
+        if chars.len() >= 2 && chars[1] == '/' {
+            let drive = chars[0].to_ascii_uppercase();
+            let rest_path = &rest[2..];
+            return format!("{}:\\{}", drive, rest_path.replace('/', "\\"));
+        }
+    }
+
+    path.to_string()
+}
+
+/// 非 Windows 平台的空实现
+#[cfg(not(target_os = "windows"))]
+pub fn convert_unix_path_to_windows(path: &str) -> String {
+    path.to_string()
+}
+
+/// Windows 上将整个 PATH 环境变量转换为 Windows 格式
+///
+/// 遍历 PATH 中的每个路径段，将 Unix 风格路径（如 Git Bash/MSYS2 格式）
+/// 转换为 Windows 格式。
+///
+/// # Arguments
+///
+/// * `path_env` - PATH 环境变量字符串
+///
+/// # Example
+///
+/// ```ignore
+/// use mcp_common::process_compat::convert_path_to_windows_format;
+///
+/// let path = "/c/Program Files/nodejs;C:\\Windows\\System32;/d/tools";
+/// let result = convert_path_to_windows_format(path);
+/// assert_eq!(result, "C:\\Program Files\\nodejs;C:\\Windows\\System32;D:\\tools");
+/// ```
+#[cfg(target_os = "windows")]
+pub fn convert_path_to_windows_format(path_env: &str) -> String {
+    path_env
+        .split(';')
+        .map(convert_unix_path_to_windows)
+        .collect::<Vec<_>>()
+        .join(";")
+}
+
+/// 非 Windows 平台的空实现
+#[cfg(not(target_os = "windows"))]
+pub fn convert_path_to_windows_format(path_env: &str) -> String {
+    path_env.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -350,5 +518,70 @@ mod tests {
             "/app/node/bin:/app/uv/bin:/app/debug:/opt/homebrew/bin"
         );
         unsafe { std::env::remove_var("NUWAX_APP_RUNTIME_PATH") };
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn test_convert_unix_path_to_windows() {
+        // Git Bash 格式
+        assert_eq!(
+            convert_unix_path_to_windows("/c/Program Files/nodejs"),
+            "C:\\Program Files\\nodejs"
+        );
+        // MSYS2/Cygwin 格式
+        assert_eq!(
+            convert_unix_path_to_windows("/cygdrive/c/Windows"),
+            "C:\\Windows"
+        );
+        // 已经是 Windows 格式
+        assert_eq!(
+            convert_unix_path_to_windows("C:\\Windows\\System32"),
+            "C:\\Windows\\System32"
+        );
+        // 小写驱动器号
+        assert_eq!(
+            convert_unix_path_to_windows("/d/tools/bin"),
+            "D:\\tools\\bin"
+        );
+        // 根路径
+        assert_eq!(convert_unix_path_to_windows("/c/"), "C:\\");
+        // 空字符串
+        assert_eq!(convert_unix_path_to_windows(""), "");
+        // 空白字符串
+        assert_eq!(convert_unix_path_to_windows("  "), "");
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn test_convert_path_to_windows_format() {
+        // 混合格式 PATH
+        let path = "/c/Program Files/nodejs;C:\\Windows\\System32;/d/tools";
+        let result = convert_path_to_windows_format(path);
+        assert_eq!(
+            result,
+            "C:\\Program Files\\nodejs;C:\\Windows\\System32;D:\\tools"
+        );
+
+        // 纯 Unix 风格 PATH
+        let unix_path = "/c/Program Files/nodejs;/d/tools/bin;/e/dev";
+        let result = convert_path_to_windows_format(unix_path);
+        assert_eq!(
+            result,
+            "C:\\Program Files\\nodejs;D:\\tools\\bin;E:\\dev"
+        );
+
+        // 纯 Windows 风格 PATH（保持不变）
+        let win_path = "C:\\Windows\\System32;D:\\tools\\bin";
+        let result = convert_path_to_windows_format(win_path);
+        assert_eq!(result, win_path);
+
+        // 空字符串
+        assert_eq!(convert_path_to_windows_format(""), "");
+
+        // 单个路径
+        assert_eq!(
+            convert_path_to_windows_format("/c/Program Files/nodejs"),
+            "C:\\Program Files\\nodejs"
+        );
     }
 }

@@ -120,6 +120,22 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
         }));
     });
 
+    // 0. Windows 上转换 Unix 风格 PATH 为 Windows 格式（Git Bash/MSYS2 兼容）
+    // 必须在任何子进程启动之前完成，确保 OS 能正确找到可执行文件
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(current_path) = std::env::var("PATH") {
+            let converted = mcp_common::convert_path_to_windows_format(&current_path);
+            if converted != current_path {
+                if !quiet {
+                    eprintln!("  - PATH 格式已转换（Unix → Windows）");
+                }
+                // SAFETY: 单线程阶段，在任何异步操作之前
+                unsafe { std::env::set_var("PATH", &converted) };
+            }
+        }
+    }
+
     // 1. 验证互斥参数
     if args.allow_tools.is_some() && args.deny_tools.is_some() {
         bail!("--allow-tools 和 --deny-tools 不能同时使用，请只选择其中一个");
@@ -268,6 +284,15 @@ async fn run_proxy_server(
     _verbose: bool,
     quiet: bool,
 ) -> Result<()> {
+    // Windows 上解析命令扩展名（如 npx -> npx.cmd）
+    let resolved_command = mcp_common::resolve_windows_command(&parsed.config.command);
+    if resolved_command != parsed.config.command {
+        info!(
+            "[命令解析] Windows 命令已解析: {} -> {}",
+            parsed.config.command, resolved_command
+        );
+    }
+
     // 根据协议类型选择对应的库并启动服务器
     // 每个库使用自己的 rmcp 版本创建完整的生命周期
     match args.protocol {
@@ -275,7 +300,7 @@ async fn run_proxy_server(
             // 使用 mcp-sse-proxy 库（rmcp 0.10）
             let config = mcp_sse_proxy::McpServiceConfig {
                 name: parsed.name.clone(),
-                command: parsed.config.command.clone(),
+                command: resolved_command,
                 args: parsed.config.args.clone(),
                 env: parsed.config.env.clone(),
                 tool_filter: Some(tool_filter),
@@ -286,7 +311,7 @@ async fn run_proxy_server(
             // 使用 mcp-streamable-proxy 库（rmcp 0.12）
             let config = mcp_streamable_proxy::McpServiceConfig {
                 name: parsed.name.clone(),
-                command: parsed.config.command.clone(),
+                command: resolved_command,
                 args: parsed.config.args.clone(),
                 env: parsed.config.env.clone(),
                 tool_filter: Some(tool_filter),

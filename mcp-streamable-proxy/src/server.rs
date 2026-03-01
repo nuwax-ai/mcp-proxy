@@ -4,7 +4,7 @@
 //! for stateful session management with backend version control.
 
 use anyhow::{Result, bail};
-use mcp_common::{McpServiceConfig, check_windows_command, wrap_process_v9};
+use mcp_common::{McpServiceConfig, check_windows_command, convert_path_to_windows_format, wrap_process_v9};
 use rmcp::{
     ServiceExt,
     model::{ClientCapabilities, ClientInfo},
@@ -96,7 +96,13 @@ pub async fn run_stream_server_from_config(
         // 注意：用户提供的 env 会在后面覆盖同名变量，优先级更高
         for (key, value) in std::env::vars_os() {
             if let (Ok(key_str), Ok(value_str)) = (key.into_string(), value.into_string()) {
-                command.env(key_str, value_str);
+                // Windows 上对 PATH 进行格式转换（Git Bash/MSYS2 Unix 风格 -> Windows 风格）
+                let value_to_set = if key_str.to_uppercase() == "PATH" {
+                    convert_path_to_windows_format(&value_str)
+                } else {
+                    value_str
+                };
+                command.env(key_str, value_to_set);
             }
         }
 
