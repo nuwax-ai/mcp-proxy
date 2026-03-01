@@ -317,11 +317,12 @@ impl SseServerBuilder {
         #[cfg(unix)]
         wrapped_cmd.wrap(ProcessGroup::leader());
         // Windows: 使用 Job Object 管理进程树，并隐藏控制台窗口
+        // 使用 CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP 确保孙进程也不弹出窗口
         #[cfg(windows)]
         {
             use process_wrap::tokio::CreationFlags;
-            use windows::Win32::System::Threading::CREATE_NO_WINDOW;
-            wrapped_cmd.wrap(CreationFlags(CREATE_NO_WINDOW));
+            use windows::Win32::System::Threading::{CREATE_NO_WINDOW, CREATE_NEW_PROCESS_GROUP};
+            wrapped_cmd.wrap(CreationFlags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP));
             wrapped_cmd.wrap(JobObject);
         }
 

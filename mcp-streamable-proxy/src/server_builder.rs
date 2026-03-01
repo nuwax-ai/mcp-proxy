@@ -216,10 +216,12 @@ impl StreamServerBuilder {
         wrapped_cmd.wrap(ProcessGroup::leader());
 
         // Windows: 使用 Job Object 管理进程树，并隐藏控制台窗口
+        // 使用 CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP 确保孙进程也不弹出窗口
         // JobObject 确保所有子进程都在同一个 Job 中，可以被统一管理
         #[cfg(windows)]
         {
-            wrapped_cmd.wrap(CreationFlags(CREATE_NO_WINDOW));
+            use windows::Win32::System::Threading::CREATE_NEW_PROCESS_GROUP;
+            wrapped_cmd.wrap(CreationFlags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP));
             wrapped_cmd.wrap(JobObject);
         }
 

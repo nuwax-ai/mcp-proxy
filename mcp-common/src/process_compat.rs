@@ -301,8 +301,8 @@ macro_rules! wrap_process_v8 {
     ($cmd:expr) => {
         {
             use process_wrap::tokio::{CreationFlags, JobObject};
-            use windows::Win32::System::Threading::CREATE_NO_WINDOW;
-            $cmd.wrap(CreationFlags(CREATE_NO_WINDOW));
+            use windows::Win32::System::Threading::{CREATE_NO_WINDOW, CREATE_NEW_PROCESS_GROUP};
+            $cmd.wrap(CreationFlags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP));
             $cmd.wrap(JobObject);
         }
     };
@@ -347,8 +347,8 @@ macro_rules! wrap_process_v9 {
     ($cmd:expr) => {
         {
             use process_wrap::tokio::{CreationFlags, JobObject};
-            use windows::Win32::System::Threading::CREATE_NO_WINDOW;
-            $cmd.wrap(CreationFlags(CREATE_NO_WINDOW));
+            use windows::Win32::System::Threading::{CREATE_NO_WINDOW, CREATE_NEW_PROCESS_GROUP};
+            $cmd.wrap(CreationFlags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP));
             $cmd.wrap(JobObject);
         }
     };
