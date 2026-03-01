@@ -202,7 +202,6 @@ impl StreamServerBuilder {
         // 注意：必须在所有 env/args 配置之后设置，确保不被覆盖
         #[cfg(windows)]
         {
-            use std::os::windows::process::CommandExt;
             // CREATE_NO_WINDOW = 0x08000000
             const CREATE_NO_WINDOW: u32 = 0x08000000;
             cmd.creation_flags(CREATE_NO_WINDOW);
