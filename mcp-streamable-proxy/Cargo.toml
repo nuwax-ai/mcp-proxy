@@ -63,3 +63,4 @@ process-wrap = { version = "9.0.3", features = ["tokio1", "process-group", "job-
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = ["Win32_System_Threading"] }
+which = "8.0"

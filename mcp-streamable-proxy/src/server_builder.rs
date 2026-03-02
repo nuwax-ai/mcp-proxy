@@ -190,10 +190,16 @@ impl StreamServerBuilder {
         env: &Option<HashMap<String, String>>,
         client_info: &ClientInfo,
     ) -> Result<rmcp::service::RunningService<rmcp::RoleClient, ClientInfo>> {
+        // Windows 上预处理 npx 命令，避免 .cmd 文件导致窗口闪烁
+        #[cfg(windows)]
+        let (command, args) = self.preprocess_npx_command_windows(command, args.clone());
+        #[cfg(not(windows))]
+        let args = args.clone();
+
         // 使用 process-wrap 创建子进程命令（跨平台进程清理）
         // process-wrap 会自动处理进程组（Unix）或 Job Object（Windows）
         // 并且在 Drop 时自动清理子进程树
-        let mut wrapped_cmd = CommandWrap::with_new(command, |cmd| {
+        let mut wrapped_cmd = CommandWrap::with_new(&command, |cmd| {
             let (final_path, filtered_env) = mcp_common::prepare_stdio_env(env);
             if let Some(path) = final_path {
                 cmd.env("PATH", path);
@@ -201,7 +207,7 @@ impl StreamServerBuilder {
                 warn!("[StreamServerBuilder] PATH not available from parent process or config");
             }
 
-            if let Some(cmd_args) = args {
+            if let Some(cmd_args) = &args {
                 cmd.args(cmd_args);
             }
 
@@ -257,7 +263,7 @@ impl StreamServerBuilder {
             .map_err(|e| {
                 anyhow::anyhow!(
                     "{}",
-                    mcp_common::diagnostic::format_spawn_error(mcp_id, command, args, e)
+                    mcp_common::diagnostic::format_spawn_error(mcp_id, &command, &args, e)
                 )
             })?;
         let client = client_info.clone().serve(tokio_process).await?;
@@ -314,6 +320,210 @@ impl StreamServerBuilder {
 
         info!("[StreamServerBuilder] URL backend connected successfully");
         Ok(client)
+    }
+
+    /// Windows 上预处理 npx 命令
+    ///
+    /// 将 `npx -y package@version` 转换为直接的 `node` 命令，
+    /// 避免使用 .cmd 批处理文件导致窗口闪烁。
+    #[cfg(windows)]
+    fn preprocess_npx_command_windows(
+        &self,
+        command: &str,
+        args: Option<Vec<String>>,
+    ) -> (String, Option<Vec<String>>) {
+        // 检测 npx 命令
+        let is_npx = command == "npx"
+            || command == "npx.cmd"
+            || command.ends_with("/npx")
+            || command.ends_with("\\npx")
+            || command.ends_with("/npx.cmd")
+            || command.ends_with("\\npx.cmd");
+
+        if !is_npx {
+            return (command.to_string(), args);
+        }
+
+        let args = match args {
+            Some(a) => a,
+            None => return (command.to_string(), None),
+        };
+
+        // 提取包名（跳过 -y 标志）
+        let package_spec = args.iter().find(|s| !s.starts_with('-') && s.contains('@'));
+
+        let Some(pkg) = package_spec else {
+            return (command.to_string(), Some(args));
+        };
+
+        // 解析包名（去掉版本号）
+        let package_name = pkg.split('@').next().unwrap_or(pkg);
+
+        // 尝试找到已安装的包
+        if let Some((node_exe, js_entry)) = self.find_npx_package_entry_windows(package_name) {
+            info!(
+                "[StreamServerBuilder] Windows npx 转换: npx {} -> node {}",
+                pkg,
+                js_entry.display()
+            );
+
+            // 构建新参数
+            let mut new_args = vec![js_entry.to_string_lossy().to_string()];
+            for arg in &args {
+                if arg != "-y" && arg != pkg {
+                    new_args.push(arg.clone());
+                }
+            }
+
+            return (node_exe.to_string_lossy().to_string(), Some(new_args));
+        }
+
+        // 未找到已安装的包，保持原样
+        info!(
+            "[StreamServerBuilder] Windows npx 未找到已安装的包: {}，保持原命令",
+            pkg
+        );
+        (command.to_string(), Some(args))
+    }
+
+    /// 查找 npx 包的 node 可执行文件和 JS 入口
+    #[cfg(windows)]
+    fn find_npx_package_entry_windows(
+        &self,
+        package_name: &str,
+    ) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+        // 查找 node.exe
+        let node_exe = self.find_node_exe_windows()?;
+
+        // 在多个可能的位置查找已安装的包
+        let search_paths = self.get_npx_cache_paths_windows();
+
+        for node_modules_dir in search_paths {
+            let package_dir = node_modules_dir.join(package_name);
+            if !package_dir.exists() {
+                continue;
+            }
+
+            // 读取 package.json 查找入口
+            let package_json_path = package_dir.join("package.json");
+            if let Ok(content) = std::fs::read_to_string(&package_json_path) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                    // 查找 bin 字段
+                    let bin_entry = json.get("bin").and_then(|b| {
+                        if let Some(s) = b.as_str() {
+                            Some(s.to_string())
+                        } else if let Some(obj) = b.as_object() {
+                            obj.get(package_name)
+                                .or_else(|| obj.values().next())
+                                .and_then(|v| v.as_str())
+                                .map(str::to_string)
+                        } else {
+                            None
+                        }
+                    });
+
+                    if let Some(bin_entry) = bin_entry {
+                        let js_entry = package_dir.join(bin_entry);
+                        if js_entry.exists() {
+                            info!(
+                                "[StreamServerBuilder] Windows 找到包入口: {} -> {}",
+                                package_name,
+                                js_entry.display()
+                            );
+                            return Some((node_exe.clone(), js_entry));
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// 查找 node.exe 路径
+    #[cfg(windows)]
+    fn find_node_exe_windows(&self) -> Option<std::path::PathBuf> {
+        use std::path::PathBuf;
+
+        // 1. 检查环境变量
+        if let Ok(node_from_env) = std::env::var("NUWAX_NODE_EXE") {
+            let path = PathBuf::from(node_from_env);
+            if path.exists() {
+                return Some(path);
+            }
+        }
+
+        // 2. 检查应用资源目录
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                let resource_paths = [
+                    exe_dir.join("resources").join("node").join("bin").join("node.exe"),
+                    exe_dir.parent()
+                        .unwrap_or(exe_dir)
+                        .join("resources")
+                        .join("node")
+                        .join("bin")
+                        .join("node.exe"),
+                ];
+
+                for path in resource_paths {
+                    if path.exists() {
+                        return Some(path);
+                    }
+                }
+            }
+        }
+
+        // 3. 在 PATH 中查找
+        which::which("node.exe").ok()
+    }
+
+    /// 获取 npx 缓存搜索路径
+    #[cfg(windows)]
+    fn get_npx_cache_paths_windows(&self) -> Vec<std::path::PathBuf> {
+        use std::path::PathBuf;
+
+        let mut paths = Vec::new();
+
+        // npm 全局 node_modules
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let appdata_path = PathBuf::from(&appdata);
+
+            // npm 全局目录
+            paths.push(appdata_path.join("npm").join("node_modules"));
+
+            // 应用私有目录
+            paths.push(
+                appdata_path
+                    .join("com.nuwax.agent-tauri-client")
+                    .join("node_modules"),
+            );
+
+            // npx 缓存目录（npm 8.16+）
+            paths.push(appdata_path.join("npm-cache").join("_npx"));
+        }
+
+        // 应用资源目录
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                let resource_paths = [
+                    exe_dir.join("resources").join("node").join("node_modules"),
+                    exe_dir.parent()
+                        .unwrap_or(exe_dir)
+                        .join("resources")
+                        .join("node")
+                        .join("node_modules"),
+                ];
+
+                for path in resource_paths {
+                    if path.exists() {
+                        paths.push(path);
+                    }
+                }
+            }
+        }
+
+        paths
     }
 
     /// Create the Streamable HTTP server
