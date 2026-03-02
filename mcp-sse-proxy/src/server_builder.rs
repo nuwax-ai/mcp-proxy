@@ -340,12 +340,17 @@ impl SseServerBuilder {
         mcp_common::diagnostic::log_stdio_spawn_context("SseServerBuilder", &mcp_id, env);
 
         let process_start = Instant::now();
-        let tokio_process = TokioChildProcess::new(wrapped_cmd).map_err(|e| {
-            anyhow::anyhow!(
-                "{}",
-                mcp_common::diagnostic::format_spawn_error(&mcp_id, command, args, e)
-            )
-        })?;
+        // 使用 builder 模式设置 stderr 为 null，避免控制台输出导致窗口弹出
+        // 即使设置了 CREATE_NO_WINDOW，stderr=inherit 仍可能导致输出到控制台
+        let (tokio_process, _stderr) = TokioChildProcess::builder(wrapped_cmd)
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "{}",
+                    mcp_common::diagnostic::format_spawn_error(&mcp_id, command, args, e)
+                )
+            })?;
         let process_duration = process_start.elapsed();
 
         debug!(
