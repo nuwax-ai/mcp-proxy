@@ -265,7 +265,7 @@ pub fn prepare_stdio_env(
 /// 为 process-wrap 8.x 的 TokioCommandWrap 应用平台特定的包装
 ///
 /// 此宏会根据目标平台自动应用正确的进程包装：
-/// - Windows: `CreationFlags(CREATE_NO_WINDOW)` + `JobObject`
+/// - Windows: `CreationFlags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP)` + `JobObject`
 /// - Unix: `ProcessGroup::leader()`
 ///
 /// # Arguments
@@ -311,7 +311,7 @@ macro_rules! wrap_process_v8 {
 /// 为 process-wrap 9.x 的 CommandWrap 应用平台特定的包装
 ///
 /// 此宏会根据目标平台自动应用正确的进程包装：
-/// - Windows: `CreationFlags(CREATE_NO_WINDOW)` + `JobObject`
+/// - Windows: `CreationFlags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP)` + `JobObject`
 /// - Unix: `ProcessGroup::leader()`
 ///
 /// # Arguments
@@ -443,6 +443,296 @@ pub fn convert_path_to_windows_format(path_env: &str) -> String {
 #[cfg(not(target_os = "windows"))]
 pub fn convert_path_to_windows_format(path_env: &str) -> String {
     path_env.to_string()
+}
+
+/// Windows 上预处理 npx 命令，避免 .cmd 文件导致窗口闪烁
+///
+/// 将 `npx -y package@version` 转换为直接的 `node` 命令。
+///
+/// # Arguments
+///
+/// * `command` - 原始命令
+/// * `args` - 原始参数
+///
+/// # Returns
+///
+/// 返回 `(new_command, new_args)` 元组。如果无法转换，返回原始值。
+///
+/// # Example
+///
+/// ```ignore
+/// use mcp_common::process_compat::preprocess_npx_command_windows;
+///
+/// let (cmd, args) = preprocess_npx_command_windows(
+///     "npx",
+///     Some(vec!["-y".to_string(), "chrome-devtools-mcp@latest".to_string()])
+/// );
+/// // cmd 可能是 "node.exe"，args 可能是 ["path/to/chrome-devtools-mcp/bin/mcp.js"]
+/// ```
+#[cfg(target_os = "windows")]
+pub fn preprocess_npx_command_windows(
+    command: &str,
+    args: Option<&[String]>,
+) -> (String, Option<Vec<String>>) {
+    use tracing::info;
+
+    // 检测 npx 命令
+    let is_npx = command == "npx"
+        || command == "npx.cmd"
+        || command.ends_with("/npx")
+        || command.ends_with("\\npx")
+        || command.ends_with("/npx.cmd")
+        || command.ends_with("\\npx.cmd");
+
+    if !is_npx {
+        return (command.to_string(), args.map(|a| a.to_vec()));
+    }
+
+    let args = match args {
+        Some(a) => a,
+        None => return (command.to_string(), None),
+    };
+
+    // 提取包名（跳过 -y 标志等）
+    // 支持: chrome-devtools-mcp@latest, @scope/package@1.0.0
+    let package_spec = args.iter().find(|s| {
+        !s.starts_with('-') && (s.contains('@') || s.starts_with('@'))
+    });
+
+    let Some(pkg) = package_spec else {
+        return (command.to_string(), Some(args.to_vec()));
+    };
+
+    // 解析包名（去掉版本号，处理 scoped packages）
+    let package_name = if pkg.starts_with('@') {
+        // Scoped package: @scope/name@version
+        let parts: Vec<&str> = pkg.splitn(3, '@').collect();
+        if parts.len() >= 3 {
+            // @scope/name@version -> @scope/name
+            format!("@{}", parts[1])
+        } else if parts.len() == 2 && parts[1].contains('/') {
+            // @scope/name (no version)
+            pkg.to_string()
+        } else {
+            pkg.to_string()
+        }
+    } else {
+        // Regular package: name@version
+        pkg.split('@').next().unwrap_or(pkg).to_string()
+    };
+
+    // 尝试找到已安装的包
+    if let Some((node_exe, js_entry)) = find_npx_package_entry_windows(&package_name) {
+        info!(
+            "[MCP] Windows npx 转换: npx {} -> node {}",
+            pkg,
+            js_entry.display()
+        );
+
+        // 构建新参数
+        let mut new_args = vec![js_entry.to_string_lossy().to_string()];
+        for arg in args {
+            // 跳过 -y 和包名
+            if arg != "-y" && arg != pkg {
+                new_args.push(arg.clone());
+            }
+        }
+
+        return (node_exe.to_string_lossy().to_string(), Some(new_args));
+    }
+
+    // 未找到已安装的包，保持原样
+    info!(
+        "[MCP] Windows npx 未找到已安装的包: {}，保持原命令",
+        pkg
+    );
+    (command.to_string(), Some(args.to_vec()))
+}
+
+/// 非 Windows 平台的空实现
+#[cfg(not(target_os = "windows"))]
+pub fn preprocess_npx_command_windows(
+    command: &str,
+    args: Option<&[String]>,
+) -> (String, Option<Vec<String>>) {
+    (command.to_string(), args.map(|a| a.to_vec()))
+}
+
+/// 查找 npx 包的 node 可执行文件和 JS 入口（Windows）
+#[cfg(target_os = "windows")]
+fn find_npx_package_entry_windows(package_name: &str) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+    use std::path::PathBuf;
+    use tracing::info;
+
+    // 查找 node.exe
+    let node_exe = find_node_exe_windows()?;
+
+    // 在多个可能的位置查找已安装的包
+    let base_search_paths = get_npx_cache_paths_windows();
+
+    for base_path in base_search_paths {
+        // 收集所有可能的 node_modules 目录
+        let mut node_modules_dirs = Vec::new();
+
+        if base_path.ends_with("_npx") {
+            // npx 缓存目录结构: _npx/<hash>/node_modules/<package>
+            // 需要遍历 hash 目录
+            if let Ok(entries) = std::fs::read_dir(&base_path) {
+                for entry in entries.flatten() {
+                    let hash_dir = entry.path();
+                    let node_modules = hash_dir.join("node_modules");
+                    if node_modules.exists() {
+                        node_modules_dirs.push(node_modules);
+                    }
+                }
+            }
+        } else {
+            // 直接是 node_modules 目录或包含 node_modules 的目录
+            if base_path.ends_with("node_modules") {
+                node_modules_dirs.push(base_path.clone());
+            } else if base_path.join("node_modules").exists() {
+                node_modules_dirs.push(base_path.join("node_modules"));
+            }
+        }
+
+        // 在每个 node_modules 目录中查找包
+        for node_modules_dir in node_modules_dirs {
+            let package_dir = node_modules_dir.join(package_name);
+            if !package_dir.exists() {
+                continue;
+            }
+
+            // 读取 package.json 查找入口
+            let package_json_path = package_dir.join("package.json");
+            if let Ok(content) = std::fs::read_to_string(&package_json_path) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                    // 查找 bin 字段
+                    let bin_entry = json.get("bin").and_then(|b| {
+                        if let Some(s) = b.as_str() {
+                            Some(s.to_string())
+                        } else if let Some(obj) = b.as_object() {
+                            // 对于 bin: { "pkg-name": "./bin/mcp.js" } 的情况
+                            // 尝试匹配包名或取第一个
+                            obj.get(package_name)
+                                .or_else(|| obj.values().next())
+                                .and_then(|v| v.as_str())
+                                .map(str::to_string)
+                        } else {
+                            None
+                        }
+                    });
+
+                    if let Some(bin_entry) = bin_entry {
+                        let js_entry = package_dir.join(bin_entry);
+                        if js_entry.exists() {
+                            info!(
+                                "[MCP] Windows 找到包入口: {} -> {}",
+                                package_name,
+                                js_entry.display()
+                            );
+                            return Some((node_exe.clone(), js_entry));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// 查找 node.exe 路径（Windows）
+#[cfg(target_os = "windows")]
+fn find_node_exe_windows() -> Option<std::path::PathBuf> {
+    use std::path::PathBuf;
+
+    // 1. 检查环境变量
+    if let Ok(node_from_env) = std::env::var("NUWAX_NODE_EXE") {
+        let path = PathBuf::from(node_from_env);
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
+    // 2. 检查应用资源目录
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let resource_paths = [
+                exe_dir.join("resources").join("node").join("bin").join("node.exe"),
+                exe_dir.parent()
+                    .unwrap_or(exe_dir)
+                    .join("resources")
+                    .join("node")
+                    .join("bin")
+                    .join("node.exe"),
+            ];
+
+            for path in resource_paths {
+                if path.exists() {
+                    return Some(path);
+                }
+            }
+        }
+    }
+
+    // 3. 在 PATH 中查找
+    which::which("node.exe").ok()
+}
+
+/// 获取 npx 缓存搜索路径（Windows）
+#[cfg(target_os = "windows")]
+fn get_npx_cache_paths_windows() -> Vec<std::path::PathBuf> {
+    use std::path::PathBuf;
+
+    let mut paths = Vec::new();
+
+    // npx 缓存目录（npm 8.16+）- 优先检查 LOCALAPPDATA
+    // 这是 npx 实际使用的缓存位置
+    if let Ok(local_appdata) = std::env::var("LOCALAPPDATA") {
+        let local_appdata_path = PathBuf::from(&local_appdata);
+        // npx 缓存目录格式: LOCALAPPDATA\npm-cache\_npx\<hash>\node_modules
+        paths.push(local_appdata_path.join("npm-cache").join("_npx"));
+    }
+
+    // npm 全局 node_modules - APPDATA
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        let appdata_path = PathBuf::from(&appdata);
+
+        // npm 全局目录
+        paths.push(appdata_path.join("npm").join("node_modules"));
+
+        // 应用私有目录
+        paths.push(
+            appdata_path
+                .join("com.nuwax.agent-tauri-client")
+                .join("node_modules"),
+        );
+
+        // 旧版 npm 缓存位置（备用）
+        paths.push(appdata_path.join("npm-cache").join("_npx"));
+    }
+
+    // 应用资源目录
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let resource_paths = [
+                exe_dir.join("resources").join("node").join("node_modules"),
+                exe_dir.parent()
+                    .unwrap_or(exe_dir)
+                    .join("resources")
+                    .join("node")
+                    .join("node_modules"),
+            ];
+
+            for path in resource_paths {
+                if path.exists() {
+                    paths.push(path);
+                }
+            }
+        }
+    }
+
+    paths
 }
 
 #[cfg(test)]

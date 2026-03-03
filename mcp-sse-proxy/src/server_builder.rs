@@ -316,14 +316,12 @@ impl SseServerBuilder {
         // Unix: 创建进程组，支持 killpg 清理整个进程树
         #[cfg(unix)]
         wrapped_cmd.wrap(ProcessGroup::leader());
-        // Windows: 使用 DETACHED_PROCESS 完全脱离父进程控制台
-        // 这样即使 Windows Terminal 被设置为默认终端，也不会创建窗口
-        // stdin/stdout 使用 pipes 通信，不受 DETACHED_PROCESS 影响
+        // Windows: 使用 CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP 隐藏控制台窗口
         #[cfg(windows)]
         {
             use process_wrap::tokio::CreationFlags;
-            use windows::Win32::System::Threading::DETACHED_PROCESS;
-            wrapped_cmd.wrap(CreationFlags(DETACHED_PROCESS));
+            use windows::Win32::System::Threading::{CREATE_NO_WINDOW, CREATE_NEW_PROCESS_GROUP};
+            wrapped_cmd.wrap(CreationFlags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP));
             wrapped_cmd.wrap(JobObject);
         }
 

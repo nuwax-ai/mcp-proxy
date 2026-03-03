@@ -88,6 +88,9 @@ apalis-sql = { version = "0.7", features = ["sqlite"] }
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
 sled = "0.34"
 
+# 可执行文件查找
+which = "7.0"
+
 # Audio format detection and processing
 symphonia = { version = "0.5", features = ["all"] }
 bincode = "2.0"

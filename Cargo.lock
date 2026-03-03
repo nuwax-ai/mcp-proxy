@@ -2569,6 +2569,7 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
+ "which 7.0.3",
  "windows 0.62.2",
 ]
 
@@ -2667,7 +2668,7 @@ dependencies = [
  "tokio-util",
  "tower",
  "tracing",
- "which",
+ "which 8.0.0",
  "windows 0.62.2",
 ]
 
@@ -6337,6 +6338,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b2878ef029c47c6e8cf779119f20fcf52bde7ad42a731b2a304bc221df17571e"
 dependencies = [
  "rustls-pki-types",
+]
+
+[[package]]
+name = "which"
+version = "7.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24d643ce3fd3e5b54854602a080f34fb10ab75e0b813ee32d00ca2b44fa74762"
+dependencies = [
+ "either",
+ "env_home",
+ "rustix",
+ "winsafe",
 ]
 
 [[package]]
