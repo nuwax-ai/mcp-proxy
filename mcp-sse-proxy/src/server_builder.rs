@@ -340,9 +340,11 @@ impl SseServerBuilder {
         mcp_common::diagnostic::log_stdio_spawn_context("SseServerBuilder", &mcp_id, env);
 
         let process_start = Instant::now();
-        // 使用 builder 模式设置 stderr 为 null，避免控制台输出导致窗口弹出
-        // 即使设置了 CREATE_NO_WINDOW，stderr=inherit 仍可能导致输出到控制台
+        // 关键修复：必须显式设置所有 stdio 句柄，否则 Windows Terminal 可能仍会创建控制台窗口
+        // stdin=null 防止进程等待输入，stdout=null 防止输出到控制台
         let (tokio_process, _stderr) = TokioChildProcess::builder(wrapped_cmd)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn()
             .map_err(|e| {
