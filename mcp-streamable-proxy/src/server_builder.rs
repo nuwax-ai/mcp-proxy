@@ -32,7 +32,7 @@ use process_wrap::tokio::ProcessGroup;
 #[cfg(windows)]
 use process_wrap::tokio::{CreationFlags, JobObject};
 #[cfg(windows)]
-use windows::Win32::System::Threading::CREATE_NO_WINDOW;
+use windows::Win32::System::Threading::DETACHED_PROCESS;
 
 use crate::{ProxyAwareSessionManager, ProxyHandler, ToolFilter};
 pub use mcp_common::ToolFilter as CommonToolFilter;
@@ -222,18 +222,16 @@ impl StreamServerBuilder {
         #[cfg(unix)]
         wrapped_cmd.wrap(ProcessGroup::leader());
 
-        // Windows: 使用 Job Object 管理进程树，并隐藏控制台窗口
-        // 使用 CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP 确保孙进程也不弹出窗口
-        // JobObject 确保所有子进程都在同一个 Job 中，可以被统一管理
+        // Windows: 使用 DETACHED_PROCESS 完全脱离父进程控制台
+        // 这样即使 Windows Terminal 被设置为默认终端，也不会创建窗口
+        // stdin/stdout 使用 pipes 通信，不受 DETACHED_PROCESS 影响
         #[cfg(windows)]
         {
-            use windows::Win32::System::Threading::CREATE_NEW_PROCESS_GROUP;
-            let flags = CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP;
             info!(
-                "[StreamServerBuilder] Setting CreationFlags: CREATE_NO_WINDOW={:#x}, CREATE_NEW_PROCESS_GROUP={:#x}, combined={:#x}",
-                CREATE_NO_WINDOW.0, CREATE_NEW_PROCESS_GROUP.0, flags.0
+                "[StreamServerBuilder] Setting CreationFlags: DETACHED_PROCESS={:#x}",
+                DETACHED_PROCESS.0
             );
-            wrapped_cmd.wrap(CreationFlags(flags));
+            wrapped_cmd.wrap(CreationFlags(DETACHED_PROCESS));
             wrapped_cmd.wrap(JobObject);
         }
 
@@ -255,11 +253,9 @@ impl StreamServerBuilder {
         // 诊断日志：子进程关键环境变量
         mcp_common::diagnostic::log_stdio_spawn_context("StreamServerBuilder", mcp_id, env);
 
-        // 关键修复：必须显式设置所有 stdio 句柄，否则 Windows Terminal 可能仍会创建控制台窗口
-        // stdin=null 防止进程等待输入，stdout=null 防止输出到控制台
+        // MCP 服务通过 stdin/stdout 进行 JSON-RPC 通信，必须使用 piped（默认行为）
+        // 只设置 stderr 为 null，避免控制台错误输出导致窗口弹出
         let (tokio_process, _stderr) = TokioChildProcess::builder(wrapped_cmd)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
             .map_err(|e| {

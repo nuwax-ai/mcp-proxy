@@ -316,13 +316,14 @@ impl SseServerBuilder {
         // Unix: 创建进程组，支持 killpg 清理整个进程树
         #[cfg(unix)]
         wrapped_cmd.wrap(ProcessGroup::leader());
-        // Windows: 使用 Job Object 管理进程树，并隐藏控制台窗口
-        // 使用 CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP 确保孙进程也不弹出窗口
+        // Windows: 使用 DETACHED_PROCESS 完全脱离父进程控制台
+        // 这样即使 Windows Terminal 被设置为默认终端，也不会创建窗口
+        // stdin/stdout 使用 pipes 通信，不受 DETACHED_PROCESS 影响
         #[cfg(windows)]
         {
             use process_wrap::tokio::CreationFlags;
-            use windows::Win32::System::Threading::{CREATE_NO_WINDOW, CREATE_NEW_PROCESS_GROUP};
-            wrapped_cmd.wrap(CreationFlags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP));
+            use windows::Win32::System::Threading::DETACHED_PROCESS;
+            wrapped_cmd.wrap(CreationFlags(DETACHED_PROCESS));
             wrapped_cmd.wrap(JobObject);
         }
 
@@ -340,11 +341,9 @@ impl SseServerBuilder {
         mcp_common::diagnostic::log_stdio_spawn_context("SseServerBuilder", &mcp_id, env);
 
         let process_start = Instant::now();
-        // 关键修复：必须显式设置所有 stdio 句柄，否则 Windows Terminal 可能仍会创建控制台窗口
-        // stdin=null 防止进程等待输入，stdout=null 防止输出到控制台
+        // MCP 服务通过 stdin/stdout 进行 JSON-RPC 通信，必须使用 piped（默认行为）
+        // 只设置 stderr 为 null，避免控制台错误输出导致窗口弹出
         let (tokio_process, _stderr) = TokioChildProcess::builder(wrapped_cmd)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn()
             .map_err(|e| {
