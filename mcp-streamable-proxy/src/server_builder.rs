@@ -140,16 +140,16 @@ impl StreamServerBuilder {
             .unwrap_or_else(|| "stream-proxy".into());
 
         // Create client info for connecting to backend
-        let client_info = ClientInfo {
-            protocol_version: Default::default(),
-            capabilities: ClientCapabilities::builder()
-                .enable_experimental()
-                .enable_roots()
-                .enable_roots_list_changed()
-                .enable_sampling()
-                .build(),
-            ..Default::default()
-        };
+        let capabilities = ClientCapabilities::builder()
+            .enable_experimental()
+            .enable_roots()
+            .enable_roots_list_changed()
+            .enable_sampling()
+            .build();
+        let client_info = ClientInfo::new(
+            capabilities,
+            rmcp::model::Implementation::new("mcp-streamable-proxy", env!("CARGO_PKG_VERSION")),
+        );
 
         // Connect to backend based on configuration
         let client = match &self.backend_config {

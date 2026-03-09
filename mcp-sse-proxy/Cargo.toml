@@ -41,8 +41,9 @@ tower = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
-# HTTP client
-reqwest = { workspace = true }
+# HTTP client - pinned to 0.12 to match rmcp 0.10's reqwest trait implementations
+# (workspace uses 0.13 for rmcp 1.1.0 in mcp-streamable-proxy)
+reqwest = { version = "0.12", features = ["json"] }
 
 # Utilities
 arc-swap = { workspace = true }

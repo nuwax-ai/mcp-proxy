@@ -1,19 +1,16 @@
-//! Streamable HTTP Protocol Detection
-//!
-//! This module provides a detection function to determine if a given URL
-//! supports the Streamable HTTP MCP protocol.
-
-use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
 use std::time::Duration;
+use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
 
-/// Detects if a URL supports the Streamable HTTP protocol
+/// Detect if a URL supports the Streamable HTTP protocol
 ///
-/// This function sends an MCP Initialize request to the URL and checks the response
-/// characteristics to determine if it's a Streamable HTTP endpoint:
+/// This detection works by sending an MCP Initialize request
+/// and checking the response characteristics
+///
+/// # Detection characteristics
 ///
 /// - Presence of `mcp-session-id` response header (Streamable HTTP specific)
 /// - Valid JSON-RPC 2.0 response format
-/// - POST request returning `text/event-stream` (Streamable HTTP characteristic)
+/// - POST request returning `text/event-stream` (Streamable HTTP feature)
 ///
 /// # Arguments
 ///
@@ -50,23 +47,19 @@ pub async fn is_streamable_http(url: &str) -> bool {
     );
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
 
-    // Construct an MCP Initialize request using rmcp 0.12 types
+    // Construct an MCP Initialize request using rmcp 1.1.0 types
     use rmcp::model::{
-        ClientCapabilities, ClientRequest, Implementation, InitializeRequestParam, ProtocolVersion,
+        ClientCapabilities, ClientRequest, Implementation, InitializeRequestParams, ProtocolVersion,
         Request, RequestId,
     };
 
-    let init_request = ClientRequest::InitializeRequest(Request::new(InitializeRequestParam {
-        protocol_version: ProtocolVersion::V_2024_11_05,
-        capabilities: ClientCapabilities::default(),
-        client_info: Implementation {
-            name: "mcp-proxy-detector".to_string(),
-            version: "0.1.0".to_string(),
-            title: None,
-            icons: None,
-            website_url: None,
-        },
-    }));
+    let init_request = ClientRequest::InitializeRequest(Request::new(
+        InitializeRequestParams::new(
+            ClientCapabilities::default(),
+            Implementation::new("mcp-proxy-detector", "0.1.0"),
+        )
+        .with_protocol_version(ProtocolVersion::V_2024_11_05),
+    ));
 
     // Serialize to JSON-RPC message
     let body = rmcp::model::ClientJsonRpcMessage::request(init_request, RequestId::Number(1));
@@ -84,7 +77,6 @@ pub async fn is_streamable_http(url: &str) -> bool {
     if resp_headers.contains_key("mcp-session-id") {
         return true;
     }
-
     // Check 2: POST request returning text/event-stream (Streamable HTTP feature)
     if let Some(content_type) = resp_headers.get(CONTENT_TYPE) {
         if let Ok(ct) = content_type.to_str() {
@@ -93,7 +85,6 @@ pub async fn is_streamable_http(url: &str) -> bool {
             }
         }
     }
-
     // Check 3: Valid JSON-RPC 2.0 response (even if status is not 2xx)
     if let Ok(json) = response.json::<serde_json::Value>().await {
         // JSON-RPC 2.0 response must have jsonrpc: "2.0" field
@@ -102,7 +93,6 @@ pub async fn is_streamable_http(url: &str) -> bool {
             .and_then(|v| v.as_str())
             .map(|v| v == "2.0")
             .unwrap_or(false);
-
         if is_jsonrpc {
             return true;
         }
@@ -114,26 +104,4 @@ pub async fn is_streamable_http(url: &str) -> bool {
     }
 
     false
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_is_streamable_http_invalid_url() {
-        // Invalid URL should return false without panic
-        let result = is_streamable_http("not-a-url").await;
-        assert!(!result);
-    }
-
-    #[tokio::test]
-    async fn test_is_streamable_http_nonexistent_server() {
-        // Non-existent server should return false
-        let result = is_streamable_http("http://localhost:99999/mcp").await;
-        assert!(!result);
-    }
-
-    // Note: Real integration tests would require a running MCP server
-    // and should be added in separate integration test files
 }

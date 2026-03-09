@@ -188,22 +188,16 @@ pub async fn run_command_mode(
     Ok(())
 }
 
-/// 创建 ClientInfo（使用 rmcp 0.12 类型）
+/// 创建 ClientInfo（使用 rmcp 1.1.0 类型）
 fn create_client_info() -> ClientInfo {
-    ClientInfo {
-        protocol_version: Default::default(),
-        capabilities: ClientCapabilities::builder()
-            .enable_experimental()
-            .enable_roots()
-            .enable_roots_list_changed()
-            .enable_sampling()
-            .build(),
-        client_info: Implementation {
-            name: "mcp-proxy-cli".to_string(),
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            title: None,
-            website_url: None,
-            icons: None,
-        },
-    }
+    let capabilities = ClientCapabilities::builder()
+        .enable_experimental()
+        .enable_roots()
+        .enable_roots_list_changed()
+        .enable_sampling()
+        .build();
+    ClientInfo::new(
+        capabilities,
+        Implementation::new("mcp-proxy-cli", env!("CARGO_PKG_VERSION")),
+    )
 }
