@@ -13,8 +13,9 @@ categories = ["web-programming", "network-programming"]
 # 共享类型和工具
 mcp-common = { version = "0.1.18", path = "../mcp-common" }
 
-# MCP protocol implementation - using 0.13 for enhanced Streamable HTTP support
-rmcp = { version = "1.1.0", features = [
+# MCP protocol implementation - using forked rmcp with non-standard stdout log tolerance
+# Fork: https://github.com/soddygo/rust-sdk.git (dev branch)
+rmcp = { git = "https://github.com/soddygo/rust-sdk.git", branch = "dev", features = [
     "server",
     "client",
     "transport-streamable-http-server",
