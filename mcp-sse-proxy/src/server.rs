@@ -97,22 +97,17 @@ pub async fn run_sse_server_from_config(
             command.args(cmd_args);
         }
 
-        // ✅ 修复：先继承当前进程的所有环境变量（确保 PATH 等系统变量传递到孙进程）
-        // 这样当子服务动态执行 npm/npx 时能正确找到命令
-        // 注意：用户提供的 env 会在后面覆盖同名变量，优先级更高
-        for (key, value) in std::env::vars_os() {
-            if let (Ok(key_str), Ok(value_str)) = (key.into_string(), value.into_string()) {
-                // Windows 上对 PATH 进行格式转换（Git Bash/MSYS2 Unix 风格 -> Windows 风格）
-                let value_to_set = if key_str.to_uppercase() == "PATH" {
-                    convert_path_to_windows_format(&value_str)
-                } else {
-                    value_str
-                };
-                command.env(key_str, value_to_set);
+        // Windows 上对 PATH 进行格式转换（Git Bash/MSYS2 Unix 风格 -> Windows 风格）
+        // 子进程默认继承父进程环境变量，只需特殊处理 PATH 格式
+        #[cfg(target_os = "windows")]
+        if let Ok(path_value) = std::env::var("PATH") {
+            let converted_path = convert_path_to_windows_format(&path_value);
+            if converted_path != path_value {
+                command.env("PATH", converted_path);
             }
         }
 
-        // 然后覆盖/添加用户配置的环境变量（用户配置优先级更高）
+        // 设置用户配置的环境变量（会覆盖继承的同名变量）
         if let Some(ref env_vars) = config.env {
             for (k, v) in env_vars {
                 command.env(k, v);

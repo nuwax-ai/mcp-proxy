@@ -4,6 +4,9 @@
 
 use anyhow::Result;
 use std::collections::HashMap;
+use std::process::Stdio;
+
+use tokio::io::AsyncBufReadExt;
 
 use crate::proxy::{StreamProxyHandler, ToolFilter};
 
@@ -84,19 +87,11 @@ pub async fn run_command_mode(
     // 使用 process-wrap 创建子进程命令（跨平台进程清理）
     // process-wrap 会自动处理进程组（Unix）或 Job Object（Windows）
     // 并且在 Drop 时自动清理子进程树
+    // 注意：子进程默认继承父进程的所有环境变量，只需设置用户配置的覆盖项
     let mut wrapped_cmd = CommandWrap::with_new(command, |cmd| {
         cmd.args(&cmd_args);
 
-        // ✅ 修复：先继承当前进程的所有环境变量（确保 PATH 等系统变量传递到孙进程）
-        // 这样当子服务动态执行 npm/npx 时能正确找到命令
-        // 注意：用户提供的 env 会在后面覆盖同名变量，优先级更高
-        for (key, value) in std::env::vars_os() {
-            if let (Ok(key_str), Ok(value_str)) = (key.into_string(), value.into_string()) {
-                cmd.env(key_str, value_str);
-            }
-        }
-
-        // 然后覆盖/添加用户配置的环境变量（用户配置优先级更高）
+        // 设置用户配置的环境变量（会覆盖继承的同名变量）
         for (k, v) in &env {
             cmd.env(k, v);
         }
@@ -117,8 +112,33 @@ pub async fn run_command_mode(
     wrapped_cmd.wrap(KillOnDrop);
 
     // 启动子进程
+    // 使用 builder 模式捕获 stderr，便于诊断子 MCP 服务初始化失败
     tracing::debug!("启动子进程...");
-    let tokio_process = TokioChildProcess::new(wrapped_cmd)?;
+    let (tokio_process, child_stderr) = TokioChildProcess::builder(wrapped_cmd)
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    // 启动 stderr 日志读取任务
+    if let Some(stderr_pipe) = child_stderr {
+        let name_clone = name.to_string();
+        tokio::spawn(async move {
+            let mut reader = tokio::io::BufReader::new(stderr_pipe);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line).await {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        let trimmed = line.trim();
+                        if !trimmed.is_empty() {
+                            tracing::warn!("[子进程 stderr][{}] {}", name_clone, trimmed);
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+    }
 
     if !quiet {
         eprintln!("🔗 启动子进程...");

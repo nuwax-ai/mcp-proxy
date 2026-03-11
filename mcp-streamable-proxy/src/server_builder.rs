@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use process_wrap::tokio::{CommandWrap, KillOnDrop};
+use tokio::io::AsyncBufReadExt;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
@@ -252,9 +253,9 @@ impl StreamServerBuilder {
         mcp_common::diagnostic::log_stdio_spawn_context("StreamServerBuilder", mcp_id, env);
 
         // MCP 服务通过 stdin/stdout 进行 JSON-RPC 通信，必须使用 piped（默认行为）
-        // 只设置 stderr 为 null，避免控制台错误输出导致窗口弹出
-        let (tokio_process, _stderr) = TokioChildProcess::builder(wrapped_cmd)
-            .stderr(Stdio::null())
+        // 使用 builder 模式捕获 stderr，便于诊断子 MCP 服务初始化失败
+        let (tokio_process, child_stderr) = TokioChildProcess::builder(wrapped_cmd)
+            .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| {
                 anyhow::anyhow!(
@@ -262,6 +263,29 @@ impl StreamServerBuilder {
                     mcp_common::diagnostic::format_spawn_error(mcp_id, &command, &args, e)
                 )
             })?;
+
+        // 启动 stderr 日志读取任务
+        if let Some(stderr_pipe) = child_stderr {
+            let mcp_id_clone = mcp_id.to_string();
+            tokio::spawn(async move {
+                let mut reader = tokio::io::BufReader::new(stderr_pipe);
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    match reader.read_line(&mut line).await {
+                        Ok(0) => break,
+                        Ok(_) => {
+                            let trimmed = line.trim();
+                            if !trimmed.is_empty() {
+                                warn!("[子进程 stderr][{}] {}", mcp_id_clone, trimmed);
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+        }
+
         let client = client_info.clone().serve(tokio_process).await?;
 
         info!("[StreamServerBuilder] Child process connected successfully");
