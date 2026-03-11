@@ -31,8 +31,6 @@ use process_wrap::tokio::ProcessGroup;
 // Windows 静默运行支持
 #[cfg(windows)]
 use process_wrap::tokio::{CreationFlags, JobObject};
-#[cfg(windows)]
-use windows::Win32::System::Threading::{CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW};
 
 use crate::{ProxyAwareSessionManager, ProxyHandler, ToolFilter};
 pub use mcp_common::ToolFilter as CommonToolFilter;
@@ -199,7 +197,7 @@ impl StreamServerBuilder {
         // 使用 process-wrap 创建子进程命令（跨平台进程清理）
         // process-wrap 会自动处理进程组（Unix）或 Job Object（Windows）
         // 并且在 Drop 时自动清理子进程树
-        let mut wrapped_cmd = CommandWrap::with_new(command, |cmd| {
+        let mut wrapped_cmd = CommandWrap::with_new(&command, |cmd| {
             let (final_path, filtered_env) = mcp_common::prepare_stdio_env(env);
             if let Some(path) = final_path {
                 cmd.env("PATH", path);
@@ -255,7 +253,7 @@ impl StreamServerBuilder {
             .map_err(|e| {
                 anyhow::anyhow!(
                     "{}",
-                    mcp_common::diagnostic::format_spawn_error(mcp_id, command, &args, e)
+                    mcp_common::diagnostic::format_spawn_error(mcp_id, &command, &args, e)
                 )
             })?;
 

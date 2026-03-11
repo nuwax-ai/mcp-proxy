@@ -611,7 +611,6 @@ pub fn preprocess_npx_command_windows(
 fn find_npx_package_entry_windows(
     package_name: &str,
 ) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
-    use std::path::PathBuf;
     use tracing::info;
 
     // 查找 node.exe

@@ -4,7 +4,8 @@
 
 use anyhow::{Result, bail};
 use mcp_common::{
-    McpServiceConfig, check_windows_command, preprocess_npx_command_windows, wrap_process_v8,
+    McpServiceConfig, check_windows_command, convert_path_to_windows_format,
+    preprocess_npx_command_windows, wrap_process_v8,
 };
 use rmcp::{
     ServiceExt,
