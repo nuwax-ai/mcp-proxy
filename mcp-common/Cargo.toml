@@ -19,6 +19,7 @@ tracing = { workspace = true }
 
 # 异步
 async-trait = { workspace = true }
+tokio = { workspace = true }
 
 # 并发
 arc-swap = { workspace = true }

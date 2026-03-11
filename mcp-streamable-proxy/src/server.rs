@@ -4,7 +4,9 @@
 //! for stateful session management with backend version control.
 
 use anyhow::{Result, bail};
-use mcp_common::{McpServiceConfig, check_windows_command, convert_path_to_windows_format, preprocess_npx_command_windows, wrap_process_v9};
+use mcp_common::{
+    McpServiceConfig, check_windows_command, preprocess_npx_command_windows, wrap_process_v9,
+};
 use rmcp::{
     ServiceExt,
     model::{ClientCapabilities, ClientInfo},
@@ -15,7 +17,6 @@ use rmcp::{
 };
 use std::process::Stdio;
 use std::sync::Arc;
-use tokio::io::AsyncBufReadExt;
 use tracing::{debug, error, info, warn};
 
 // 进程组管理（跨平台子进程清理）
@@ -59,10 +60,8 @@ pub async fn run_stream_server_from_config(
     // 🔧 Windows 特殊处理：预处理 npx 命令
     // 将 npx -y package@version 转换为 node path/to/bin.js
     // 避免使用 .cmd 文件导致窗口闪烁
-    let (processed_command, processed_args) = preprocess_npx_command_windows(
-        &config.command,
-        config.args.as_deref(),
-    );
+    let (processed_command, processed_args) =
+        preprocess_npx_command_windows(&config.command, config.args.as_deref());
 
     info!(
         "[子进程环境][{}] 命令: {} {:?}",
@@ -75,10 +74,7 @@ pub async fn run_stream_server_from_config(
         config.name, inherited_path
     );
     if let Some(ref user_path) = user_env_path {
-        info!(
-            "[子进程环境][{}] 用户覆盖 PATH: {}",
-            config.name, user_path
-        );
+        info!("[子进程环境][{}] 用户覆盖 PATH: {}", config.name, user_path);
     }
     info!(
         "[子进程环境][{}] 生效 PATH: {}",
@@ -131,24 +127,7 @@ pub async fn run_stream_server_from_config(
 
     // 启动 stderr 日志读取任务
     if let Some(stderr_pipe) = child_stderr {
-        let service_name = config.name.clone();
-        tokio::spawn(async move {
-            let mut reader = tokio::io::BufReader::new(stderr_pipe);
-            let mut line = String::new();
-            loop {
-                line.clear();
-                match reader.read_line(&mut line).await {
-                    Ok(0) => break,
-                    Ok(_) => {
-                        let trimmed = line.trim();
-                        if !trimmed.is_empty() {
-                            warn!("[子进程 stderr][{}] {}", service_name, trimmed);
-                        }
-                    }
-                    Err(_) => break,
-                }
-            }
-        });
+        mcp_common::spawn_stderr_reader(stderr_pipe, config.name.clone());
     }
 
     // 3. 创建客户端信息

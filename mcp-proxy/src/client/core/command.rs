@@ -6,8 +6,6 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::process::Stdio;
 
-use tokio::io::AsyncBufReadExt;
-
 use crate::proxy::{StreamProxyHandler, ToolFilter};
 
 // 使用 mcp-streamable-proxy 的类型（rmcp 0.12，process-wrap 9.0）
@@ -120,24 +118,7 @@ pub async fn run_command_mode(
 
     // 启动 stderr 日志读取任务
     if let Some(stderr_pipe) = child_stderr {
-        let name_clone = name.to_string();
-        tokio::spawn(async move {
-            let mut reader = tokio::io::BufReader::new(stderr_pipe);
-            let mut line = String::new();
-            loop {
-                line.clear();
-                match reader.read_line(&mut line).await {
-                    Ok(0) => break,
-                    Ok(_) => {
-                        let trimmed = line.trim();
-                        if !trimmed.is_empty() {
-                            tracing::warn!("[子进程 stderr][{}] {}", name_clone, trimmed);
-                        }
-                    }
-                    Err(_) => break,
-                }
-            }
-        });
+        mcp_common::spawn_stderr_reader(stderr_pipe, name.to_string());
     }
 
     if !quiet {

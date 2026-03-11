@@ -170,7 +170,7 @@ pub async fn integrate_server_with_axum(
                 mcp_router_path.mcp_id, mcp_type
             );
 
-            (router, ct, McpHandler::Sse(handler))
+            (router, ct, McpHandler::Sse(Box::new(handler)))
         }
 
         // ================ Client uses Streamable HTTP protocol ================
@@ -195,7 +195,7 @@ pub async fn integrate_server_with_axum(
                 mcp_router_path.mcp_id, mcp_type
             );
 
-            (router, ct, McpHandler::Stream(handler))
+            (router, ct, McpHandler::Stream(Box::new(handler)))
         }
 
         // Client stdio protocol is not supported in server mode

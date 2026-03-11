@@ -26,10 +26,10 @@ impl MirrorConfig {
     /// 应在 main() 启动早期、单线程阶段调用。
     pub fn apply_to_process_env(&self) {
         unsafe {
-            if let Some(ref registry) = self.npm_registry {
-                if std::env::var("npm_config_registry").is_err() {
-                    std::env::set_var("npm_config_registry", registry);
-                }
+            if let Some(ref registry) = self.npm_registry
+                && std::env::var("npm_config_registry").is_err()
+            {
+                std::env::set_var("npm_config_registry", registry);
             }
             if let Some(ref index_url) = self.pypi_index_url {
                 if std::env::var("UV_INDEX_URL").is_err() {
@@ -40,10 +40,9 @@ impl MirrorConfig {
                 }
                 if std::env::var("UV_INSECURE_HOST").is_err()
                     && index_url.starts_with("http://")
+                    && let Some(host) = extract_host(index_url)
                 {
-                    if let Some(host) = extract_host(index_url) {
-                        std::env::set_var("UV_INSECURE_HOST", &host);
-                    }
+                    std::env::set_var("UV_INSECURE_HOST", &host);
                 }
             }
         }
@@ -56,7 +55,11 @@ fn extract_host(url: &str) -> Option<String> {
         .strip_prefix("https://")
         .or_else(|| url.strip_prefix("http://"))?;
     let host = without_scheme.split('/').next()?.split(':').next()?;
-    if host.is_empty() { None } else { Some(host.to_string()) }
+    if host.is_empty() {
+        None
+    } else {
+        Some(host.to_string())
+    }
 }
 
 #[cfg(test)]
@@ -66,11 +69,13 @@ mod tests {
     #[test]
     fn test_mirror_config_is_empty() {
         assert!(MirrorConfig::default().is_empty());
-        assert!(!MirrorConfig {
-            npm_registry: Some("test".to_string()),
-            pypi_index_url: None,
-        }
-        .is_empty());
+        assert!(
+            !MirrorConfig {
+                npm_registry: Some("test".to_string()),
+                pypi_index_url: None,
+            }
+            .is_empty()
+        );
     }
 
     #[test]

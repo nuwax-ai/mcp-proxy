@@ -77,11 +77,7 @@ pub fn format_spawn_error(
 ///
 /// 包含：PATH 摘要、镜像变量、config env keys 列表。
 /// 业务代码只需在 spawn 前调用此函数。
-pub fn log_stdio_spawn_context(
-    tag: &str,
-    mcp_id: &str,
-    env: &Option<HashMap<String, String>>,
-) {
+pub fn log_stdio_spawn_context(tag: &str, mcp_id: &str, env: &Option<HashMap<String, String>>) {
     tracing::debug!(
         "[{}] MCP ID: {}, PATH: {}",
         tag,
@@ -95,12 +91,7 @@ pub fn log_stdio_spawn_context(
 
     if let Some(env_vars) = env {
         let keys: Vec<&String> = env_vars.keys().collect();
-        tracing::debug!(
-            "[{}] MCP ID: {}, config env keys: {:?}",
-            tag,
-            mcp_id,
-            keys
-        );
+        tracing::debug!("[{}] MCP ID: {}, config env keys: {:?}", tag, mcp_id, keys);
     }
 }
 

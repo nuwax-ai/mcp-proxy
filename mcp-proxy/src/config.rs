@@ -75,10 +75,10 @@ impl AppConfig {
         }?;
 
         // 环境变量覆盖配置（优先级最高）
-        if let Ok(port) = env::var("MCP_PROXY_PORT") {
-            if let Ok(port_num) = port.parse::<u16>() {
-                config.server.port = port_num;
-            }
+        if let Ok(port) = env::var("MCP_PROXY_PORT")
+            && let Ok(port_num) = port.parse::<u16>()
+        {
+            config.server.port = port_num;
         }
 
         if let Ok(log_dir) = env::var("MCP_PROXY_LOG_DIR") {

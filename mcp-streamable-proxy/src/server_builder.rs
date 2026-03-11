@@ -9,7 +9,6 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use process_wrap::tokio::{CommandWrap, KillOnDrop};
-use tokio::io::AsyncBufReadExt;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
@@ -33,7 +32,7 @@ use process_wrap::tokio::ProcessGroup;
 #[cfg(windows)]
 use process_wrap::tokio::{CreationFlags, JobObject};
 #[cfg(windows)]
-use windows::Win32::System::Threading::{CREATE_NO_WINDOW, CREATE_NEW_PROCESS_GROUP};
+use windows::Win32::System::Threading::{CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW};
 
 use crate::{ProxyAwareSessionManager, ProxyHandler, ToolFilter};
 pub use mcp_common::ToolFilter as CommonToolFilter;
@@ -200,7 +199,7 @@ impl StreamServerBuilder {
         // 使用 process-wrap 创建子进程命令（跨平台进程清理）
         // process-wrap 会自动处理进程组（Unix）或 Job Object（Windows）
         // 并且在 Drop 时自动清理子进程树
-        let mut wrapped_cmd = CommandWrap::with_new(&command, |cmd| {
+        let mut wrapped_cmd = CommandWrap::with_new(command, |cmd| {
             let (final_path, filtered_env) = mcp_common::prepare_stdio_env(env);
             if let Some(path) = final_path {
                 cmd.env("PATH", path);
@@ -226,7 +225,7 @@ impl StreamServerBuilder {
         // Windows: 使用 CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP 隐藏控制台窗口
         #[cfg(windows)]
         {
-            use windows::Win32::System::Threading::{CREATE_NO_WINDOW, CREATE_NEW_PROCESS_GROUP};
+            use windows::Win32::System::Threading::{CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW};
             info!(
                 "[StreamServerBuilder] Setting CreationFlags: CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP"
             );
@@ -243,11 +242,7 @@ impl StreamServerBuilder {
             args.as_ref().unwrap_or(&vec![])
         );
 
-        let mcp_id = self
-            .server_config
-            .mcp_id
-            .as_deref()
-            .unwrap_or("unknown");
+        let mcp_id = self.server_config.mcp_id.as_deref().unwrap_or("unknown");
 
         // 诊断日志：子进程关键环境变量
         mcp_common::diagnostic::log_stdio_spawn_context("StreamServerBuilder", mcp_id, env);
@@ -260,30 +255,13 @@ impl StreamServerBuilder {
             .map_err(|e| {
                 anyhow::anyhow!(
                     "{}",
-                    mcp_common::diagnostic::format_spawn_error(mcp_id, &command, &args, e)
+                    mcp_common::diagnostic::format_spawn_error(mcp_id, command, &args, e)
                 )
             })?;
 
         // 启动 stderr 日志读取任务
         if let Some(stderr_pipe) = child_stderr {
-            let mcp_id_clone = mcp_id.to_string();
-            tokio::spawn(async move {
-                let mut reader = tokio::io::BufReader::new(stderr_pipe);
-                let mut line = String::new();
-                loop {
-                    line.clear();
-                    match reader.read_line(&mut line).await {
-                        Ok(0) => break,
-                        Ok(_) => {
-                            let trimmed = line.trim();
-                            if !trimmed.is_empty() {
-                                warn!("[子进程 stderr][{}] {}", mcp_id_clone, trimmed);
-                            }
-                        }
-                        Err(_) => break,
-                    }
-                }
-            });
+            mcp_common::spawn_stderr_reader(stderr_pipe, mcp_id.to_string());
         }
 
         let client = client_info.clone().serve(tokio_process).await?;
@@ -477,8 +455,13 @@ impl StreamServerBuilder {
         if let Ok(exe_path) = std::env::current_exe() {
             if let Some(exe_dir) = exe_path.parent() {
                 let resource_paths = [
-                    exe_dir.join("resources").join("node").join("bin").join("node.exe"),
-                    exe_dir.parent()
+                    exe_dir
+                        .join("resources")
+                        .join("node")
+                        .join("bin")
+                        .join("node.exe"),
+                    exe_dir
+                        .parent()
                         .unwrap_or(exe_dir)
                         .join("resources")
                         .join("node")
@@ -528,7 +511,8 @@ impl StreamServerBuilder {
             if let Some(exe_dir) = exe_path.parent() {
                 let resource_paths = [
                     exe_dir.join("resources").join("node").join("node_modules"),
-                    exe_dir.parent()
+                    exe_dir
+                        .parent()
                         .unwrap_or(exe_dir)
                         .join("resources")
                         .join("node")

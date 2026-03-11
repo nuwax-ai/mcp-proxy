@@ -245,6 +245,8 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
             }
             Err(e) => {
                 retry_count += 1;
+                // MAX_RETRIES = 0 表示无限重试，非零值表示最大重试次数
+                #[allow(clippy::absurd_extreme_comparisons)]
                 if MAX_RETRIES > 0 && retry_count >= MAX_RETRIES {
                     error!(
                         "[服务终止] 达到最大重试次数 {}, 服务名: {}, 最后错误: {}",

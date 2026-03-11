@@ -1,5 +1,5 @@
-use std::time::Duration;
 use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
+use std::time::Duration;
 
 /// Detect if a URL supports the Streamable HTTP protocol
 ///
@@ -49,8 +49,8 @@ pub async fn is_streamable_http(url: &str) -> bool {
 
     // Construct an MCP Initialize request using rmcp 1.1.0 types
     use rmcp::model::{
-        ClientCapabilities, ClientRequest, Implementation, InitializeRequestParams, ProtocolVersion,
-        Request, RequestId,
+        ClientCapabilities, ClientRequest, Implementation, InitializeRequestParams,
+        ProtocolVersion, Request, RequestId,
     };
 
     let init_request = ClientRequest::InitializeRequest(Request::new(
@@ -78,12 +78,12 @@ pub async fn is_streamable_http(url: &str) -> bool {
         return true;
     }
     // Check 2: POST request returning text/event-stream (Streamable HTTP feature)
-    if let Some(content_type) = resp_headers.get(CONTENT_TYPE) {
-        if let Ok(ct) = content_type.to_str() {
-            if ct.contains("text/event-stream") && status.is_success() {
-                return true;
-            }
-        }
+    if let Some(content_type) = resp_headers.get(CONTENT_TYPE)
+        && let Ok(ct) = content_type.to_str()
+        && ct.contains("text/event-stream")
+        && status.is_success()
+    {
+        return true;
     }
     // Check 3: Valid JSON-RPC 2.0 response (even if status is not 2xx)
     if let Ok(json) = response.json::<serde_json::Value>().await {

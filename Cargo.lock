@@ -2687,6 +2687,7 @@ dependencies = [
  "process-wrap 9.0.3",
  "serde",
  "serde_json",
+ "tokio",
  "tonic 0.13.1",
  "tracing",
  "tracing-opentelemetry",

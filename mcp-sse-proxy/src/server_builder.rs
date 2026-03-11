@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use anyhow::Result;
-use tokio::io::AsyncBufReadExt;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
@@ -321,7 +320,7 @@ impl SseServerBuilder {
         #[cfg(windows)]
         {
             use process_wrap::tokio::CreationFlags;
-            use windows::Win32::System::Threading::{CREATE_NO_WINDOW, CREATE_NEW_PROCESS_GROUP};
+            use windows::Win32::System::Threading::{CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW};
             wrapped_cmd.wrap(CreationFlags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP));
             wrapped_cmd.wrap(JobObject);
         }
@@ -354,24 +353,7 @@ impl SseServerBuilder {
 
         // 启动 stderr 日志读取任务
         if let Some(stderr_pipe) = child_stderr {
-            let mcp_id_clone = mcp_id.clone();
-            tokio::spawn(async move {
-                let mut reader = tokio::io::BufReader::new(stderr_pipe);
-                let mut line = String::new();
-                loop {
-                    line.clear();
-                    match reader.read_line(&mut line).await {
-                        Ok(0) => break,
-                        Ok(_) => {
-                            let trimmed = line.trim();
-                            if !trimmed.is_empty() {
-                                warn!("[子进程 stderr][{}] {}", mcp_id_clone, trimmed);
-                            }
-                        }
-                        Err(_) => break,
-                    }
-                }
-            });
+            mcp_common::spawn_stderr_reader(stderr_pipe, mcp_id.clone());
         }
 
         let process_duration = process_start.elapsed();

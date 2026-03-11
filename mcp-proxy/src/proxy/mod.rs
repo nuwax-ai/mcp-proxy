@@ -32,9 +32,9 @@ pub use mcp_streamable_proxy::server_builder::{
 #[derive(Clone, Debug)]
 pub enum McpHandler {
     /// SSE protocol handler (from mcp-sse-proxy)
-    Sse(ProxyHandler),
+    Sse(Box<ProxyHandler>),
     /// Streamable HTTP protocol handler (from mcp-streamable-proxy)
-    Stream(StreamProxyHandler),
+    Stream(Box<StreamProxyHandler>),
 }
 
 impl McpHandler {
@@ -57,12 +57,12 @@ impl McpHandler {
 
 impl From<ProxyHandler> for McpHandler {
     fn from(handler: ProxyHandler) -> Self {
-        McpHandler::Sse(handler)
+        McpHandler::Sse(Box::new(handler))
     }
 }
 
 impl From<StreamProxyHandler> for McpHandler {
     fn from(handler: StreamProxyHandler) -> Self {
-        McpHandler::Stream(handler)
+        McpHandler::Stream(Box::new(handler))
     }
 }

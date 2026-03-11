@@ -226,7 +226,7 @@ pub fn prepare_stdio_env(
     env: &Option<std::collections::HashMap<String, String>>,
 ) -> (Option<String>, Option<Vec<(String, String)>>) {
     // 1. 确定基础 PATH
-    let base_path = if env.as_ref().map_or(true, |e| !e.contains_key("PATH")) {
+    let base_path = if env.as_ref().is_none_or(|e| !e.contains_key("PATH")) {
         std::env::var("PATH").ok()
     } else {
         env.as_ref().and_then(|e| e.get("PATH").cloned())
@@ -287,25 +287,21 @@ pub fn prepare_stdio_env(
 #[cfg(unix)]
 #[macro_export]
 macro_rules! wrap_process_v8 {
-    ($cmd:expr) => {
-        {
-            use process_wrap::tokio::ProcessGroup;
-            $cmd.wrap(ProcessGroup::leader());
-        }
-    };
+    ($cmd:expr) => {{
+        use process_wrap::tokio::ProcessGroup;
+        $cmd.wrap(ProcessGroup::leader());
+    }};
 }
 
 #[cfg(windows)]
 #[macro_export]
 macro_rules! wrap_process_v8 {
-    ($cmd:expr) => {
-        {
-            use process_wrap::tokio::{CreationFlags, JobObject};
-            use windows::Win32::System::Threading::{CREATE_NO_WINDOW, CREATE_NEW_PROCESS_GROUP};
-            $cmd.wrap(CreationFlags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP));
-            $cmd.wrap(JobObject);
-        }
-    };
+    ($cmd:expr) => {{
+        use process_wrap::tokio::{CreationFlags, JobObject};
+        use windows::Win32::System::Threading::{CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW};
+        $cmd.wrap(CreationFlags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP));
+        $cmd.wrap(JobObject);
+    }};
 }
 
 /// 为 process-wrap 9.x 的 CommandWrap 应用平台特定的包装
@@ -333,25 +329,80 @@ macro_rules! wrap_process_v8 {
 #[cfg(unix)]
 #[macro_export]
 macro_rules! wrap_process_v9 {
-    ($cmd:expr) => {
-        {
-            use process_wrap::tokio::ProcessGroup;
-            $cmd.wrap(ProcessGroup::leader());
-        }
-    };
+    ($cmd:expr) => {{
+        use process_wrap::tokio::ProcessGroup;
+        $cmd.wrap(ProcessGroup::leader());
+    }};
 }
 
 #[cfg(windows)]
 #[macro_export]
 macro_rules! wrap_process_v9 {
-    ($cmd:expr) => {
-        {
-            use process_wrap::tokio::{CreationFlags, JobObject};
-            use windows::Win32::System::Threading::{CREATE_NO_WINDOW, CREATE_NEW_PROCESS_GROUP};
-            $cmd.wrap(CreationFlags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP));
-            $cmd.wrap(JobObject);
+    ($cmd:expr) => {{
+        use process_wrap::tokio::{CreationFlags, JobObject};
+        use windows::Win32::System::Threading::{CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW};
+        $cmd.wrap(CreationFlags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP));
+        $cmd.wrap(JobObject);
+    }};
+}
+
+/// 启动 stderr 日志读取任务
+///
+/// 创建一个异步任务来读取子进程的 stderr 输出并记录到日志。
+/// 这个函数封装了通用的 stderr 读取逻辑。
+///
+/// # Arguments
+///
+/// * `stderr` - stderr 管道（实现 AsyncRead + Unpin + Send）
+/// * `service_name` - MCP 服务名称（用于日志标识）
+///
+/// # Returns
+///
+/// 返回 `JoinHandle<()>`，任务会在 stderr 关闭时自动结束
+///
+/// # Example
+///
+/// ```ignore
+/// use mcp_common::process_compat::spawn_stderr_reader;
+///
+/// let (tokio_process, child_stderr) = TokioChildProcess::builder(wrapped_cmd)
+///     .stderr(Stdio::piped())
+///     .spawn()?;
+///
+/// if let Some(stderr) = child_stderr {
+///     spawn_stderr_reader(stderr, "my-mcp-service".to_string());
+/// }
+/// ```
+pub fn spawn_stderr_reader<T>(stderr: T, service_name: String) -> tokio::task::JoinHandle<()>
+where
+    T: tokio::io::AsyncRead + Unpin + Send + 'static,
+{
+    tokio::spawn(async move {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+
+        let mut reader = BufReader::new(stderr);
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match reader.read_line(&mut line).await {
+                Ok(0) => {
+                    // EOF - stderr 已关闭
+                    tracing::debug!("[子进程 stderr][{}] 读取结束 (EOF)", service_name);
+                    break;
+                }
+                Ok(_) => {
+                    let trimmed = line.trim();
+                    if !trimmed.is_empty() {
+                        tracing::warn!("[子进程 stderr][{}] {}", service_name, trimmed);
+                    }
+                }
+                Err(e) => {
+                    tracing::debug!("[子进程 stderr][{}] 读取错误: {}", service_name, e);
+                    break;
+                }
+            }
         }
-    };
+    })
 }
 
 /// Windows 上将 Unix 风格路径转换为 Windows 风格
@@ -495,9 +546,9 @@ pub fn preprocess_npx_command_windows(
 
     // 提取包名（跳过 -y 标志等）
     // 支持: chrome-devtools-mcp@latest, @scope/package@1.0.0
-    let package_spec = args.iter().find(|s| {
-        !s.starts_with('-') && (s.contains('@') || s.starts_with('@'))
-    });
+    let package_spec = args
+        .iter()
+        .find(|s| !s.starts_with('-') && (s.contains('@') || s.starts_with('@')));
 
     let Some(pkg) = package_spec else {
         return (command.to_string(), Some(args.to_vec()));
@@ -542,10 +593,7 @@ pub fn preprocess_npx_command_windows(
     }
 
     // 未找到已安装的包，保持原样
-    info!(
-        "[MCP] Windows npx 未找到已安装的包: {}，保持原命令",
-        pkg
-    );
+    info!("[MCP] Windows npx 未找到已安装的包: {}，保持原命令", pkg);
     (command.to_string(), Some(args.to_vec()))
 }
 
@@ -560,7 +608,9 @@ pub fn preprocess_npx_command_windows(
 
 /// 查找 npx 包的 node 可执行文件和 JS 入口（Windows）
 #[cfg(target_os = "windows")]
-fn find_npx_package_entry_windows(package_name: &str) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+fn find_npx_package_entry_windows(
+    package_name: &str,
+) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
     use std::path::PathBuf;
     use tracing::info;
 
@@ -658,8 +708,13 @@ fn find_node_exe_windows() -> Option<std::path::PathBuf> {
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
             let resource_paths = [
-                exe_dir.join("resources").join("node").join("bin").join("node.exe"),
-                exe_dir.parent()
+                exe_dir
+                    .join("resources")
+                    .join("node")
+                    .join("bin")
+                    .join("node.exe"),
+                exe_dir
+                    .parent()
                     .unwrap_or(exe_dir)
                     .join("resources")
                     .join("node")
@@ -717,7 +772,8 @@ fn get_npx_cache_paths_windows() -> Vec<std::path::PathBuf> {
         if let Some(exe_dir) = exe_path.parent() {
             let resource_paths = [
                 exe_dir.join("resources").join("node").join("node_modules"),
-                exe_dir.parent()
+                exe_dir
+                    .parent()
                     .unwrap_or(exe_dir)
                     .join("resources")
                     .join("node")
@@ -770,8 +826,7 @@ mod tests {
         unsafe {
             std::env::set_var("NUWAX_APP_RUNTIME_PATH", "/app/node/bin:/app/uv/bin");
         }
-        let result =
-            ensure_runtime_path("/app/node/bin:/opt/homebrew/bin:/usr/bin");
+        let result = ensure_runtime_path("/app/node/bin:/opt/homebrew/bin:/usr/bin");
         assert_eq!(
             result,
             "/app/node/bin:/app/uv/bin:/opt/homebrew/bin:/usr/bin"
@@ -785,8 +840,7 @@ mod tests {
         unsafe {
             std::env::set_var("NUWAX_APP_RUNTIME_PATH", "/app/node/bin:/app/uv/bin");
         }
-        let result =
-            ensure_runtime_path("/app/uv/bin:/usr/bin:/app/node/bin");
+        let result = ensure_runtime_path("/app/uv/bin:/usr/bin:/app/node/bin");
         assert_eq!(result, "/app/node/bin:/app/uv/bin:/usr/bin");
         unsafe { std::env::remove_var("NUWAX_APP_RUNTIME_PATH") };
     }
@@ -855,10 +909,7 @@ mod tests {
         // 纯 Unix 风格 PATH
         let unix_path = "/c/Program Files/nodejs;/d/tools/bin;/e/dev";
         let result = convert_path_to_windows_format(unix_path);
-        assert_eq!(
-            result,
-            "C:\\Program Files\\nodejs;D:\\tools\\bin;E:\\dev"
-        );
+        assert_eq!(result, "C:\\Program Files\\nodejs;D:\\tools\\bin;E:\\dev");
 
         // 纯 Windows 风格 PATH（保持不变）
         let win_path = "C:\\Windows\\System32;D:\\tools\\bin";

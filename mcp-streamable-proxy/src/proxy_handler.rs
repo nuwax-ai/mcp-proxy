@@ -6,8 +6,8 @@ pub use mcp_common::ToolFilter;
 use rmcp::{
     ErrorData, RoleClient, RoleServer, ServerHandler,
     model::{
-        CallToolRequestParams, CallToolResult, ClientInfo, Content, Implementation, ListToolsResult,
-        PaginatedRequestParams, ServerInfo,
+        CallToolRequestParams, CallToolResult, ClientInfo, Content, Implementation,
+        ListToolsResult, PaginatedRequestParams, ServerInfo,
     },
     service::{NotificationContext, Peer, RequestContext, RunningService},
 };
