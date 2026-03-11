@@ -1,0 +1,256 @@
+###############################################################################
+# MCP Proxy API 测试文件
+# 使用 VS Code REST Client 扩展或 IntelliJ HTTP Client 执行
+###############################################################################
+#
+# 测试流程：
+# 1. 先调用 /check_status 接口创建 MCP 服务（服务会异步启动）
+# 2. 再次调用 /check_status 确认服务状态变为 Ready
+# 3. 使用返回的 SSE/Stream URL 在 MCP 客户端中连接
+#
+# SSE 协议 URL 格式：
+#   - 连接: {{baseUrl}}/mcp/sse/proxy/{mcp_id}/sse
+#   - 消息: {{baseUrl}}/mcp/sse/proxy/{mcp_id}/message
+#
+# Streamable HTTP 协议 URL 格式：
+#   - 请求: {{baseUrl}}/mcp/stream/proxy/{mcp_id}
+#
+###############################################################################
+
+@baseUrl = http://localhost:8085
+@ssePrefix = /mcp/sse
+@streamPrefix = /mcp/stream
+
+###############################################################################
+# 环境变量（根据实际情况修改）
+###############################################################################
+# 如果需要认证，取消下行注释并设置 token
+# @token = your-auth-token-here
+
+# Coze API Token（用于测试 Coze MCP 服务）
+# 从环境变量 COZE_API_TOKEN 读取，使用前请设置: export COZE_API_TOKEN=your_token_here
+@cozeApiToken = {{$dotenv COZE_API_TOKEN}}
+
+###############################################################################
+# 健康检查接口
+###############################################################################
+
+### 健康检查
+GET {{baseUrl}}/health
+
+### 就绪检查
+GET {{baseUrl}}/ready
+
+###############################################################################
+# SSE 协议 - MCP 服务状态检查与创建
+###############################################################################
+
+### 检查/创建 SSE 协议的 MCP 服务 - Time MCP (stdio)
+# @name checkTimeMcpSse
+POST {{baseUrl}}{{ssePrefix}}/check_status
+Content-Type: application/json
+
+{
+  "mcpId": "time-mcp-sse",
+  "mcpJsonConfig": "{\"mcpServers\":{\"time\":{\"command\":\"uvx\",\"args\":[\"mcp-server-time\"]}}}",
+  "mcpType": "OneShot"
+}
+
+### 检查/创建 SSE 协议的 MCP 服务 - Coze Plugin (remote URL)
+# @name checkCozeMcpSse
+POST {{baseUrl}}{{ssePrefix}}/check_status
+Content-Type: application/json
+
+{
+  "mcpId": "coze_plugin_tianyancha",
+  "mcpJsonConfig": "{\"mcpServers\":{\"coze_plugin_tianyancha\":{\"url\":\"https://mcp.coze.cn/v1/plugins/7407724292865130515\",\"headers\":{\"Authorization\":\"Bearer {{cozeApiToken}}\"}}}}",
+  "mcpType": "OneShot"
+}
+
+### SSE 连接端点 - 连接 Time MCP
+# 在 MCP 客户端中使用此 URL
+# SSE URL: {{baseUrl}}{{ssePrefix}}/proxy/time-mcp-sse/sse
+# Message URL: {{baseUrl}}{{ssePrefix}}/proxy/time-mcp-sse/message
+GET {{baseUrl}}{{ssePrefix}}/proxy/time-mcp-sse/sse
+Accept: text/event-stream
+
+### SSE 连接端点 - 连接 Coze Plugin
+# SSE URL: {{baseUrl}}{{ssePrefix}}/proxy/coze_plugin_tianyancha/sse
+# Message URL: {{baseUrl}}{{ssePrefix}}/proxy/coze_plugin_tianyancha/message
+GET {{baseUrl}}{{ssePrefix}}/proxy/coze_plugin_tianyancha/sse
+Accept: text/event-stream
+
+### SSE 发送消息示例
+POST {{baseUrl}}{{ssePrefix}}/proxy/time-mcp-sse/message
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/list"
+}
+
+###############################################################################
+# Streamable HTTP 协议 - MCP 服务状态检查与创建
+###############################################################################
+
+### 检查/创建 Stream 协议的 MCP 服务 - Time MCP (stdio)
+# @name checkTimeMcpStream
+POST {{baseUrl}}{{streamPrefix}}/check_status
+Content-Type: application/json
+
+{
+  "mcpId": "time-mcp-stream",
+  "mcpJsonConfig": "{\"mcpServers\":{\"time\":{\"command\":\"uvx\",\"args\":[\"mcp-server-time\"]}}}",
+  "mcpType": "OneShot"
+}
+
+### 检查/创建 Stream 协议的 MCP 服务 - Coze Plugin (remote URL)
+# @name checkCozeMcpStream
+POST {{baseUrl}}{{streamPrefix}}/check_status
+Content-Type: application/json
+
+{
+  "mcpId": "coze_plugin_tianyancha_stream",
+  "mcpJsonConfig": "{\"mcpServers\":{\"coze_plugin_tianyancha\":{\"url\":\"https://mcp.coze.cn/v1/plugins/7407724292865130515\",\"headers\":{\"Authorization\":\"Bearer {{cozeApiToken}}\"}}}}",
+  "mcpType": "OneShot"
+}
+
+### Streamable HTTP 请求 - Time MCP
+# 在 MCP 客户端中使用此 URL
+# Stream URL: {{baseUrl}}{{streamPrefix}}/proxy/time-mcp-stream
+POST {{baseUrl}}{{streamPrefix}}/proxy/time-mcp-stream
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/list"
+}
+
+### Streamable HTTP 请求 - Coze Plugin
+POST {{baseUrl}}{{streamPrefix}}/proxy/coze_plugin_tianyancha_stream
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/list"
+}
+
+###############################################################################
+# 查询服务状态（GET 方式）
+###############################################################################
+
+### 查询 Time MCP SSE 服务状态
+GET {{baseUrl}}/mcp/check/status/time-mcp-sse
+
+### 查询 Coze Plugin SSE 服务状态
+GET {{baseUrl}}/mcp/check/status/coze_plugin_tianyancha
+
+### 查询 Time MCP Stream 服务状态
+GET {{baseUrl}}/mcp/check/status/time-mcp-stream
+
+###############################################################################
+# 添加路由（/mcp/sse/add）- 同步方式创建服务
+# 注意：此接口使用 snake_case 参数名
+###############################################################################
+
+### 添加 Time MCP 服务（同步创建）
+POST {{baseUrl}}{{ssePrefix}}/add
+Content-Type: application/json
+
+{
+  "mcp_json_config": "{\"mcpServers\":{\"time\":{\"command\":\"uvx\",\"args\":[\"mcp-server-time\"]}}}",
+  "mcp_type": "OneShot"
+}
+
+### 添加 Coze Plugin 服务（同步创建）
+POST {{baseUrl}}{{ssePrefix}}/add
+Content-Type: application/json
+
+{
+  "mcp_json_config": "{\"mcpServers\":{\"coze_plugin_tianyancha\":{\"url\":\"https://mcp.coze.cn/v1/plugins/7407724292865130515\",\"headers\":{\"Authorization\":\"Bearer {{cozeApiToken}}\"}}}}",
+  "mcp_type": "OneShot"
+}
+
+###############################################################################
+# MCP 客户端配置示例
+###############################################################################
+
+### 在 Claude Desktop 或其他 MCP 客户端中使用以下配置：
+
+# SSE 协议配置（Time MCP）:
+# {
+#   "mcpServers": {
+#     "time-proxy": {
+#       "url": "http://localhost:3000/mcp/sse/proxy/time-mcp-sse/sse"
+#     }
+#   }
+# }
+
+# SSE 协议配置（Coze Plugin）:
+# {
+#   "mcpServers": {
+#     "coze-proxy": {
+#       "url": "http://localhost:3000/mcp/sse/proxy/coze_plugin_tianyancha/sse"
+#     }
+#   }
+# }
+
+# Streamable HTTP 协议配置（Time MCP）:
+# {
+#   "mcpServers": {
+#     "time-proxy-stream": {
+#       "url": "http://localhost:3000/mcp/stream/proxy/time-mcp-stream",
+#       "type": "streamable-http"
+#     }
+#   }
+# }
+
+###############################################################################
+# 常用 MCP 服务配置示例
+###############################################################################
+
+### 文件系统 MCP
+POST {{baseUrl}}{{ssePrefix}}/check_status
+Content-Type: application/json
+
+{
+  "mcpId": "filesystem-mcp",
+  "mcpJsonConfig": "{\"mcpServers\":{\"filesystem\":{\"command\":\"npx\",\"args\":[\"-y\",\"@modelcontextprotocol/server-filesystem\",\"/tmp\"]}}}",
+  "mcpType": "OneShot"
+}
+
+### GitHub MCP
+POST {{baseUrl}}{{ssePrefix}}/check_status
+Content-Type: application/json
+
+{
+  "mcpId": "github-mcp",
+  "mcpJsonConfig": "{\"mcpServers\":{\"github\":{\"command\":\"npx\",\"args\":[\"-y\",\"@modelcontextprotocol/server-github\"],\"env\":{\"GITHUB_PERSONAL_ACCESS_TOKEN\":\"your-github-token\"}}}}",
+  "mcpType": "OneShot"
+}
+
+### SQLite MCP
+POST {{baseUrl}}{{ssePrefix}}/check_status
+Content-Type: application/json
+
+{
+  "mcpId": "sqlite-mcp",
+  "mcpJsonConfig": "{\"mcpServers\":{\"sqlite\":{\"command\":\"uvx\",\"args\":[\"mcp-server-sqlite\",\"--db-path\",\"/tmp/test.db\"]}}}",
+  "mcpType": "OneShot"
+}
+
+###############################################################################
+# 删除服务路由
+###############################################################################
+
+### 删除 Time MCP SSE 服务
+DELETE {{baseUrl}}/mcp/config/delete/time-mcp-sse
+
+### 删除 Coze Plugin SSE 服务
+DELETE {{baseUrl}}/mcp/config/delete/coze_plugin_tianyancha
+
+### 删除 Time MCP Stream 服务
+DELETE {{baseUrl}}/mcp/config/delete/time-mcp-stream

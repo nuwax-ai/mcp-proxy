@@ -11,8 +11,8 @@ use tokio::time::{Duration, interval};
 pub async fn start_schedule_task() {
     info!("启动MCP服务状态检查定时任务");
 
-    // 创建一个tokio定时器，每30秒执行一次
-    let mut interval = interval(Duration::from_secs(60));
+    // 创建一个tokio定时器，每20秒执行一次
+    let mut interval = interval(Duration::from_secs(20));
 
     // 使用原子布尔值来跟踪任务是否正在执行
     let is_running = Arc::new(AtomicBool::new(false));
@@ -40,7 +40,7 @@ pub async fn start_schedule_task() {
             tokio::spawn(async move {
                 // 执行检查任务
                 match tokio::time::timeout(
-                    Duration::from_secs(25), // 设置超时时间为25秒，小于间隔时间
+                    Duration::from_secs(10), // 设置超时时间为10秒，小于间隔时间
                     schedule_check_mcp_live(),
                 )
                 .await
