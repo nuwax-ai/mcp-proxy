@@ -98,7 +98,7 @@ pub async fn http_logging_middleware(request: Request, next: Next) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{body::Body, http::StatusCode, routing::get, Router};
+    use axum::{Router, body::Body, http::StatusCode, routing::get};
     use tower::ServiceExt;
 
     #[tokio::test]
@@ -113,12 +113,7 @@ mod tests {
             .layer(axum::middleware::from_fn(http_logging_middleware));
 
         let response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/test")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(Request::builder().uri("/test").body(Body::empty()).unwrap())
             .await
             .unwrap();
 

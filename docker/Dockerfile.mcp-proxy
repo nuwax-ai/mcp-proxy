@@ -91,40 +91,6 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && npm install -g npm@latest
 
 # ==============================================================================
-# 安装 Go
-# ==============================================================================
-# 设置 Go 环境变量
-ENV GOPATH=/root/go
-ENV PATH=$PATH:/usr/local/go/bin:/root/go/bin
-
-# 创建 Go 工作目录
-RUN mkdir -p $GOPATH/bin $GOPATH/src $GOPATH/pkg
-
-# 安装 Go 1.24（根据架构自动选择下载链接）
-ARG TARGETARCH
-RUN echo "Target Architecture: $TARGETARCH" \
-    && if [ "$TARGETARCH" = "amd64" ]; then \
-        GO_URL="https://go.dev/dl/go1.24.3.linux-amd64.tar.gz"; \
-    elif [ "$TARGETARCH" = "arm64" ]; then \
-        GO_URL="https://go.dev/dl/go1.24.3.linux-arm64.tar.gz"; \
-    else \
-        echo "Unsupported architecture: $TARGETARCH"; \
-        exit 1; \
-    fi \
-    && echo "Downloading Go from: $GO_URL" \
-    && curl -fsSL "$GO_URL" -o go.tar.gz \
-    && tar -C /usr/local -xzf go.tar.gz \
-    && rm go.tar.gz \
-    && ln -s /usr/local/go/bin/go /usr/local/bin/go \
-    && ln -s /usr/local/go/bin/gofmt /usr/local/bin/gofmt
-
-# 验证 Go 安装
-RUN go version
-
-# 测试mcp用 go-mcp-mysql@latest
-RUN go install -v github.com/Zhwt/go-mcp-mysql@latest
-
-# ==============================================================================
 # 安装 Deno
 # ==============================================================================
 RUN curl -fsSL https://deno.land/install.sh | sh

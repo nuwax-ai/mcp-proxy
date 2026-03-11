@@ -56,33 +56,20 @@ pub async fn run_command_mode(
     // 诊断日志：记录将要传递给子进程的关键环境信息
     let inherited_path = std::env::var("PATH").unwrap_or_default();
     let user_env_path = env.get("PATH").cloned();
-    let effective_path = user_env_path
-        .as_deref()
-        .unwrap_or(&inherited_path);
-    tracing::debug!(
-        "[子进程环境][{}] 命令: {} {:?}",
-        name, command, cmd_args
-    );
-    tracing::debug!(
-        "[子进程环境][{}] 继承 PATH: {}",
-        name, inherited_path
-    );
+    let effective_path = user_env_path.as_deref().unwrap_or(&inherited_path);
+    tracing::debug!("[子进程环境][{}] 命令: {} {:?}", name, command, cmd_args);
+    tracing::debug!("[子进程环境][{}] 继承 PATH: {}", name, inherited_path);
     if let Some(ref user_path) = user_env_path {
-        tracing::debug!(
-            "[子进程环境][{}] 用户覆盖 PATH: {}",
-            name, user_path
-        );
+        tracing::debug!("[子进程环境][{}] 用户覆盖 PATH: {}", name, user_path);
     }
-    tracing::debug!(
-        "[子进程环境][{}] 生效 PATH: {}",
-        name, effective_path
-    );
+    tracing::debug!("[子进程环境][{}] 生效 PATH: {}", name, effective_path);
     {
         let non_path_keys: Vec<&String> = env.keys().filter(|k| *k != "PATH").collect();
         if !non_path_keys.is_empty() {
             tracing::debug!(
                 "[子进程环境][{}] 用户自定义环境变量: {:?}",
-                name, non_path_keys
+                name,
+                non_path_keys
             );
         }
     }
@@ -122,7 +109,7 @@ pub async fn run_command_mode(
     #[cfg(windows)]
     {
         use process_wrap::tokio::CreationFlags;
-        use windows::Win32::System::Threading::{CREATE_NO_WINDOW, CREATE_NEW_PROCESS_GROUP};
+        use windows::Win32::System::Threading::{CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW};
         wrapped_cmd.wrap(CreationFlags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP));
         wrapped_cmd.wrap(JobObject);
     }

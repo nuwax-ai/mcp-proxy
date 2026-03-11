@@ -221,7 +221,15 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
     let mut retry_delay = Duration::from_secs(INITIAL_RETRY_DELAY_SECS);
 
     loop {
-        let result = run_proxy_server(&args, &parsed, &std_listener, tool_filter.clone(), verbose, quiet).await;
+        let result = run_proxy_server(
+            &args,
+            &parsed,
+            &std_listener,
+            tool_filter.clone(),
+            verbose,
+            quiet,
+        )
+        .await;
 
         match result {
             Ok(_) => {
@@ -251,7 +259,10 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
                 };
                 error!(
                     "[服务异常] MCP Proxy 服务异常退出 - 服务名: {}, 错误: {}, {}秒后重启 ({})",
-                    parsed.name, e, retry_delay.as_secs(), retry_info
+                    parsed.name,
+                    e,
+                    retry_delay.as_secs(),
+                    retry_info
                 );
                 eprintln!(
                     "⚠️  服务异常: {}，{}秒后重启 ({})...",
@@ -260,10 +271,8 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
                     retry_info
                 );
                 tokio::time::sleep(retry_delay).await;
-                retry_delay = std::cmp::min(
-                    retry_delay * 2,
-                    Duration::from_secs(MAX_RETRY_DELAY_SECS),
-                );
+                retry_delay =
+                    std::cmp::min(retry_delay * 2, Duration::from_secs(MAX_RETRY_DELAY_SECS));
                 warn!(
                     "[服务重启] 正在重启 MCP Proxy 服务 - 服务名: {}",
                     parsed.name

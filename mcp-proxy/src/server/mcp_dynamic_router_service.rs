@@ -14,7 +14,10 @@ use tower::Service;
 
 use crate::{
     DynamicRouterService, get_proxy_manager, mcp_start_task,
-    model::{CheckMcpStatusResponseStatus, GLOBAL_RESTART_TRACKER, HttpResult, McpConfig, McpRouterPath, McpType},
+    model::{
+        CheckMcpStatusResponseStatus, GLOBAL_RESTART_TRACKER, HttpResult, McpConfig, McpRouterPath,
+        McpType,
+    },
     server::middlewares::extract_trace_id,
 };
 
@@ -127,8 +130,9 @@ impl Service<Request<Body>> for DynamicRouterService {
                                             router_path.mcp_id, err
                                         );
                                         // 清理资源
-                                        if let Err(e) =
-                                            proxy_manager.cleanup_resources(&router_path.mcp_id).await
+                                        if let Err(e) = proxy_manager
+                                            .cleanup_resources(&router_path.mcp_id)
+                                            .await
                                         {
                                             error!(
                                                 "[MCP状态检查] mcp_id={} 清理资源失败: {}",
@@ -165,10 +169,8 @@ impl Service<Request<Body>> for DynamicRouterService {
                                     router_path.mcp_id
                                 );
                                 span.record("mcp.startup_in_progress", true);
-                                let message = format!(
-                                    "服务 {} 正在启动中，请稍后再试",
-                                    router_path.mcp_id
-                                );
+                                let message =
+                                    format!("服务 {} 正在启动中，请稍后再试", router_path.mcp_id);
                                 let http_result: HttpResult<String> =
                                     HttpResult::error("0003", &message, None);
                                 span.record("http.response.status_code", 503u16);
@@ -239,10 +241,7 @@ impl Service<Request<Body>> for DynamicRouterService {
                                         router_path.mcp_id, e
                                     );
                                 } else {
-                                    debug!(
-                                        "[清理资源] mcp_id={} 清理资源成功",
-                                        router_path.mcp_id
-                                    );
+                                    debug!("[清理资源] mcp_id={} 清理资源成功", router_path.mcp_id);
                                 }
 
                                 // OneShot 类型：只清理，不重启
@@ -263,7 +262,10 @@ impl Service<Request<Body>> for DynamicRouterService {
                                 }
 
                                 // Persistent 类型：清理后重启
-                                info!("[重启流程] mcp_id={} 是 Persistent 类型，开始重启服务", router_path.mcp_id);
+                                info!(
+                                    "[重启流程] mcp_id={} 是 Persistent 类型，开始重启服务",
+                                    router_path.mcp_id
+                                );
 
                                 // 从配置获取 mcp_config 并启动服务
                                 // 优先从请求 header 获取配置
@@ -298,10 +300,8 @@ impl Service<Request<Body>> for DynamicRouterService {
                                     "[重启流程] mcp_id={} 无法获取配置，无法重启服务",
                                     router_path.mcp_id
                                 );
-                                let message = format!(
-                                    "服务 {} 不健康且无法获取配置",
-                                    router_path.mcp_id
-                                );
+                                let message =
+                                    format!("服务 {} 不健康且无法获取配置", router_path.mcp_id);
                                 let http_result: HttpResult<String> =
                                     HttpResult::error("0004", &message, None);
                                 return Ok(http_result.into_response());

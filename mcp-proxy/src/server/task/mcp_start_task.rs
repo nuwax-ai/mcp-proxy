@@ -352,10 +352,7 @@ fn log_command_details(mcp_config: &McpServerCommandConfig) {
         .as_ref()
         .map_or(String::new(), |args| args.join(" "));
 
-    info!(
-        "Executing command: {} {}",
-        mcp_config.command, args_str
-    );
+    info!("Executing command: {} {}", mcp_config.command, args_str);
 
     // 只输出 env 变量的 key 列表，避免泄露敏感 value
     if let Some(env_vars) = &mcp_config.env {
