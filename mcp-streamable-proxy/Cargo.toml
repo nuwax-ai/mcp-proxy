@@ -13,9 +13,8 @@ categories = ["web-programming", "network-programming"]
 # 共享类型和工具
 mcp-common = { version = "0.1.19", path = "../mcp-common" }
 
-# MCP protocol implementation - using forked rmcp with non-standard stdout log tolerance
-# Fork: https://github.com/soddygo/rust-sdk.git (dev branch)
-rmcp = { git = "https://github.com/soddygo/rust-sdk.git", branch = "dev", features = [
+# MCP protocol implementation - using forked rmcp-soddygo with non-standard stdout log tolerance
+rmcp = { version = "1.1.1", package = "rmcp-soddygo", features = [
     "server",
     "client",
     "transport-streamable-http-server",
