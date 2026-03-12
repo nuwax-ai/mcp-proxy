@@ -2707,7 +2707,7 @@ dependencies = [
  "mcp-common",
  "process-wrap 8.2.1",
  "reqwest 0.12.24",
- "rmcp 0.10.0",
+ "rmcp",
  "serde",
  "serde_json",
  "tokio",
@@ -2784,7 +2784,7 @@ dependencies = [
  "mcp-common",
  "process-wrap 9.0.3",
  "reqwest 0.13.2",
- "rmcp 1.1.1",
+ "rmcp-soddygo",
  "serde",
  "serde_json",
  "tokio",
@@ -4201,39 +4201,7 @@ dependencies = [
  "process-wrap 8.2.1",
  "rand 0.9.2",
  "reqwest 0.12.24",
- "rmcp-macros 0.10.0",
- "schemars",
- "serde",
- "serde_json",
- "sse-stream",
- "thiserror 2.0.17",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "tower-service",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "rmcp"
-version = "1.1.1"
-source = "git+https://github.com/soddygo/rust-sdk.git?branch=dev#2a47670e3e7864fa88939bde151475c674e9844f"
-dependencies = [
- "async-trait",
- "base64",
- "bytes",
- "chrono",
- "futures",
- "http",
- "http-body",
- "http-body-util",
- "pastey",
- "pin-project-lite",
- "process-wrap 9.0.3",
- "rand 0.10.0",
- "reqwest 0.13.2",
- "rmcp-macros 1.1.1",
+ "rmcp-macros",
  "schemars",
  "serde",
  "serde_json",
@@ -4261,9 +4229,43 @@ dependencies = [
 ]
 
 [[package]]
-name = "rmcp-macros"
+name = "rmcp-soddygo"
 version = "1.1.1"
-source = "git+https://github.com/soddygo/rust-sdk.git?branch=dev#2a47670e3e7864fa88939bde151475c674e9844f"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c787397fdfeffaabd910c1afce115b880223a1d5c3f36b77872b91d3094387b"
+dependencies = [
+ "async-trait",
+ "base64",
+ "bytes",
+ "chrono",
+ "futures",
+ "http",
+ "http-body",
+ "http-body-util",
+ "pastey",
+ "pin-project-lite",
+ "process-wrap 9.0.3",
+ "rand 0.10.0",
+ "reqwest 0.13.2",
+ "rmcp-soddygo-macros",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sse-stream",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tower-service",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "rmcp-soddygo-macros"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5e4a5c4596c4a43a8474169a5cfae41cd5a714041769c38c68eda56b28a216b"
 dependencies = [
  "darling 0.23.0",
  "proc-macro2",
