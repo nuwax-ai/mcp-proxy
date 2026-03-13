@@ -4,10 +4,7 @@
 //! for stateful session management with backend version control.
 
 use anyhow::{Result, bail};
-use mcp_common::{
-    McpServiceConfig, check_windows_command,
-    preprocess_npx_command_windows, wrap_process_v9,
-};
+use mcp_common::{McpServiceConfig, check_windows_command, wrap_process_v9};
 use rmcp::{
     ServiceExt,
     model::{ClientCapabilities, ClientInfo},
@@ -54,21 +51,15 @@ pub async fn run_stream_server_from_config(
     // 直接运行会弹 CMD 窗口。这里尝试转换
     check_windows_command(&config.command);
 
-    // 🔧 Windows 特殊处理：预处理 npx 命令
-    // 将 npx -y package@version 转换为 node path/to/bin.js
-    // 避免使用 .cmd 文件导致窗口闪烁
-    let (processed_command, processed_args) =
-        preprocess_npx_command_windows(&config.command, config.args.as_deref());
-
     info!(
         "[子进程][{}] 命令: {} {:?}",
         config.name,
-        processed_command,
-        processed_args.as_ref().unwrap_or(&vec![])
+        config.command,
+        config.args.as_ref().unwrap_or(&vec![])
     );
 
-    let mut wrapped_cmd = CommandWrap::with_new(&processed_command, |command| {
-        if let Some(ref cmd_args) = processed_args {
+    let mut wrapped_cmd = CommandWrap::with_new(&config.command, |command| {
+        if let Some(ref cmd_args) = config.args {
             command.args(cmd_args);
         }
         // 子进程默认继承父进程的所有环境变量

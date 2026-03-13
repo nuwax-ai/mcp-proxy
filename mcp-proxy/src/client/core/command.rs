@@ -43,6 +43,9 @@ pub async fn run_command_mode(
     if !quiet {
         eprintln!("🚀 MCP-Stdio-Proxy: {} (command) → stdio", name);
         eprintln!("   命令: {} {:?}", command, cmd_args);
+        if !env.is_empty() {
+            eprintln!("   环境变量: {:?}", env);
+        }
     }
 
     // 显示过滤器配置
