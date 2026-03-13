@@ -32,7 +32,6 @@ pub async fn run_command_mode(
     cmd_args: Vec<String>,
     env: HashMap<String, String>,
     tool_filter: ToolFilter,
-    verbose: bool,
     quiet: bool,
 ) -> Result<()> {
     tracing::info!("模式: 本地命令模式");
@@ -44,9 +43,6 @@ pub async fn run_command_mode(
     if !quiet {
         eprintln!("🚀 MCP-Stdio-Proxy: {} (command) → stdio", name);
         eprintln!("   命令: {} {:?}", command, cmd_args);
-        if verbose && !env.is_empty() {
-            eprintln!("   环境变量: {:?}", env);
-        }
     }
 
     // 显示过滤器配置
@@ -54,42 +50,17 @@ pub async fn run_command_mode(
         eprintln!("🔧 工具过滤已启用");
     }
 
-    // 诊断日志：记录将要传递给子进程的关键环境信息
-    let inherited_path = std::env::var("PATH").unwrap_or_default();
-    let user_env_path = env.get("PATH").cloned();
-    let effective_path = user_env_path.as_deref().unwrap_or(&inherited_path);
-    tracing::debug!("[子进程环境][{}] 命令: {} {:?}", name, command, cmd_args);
-    tracing::debug!("[子进程环境][{}] 继承 PATH: {}", name, inherited_path);
-    if let Some(ref user_path) = user_env_path {
-        tracing::debug!("[子进程环境][{}] 用户覆盖 PATH: {}", name, user_path);
-    }
-    tracing::debug!("[子进程环境][{}] 生效 PATH: {}", name, effective_path);
-    {
-        let non_path_keys: Vec<&String> = env.keys().filter(|k| *k != "PATH").collect();
-        if !non_path_keys.is_empty() {
-            tracing::debug!(
-                "[子进程环境][{}] 用户自定义环境变量: {:?}",
-                name,
-                non_path_keys
-            );
-        }
-    }
-
-    // 打印进程继承的镜像源环境变量，便于诊断镜像是否生效
-    for key in &["UV_INDEX_URL", "PIP_INDEX_URL", "npm_config_registry"] {
-        if let Ok(val) = std::env::var(key) {
-            tracing::debug!("[子进程环境][{}] {}={}", name, key, val);
-        }
-    }
+    // 诊断日志：记录子进程启动信息
+    tracing::debug!("[子进程] {} {:?}", command, cmd_args);
 
     // 使用 process-wrap 创建子进程命令（跨平台进程清理）
     // process-wrap 会自动处理进程组（Unix）或 Job Object（Windows）
     // 并且在 Drop 时自动清理子进程树
-    // 注意：子进程默认继承父进程的所有环境变量，只需设置用户配置的覆盖项
+    // 子进程默认继承父进程的所有环境变量
     let mut wrapped_cmd = CommandWrap::with_new(command, |cmd| {
         cmd.args(&cmd_args);
 
-        // 设置用户配置的环境变量（会覆盖继承的同名变量）
+        // 设置 MCP JSON 配置中的环境变量（会覆盖继承的同名变量）
         for (k, v) in &env {
             cmd.env(k, v);
         }

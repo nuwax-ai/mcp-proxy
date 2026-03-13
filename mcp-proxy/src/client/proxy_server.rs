@@ -120,22 +120,6 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
         }));
     });
 
-    // 0. Windows 上转换 Unix 风格 PATH 为 Windows 格式（Git Bash/MSYS2 兼容）
-    // 必须在任何子进程启动之前完成，确保 OS 能正确找到可执行文件
-    #[cfg(target_os = "windows")]
-    {
-        if let Ok(current_path) = std::env::var("PATH") {
-            let converted = mcp_common::convert_path_to_windows_format(&current_path);
-            if converted != current_path {
-                if !quiet {
-                    eprintln!("  - PATH 格式已转换（Unix → Windows）");
-                }
-                // SAFETY: 单线程阶段，在任何异步操作之前
-                unsafe { std::env::set_var("PATH", &converted) };
-            }
-        }
-    }
-
     // 1. 验证互斥参数
     if args.allow_tools.is_some() && args.deny_tools.is_some() {
         bail!("--allow-tools 和 --deny-tools 不能同时使用，请只选择其中一个");

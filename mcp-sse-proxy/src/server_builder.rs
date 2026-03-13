@@ -296,18 +296,14 @@ impl SseServerBuilder {
         // 使用 process-wrap 创建子进程命令（跨平台进程清理）
         // process-wrap 会自动处理进程组（Unix）或 Job Object（Windows）
         // 并且在 Drop 时自动清理子进程树
+        // 子进程默认继承父进程的所有环境变量
         let mut wrapped_cmd = TokioCommandWrap::with_new(command, |cmd| {
-            let (final_path, filtered_env) = mcp_common::prepare_stdio_env(env);
-            if let Some(path) = final_path {
-                cmd.env("PATH", path);
-            } else {
-                warn!("[SseServerBuilder] PATH not available from parent process or config");
-            }
             if let Some(cmd_args) = args {
                 cmd.args(cmd_args);
             }
-            if let Some(vars) = filtered_env {
-                for (k, v) in vars {
+            // 设置 MCP JSON 配置中的环境变量（会覆盖继承的同名变量）
+            if let Some(env_vars) = env {
+                for (k, v) in env_vars {
                     cmd.env(k, v);
                 }
             }

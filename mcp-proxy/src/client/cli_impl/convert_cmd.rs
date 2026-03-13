@@ -121,8 +121,8 @@ pub async fn run_convert_command(args: ConvertArgs, verbose: bool, quiet: bool) 
             args: cmd_args,
             env,
         } => {
-            // 本地命令模式（使用 SSE 库的 rmcp 0.10）
-            run_command_mode(&name, &command, cmd_args, env, tool_filter, verbose, quiet).await
+            // 本地命令模式（子进程继承父进程环境变量，MCP JSON 的 env 会覆盖同名变量）
+            run_command_mode(&name, &command, cmd_args, env, tool_filter, quiet).await
         }
     }
 }

@@ -213,55 +213,6 @@ pub fn ensure_runtime_path(path: &str) -> String {
     path.to_string()
 }
 
-/// 为 stdio 子进程准备最终的 PATH 和过滤后的环境变量。
-///
-/// 统一处理：
-/// 1. 从 config env 或父进程确定基础 PATH
-/// 2. Windows 上追加 npm 全局 bin 目录
-/// 3. 通过 `ensure_runtime_path` 按段去重前置应用内置运行时
-/// 4. 从 config env 中过滤掉 PATH（已单独处理）
-///
-/// 返回 `(Option<final_path>, filtered_env)`，调用方只需 apply 到 `cmd` 即可。
-pub fn prepare_stdio_env(
-    env: &Option<std::collections::HashMap<String, String>>,
-) -> (Option<String>, Option<Vec<(String, String)>>) {
-    // 1. 确定基础 PATH
-    let base_path = if env.as_ref().is_none_or(|e| !e.contains_key("PATH")) {
-        std::env::var("PATH").ok()
-    } else {
-        env.as_ref().and_then(|e| e.get("PATH").cloned())
-    };
-
-    // 2. Windows: 追加 npm 全局 bin + 3. ensure_runtime_path
-    let final_path = base_path.map(|path| {
-        #[cfg(target_os = "windows")]
-        let path = {
-            if let Ok(appdata) = std::env::var("APPDATA") {
-                let npm_path = format!(r"{}\npm", appdata);
-                if !path.contains(&npm_path) {
-                    format!("{};{}", path, npm_path)
-                } else {
-                    path
-                }
-            } else {
-                tracing::warn!("Windows: APPDATA not found, skipping npm global bin");
-                path
-            }
-        };
-        ensure_runtime_path(&path)
-    });
-
-    // 4. 过滤掉 PATH（已单独处理）
-    let filtered_env = env.as_ref().map(|vars| {
-        vars.iter()
-            .filter(|(k, _)| k.as_str() != "PATH")
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect()
-    });
-
-    (final_path, filtered_env)
-}
-
 /// 为 process-wrap 8.x 的 TokioCommandWrap 应用平台特定的包装
 ///
 /// 此宏会根据目标平台自动应用正确的进程包装：

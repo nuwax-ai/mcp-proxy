@@ -4,7 +4,7 @@
 
 use anyhow::{Result, bail};
 use mcp_common::{
-    McpServiceConfig, check_windows_command, convert_path_to_windows_format,
+    McpServiceConfig, check_windows_command,
     preprocess_npx_command_windows, wrap_process_v8,
 };
 use rmcp::{
@@ -17,7 +17,7 @@ use rmcp::{
 };
 use std::process::Stdio;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info};
 
 // 进程组管理（跨平台子进程清理）
 use process_wrap::tokio::{KillOnDrop, TokioCommandWrap};
@@ -45,11 +45,7 @@ pub async fn run_sse_server_from_config(
     // 1. 使用 process-wrap 创建子进程命令（跨平台进程清理）
     // process-wrap 会自动处理进程组（Unix）或 Job Object（Windows）
     // 并且在 Drop 时自动清理子进程树
-
-    // 诊断日志：记录将要传递给子进程的关键环境信息
-    let inherited_path = std::env::var("PATH").unwrap_or_default();
-    let user_env_path = config.env.as_ref().and_then(|e| e.get("PATH").cloned());
-    let effective_path = user_env_path.as_deref().unwrap_or(&inherited_path);
+    // 子进程默认继承父进程的所有环境变量
 
     // 🔧 Windows 特殊处理：检测并转换 .cmd/.bat 文件避免弹窗
     // 如果用户配置了 npm 全局安装的 MCP 服务（如 npx some-server 或 some-server.cmd），
@@ -63,48 +59,18 @@ pub async fn run_sse_server_from_config(
         preprocess_npx_command_windows(&config.command, config.args.as_deref());
 
     info!(
-        "[子进程环境][{}] 命令: {} {:?}",
+        "[子进程][{}] 命令: {} {:?}",
         config.name,
         processed_command,
         processed_args.as_ref().unwrap_or(&vec![])
     );
-    debug!(
-        "[子进程环境][{}] 继承 PATH: {}",
-        config.name, inherited_path
-    );
-    if let Some(ref user_path) = user_env_path {
-        info!("[子进程环境][{}] 用户覆盖 PATH: {}", config.name, user_path);
-    }
-    info!(
-        "[子进程环境][{}] 生效 PATH: {}",
-        config.name, effective_path
-    );
-    if let Some(ref env_vars) = config.env {
-        let non_path_keys: Vec<&String> = env_vars.keys().filter(|k| *k != "PATH").collect();
-        if !non_path_keys.is_empty() {
-            info!(
-                "[子进程环境][{}] 用户自定义环境变量: {:?}",
-                config.name, non_path_keys
-            );
-        }
-    }
 
     let mut wrapped_cmd = TokioCommandWrap::with_new(&processed_command, |command| {
         if let Some(ref cmd_args) = processed_args {
             command.args(cmd_args);
         }
-
-        // Windows 上对 PATH 进行格式转换（Git Bash/MSYS2 Unix 风格 -> Windows 风格）
-        // 子进程默认继承父进程环境变量，只需特殊处理 PATH 格式
-        #[cfg(target_os = "windows")]
-        if let Ok(path_value) = std::env::var("PATH") {
-            let converted_path = convert_path_to_windows_format(&path_value);
-            if converted_path != path_value {
-                command.env("PATH", converted_path);
-            }
-        }
-
-        // 设置用户配置的环境变量（会覆盖继承的同名变量）
+        // 子进程默认继承父进程的所有环境变量
+        // 设置 MCP JSON 配置中的环境变量（会覆盖继承的同名变量）
         if let Some(ref env_vars) = config.env {
             for (k, v) in env_vars {
                 command.env(k, v);
@@ -160,7 +126,7 @@ pub async fn run_sse_server_from_config(
             Ok(tools_result) => {
                 let tools = &tools_result.tools;
                 if tools.is_empty() {
-                    warn!("[工具列表] 工具列表为空 - 服务名: {}", config.name);
+                    info!("[工具列表] 工具列表为空 - 服务名: {}", config.name);
                     eprintln!("⚠️  工具列表为空");
                 } else {
                     info!(
