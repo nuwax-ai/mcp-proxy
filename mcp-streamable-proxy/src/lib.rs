@@ -48,7 +48,7 @@ pub use server::{run_stream_server, run_stream_server_from_config};
 pub use session_manager::ProxyAwareSessionManager;
 
 // Re-export protocol detection function
-pub use detector::is_streamable_http;
+pub use detector::{is_streamable_http, is_streamable_http_with_headers};
 
 // Re-export server builder API
 pub use server_builder::{BackendConfig, StreamServerBuilder, StreamServerConfig};

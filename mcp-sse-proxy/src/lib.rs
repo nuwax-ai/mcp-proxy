@@ -32,9 +32,13 @@
 
 pub mod client;
 pub mod config;
+pub mod detector;
 pub mod server;
 pub mod server_builder;
 pub mod sse_handler;
+
+// Re-export SSE protocol detection function
+pub use detector::{is_sse, is_sse_with_headers};
 
 // Re-export main types
 pub use mcp_common::McpServiceConfig;

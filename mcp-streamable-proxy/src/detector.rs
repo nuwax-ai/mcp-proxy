@@ -1,24 +1,11 @@
 use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
+use std::collections::HashMap;
 use std::time::Duration;
 
-/// Detect if a URL supports the Streamable HTTP protocol
+/// Detect if a URL supports the Streamable HTTP protocol (backward compatible, no custom headers)
 ///
-/// This detection works by sending an MCP Initialize request
-/// and checking the response characteristics
-///
-/// # Detection characteristics
-///
-/// - Presence of `mcp-session-id` response header (Streamable HTTP specific)
-/// - Valid JSON-RPC 2.0 response format
-/// - POST request returning `text/event-stream` (Streamable HTTP feature)
-///
-/// # Arguments
-///
-/// * `url` - The URL to test
-///
-/// # Returns
-///
-/// Returns `true` if the URL supports Streamable HTTP protocol, `false` otherwise.
+/// This is a convenience wrapper around [`is_streamable_http_with_headers`] that passes no
+/// custom headers. See that function for full documentation.
 ///
 /// # Example
 ///
@@ -30,6 +17,35 @@ use std::time::Duration;
 /// }
 /// ```
 pub async fn is_streamable_http(url: &str) -> bool {
+    is_streamable_http_with_headers(url, None).await
+}
+
+/// Detect if a URL supports the Streamable HTTP protocol, with optional custom headers
+///
+/// This detection works by sending an MCP Initialize request
+/// and checking the response characteristics.
+///
+/// Custom headers (e.g., `Authorization`) are merged into the detection request,
+/// which is essential for MCP services that require authentication.
+///
+/// # Detection characteristics
+///
+/// - Presence of `mcp-session-id` response header (Streamable HTTP specific)
+/// - Valid JSON-RPC 2.0 response format
+/// - POST request returning `text/event-stream` (Streamable HTTP feature)
+///
+/// # Arguments
+///
+/// * `url` - The URL to test
+/// * `custom_headers` - Optional custom headers to include in the detection request
+///
+/// # Returns
+///
+/// Returns `true` if the URL supports Streamable HTTP protocol, `false` otherwise.
+pub async fn is_streamable_http_with_headers(
+    url: &str,
+    custom_headers: Option<&HashMap<String, String>>,
+) -> bool {
     // Build HTTP client with timeout
     let client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
@@ -46,6 +62,18 @@ pub async fn is_streamable_http(url: &str) -> bool {
         HeaderValue::from_static("application/json, text/event-stream"),
     );
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+    // Merge custom headers (e.g., Authorization)
+    if let Some(custom) = custom_headers {
+        for (key, value) in custom {
+            if let (Ok(name), Ok(val)) = (
+                reqwest::header::HeaderName::try_from(key.as_str()),
+                HeaderValue::from_str(value),
+            ) {
+                headers.insert(name, val);
+            }
+        }
+    }
 
     // Construct an MCP Initialize request using rmcp 1.1.0 types
     use rmcp::model::{
@@ -104,4 +132,26 @@ pub async fn is_streamable_http(url: &str) -> bool {
     }
 
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_is_streamable_http_with_headers_backward_compatible() {
+        // With None headers should behave identically to is_streamable_http
+        let result = is_streamable_http_with_headers("http://localhost:99999/mcp", None).await;
+        assert!(!result);
+    }
+
+    #[tokio::test]
+    async fn test_is_streamable_http_with_headers_no_panic() {
+        // Non-existent server, but validates headers don't cause panics
+        let mut headers = HashMap::new();
+        headers.insert("Authorization".to_string(), "Bearer test-token".to_string());
+        let result =
+            is_streamable_http_with_headers("http://localhost:99999/mcp", Some(&headers)).await;
+        assert!(!result);
+    }
 }

@@ -74,6 +74,17 @@ pub async fn integrate_server_with_axum(
         McpServerConfig::Command(_) => McpProtocol::Stdio,
         // URL config: parse type field or auto-detect
         McpServerConfig::Url(url_config) => {
+            // Merge headers + auth_token for protocol detection
+            let mut detection_headers = url_config.headers.clone().unwrap_or_default();
+            if let Some(auth_token) = &url_config.auth_token {
+                detection_headers.insert("Authorization".to_string(), auth_token.clone());
+            }
+            let detection_headers_ref = if detection_headers.is_empty() {
+                None
+            } else {
+                Some(&detection_headers)
+            };
+
             // Check type field first
             if let Some(type_str) = &url_config.r#type {
                 match type_str.parse::<McpProtocol>() {
@@ -87,8 +98,9 @@ pub async fn integrate_server_with_axum(
                     Err(_) => {
                         // If parsing fails, auto-detect
                         debug!("Protocol type '{}' unrecognized, auto-detecting", type_str);
-                        let detected_protocol = crate::server::detect_mcp_protocol(
+                        let detected_protocol = crate::server::detect_mcp_protocol_with_headers(
                             url_config.get_url(),
+                            detection_headers_ref,
                         )
                         .await
                         .map_err(|e| {
@@ -109,9 +121,12 @@ pub async fn integrate_server_with_axum(
                 // No type field, auto-detect
                 debug!("No type field specified, auto-detecting protocol");
 
-                crate::server::detect_mcp_protocol(url_config.get_url())
-                    .await
-                    .map_err(|e| anyhow::anyhow!("Auto-detection failed: {}", e))?
+                crate::server::detect_mcp_protocol_with_headers(
+                    url_config.get_url(),
+                    detection_headers_ref,
+                )
+                .await
+                .map_err(|e| anyhow::anyhow!("Auto-detection failed: {}", e))?
             }
         }
     };

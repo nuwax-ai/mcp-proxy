@@ -66,9 +66,11 @@ impl std::str::FromStr for McpUrlProtocolType {
     type Err = String;
 
     fn from_str(type_str: &str) -> Result<Self, Self::Err> {
-        match type_str {
+        match type_str.to_ascii_lowercase().as_str() {
             "sse" => Ok(McpUrlProtocolType::Sse),
-            "http" | "stream" => Ok(McpUrlProtocolType::Stream),
+            "http" | "stream" | "streamablehttp" | "streamable-http" | "streamable_http" => {
+                Ok(McpUrlProtocolType::Stream)
+            }
             _ => Err(format!("Unsupported protocol type: {}", type_str)),
         }
     }
@@ -382,12 +384,14 @@ impl std::str::FromStr for McpProtocol {
     type Err = String;
 
     fn from_str(type_str: &str) -> Result<Self, Self::Err> {
-        match type_str {
+        match type_str.to_ascii_lowercase().as_str() {
             "stdio" => Ok(McpProtocol::Stdio),
             "sse" => Ok(McpProtocol::Sse),
-            "http" | "stream" => Ok(McpProtocol::Stream),
+            "http" | "stream" | "streamablehttp" | "streamable-http" | "streamable_http" => {
+                Ok(McpProtocol::Stream)
+            }
             _ => Err(format!(
-                "不支持的协议类型: {}, 支持的类型: sse, http, stream, stdio",
+                "不支持的协议类型: {}, 支持的类型: sse, http, stream, streamableHttp, stdio",
                 type_str
             )),
         }
@@ -962,6 +966,92 @@ mod tests {
         assert!("invalid".parse::<McpProtocol>().is_err());
         assert!("tcp".parse::<McpProtocol>().is_err());
         assert!("".parse::<McpProtocol>().is_err());
+    }
+
+    #[test]
+    fn test_streamable_http_aliases() {
+        // McpUrlProtocolType 支持 streamableHttp 及其变体
+        assert_eq!(
+            "streamableHttp".parse::<McpUrlProtocolType>(),
+            Ok(McpUrlProtocolType::Stream)
+        );
+        assert_eq!(
+            "streamable-http".parse::<McpUrlProtocolType>(),
+            Ok(McpUrlProtocolType::Stream)
+        );
+        assert_eq!(
+            "StreamableHTTP".parse::<McpUrlProtocolType>(),
+            Ok(McpUrlProtocolType::Stream)
+        );
+        assert_eq!(
+            "STREAMABLEHTTP".parse::<McpUrlProtocolType>(),
+            Ok(McpUrlProtocolType::Stream)
+        );
+        assert_eq!(
+            "streamable_http".parse::<McpUrlProtocolType>(),
+            Ok(McpUrlProtocolType::Stream)
+        );
+
+        // McpProtocol 支持 streamableHttp 及其变体
+        assert_eq!(
+            "streamableHttp".parse::<McpProtocol>(),
+            Ok(McpProtocol::Stream)
+        );
+        assert_eq!(
+            "streamable-http".parse::<McpProtocol>(),
+            Ok(McpProtocol::Stream)
+        );
+        assert_eq!(
+            "StreamableHTTP".parse::<McpProtocol>(),
+            Ok(McpProtocol::Stream)
+        );
+
+        // 大小写不敏感
+        assert_eq!("SSE".parse::<McpProtocol>(), Ok(McpProtocol::Sse));
+        assert_eq!("HTTP".parse::<McpProtocol>(), Ok(McpProtocol::Stream));
+        assert_eq!("STDIO".parse::<McpProtocol>(), Ok(McpProtocol::Stdio));
+    }
+
+    #[test]
+    fn test_zimage_streamable_http_config() -> Result<()> {
+        // 测试用户实际的 zimage MCP JSON 配置
+        let json = r#"{
+            "mcpServers": {
+                "zimage": {
+                    "type": "streamableHttp",
+                    "baseUrl": "https://dashscope.aliyuncs.com/api/v1/mcps/zimage/mcp",
+                    "headers": {
+                        "Authorization": "Bearer sk-xxx"
+                    }
+                }
+            }
+        }"#;
+
+        let params = McpJsonServerParameters::from(json.to_string());
+        let mcp_server_config = params.try_get_first_mcp_server()?;
+
+        match mcp_server_config {
+            McpServerConfig::Url(url_config) => {
+                assert_eq!(url_config.r#type, Some("streamableHttp".to_string()));
+                assert_eq!(
+                    url_config.get_protocol_type(),
+                    Some(McpUrlProtocolType::Stream)
+                );
+                assert!(url_config.get_protocol_type().unwrap().is_streamable());
+                assert_eq!(
+                    url_config.get_protocol_type().unwrap().to_mcp_protocol(),
+                    McpProtocol::Stream
+                );
+                // 验证 headers 正确解析
+                let headers = url_config.headers.as_ref().unwrap();
+                assert!(headers.contains_key("Authorization"));
+            }
+            McpServerConfig::Command(_) => {
+                panic!("Expected URL config, got Command config");
+            }
+        }
+
+        Ok(())
     }
 
     #[test]
