@@ -11,7 +11,10 @@ mod tests;
 // 导出基础功能
 pub use config::AppConfig;
 pub use mcp_error::AppError;
-pub use model::{AppState, DynamicRouterService, ProxyHandlerManager, get_proxy_manager};
+pub use model::{
+    AppState, DynamicRouterService, McpConfig, McpProtocol, McpType, ProxyHandlerManager,
+    get_proxy_manager,
+};
 pub use proxy::{McpHandler, ProxyHandler, StreamProxyHandler};
 pub use proxy::{SseBackendConfig, SseServerBuilder, StreamBackendConfig, StreamServerBuilder};
 pub use server::{

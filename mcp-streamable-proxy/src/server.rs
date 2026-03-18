@@ -15,8 +15,7 @@ use rmcp::{
 };
 use std::process::Stdio;
 use std::sync::Arc;
-use tokio::io::AsyncBufReadExt;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 // 进程组管理（跨平台子进程清理）
 // process-wrap 9.0 使用 CommandWrap 而不是 TokioCommandWrap
@@ -45,11 +44,7 @@ pub async fn run_stream_server_from_config(
     // 1. 使用 process-wrap 创建子进程命令（跨平台进程清理）
     // process-wrap 会自动处理进程组（Unix）或 Job Object（Windows）
     // 并且在 Drop 时自动清理子进程树
-
-    // 诊断日志：记录将要传递给子进程的关键环境信息
-    let inherited_path = std::env::var("PATH").unwrap_or_default();
-    let user_env_path = config.env.as_ref().and_then(|e| e.get("PATH").cloned());
-    let effective_path = user_env_path.as_deref().unwrap_or(&inherited_path);
+    // 子进程默认继承父进程的所有环境变量
 
     // 🔧 Windows 特殊处理：检测并转换 .cmd/.bat 文件避免弹窗
     // 如果用户配置了 npm 全局安装的 MCP 服务（如 npx some-server 或 some-server.cmd），
@@ -57,50 +52,18 @@ pub async fn run_stream_server_from_config(
     check_windows_command(&config.command);
 
     info!(
-        "[子进程环境][{}] 命令: {} {:?}",
+        "[子进程][{}] 命令: {} {:?}",
         config.name,
         config.command,
         config.args.as_ref().unwrap_or(&vec![])
     );
-    debug!(
-        "[子进程环境][{}] 继承 PATH: {}",
-        config.name, inherited_path
-    );
-    if let Some(ref user_path) = user_env_path {
-        info!(
-            "[子进程环境][{}] 用户覆盖 PATH: {}",
-            config.name, user_path
-        );
-    }
-    info!(
-        "[子进程环境][{}] 生效 PATH: {}",
-        config.name, effective_path
-    );
-    if let Some(ref env_vars) = config.env {
-        let non_path_keys: Vec<&String> = env_vars.keys().filter(|k| *k != "PATH").collect();
-        if !non_path_keys.is_empty() {
-            info!(
-                "[子进程环境][{}] 用户自定义环境变量: {:?}",
-                config.name, non_path_keys
-            );
-        }
-    }
 
     let mut wrapped_cmd = CommandWrap::with_new(&config.command, |command| {
         if let Some(ref cmd_args) = config.args {
             command.args(cmd_args);
         }
-
-        // ✅ 修复：先继承当前进程的所有环境变量（确保 PATH 等系统变量传递到孙进程）
-        // 这样当子服务动态执行 npm/npx 时能正确找到命令
-        // 注意：用户提供的 env 会在后面覆盖同名变量，优先级更高
-        for (key, value) in std::env::vars_os() {
-            if let (Ok(key_str), Ok(value_str)) = (key.into_string(), value.into_string()) {
-                command.env(key_str, value_str);
-            }
-        }
-
-        // 然后覆盖/添加用户配置的环境变量（用户配置优先级更高）
+        // 子进程默认继承父进程的所有环境变量
+        // 设置 MCP JSON 配置中的环境变量（会覆盖继承的同名变量）
         if let Some(ref env_vars) = config.env {
             for (k, v) in env_vars {
                 command.env(k, v);
@@ -122,37 +85,20 @@ pub async fn run_stream_server_from_config(
 
     // 启动 stderr 日志读取任务
     if let Some(stderr_pipe) = child_stderr {
-        let service_name = config.name.clone();
-        tokio::spawn(async move {
-            let mut reader = tokio::io::BufReader::new(stderr_pipe);
-            let mut line = String::new();
-            loop {
-                line.clear();
-                match reader.read_line(&mut line).await {
-                    Ok(0) => break,
-                    Ok(_) => {
-                        let trimmed = line.trim();
-                        if !trimmed.is_empty() {
-                            warn!("[子进程 stderr][{}] {}", service_name, trimmed);
-                        }
-                    }
-                    Err(_) => break,
-                }
-            }
-        });
+        mcp_common::spawn_stderr_reader(stderr_pipe, config.name.clone());
     }
 
     // 3. 创建客户端信息
-    let client_info = ClientInfo {
-        protocol_version: Default::default(),
-        capabilities: ClientCapabilities::builder()
-            .enable_experimental()
-            .enable_roots()
-            .enable_roots_list_changed()
-            .enable_sampling()
-            .build(),
-        ..Default::default()
-    };
+    let capabilities = ClientCapabilities::builder()
+        .enable_experimental()
+        .enable_roots()
+        .enable_roots_list_changed()
+        .enable_sampling()
+        .build();
+    let client_info = ClientInfo::new(
+        capabilities,
+        rmcp::model::Implementation::new("mcp-streamable-proxy-server", env!("CARGO_PKG_VERSION")),
+    );
 
     // 4. 连接到子进程
     let client = client_info.serve(tokio_process).await?;

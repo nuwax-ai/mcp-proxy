@@ -42,13 +42,13 @@ pub mod server_builder;
 pub mod session_manager;
 
 // Re-export main types
+pub use mcp_common::McpServiceConfig;
 pub use proxy_handler::{ProxyHandler, ToolFilter};
 pub use server::{run_stream_server, run_stream_server_from_config};
 pub use session_manager::ProxyAwareSessionManager;
-pub use mcp_common::McpServiceConfig;
 
 // Re-export protocol detection function
-pub use detector::is_streamable_http;
+pub use detector::{is_streamable_http, is_streamable_http_with_headers};
 
 // Re-export server builder API
 pub use server_builder::{BackendConfig, StreamServerBuilder, StreamServerConfig};

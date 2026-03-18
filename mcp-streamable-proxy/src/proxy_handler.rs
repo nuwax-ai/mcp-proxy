@@ -6,8 +6,8 @@ pub use mcp_common::ToolFilter;
 use rmcp::{
     ErrorData, RoleClient, RoleServer, ServerHandler,
     model::{
-        CallToolRequestParam, CallToolResult, ClientInfo, Content, Implementation, ListToolsResult,
-        PaginatedRequestParam, ServerInfo,
+        CallToolRequestParams, CallToolResult, ClientInfo, Content, Implementation,
+        ListToolsResult, PaginatedRequestParams, ServerInfo,
     },
     service::{NotificationContext, Peer, RequestContext, RunningService},
 };
@@ -63,7 +63,7 @@ impl ServerHandler for ProxyHandler {
     ))]
     async fn list_tools(
         &self,
-        request: Option<PaginatedRequestParam>,
+        request: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
         // 原子加载后端连接
@@ -159,7 +159,7 @@ impl ServerHandler for ProxyHandler {
     ))]
     async fn call_tool(
         &self,
-        request: CallToolRequestParam,
+        request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
         // 生成唯一请求 ID 用于追踪
@@ -330,7 +330,7 @@ impl ServerHandler for ProxyHandler {
 
     async fn list_resources(
         &self,
-        request: Option<PaginatedRequestParam>,
+        request: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<rmcp::model::ListResourcesResult, ErrorData> {
         // 原子加载后端连接
@@ -397,7 +397,7 @@ impl ServerHandler for ProxyHandler {
 
     async fn read_resource(
         &self,
-        request: rmcp::model::ReadResourceRequestParam,
+        request: rmcp::model::ReadResourceRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<rmcp::model::ReadResourceResult, ErrorData> {
         // 原子加载后端连接
@@ -423,9 +423,7 @@ impl ServerHandler for ProxyHandler {
         match self.capabilities().resources {
             Some(_) => {
                 tokio::select! {
-                    result = inner.peer.read_resource(rmcp::model::ReadResourceRequestParam {
-                        uri: request.uri.clone(),
-                    }) => {
+                    result = inner.peer.read_resource(rmcp::model::ReadResourceRequestParams::new(request.uri.clone())) => {
                         match result {
                             Ok(result) => {
                                 // 记录资源读取结果，这些结果会通过 SSE 推送给客户端
@@ -458,16 +456,14 @@ impl ServerHandler for ProxyHandler {
             None => {
                 // Server doesn't support resources, return error
                 error!("Server doesn't support resources capability");
-                Ok(rmcp::model::ReadResourceResult {
-                    contents: Vec::new(),
-                })
+                Ok(rmcp::model::ReadResourceResult::new(vec![]))
             }
         }
     }
 
     async fn list_resource_templates(
         &self,
-        request: Option<PaginatedRequestParam>,
+        request: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<rmcp::model::ListResourceTemplatesResult, ErrorData> {
         // 原子加载后端连接
@@ -527,7 +523,7 @@ impl ServerHandler for ProxyHandler {
 
     async fn list_prompts(
         &self,
-        request: Option<PaginatedRequestParam>,
+        request: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<rmcp::model::ListPromptsResult, ErrorData> {
         // 原子加载后端连接
@@ -587,7 +583,7 @@ impl ServerHandler for ProxyHandler {
 
     async fn get_prompt(
         &self,
-        request: rmcp::model::GetPromptRequestParam,
+        request: rmcp::model::GetPromptRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<rmcp::model::GetPromptResult, ErrorData> {
         // 原子加载后端连接
@@ -638,19 +634,17 @@ impl ServerHandler for ProxyHandler {
                 }
             }
             None => {
-                // Server doesn't support prompts, return error
+                // Server doesn't support prompts, return empty messages
                 warn!("Server doesn't support prompts capability");
-                Ok(rmcp::model::GetPromptResult {
-                    description: None,
-                    messages: Vec::new(),
-                })
+                let messages = Vec::new();
+                Ok(rmcp::model::GetPromptResult::new(messages))
             }
         }
     }
 
     async fn complete(
         &self,
-        request: rmcp::model::CompleteRequestParam,
+        request: rmcp::model::CompleteRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<rmcp::model::CompleteResult, ErrorData> {
         // 原子加载后端连接
@@ -773,18 +767,8 @@ impl ProxyHandler {
     /// 创建一个默认的 ServerInfo（用于断开状态）
     fn default_server_info(mcp_id: &str) -> ServerInfo {
         warn!("[ProxyHandler] 创建默认 ServerInfo - MCP ID: {}", mcp_id);
-        ServerInfo {
-            protocol_version: Default::default(),
-            server_info: Implementation {
-                name: "MCP Proxy".to_string(),
-                version: "0.1.0".to_string(),
-                title: None,
-                website_url: None,
-                icons: None,
-            },
-            instructions: None,
-            capabilities: Default::default(),
-        }
+        ServerInfo::new(rmcp::model::ServerCapabilities::default())
+            .with_server_info(Implementation::new("MCP Proxy", "0.1.0"))
     }
 
     /// 从 RunningService 提取 ServerInfo
@@ -794,17 +778,14 @@ impl ProxyHandler {
     ) -> ServerInfo {
         client
             .peer_info()
-            .map(|peer_info| ServerInfo {
-                protocol_version: peer_info.protocol_version.clone(),
-                server_info: Implementation {
-                    name: peer_info.server_info.name.clone(),
-                    version: peer_info.server_info.version.clone(),
-                    title: None,
-                    website_url: None,
-                    icons: None,
-                },
-                instructions: peer_info.instructions.clone(),
-                capabilities: peer_info.capabilities.clone(),
+            .map(|peer_info| {
+                ServerInfo::new(peer_info.capabilities.clone())
+                    .with_protocol_version(peer_info.protocol_version.clone())
+                    .with_server_info(Implementation::new(
+                        peer_info.server_info.name.clone(),
+                        peer_info.server_info.version.clone(),
+                    ))
+                    .with_instructions(peer_info.instructions.clone().unwrap_or_default())
             })
             .unwrap_or_else(|| Self::default_server_info(mcp_id))
     }

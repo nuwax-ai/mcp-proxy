@@ -304,21 +304,17 @@ async fn shutdown_signal() {
 mod tests {
     #[test]
     fn test_crypto_provider_install() {
-        // 测试 CryptoProvider 可以正常安装
-        let result = std::panic::catch_unwind(|| {
-            rustls::crypto::ring::default_provider()
-                .install_default()
-                .expect("Failed to install rustls crypto provider");
-        });
-        assert!(
-            result.is_ok(),
-            "CryptoProvider installation should not panic"
-        );
+        // 测试 CryptoProvider 可以正常安装（或已被安装）
+        // 注意：CryptoProvider 全局只能安装一次，多次安装会返回错误
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        // 无论首次安装还是已安装，只要能获取到默认 provider 即表示成功
+        let provider = rustls::crypto::CryptoProvider::get_default();
+        assert!(provider.is_some(), "CryptoProvider should be available");
     }
 
     #[test]
     fn test_crypto_provider_get_default() {
-        // 首先确保 CryptoProvider 已安装
+        // 首先确保 CryptoProvider 已安装（忽略已安装的错误）
         let _ = rustls::crypto::ring::default_provider().install_default();
 
         // 测试可以正常获取默认 CryptoProvider

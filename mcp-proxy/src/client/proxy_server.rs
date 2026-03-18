@@ -18,8 +18,8 @@ use crate::proxy::ToolFilter;
 /// Panic hook 初始化标志（确保只设置一次）
 static INIT_PANIC_HOOK: Once = Once::new();
 
-/// 最大重试次数
-const MAX_RETRIES: u32 = 30;
+/// 最大重试次数 (0 = 无限重试)
+const MAX_RETRIES: u32 = 0;
 /// 初始重试间隔（秒）
 const INITIAL_RETRY_DELAY_SECS: u64 = 3;
 /// 最大重试间隔（秒）
@@ -205,7 +205,15 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
     let mut retry_delay = Duration::from_secs(INITIAL_RETRY_DELAY_SECS);
 
     loop {
-        let result = run_proxy_server(&args, &parsed, &std_listener, tool_filter.clone(), verbose, quiet).await;
+        let result = run_proxy_server(
+            &args,
+            &parsed,
+            &std_listener,
+            tool_filter.clone(),
+            verbose,
+            quiet,
+        )
+        .await;
 
         match result {
             Ok(_) => {
@@ -221,29 +229,36 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
             }
             Err(e) => {
                 retry_count += 1;
-                if retry_count >= MAX_RETRIES {
+                // MAX_RETRIES = 0 表示无限重试，非零值表示最大重试次数
+                #[allow(clippy::absurd_extreme_comparisons)]
+                if MAX_RETRIES > 0 && retry_count >= MAX_RETRIES {
                     error!(
                         "[服务终止] 达到最大重试次数 {}, 服务名: {}, 最后错误: {}",
                         MAX_RETRIES, parsed.name, e
                     );
                     return Err(e);
                 }
+                let retry_info = if MAX_RETRIES == 0 {
+                    format!("第{}次", retry_count)
+                } else {
+                    format!("第{}/{}次", retry_count, MAX_RETRIES)
+                };
                 error!(
-                    "[服务异常] MCP Proxy 服务异常退出 - 服务名: {}, 错误: {}, {}秒后重启 (第{}/{}次)",
-                    parsed.name, e, retry_delay.as_secs(), retry_count, MAX_RETRIES
-                );
-                eprintln!(
-                    "⚠️  服务异常: {}，{}秒后重启 (第{}/{}次)...",
+                    "[服务异常] MCP Proxy 服务异常退出 - 服务名: {}, 错误: {}, {}秒后重启 ({})",
+                    parsed.name,
                     e,
                     retry_delay.as_secs(),
-                    retry_count,
-                    MAX_RETRIES
+                    retry_info
+                );
+                eprintln!(
+                    "⚠️  服务异常: {}，{}秒后重启 ({})...",
+                    e,
+                    retry_delay.as_secs(),
+                    retry_info
                 );
                 tokio::time::sleep(retry_delay).await;
-                retry_delay = std::cmp::min(
-                    retry_delay * 2,
-                    Duration::from_secs(MAX_RETRY_DELAY_SECS),
-                );
+                retry_delay =
+                    std::cmp::min(retry_delay * 2, Duration::from_secs(MAX_RETRY_DELAY_SECS));
                 warn!(
                     "[服务重启] 正在重启 MCP Proxy 服务 - 服务名: {}",
                     parsed.name
@@ -268,6 +283,15 @@ async fn run_proxy_server(
     _verbose: bool,
     quiet: bool,
 ) -> Result<()> {
+    // Windows 上解析命令扩展名（如 npx -> npx.cmd）
+    let resolved_command = mcp_common::resolve_windows_command(&parsed.config.command);
+    if resolved_command != parsed.config.command {
+        info!(
+            "[命令解析] Windows 命令已解析: {} -> {}",
+            parsed.config.command, resolved_command
+        );
+    }
+
     // 根据协议类型选择对应的库并启动服务器
     // 每个库使用自己的 rmcp 版本创建完整的生命周期
     match args.protocol {
@@ -275,7 +299,7 @@ async fn run_proxy_server(
             // 使用 mcp-sse-proxy 库（rmcp 0.10）
             let config = mcp_sse_proxy::McpServiceConfig {
                 name: parsed.name.clone(),
-                command: parsed.config.command.clone(),
+                command: resolved_command,
                 args: parsed.config.args.clone(),
                 env: parsed.config.env.clone(),
                 tool_filter: Some(tool_filter),
@@ -286,7 +310,7 @@ async fn run_proxy_server(
             // 使用 mcp-streamable-proxy 库（rmcp 0.12）
             let config = mcp_streamable_proxy::McpServiceConfig {
                 name: parsed.name.clone(),
-                command: parsed.config.command.clone(),
+                command: resolved_command,
                 args: parsed.config.args.clone(),
                 env: parsed.config.env.clone(),
                 tool_filter: Some(tool_filter),

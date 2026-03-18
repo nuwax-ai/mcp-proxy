@@ -4,12 +4,13 @@
 //! It encapsulates all rmcp-specific types and provides a simple interface for mcp-proxy.
 
 use std::collections::HashMap;
+use std::process::Stdio;
 use std::sync::Arc;
 
 use anyhow::Result;
-use tokio::process::Command;
+use process_wrap::tokio::{CommandWrap, KillOnDrop};
 use tokio_util::sync::CancellationToken;
-use tracing::{info, warn};
+use tracing::info;
 
 use rmcp::{
     ServiceExt,
@@ -22,6 +23,14 @@ use rmcp::{
         streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService},
     },
 };
+
+// Unix 进程组支持
+#[cfg(unix)]
+use process_wrap::tokio::ProcessGroup;
+
+// Windows 静默运行支持
+#[cfg(windows)]
+use process_wrap::tokio::{CreationFlags, JobObject};
 
 use crate::{ProxyAwareSessionManager, ProxyHandler, ToolFilter};
 pub use mcp_common::ToolFilter as CommonToolFilter;
@@ -37,7 +46,7 @@ pub enum BackendConfig {
         command: String,
         /// Arguments for the command
         args: Option<Vec<String>>,
-        /// Environment variables
+        /// Environment variables from MCP JSON config
         env: Option<HashMap<String, String>>,
     },
     /// Connect to a remote URL
@@ -129,16 +138,16 @@ impl StreamServerBuilder {
             .unwrap_or_else(|| "stream-proxy".into());
 
         // Create client info for connecting to backend
-        let client_info = ClientInfo {
-            protocol_version: Default::default(),
-            capabilities: ClientCapabilities::builder()
-                .enable_experimental()
-                .enable_roots()
-                .enable_roots_list_changed()
-                .enable_sampling()
-                .build(),
-            ..Default::default()
-        };
+        let capabilities = ClientCapabilities::builder()
+            .enable_experimental()
+            .enable_roots()
+            .enable_roots_list_changed()
+            .enable_sampling()
+            .build();
+        let client_info = ClientInfo::new(
+            capabilities,
+            rmcp::model::Implementation::new("mcp-streamable-proxy", env!("CARGO_PKG_VERSION")),
+        );
 
         // Connect to backend based on configuration
         let client = match &self.backend_config {
@@ -179,34 +188,41 @@ impl StreamServerBuilder {
         env: &Option<HashMap<String, String>>,
         client_info: &ClientInfo,
     ) -> Result<rmcp::service::RunningService<rmcp::RoleClient, ClientInfo>> {
-        let mut cmd = Command::new(command);
+        let args = args.clone();
 
-        let (final_path, filtered_env) = mcp_common::prepare_stdio_env(env);
-        if let Some(path) = final_path {
-            cmd.env("PATH", path);
-        } else {
-            warn!("[StreamServerBuilder] PATH not available from parent process or config");
-        }
-
-        if let Some(cmd_args) = args {
-            cmd.args(cmd_args);
-        }
-
-        if let Some(vars) = filtered_env {
-            for (k, v) in vars {
-                cmd.env(k, v);
+        // 使用 process-wrap 创建子进程命令（跨平台进程清理）
+        // process-wrap 会自动处理进程组（Unix）或 Job Object（Windows）
+        // 并且在 Drop 时自动清理子进程树
+        // 子进程默认继承父进程的所有环境变量
+        let mut wrapped_cmd = CommandWrap::with_new(command, |cmd| {
+            if let Some(cmd_args) = &args {
+                cmd.args(cmd_args);
             }
-        }
+            // 设置 MCP JSON 配置中的环境变量（会覆盖继承的同名变量）
+            if let Some(env_vars) = env {
+                for (k, v) in env_vars {
+                    cmd.env(k, v);
+                }
+            }
+        });
 
-        // Windows: 隐藏控制台窗口，避免在 GUI 应用（如 Tauri）中显示 CMD 窗口
-        // 注意：必须在所有 env/args 配置之后设置，确保不被覆盖
+        // Unix: 创建进程组，支持 killpg 清理整个进程树
+        #[cfg(unix)]
+        wrapped_cmd.wrap(ProcessGroup::leader());
+
+        // Windows: 使用 CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP 隐藏控制台窗口
         #[cfg(windows)]
         {
-            use std::os::windows::process::CommandExt;
-            // CREATE_NO_WINDOW = 0x08000000
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
-            cmd.creation_flags(CREATE_NO_WINDOW);
+            use windows::Win32::System::Threading::{CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW};
+            info!(
+                "[StreamServerBuilder] Setting CreationFlags: CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP"
+            );
+            wrapped_cmd.wrap(CreationFlags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP));
+            wrapped_cmd.wrap(JobObject);
         }
+
+        // 所有平台: Drop 时自动清理进程
+        wrapped_cmd.wrap(KillOnDrop);
 
         info!(
             "[StreamServerBuilder] Starting child process - command: {}, args: {:?}",
@@ -214,21 +230,28 @@ impl StreamServerBuilder {
             args.as_ref().unwrap_or(&vec![])
         );
 
-        let mcp_id = self
-            .server_config
-            .mcp_id
-            .as_deref()
-            .unwrap_or("unknown");
+        let mcp_id = self.server_config.mcp_id.as_deref().unwrap_or("unknown");
 
         // 诊断日志：子进程关键环境变量
         mcp_common::diagnostic::log_stdio_spawn_context("StreamServerBuilder", mcp_id, env);
 
-        let tokio_process = TokioChildProcess::new(cmd).map_err(|e| {
-            anyhow::anyhow!(
-                "{}",
-                mcp_common::diagnostic::format_spawn_error(mcp_id, command, args, e)
-            )
-        })?;
+        // MCP 服务通过 stdin/stdout 进行 JSON-RPC 通信，必须使用 piped（默认行为）
+        // 使用 builder 模式捕获 stderr，便于诊断子 MCP 服务初始化失败
+        let (tokio_process, child_stderr) = TokioChildProcess::builder(wrapped_cmd)
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "{}",
+                    mcp_common::diagnostic::format_spawn_error(mcp_id, command, &args, e)
+                )
+            })?;
+
+        // 启动 stderr 日志读取任务
+        if let Some(stderr_pipe) = child_stderr {
+            mcp_common::spawn_stderr_reader(stderr_pipe, mcp_id.to_string());
+        }
+
         let client = client_info.clone().serve(tokio_process).await?;
 
         info!("[StreamServerBuilder] Child process connected successfully");

@@ -1,6 +1,6 @@
 [package]
 name = "mcp-common"
-version = "0.1.18"
+version = "0.1.22"
 edition = "2024"
 authors = ["nuwax-ai"]
 description = "Common types and utilities shared across MCP proxy components"
@@ -19,6 +19,7 @@ tracing = { workspace = true }
 
 # 异步
 async-trait = { workspace = true }
+tokio = { workspace = true }
 
 # 并发
 arc-swap = { workspace = true }
@@ -36,6 +37,15 @@ tracing-subscriber = { workspace = true, optional = true }
 # OTLP exporter（条件依赖）
 opentelemetry-otlp = { workspace = true, optional = true }
 tonic = { workspace = true, optional = true }
+
+# 进程组管理（跨平台子进程清理）
+# 版本需要与 mcp-streamable-proxy 保持一致
+process-wrap = { version = "9.0.3", features = ["tokio1", "process-group", "job-object"] }
+# 查找可执行文件
+which = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_System_Threading"] }
 
 [features]
 default = []

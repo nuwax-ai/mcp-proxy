@@ -225,22 +225,16 @@ fn build_http_client(config: &McpClientConfig) -> Result<reqwest::Client> {
 
 /// Create default client info for MCP handshake
 fn create_default_client_info() -> ClientInfo {
-    ClientInfo {
-        protocol_version: Default::default(),
-        capabilities: ClientCapabilities::builder()
-            .enable_experimental()
-            .enable_roots()
-            .enable_roots_list_changed()
-            .enable_sampling()
-            .build(),
-        client_info: Implementation {
-            name: "mcp-streamable-proxy-client".to_string(),
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            title: None,
-            website_url: None,
-            icons: None,
-        },
-    }
+    let capabilities = ClientCapabilities::builder()
+        .enable_experimental()
+        .enable_roots()
+        .enable_roots_list_changed()
+        .enable_sampling()
+        .build();
+    ClientInfo::new(
+        capabilities,
+        Implementation::new("mcp-streamable-proxy-client", env!("CARGO_PKG_VERSION")),
+    )
 }
 
 #[cfg(test)]

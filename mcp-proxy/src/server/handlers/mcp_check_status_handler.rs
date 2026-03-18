@@ -1,6 +1,6 @@
 use anyhow::Result;
 use axum::{Json, extract::State, http::uri::Uri};
-use log::{error, info, debug};
+use log::{debug, error, info};
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 
@@ -8,8 +8,8 @@ use crate::{
     AppError, get_proxy_manager,
     model::{
         AppState, CheckMcpStatusRequestParams, CheckMcpStatusResponseParams,
-        CheckMcpStatusResponseStatus, HttpResult, McpConfig, McpProtocol, McpRouterPath,
-        McpServiceStatus, McpType, GLOBAL_RESTART_TRACKER,
+        CheckMcpStatusResponseStatus, GLOBAL_RESTART_TRACKER, HttpResult, McpConfig, McpProtocol,
+        McpRouterPath, McpServiceStatus, McpType,
     },
     server::mcp_start_task,
 };
@@ -94,10 +94,8 @@ pub async fn check_mcp_status_handler(
 
         // 使用 update 方法更新状态（不是修改克隆）
         if ready_status {
-            proxy_manager.update_mcp_service_status(
-                &params.mcp_id,
-                CheckMcpStatusResponseStatus::Ready,
-            );
+            proxy_manager
+                .update_mcp_service_status(&params.mcp_id, CheckMcpStatusResponseStatus::Ready);
         }
         // 更新最后访问时间
         proxy_manager.update_last_accessed(&params.mcp_id);
@@ -145,7 +143,10 @@ pub async fn check_mcp_status_handler(
     }
 
     // 如果服务状态已存在（可能是 Pending），也不要重复启动
-    if proxy_manager.get_mcp_service_status(&params.mcp_id).is_some() {
+    if proxy_manager
+        .get_mcp_service_status(&params.mcp_id)
+        .is_some()
+    {
         debug!(
             "[check_mcp_status] mcp_id={} 服务状态已存在，可能正在启动中，返回 Pending",
             params.mcp_id

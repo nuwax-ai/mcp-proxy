@@ -4,6 +4,7 @@
 
 use anyhow::Result;
 use std::collections::HashMap;
+use std::process::Stdio;
 
 use crate::proxy::{StreamProxyHandler, ToolFilter};
 
@@ -31,7 +32,6 @@ pub async fn run_command_mode(
     cmd_args: Vec<String>,
     env: HashMap<String, String>,
     tool_filter: ToolFilter,
-    verbose: bool,
     quiet: bool,
 ) -> Result<()> {
     tracing::info!("模式: 本地命令模式");
@@ -43,7 +43,7 @@ pub async fn run_command_mode(
     if !quiet {
         eprintln!("🚀 MCP-Stdio-Proxy: {} (command) → stdio", name);
         eprintln!("   命令: {} {:?}", command, cmd_args);
-        if verbose && !env.is_empty() {
+        if !env.is_empty() {
             eprintln!("   环境变量: {:?}", env);
         }
     }
@@ -53,63 +53,17 @@ pub async fn run_command_mode(
         eprintln!("🔧 工具过滤已启用");
     }
 
-    // 诊断日志：记录将要传递给子进程的关键环境信息
-    let inherited_path = std::env::var("PATH").unwrap_or_default();
-    let user_env_path = env.get("PATH").cloned();
-    let effective_path = user_env_path
-        .as_deref()
-        .unwrap_or(&inherited_path);
-    tracing::debug!(
-        "[子进程环境][{}] 命令: {} {:?}",
-        name, command, cmd_args
-    );
-    tracing::debug!(
-        "[子进程环境][{}] 继承 PATH: {}",
-        name, inherited_path
-    );
-    if let Some(ref user_path) = user_env_path {
-        tracing::debug!(
-            "[子进程环境][{}] 用户覆盖 PATH: {}",
-            name, user_path
-        );
-    }
-    tracing::debug!(
-        "[子进程环境][{}] 生效 PATH: {}",
-        name, effective_path
-    );
-    {
-        let non_path_keys: Vec<&String> = env.keys().filter(|k| *k != "PATH").collect();
-        if !non_path_keys.is_empty() {
-            tracing::debug!(
-                "[子进程环境][{}] 用户自定义环境变量: {:?}",
-                name, non_path_keys
-            );
-        }
-    }
-
-    // 打印进程继承的镜像源环境变量，便于诊断镜像是否生效
-    for key in &["UV_INDEX_URL", "PIP_INDEX_URL", "npm_config_registry"] {
-        if let Ok(val) = std::env::var(key) {
-            tracing::debug!("[子进程环境][{}] {}={}", name, key, val);
-        }
-    }
+    // 诊断日志：记录子进程启动信息
+    tracing::debug!("[子进程] {} {:?}", command, cmd_args);
 
     // 使用 process-wrap 创建子进程命令（跨平台进程清理）
     // process-wrap 会自动处理进程组（Unix）或 Job Object（Windows）
     // 并且在 Drop 时自动清理子进程树
+    // 子进程默认继承父进程的所有环境变量
     let mut wrapped_cmd = CommandWrap::with_new(command, |cmd| {
         cmd.args(&cmd_args);
 
-        // ✅ 修复：先继承当前进程的所有环境变量（确保 PATH 等系统变量传递到孙进程）
-        // 这样当子服务动态执行 npm/npx 时能正确找到命令
-        // 注意：用户提供的 env 会在后面覆盖同名变量，优先级更高
-        for (key, value) in std::env::vars_os() {
-            if let (Ok(key_str), Ok(value_str)) = (key.into_string(), value.into_string()) {
-                cmd.env(key_str, value_str);
-            }
-        }
-
-        // 然后覆盖/添加用户配置的环境变量（用户配置优先级更高）
+        // 设置 MCP JSON 配置中的环境变量（会覆盖继承的同名变量）
         for (k, v) in &env {
             cmd.env(k, v);
         }
@@ -118,19 +72,28 @@ pub async fn run_command_mode(
     #[cfg(unix)]
     wrapped_cmd.wrap(ProcessGroup::leader());
     // Windows: 使用 Job Object 管理进程树，并隐藏控制台窗口
+    // 使用 CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP 确保孙进程也不弹出窗口
     #[cfg(windows)]
     {
         use process_wrap::tokio::CreationFlags;
-        use windows::Win32::System::Threading::CREATE_NO_WINDOW;
-        wrapped_cmd.wrap(CreationFlags(CREATE_NO_WINDOW));
+        use windows::Win32::System::Threading::{CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW};
+        wrapped_cmd.wrap(CreationFlags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP));
         wrapped_cmd.wrap(JobObject);
     }
     // 所有平台: Drop 时自动清理进程
     wrapped_cmd.wrap(KillOnDrop);
 
     // 启动子进程
+    // 使用 builder 模式捕获 stderr，便于诊断子 MCP 服务初始化失败
     tracing::debug!("启动子进程...");
-    let tokio_process = TokioChildProcess::new(wrapped_cmd)?;
+    let (tokio_process, child_stderr) = TokioChildProcess::builder(wrapped_cmd)
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    // 启动 stderr 日志读取任务
+    if let Some(stderr_pipe) = child_stderr {
+        mcp_common::spawn_stderr_reader(stderr_pipe, name.to_string());
+    }
 
     if !quiet {
         eprintln!("🔗 启动子进程...");
@@ -187,22 +150,16 @@ pub async fn run_command_mode(
     Ok(())
 }
 
-/// 创建 ClientInfo（使用 rmcp 0.12 类型）
+/// 创建 ClientInfo（使用 rmcp 1.1.0 类型）
 fn create_client_info() -> ClientInfo {
-    ClientInfo {
-        protocol_version: Default::default(),
-        capabilities: ClientCapabilities::builder()
-            .enable_experimental()
-            .enable_roots()
-            .enable_roots_list_changed()
-            .enable_sampling()
-            .build(),
-        client_info: Implementation {
-            name: "mcp-proxy-cli".to_string(),
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            title: None,
-            website_url: None,
-            icons: None,
-        },
-    }
+    let capabilities = ClientCapabilities::builder()
+        .enable_experimental()
+        .enable_roots()
+        .enable_roots_list_changed()
+        .enable_sampling()
+        .build();
+    ClientInfo::new(
+        capabilities,
+        Implementation::new("mcp-proxy-cli", env!("CARGO_PKG_VERSION")),
+    )
 }

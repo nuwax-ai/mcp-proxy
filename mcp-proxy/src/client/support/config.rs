@@ -147,11 +147,16 @@ pub fn parse_convert_config(args: &ConvertArgs) -> Result<McpConfigSource> {
                 .to_string();
 
             // 解析协议类型
-            let protocol = url_config.r#type.as_ref().and_then(|t| match t.as_str() {
-                "sse" => Some(crate::client::protocol::McpProtocol::Sse),
-                "http" | "stream" => Some(crate::client::protocol::McpProtocol::Stream),
-                _ => None,
-            });
+            let protocol =
+                url_config
+                    .r#type
+                    .as_ref()
+                    .and_then(|t| match t.to_ascii_lowercase().as_str() {
+                        "sse" => Some(crate::client::protocol::McpProtocol::Sse),
+                        "http" | "stream" | "streamablehttp" | "streamable-http"
+                        | "streamable_http" => Some(crate::client::protocol::McpProtocol::Stream),
+                        _ => None,
+                    });
 
             // 合并 headers：JSON 配置中的 auth_token -> Authorization
             let mut headers = url_config.headers.clone().unwrap_or_default();

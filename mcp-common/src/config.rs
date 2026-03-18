@@ -12,7 +12,7 @@ pub struct McpServiceConfig {
     pub command: String,
     /// 命令参数
     pub args: Option<Vec<String>>,
-    /// 环境变量
+    /// 环境变量（来自 MCP JSON 配置）
     pub env: Option<HashMap<String, String>>,
     /// 工具过滤配置
     #[serde(skip_serializing_if = "Option::is_none")]

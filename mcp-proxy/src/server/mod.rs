@@ -10,7 +10,7 @@ pub use handlers::{get_health, get_ready};
 
 pub use middlewares::set_layer;
 
-pub use protocol_detector::detect_mcp_protocol;
+pub use protocol_detector::{detect_mcp_protocol, detect_mcp_protocol_with_headers};
 pub use router_layer::get_router;
 pub use task::{mcp_start_task, schedule_check_mcp_live, start_schedule_task};
 pub use telemetry::{

@@ -91,6 +91,83 @@ pub fn check_windows_command(_command: &str) {
     // 非 Windows 平台无需检测
 }
 
+/// Windows 上解析命令路径，自动添加扩展名
+///
+/// 在 Windows 上，命令如 `npx` 实际上是 `npx.cmd` 批处理文件。
+/// `std::process::Command` 不会自动查找 `.cmd` 扩展名，需要手动指定。
+/// 此函数尝试在 PATH 中查找命令，并返回带扩展名的完整路径或原始命令。
+///
+/// # Arguments
+///
+/// * `command` - 要解析的命令字符串
+///
+/// # Returns
+///
+/// 如果找到，返回带扩展名的命令；否则返回原始命令
+///
+/// # Example
+///
+/// ```ignore
+/// use mcp_common::process_compat::resolve_windows_command;
+///
+/// let resolved = resolve_windows_command("npx");
+/// // 返回 "npx.cmd" 或 "C:\Program Files\nodejs\npx.cmd"
+/// ```
+#[cfg(target_os = "windows")]
+pub fn resolve_windows_command(command: &str) -> String {
+    use std::path::Path;
+
+    // 如果已经有扩展名，直接返回
+    if Path::new(command).extension().is_some() {
+        return command.to_string();
+    }
+
+    // 如果是绝对路径，直接返回
+    if Path::new(command).is_absolute() {
+        return command.to_string();
+    }
+
+    // 获取 PATH 环境变量
+    let path_env = match std::env::var("PATH") {
+        Ok(p) => p,
+        Err(_) => return command.to_string(),
+    };
+
+    // Windows 可执行文件扩展名（按优先级）
+    let extensions = [".cmd", ".exe", ".bat", ".ps1"];
+
+    // 遍历 PATH 中的每个目录
+    for dir in path_env.split(';') {
+        let dir = dir.trim();
+        if dir.is_empty() {
+            continue;
+        }
+
+        // 尝试每个扩展名
+        for ext in &extensions {
+            let full_path = Path::new(dir).join(format!("{}{}", command, ext));
+            if full_path.exists() {
+                tracing::debug!(
+                    "[MCP] Windows 命令解析: {} -> {}",
+                    command,
+                    full_path.display()
+                );
+                // 返回带扩展名的命令（不是完整路径，保持简洁）
+                return format!("{}{}", command, ext);
+            }
+        }
+    }
+
+    // 未找到，返回原始命令
+    command.to_string()
+}
+
+/// 非 Windows 平台的空实现
+#[cfg(not(target_os = "windows"))]
+pub fn resolve_windows_command(command: &str) -> String {
+    command.to_string()
+}
+
 /// 确保应用内置运行时路径（NUWAX_APP_RUNTIME_PATH）在 PATH 最前面。
 ///
 /// 当应用捆绑了 node/uv 等运行时时，通过 `NUWAX_APP_RUNTIME_PATH` 传递其路径。
@@ -136,59 +213,10 @@ pub fn ensure_runtime_path(path: &str) -> String {
     path.to_string()
 }
 
-/// 为 stdio 子进程准备最终的 PATH 和过滤后的环境变量。
-///
-/// 统一处理：
-/// 1. 从 config env 或父进程确定基础 PATH
-/// 2. Windows 上追加 npm 全局 bin 目录
-/// 3. 通过 `ensure_runtime_path` 按段去重前置应用内置运行时
-/// 4. 从 config env 中过滤掉 PATH（已单独处理）
-///
-/// 返回 `(Option<final_path>, filtered_env)`，调用方只需 apply 到 `cmd` 即可。
-pub fn prepare_stdio_env(
-    env: &Option<std::collections::HashMap<String, String>>,
-) -> (Option<String>, Option<Vec<(String, String)>>) {
-    // 1. 确定基础 PATH
-    let base_path = if env.as_ref().map_or(true, |e| !e.contains_key("PATH")) {
-        std::env::var("PATH").ok()
-    } else {
-        env.as_ref().and_then(|e| e.get("PATH").cloned())
-    };
-
-    // 2. Windows: 追加 npm 全局 bin + 3. ensure_runtime_path
-    let final_path = base_path.map(|path| {
-        #[cfg(target_os = "windows")]
-        let path = {
-            if let Ok(appdata) = std::env::var("APPDATA") {
-                let npm_path = format!(r"{}\npm", appdata);
-                if !path.contains(&npm_path) {
-                    format!("{};{}", path, npm_path)
-                } else {
-                    path
-                }
-            } else {
-                tracing::warn!("Windows: APPDATA not found, skipping npm global bin");
-                path
-            }
-        };
-        ensure_runtime_path(&path)
-    });
-
-    // 4. 过滤掉 PATH（已单独处理）
-    let filtered_env = env.as_ref().map(|vars| {
-        vars.iter()
-            .filter(|(k, _)| k.as_str() != "PATH")
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect()
-    });
-
-    (final_path, filtered_env)
-}
-
 /// 为 process-wrap 8.x 的 TokioCommandWrap 应用平台特定的包装
 ///
 /// 此宏会根据目标平台自动应用正确的进程包装：
-/// - Windows: `CreationFlags(CREATE_NO_WINDOW)` + `JobObject`
+/// - Windows: `CreationFlags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP)` + `JobObject`
 /// - Unix: `ProcessGroup::leader()`
 ///
 /// # Arguments
@@ -210,31 +238,27 @@ pub fn prepare_stdio_env(
 #[cfg(unix)]
 #[macro_export]
 macro_rules! wrap_process_v8 {
-    ($cmd:expr) => {
-        {
-            use process_wrap::tokio::ProcessGroup;
-            $cmd.wrap(ProcessGroup::leader());
-        }
-    };
+    ($cmd:expr) => {{
+        use process_wrap::tokio::ProcessGroup;
+        $cmd.wrap(ProcessGroup::leader());
+    }};
 }
 
 #[cfg(windows)]
 #[macro_export]
 macro_rules! wrap_process_v8 {
-    ($cmd:expr) => {
-        {
-            use process_wrap::tokio::{CreationFlags, JobObject};
-            use windows::Win32::System::Threading::CREATE_NO_WINDOW;
-            $cmd.wrap(CreationFlags(CREATE_NO_WINDOW));
-            $cmd.wrap(JobObject);
-        }
-    };
+    ($cmd:expr) => {{
+        use process_wrap::tokio::{CreationFlags, JobObject};
+        use windows::Win32::System::Threading::{CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW};
+        $cmd.wrap(CreationFlags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP));
+        $cmd.wrap(JobObject);
+    }};
 }
 
 /// 为 process-wrap 9.x 的 CommandWrap 应用平台特定的包装
 ///
 /// 此宏会根据目标平台自动应用正确的进程包装：
-/// - Windows: `CreationFlags(CREATE_NO_WINDOW)` + `JobObject`
+/// - Windows: `CreationFlags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP)` + `JobObject`
 /// - Unix: `ProcessGroup::leader()`
 ///
 /// # Arguments
@@ -256,25 +280,80 @@ macro_rules! wrap_process_v8 {
 #[cfg(unix)]
 #[macro_export]
 macro_rules! wrap_process_v9 {
-    ($cmd:expr) => {
-        {
-            use process_wrap::tokio::ProcessGroup;
-            $cmd.wrap(ProcessGroup::leader());
-        }
-    };
+    ($cmd:expr) => {{
+        use process_wrap::tokio::ProcessGroup;
+        $cmd.wrap(ProcessGroup::leader());
+    }};
 }
 
 #[cfg(windows)]
 #[macro_export]
 macro_rules! wrap_process_v9 {
-    ($cmd:expr) => {
-        {
-            use process_wrap::tokio::{CreationFlags, JobObject};
-            use windows::Win32::System::Threading::CREATE_NO_WINDOW;
-            $cmd.wrap(CreationFlags(CREATE_NO_WINDOW));
-            $cmd.wrap(JobObject);
+    ($cmd:expr) => {{
+        use process_wrap::tokio::{CreationFlags, JobObject};
+        use windows::Win32::System::Threading::{CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW};
+        $cmd.wrap(CreationFlags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP));
+        $cmd.wrap(JobObject);
+    }};
+}
+
+/// 启动 stderr 日志读取任务
+///
+/// 创建一个异步任务来读取子进程的 stderr 输出并记录到日志。
+/// 这个函数封装了通用的 stderr 读取逻辑。
+///
+/// # Arguments
+///
+/// * `stderr` - stderr 管道（实现 AsyncRead + Unpin + Send）
+/// * `service_name` - MCP 服务名称（用于日志标识）
+///
+/// # Returns
+///
+/// 返回 `JoinHandle<()>`，任务会在 stderr 关闭时自动结束
+///
+/// # Example
+///
+/// ```ignore
+/// use mcp_common::process_compat::spawn_stderr_reader;
+///
+/// let (tokio_process, child_stderr) = TokioChildProcess::builder(wrapped_cmd)
+///     .stderr(Stdio::piped())
+///     .spawn()?;
+///
+/// if let Some(stderr) = child_stderr {
+///     spawn_stderr_reader(stderr, "my-mcp-service".to_string());
+/// }
+/// ```
+pub fn spawn_stderr_reader<T>(stderr: T, service_name: String) -> tokio::task::JoinHandle<()>
+where
+    T: tokio::io::AsyncRead + Unpin + Send + 'static,
+{
+    tokio::spawn(async move {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+
+        let mut reader = BufReader::new(stderr);
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match reader.read_line(&mut line).await {
+                Ok(0) => {
+                    // EOF - stderr 已关闭
+                    tracing::debug!("[子进程 stderr][{}] 读取结束 (EOF)", service_name);
+                    break;
+                }
+                Ok(_) => {
+                    let trimmed = line.trim();
+                    if !trimmed.is_empty() {
+                        tracing::warn!("[子进程 stderr][{}] {}", service_name, trimmed);
+                    }
+                }
+                Err(e) => {
+                    tracing::debug!("[子进程 stderr][{}] 读取错误: {}", service_name, e);
+                    break;
+                }
+            }
         }
-    };
+    })
 }
 
 #[cfg(test)]
@@ -312,8 +391,7 @@ mod tests {
         unsafe {
             std::env::set_var("NUWAX_APP_RUNTIME_PATH", "/app/node/bin:/app/uv/bin");
         }
-        let result =
-            ensure_runtime_path("/app/node/bin:/opt/homebrew/bin:/usr/bin");
+        let result = ensure_runtime_path("/app/node/bin:/opt/homebrew/bin:/usr/bin");
         assert_eq!(
             result,
             "/app/node/bin:/app/uv/bin:/opt/homebrew/bin:/usr/bin"
@@ -327,8 +405,7 @@ mod tests {
         unsafe {
             std::env::set_var("NUWAX_APP_RUNTIME_PATH", "/app/node/bin:/app/uv/bin");
         }
-        let result =
-            ensure_runtime_path("/app/uv/bin:/usr/bin:/app/node/bin");
+        let result = ensure_runtime_path("/app/uv/bin:/usr/bin:/app/node/bin");
         assert_eq!(result, "/app/node/bin:/app/uv/bin:/usr/bin");
         unsafe { std::env::remove_var("NUWAX_APP_RUNTIME_PATH") };
     }

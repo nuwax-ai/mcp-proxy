@@ -171,6 +171,8 @@ pub struct McpServiceStatusInfo {
     pub check_mcp_status_response_status: CheckMcpStatusResponseStatus,
     pub last_accessed: Instant,
     pub mcp_config: Option<McpConfig>,
+    /// 连续健康检查失败次数（用于容错机制）
+    pub consecutive_probe_failures: u32,
 }
 
 impl McpServiceStatusInfo {
@@ -187,11 +189,23 @@ impl McpServiceStatusInfo {
             check_mcp_status_response_status,
             last_accessed: Instant::now(),
             mcp_config: None,
+            consecutive_probe_failures: 0,
         }
     }
 
     pub fn update_last_accessed(&mut self) {
         self.last_accessed = Instant::now();
+    }
+
+    /// 重置健康检查失败计数
+    pub fn reset_probe_failures(&mut self) {
+        self.consecutive_probe_failures = 0;
+    }
+
+    /// 增加健康检查失败计数，返回增加后的值
+    pub fn increment_probe_failures(&mut self) -> u32 {
+        self.consecutive_probe_failures += 1;
+        self.consecutive_probe_failures
     }
 }
 
@@ -290,6 +304,8 @@ pub struct McpServiceStatus {
     pub check_mcp_status_response_status: CheckMcpStatusResponseStatus,
     pub last_accessed: Instant,
     pub mcp_config: Option<McpConfig>,
+    /// 连续健康检查失败次数
+    pub consecutive_probe_failures: u32,
 }
 
 impl McpServiceStatus {
@@ -308,6 +324,7 @@ impl McpServiceStatus {
             check_mcp_status_response_status,
             last_accessed: Instant::now(),
             mcp_config: None,
+            consecutive_probe_failures: 0,
         }
     }
 
@@ -355,7 +372,12 @@ impl ProxyHandlerManager {
         mcp_router_path: McpRouterPath,
         cancellation_token: CancellationToken,
     ) {
-        let service = McpService::new(mcp_id.clone(), mcp_type, mcp_router_path, cancellation_token);
+        let service = McpService::new(
+            mcp_id.clone(),
+            mcp_type,
+            mcp_router_path,
+            cancellation_token,
+        );
 
         // RAII: 如果已存在同名服务，insert 会返回旧服务，旧服务被 drop 时自动清理
         if let Some(old_service) = self.services.insert(mcp_id.clone(), service) {
@@ -419,7 +441,8 @@ impl ProxyHandlerManager {
     /// 避免 iter() 长时间锁住多个分片，让其他写操作有机会执行
     pub fn get_all_mcp_service_status(&self) -> Vec<McpServiceStatus> {
         // 第一步：快速收集所有 keys（只 clone String，锁持有时间短）
-        let keys: Vec<String> = self.services
+        let keys: Vec<String> = self
+            .services
             .iter()
             .map(|entry| entry.key().clone())
             .collect();
@@ -443,6 +466,7 @@ impl ProxyHandlerManager {
                 check_mcp_status_response_status: status.check_mcp_status_response_status.clone(),
                 last_accessed: status.last_accessed,
                 mcp_config: status.mcp_config.clone(),
+                consecutive_probe_failures: status.consecutive_probe_failures,
             }
         })
     }
@@ -488,10 +512,7 @@ impl ProxyHandlerManager {
                 entry.get_mut().set_handler(proxy_handler);
             }
             dashmap::mapref::entry::Entry::Vacant(_) => {
-                warn!(
-                    "[RAII] 尝试添加 handler 到不存在的服务: mcp_id={}",
-                    mcp_id
-                );
+                warn!("[RAII] 尝试添加 handler 到不存在的服务: mcp_id={}", mcp_id);
             }
         }
     }
@@ -613,15 +634,75 @@ impl ProxyHandlerManager {
     /// 不会清理路由和缓存，适用于需要快速移除服务的场景。
     pub fn remove_service(&self, mcp_id: &str) -> bool {
         if self.services.remove(mcp_id).is_some() {
-            info!(
-                "[RAII] 服务已移除，进程将自动清理: mcp_id={}",
-                mcp_id
-            );
+            info!("[RAII] 服务已移除，进程将自动清理: mcp_id={}", mcp_id);
             true
         } else {
             debug!("[RAII] 服务不存在: mcp_id={}", mcp_id);
             false
         }
+    }
+
+    /// 重置健康检查失败计数
+    ///
+    /// 使用 get_mut 避免为不存在的服务创建空 entry
+    pub fn reset_probe_failures(&self, mcp_id: &str) {
+        if let Some(mut entry) = self.services.get_mut(mcp_id) {
+            entry.value_mut().status_mut().reset_probe_failures();
+        }
+    }
+
+    /// 增加健康检查失败计数，返回增加后的值
+    ///
+    /// 使用 entry API 确保原子性操作
+    pub fn increment_probe_failures(&self, mcp_id: &str) -> u32 {
+        self.services
+            .get_mut(mcp_id)
+            .map(|mut entry| entry.value_mut().status_mut().increment_probe_failures())
+            .unwrap_or(0)
+    }
+
+    /// 清理资源用于重启（保留配置缓存）
+    ///
+    /// 与 cleanup_resources 不同，此方法不会清理配置缓存，
+    /// 允许后续使用缓存的配置重新启动服务。
+    pub async fn cleanup_resources_for_restart(&self, mcp_id: &str) -> Result<()> {
+        info!("[RAII] 开始清理资源用于重启: mcp_id={}", mcp_id);
+
+        // 创建路径以构建要删除的路由路径
+        let mcp_sse_router_path = McpRouterPath::new(mcp_id.to_string(), McpProtocol::Sse)
+            .map_err(|e| {
+                anyhow::anyhow!("Failed to create SSE router path for {}: {}", mcp_id, e)
+            })?;
+        let base_sse_path = mcp_sse_router_path.base_path;
+
+        let mcp_stream_router_path = McpRouterPath::new(mcp_id.to_string(), McpProtocol::Stream)
+            .map_err(|e| {
+                anyhow::anyhow!("Failed to create Stream router path for {}: {}", mcp_id, e)
+            })?;
+        let base_stream_path = mcp_stream_router_path.base_path;
+
+        // 移除相关路由
+        DynamicRouterService::delete_route(&base_sse_path);
+        DynamicRouterService::delete_route(&base_stream_path);
+
+        // RAII 核心：从 DashMap 移除会触发 McpProcessGuard::drop()
+        if self.services.remove(mcp_id).is_some() {
+            info!(
+                "[RAII] 服务已从 map 移除（用于重启），McpProcessGuard 将自动取消令牌: mcp_id={}",
+                mcp_id
+            );
+        } else {
+            debug!("[RAII] 服务不存在，跳过移除: mcp_id={}", mcp_id);
+        }
+
+        // 注意：不清理配置缓存，保留用于重启
+        // self.unregister_mcp_config(mcp_id).await; // 不调用
+
+        // 清理健康状态缓存
+        GLOBAL_RESTART_TRACKER.clear_health_status(mcp_id);
+
+        info!("[RAII] MCP 服务资源清理完成（用于重启）: mcp_id={}", mcp_id);
+        Ok(())
     }
 }
 
