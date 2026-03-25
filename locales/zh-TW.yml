@@ -1,0 +1,888 @@
+_version: 2
+
+# ===========================================
+# 錯誤訊息 - mcp-proxy
+# ===========================================
+errors.mcp_proxy.service_not_found:
+  other: "服務 %{service} 未找到"
+errors.mcp_proxy.service_restart_cooldown:
+  other: "服務 %{service} 在重啟冷卻期內，請稍後再試"
+errors.mcp_proxy.service_startup_in_progress:
+  other: "服務 %{service} 正在啟動中，請稍後再試"
+errors.mcp_proxy.service_startup_failed:
+  other: "服務啟動失敗: %{mcp_id}: %{reason}"
+errors.mcp_proxy.backend_connection:
+  other: "後端連線錯誤: %{detail}"
+errors.mcp_proxy.config_parse:
+  other: "設定解析錯誤: %{detail}"
+errors.mcp_proxy.mcp_server_error:
+  other: "MCP 伺服器錯誤: %{detail}"
+errors.mcp_proxy.json_serialization:
+  other: "JSON 序列化錯誤: %{detail}"
+errors.mcp_proxy.io_error:
+  other: "IO 錯誤: %{detail}"
+errors.mcp_proxy.route_not_found:
+  other: "路由未找到: %{path}"
+errors.mcp_proxy.invalid_parameter:
+  other: "無效的請求參數: %{detail}"
+
+# ===========================================
+# 錯誤訊息 - document-parser
+# ===========================================
+errors.document_parser.config:
+  other: "設定錯誤: %{detail}"
+errors.document_parser.file:
+  other: "檔案操作錯誤: %{detail}"
+errors.document_parser.unsupported_format:
+  other: "不支援的檔案格式: %{format}"
+errors.document_parser.parse:
+  other: "解析錯誤: %{detail}"
+errors.document_parser.mineru:
+  other: "MinerU錯誤: %{detail}"
+errors.document_parser.markitdown:
+  other: "MarkItDown錯誤: %{detail}"
+errors.document_parser.oss:
+  other: "OSS操作錯誤: %{detail}"
+errors.document_parser.database:
+  other: "資料庫錯誤: %{detail}"
+errors.document_parser.network:
+  other: "網路錯誤: %{detail}"
+errors.document_parser.task:
+  other: "任務錯誤: %{detail}"
+errors.document_parser.internal:
+  other: "內部錯誤: %{detail}"
+errors.document_parser.timeout:
+  other: "操作逾時: %{detail}"
+errors.document_parser.validation:
+  other: "驗證錯誤: %{detail}"
+errors.document_parser.environment:
+  other: "環境錯誤: %{detail}"
+errors.document_parser.virtual_environment_path:
+  other: "虛擬環境路徑錯誤: %{detail}"
+errors.document_parser.permission:
+  other: "權限錯誤: %{detail}"
+errors.document_parser.path:
+  other: "路徑錯誤: %{detail}"
+errors.document_parser.queue:
+  other: "佇列錯誤: %{detail}"
+errors.document_parser.processing:
+  other: "處理錯誤: %{detail}"
+
+# 錯誤建議 - document-parser
+errors.document_parser.suggestions.config:
+  other: "檢查設定檔案和環境變數"
+errors.document_parser.suggestions.file:
+  other: "檢查檔案路徑和權限"
+errors.document_parser.suggestions.unsupported_format:
+  other: "檢查檔案格式是否支援"
+errors.document_parser.suggestions.parse:
+  other: "檢查檔案內容是否完整"
+errors.document_parser.suggestions.mineru:
+  other: "檢查MinerU環境設定"
+errors.document_parser.suggestions.markitdown:
+  other: "檢查MarkItDown環境設定"
+errors.document_parser.suggestions.oss:
+  other: "檢查OSS設定和網路連線"
+errors.document_parser.suggestions.database:
+  other: "檢查資料庫連線和權限"
+errors.document_parser.suggestions.network:
+  other: "檢查網路連線和防火牆設定"
+errors.document_parser.suggestions.task:
+  other: "檢查任務參數和狀態"
+errors.document_parser.suggestions.internal:
+  other: "聯絡技術支援"
+errors.document_parser.suggestions.timeout:
+  other: "檢查網路延遲或增加逾時時間"
+errors.document_parser.suggestions.validation:
+  other: "檢查輸入參數格式"
+errors.document_parser.suggestions.environment:
+  other: "檢查系統環境和相依套件安裝"
+errors.document_parser.suggestions.queue:
+  other: "檢查佇列服務狀態和設定"
+errors.document_parser.suggestions.processing:
+  other: "檢查處理流程和資料格式"
+errors.document_parser.suggestions.virtual_environment_path:
+  other: "檢查虛擬環境路徑和目錄權限"
+errors.document_parser.suggestions.permission:
+  other: "檢查檔案和目錄權限設定"
+errors.document_parser.suggestions.path:
+  other: "檢查路徑是否存在且可存取"
+
+# ===========================================
+# 錯誤訊息 - oss-client
+# ===========================================
+errors.oss.config:
+  other: "設定錯誤: %{detail}"
+errors.oss.network:
+  other: "網路錯誤: %{detail}"
+errors.oss.file_not_found:
+  other: "檔案不存在: %{path}"
+errors.oss.permission:
+  other: "權限不足: %{detail}"
+errors.oss.io:
+  other: "IO錯誤: %{detail}"
+errors.oss.sdk:
+  other: "OSS SDK錯誤: %{detail}"
+errors.oss.file_size_exceeded:
+  other: "檔案大小超出限制: %{detail}"
+errors.oss.unsupported_file_type:
+  other: "不支援的檔案類型: %{detail}"
+errors.oss.timeout:
+  other: "操作逾時: %{detail}"
+errors.oss.invalid_parameter:
+  other: "無效的參數: %{detail}"
+
+# ===========================================
+# 錯誤訊息 - voice-cli
+# ===========================================
+errors.voice.config:
+  other: "設定錯誤: %{detail}"
+errors.voice.audio_processing:
+  other: "音訊處理錯誤: %{detail}"
+errors.voice.transcription:
+  other: "轉錄錯誤: %{detail}"
+errors.voice.model:
+  other: "模型錯誤: %{detail}"
+errors.voice.file_io:
+  other: "檔案I/O錯誤: %{detail}"
+errors.voice.http:
+  other: "HTTP請求錯誤: %{detail}"
+errors.voice.serialization:
+  other: "序列化錯誤: %{detail}"
+errors.voice.json:
+  other: "JSON錯誤: %{detail}"
+errors.voice.config_rs:
+  other: "設定讀取錯誤: %{detail}"
+errors.voice.daemon:
+  other: "常駐程式錯誤: %{detail}"
+errors.voice.unsupported_format:
+  other: "不支援的音訊格式: %{detail}"
+errors.voice.file_too_large:
+  other: "檔案過大: %{size} 位元組 (最大: %{max} 位元組)"
+errors.voice.model_not_found:
+  other: "模型未找到: %{model}"
+errors.voice.invalid_model_name:
+  other: "無效的模型名稱: %{model}"
+errors.voice.worker_pool:
+  other: "工作池錯誤: %{detail}"
+errors.voice.transcription_timeout:
+  other: "轉錄逾時 (%{seconds} 秒後)"
+errors.voice.transcription_failed:
+  other: "轉錄失敗: %{detail}"
+errors.voice.audio_conversion_failed:
+  other: "音訊轉換失敗: %{detail}"
+errors.voice.audio_probe_error:
+  other: "音訊探測錯誤: %{detail}"
+errors.voice.temp_file_error:
+  other: "暫存檔錯誤: %{detail}"
+errors.voice.multipart_error:
+  other: "Multipart表單錯誤: %{detail}"
+errors.voice.missing_field:
+  other: "缺少必填欄位: %{field}"
+errors.voice.network:
+  other: "網路錯誤: %{detail}"
+errors.voice.storage:
+  other: "儲存錯誤: %{detail}"
+errors.voice.task_management_disabled:
+  other: "任務管理已停用"
+errors.voice.not_found:
+  other: "資源未找到: %{resource}"
+errors.voice.initialization:
+  other: "初始化錯誤: %{detail}"
+errors.voice.tts:
+  other: "TTS錯誤: %{detail}"
+errors.voice.invalid_input:
+  other: "無效輸入: %{detail}"
+errors.voice.io:
+  other: "IO錯誤: %{detail}"
+
+# ===========================================
+# CLI 訊息 - mcp-proxy 啟動
+# ===========================================
+cli.mirror.not_configured:
+  other: "未配置鏡像源（npm/PyPI），將使用預設來源"
+cli.mirror.npm:
+  other: "npm 鏡像: %{url}"
+cli.mirror.pypi:
+  other: "PyPI 鏡像: %{url}"
+cli.startup.service_starting:
+  other: "MCP-Proxy 啟動中..."
+cli.startup.version:
+  other: "版本: %{version}"
+cli.startup.config_loaded:
+  other: "設定載入完成"
+cli.startup.port:
+  other: "連接埠: %{port}"
+cli.startup.log_dir:
+  other: "日誌目錄: %{path}"
+cli.startup.log_level:
+  other: "日誌級別: %{level}"
+cli.startup.log_retain_days:
+  other: "日誌保留天數: %{days}"
+cli.startup.success:
+  other: "✅ 服務啟動成功，監聽位址: %{addr}"
+cli.startup.health_endpoint:
+  other: "✅ 健康檢查端點: http://%{addr}/health"
+cli.startup.mcp_list:
+  other: "✅ MCP 服務列表: http://%{addr}/mcp"
+cli.startup.schedule_task_started:
+  other: "✅ MCP服務狀態檢查定時任務已啟動"
+cli.startup.log_rotation_configured:
+  other: "✅ 日誌自動輪轉已設定（保留最近 %{count} 個日誌檔案）"
+cli.startup.system_info:
+  other: "系統資訊:"
+cli.startup.os:
+  other: "作業系統: %{os}"
+cli.startup.arch:
+  other: "架構: %{arch}"
+cli.startup.work_dir:
+  other: "工作目錄: %{path}"
+cli.startup.env_override:
+  other: "環境變數覆蓋:"
+cli.startup.env_port_override:
+  other: "MCP_PROXY_PORT: %{port}"
+cli.startup.env_log_dir_override:
+  other: "MCP_PROXY_LOG_DIR: %{dir}"
+cli.startup.env_log_level_override:
+  other: "MCP_PROXY_LOG_LEVEL: %{level}"
+cli.startup.trying_bind:
+  other: "嘗試綁定到位址: %{addr}"
+cli.startup.bind_success:
+  other: "成功綁定到位址: %{addr}"
+cli.startup.bind_failed:
+  other: "綁定位址 %{addr} 失敗: %{error}"
+cli.startup.init_state:
+  other: "初始化應用狀態..."
+cli.startup.state_done:
+  other: "應用狀態初始化完成"
+cli.startup.init_router:
+  other: "初始化路由..."
+cli.startup.router_done:
+  other: "路由初始化完成"
+cli.startup.warming_up:
+  other: "🔄 開始預熱 uv/deno 環境相依套件..."
+cli.startup.warmup_success:
+  other: "✅ 預熱 uv/deno 環境相依套件完成"
+cli.startup.warmup_failed:
+  other: "❌ 預熱 uv/deno 環境相依套件失敗: %{error}"
+cli.startup.http_server_starting:
+  other: "🚀 HTTP 伺服器啟動，等待連線..."
+cli.startup.proxy_mode:
+  other: "命令: proxy (HTTP 伺服器模式)"
+cli.startup.config_info:
+  other: "設定資訊:"
+cli.startup.listen_port:
+  other: "監聽連接埠: %{port}"
+cli.startup.log_retention:
+  other: "日誌保留: %{days} 天"
+
+# CLI 訊息 - mcp-proxy 關閉
+cli.shutdown.signal_received:
+  other: "⚠️ 伺服器收到關閉訊號，開始清理資源..."
+cli.shutdown.cleanup_success:
+  other: "✅ 資源清理成功"
+cli.shutdown.cleanup_failed:
+  other: "❌ 清理資源時出錯: %{error}"
+cli.shutdown.complete:
+  other: "✅ 資源清理完成，服務已完全關閉"
+cli.shutdown.service_error:
+  other: "❌ 服務執行錯誤: %{error}"
+
+# CLI 訊息 - panic 處理
+cli.panic.handler_started:
+  other: "程式發生panic，執行清理..."
+cli.panic.reason:
+  other: "Panic 原因: %{reason}"
+cli.panic.reason_unknown:
+  other: "Panic 原因: 未知"
+cli.panic.location:
+  other: "Panic 位置: %{file}:%{line}"
+cli.panic.stack_trace:
+  other: "堆疊追蹤:"
+
+# ===========================================
+# CLI 訊息 - convert 模式
+# ===========================================
+cli.convert.starting:
+  other: "開始 URL 模式處理"
+cli.convert.target_url:
+  other: "目標 URL: %{url}"
+cli.convert.protocol_specified:
+  other: "使用命令列指定協定: %{protocol}"
+cli.convert.protocol_config:
+  other: "使用設定檔協定: %{protocol}"
+cli.convert.detecting_protocol:
+  other: "開始自動偵測協定..."
+cli.convert.detect_failed:
+  other: "協定偵測失敗: %{error}"
+cli.convert.using_protocol:
+  other: "使用 %{protocol} 協定模式"
+cli.convert.stdio_url_not_supported:
+  other: "Stdio 協定不支援透過 URL 轉換"
+cli.convert.tool_whitelist:
+  other: "工具白名單: %{tools}"
+cli.convert.tool_blacklist:
+  other: "工具黑名單: %{tools}"
+cli.convert.config_parsed:
+  other: "設定解析成功"
+cli.convert.service_name:
+  other: "MCP 服務名稱: %{name}"
+cli.convert.service_name_not_specified:
+  other: "MCP 服務名稱: 未指定（使用 direct URL）"
+cli.convert.cli_starting:
+  other: "MCP-Proxy CLI 啟動"
+cli.convert.command:
+  other: "命令: convert (stdio 橋接模式)"
+cli.convert.version:
+  other: "版本: %{version}"
+cli.convert.diagnostic_mode:
+  other: "診斷模式: %{enabled}"
+cli.convert.mode_direct_url:
+  other: "模式: 直接 URL 模式"
+cli.convert.mode_remote_service:
+  other: "模式: 遠端服務設定模式"
+cli.convert.service_url:
+  other: "服務 URL: %{url}"
+cli.convert.config_protocol:
+  other: "設定協定: %{protocol}"
+cli.convert.ping_config:
+  other: "Ping 間隔: %{interval}s, Ping 逾時: %{timeout}s"
+cli.convert.connecting_backend:
+  other: "開始連線到後端服務 (逾時: %{timeout}s)..."
+cli.convert.detect_complete:
+  other: "協定偵測完成: %{protocol} (耗時: %{duration})"
+
+# ===========================================
+# CLI 訊息 - SSE 模式
+# ===========================================
+cli.sse.mode_starting:
+  other: "SSE 模式啟動"
+cli.sse.connect_timeout:
+  other: "連線後端逾時 (%{seconds}s)"
+cli.sse.connect_failed:
+  other: "連線後端失敗: %{error}"
+cli.sse.connect_success:
+  other: "後端連線成功 (耗時: %{duration})"
+cli.sse.stdio_starting:
+  other: "啟動 stdio server..."
+cli.sse.stdio_started:
+  other: "stdio server 已啟動"
+cli.sse.waiting_events:
+  other: "開始等待 stdio server 事件..."
+cli.sse.stdio_exit_eof:
+  other: "stdio server 結束 - 原因: MCP 客戶端斷開連線 (stdin EOF)"
+cli.sse.watchdog_exit:
+  other: "Watchdog 任務結束"
+cli.sse.normal_exit:
+  other: "mcp-proxy convert (SSE 模式) 正常結束"
+cli.sse.watchdog_starting:
+  other: "SSE Watchdog 啟動"
+cli.sse.max_retries:
+  other: "最大重試次數: %{count} (0=無限)"
+cli.sse.monitoring_connection:
+  other: "開始監控初始連線..."
+cli.sse.initial_disconnect:
+  other: "初始連線斷開: %{reason}"
+cli.sse.connection_alive:
+  other: "初始連線存活時長: %{seconds}s"
+cli.sse.reconnect_attempt:
+  other: "重連嘗試 #%{attempt}/%{max}"
+cli.sse.backoff_time:
+  other: "退避時間: %{seconds}s"
+cli.sse.reconnect_success:
+  other: "重連成功 (耗時: %{duration})"
+cli.sse.monitoring_reconnect:
+  other: "開始監控重連後的連線..."
+cli.sse.reconnect_disconnect:
+  other: "重連後斷開: %{reason}"
+cli.sse.reconnect_alive:
+  other: "重連後存活時長: %{seconds}s"
+cli.sse.max_retries_reached:
+  other: "達到最大重試次數 (%{count}), 停止重連"
+cli.sse.watchdog_exit_msg:
+  other: "SSE Watchdog 結束"
+
+# ===========================================
+# CLI 訊息 - Stream 模式
+# ===========================================
+cli.stream.mode_starting:
+  other: "Stream 模式啟動"
+cli.stream.connect_timeout:
+  other: "連線後端逾時 (%{seconds}s)"
+cli.stream.connect_failed:
+  other: "連線後端失敗: %{error}"
+cli.stream.connect_success:
+  other: "後端連線成功 (耗時: %{duration})"
+cli.stream.stdio_starting:
+  other: "啟動 stdio server..."
+cli.stream.stdio_started:
+  other: "stdio server 已啟動"
+cli.stream.waiting_events:
+  other: "開始等待 stdio server 事件..."
+cli.stream.stdio_exit_eof:
+  other: "stdio server 結束 - 原因: MCP 客戶端斷開連線 (stdin EOF)"
+cli.stream.watchdog_exit:
+  other: "Watchdog 任務結束"
+cli.stream.normal_exit:
+  other: "mcp-proxy convert (Stream 模式) 正常結束"
+
+# ===========================================
+# CLI 訊息 - Command 模式
+# ===========================================
+cli.command.local_mode:
+  other: "模式: 本地命令模式"
+cli.command.command:
+  other: "命令: %{cmd} %{args}"
+cli.command.ctrl_c:
+  other: "收到 Ctrl+C 訊號，正在關閉..."
+
+# ===========================================
+# CLI 訊息 - 監控
+# ===========================================
+cli.monitoring.health:
+  other: "開始監控 %{protocol} 連線健康狀態"
+cli.monitoring.health_check_status:
+  other: "💓 [%{protocol}][健康檢查] 連線狀態: %{status} (僅檢查連線通道, 未呼叫 list_tools), 檢查 #%{count}, 已存活: %{seconds}s"
+cli.monitoring.health_check_normal:
+  other: "💓 [%{protocol}][健康檢查] 後端服務正常 (list_tools 驗證通過), Ping #%{count}, 已存活: %{seconds}s"
+
+# ===========================================
+# 診斷訊息
+# ===========================================
+diagnostic.report_header:
+  other: "========== 診斷報告 =========="
+diagnostic.connection_protocol:
+  other: "連線協定: %{protocol}"
+diagnostic.service_url:
+  other: "服務 URL: %{url}"
+diagnostic.connection_duration:
+  other: "連線存活時長: %{seconds} 秒"
+diagnostic.disconnect_reason:
+  other: "斷開原因: %{reason}"
+diagnostic.error_type:
+  other: "錯誤類型: %{error_type}"
+diagnostic.possible_causes:
+  other: "可能原因分析:"
+diagnostic.suggestions:
+  other: "建議:"
+
+# 診斷 - 30秒逾時分析
+diagnostic.analysis.timeout_30s:
+  other: "⚠️  連線在約 30 秒時斷開，極有可能是:"
+diagnostic.analysis.timeout_30s_cause1:
+  other: "伺服器端設定了 30 秒逾時限制"
+diagnostic.analysis.timeout_30s_cause2:
+  other: "負載平衡器（如 Nginx/ALB）的預設逾時"
+diagnostic.analysis.timeout_30s_cause3:
+  other: "雲端服務商的閘道逾時限制"
+
+# 診斷 - 快速斷開分析
+diagnostic.analysis.quick_disconnect:
+  other: "⚠️  連線很快斷開（%{seconds}秒），可能是:"
+diagnostic.analysis.quick_disconnect_cause1:
+  other: "認證失敗或 token 無效"
+diagnostic.analysis.quick_disconnect_cause2:
+  other: "伺服器拒絕連線"
+diagnostic.analysis.quick_disconnect_cause3:
+  other: "網路不穩定"
+
+# 診斷 - 長時間連線分析
+diagnostic.analysis.long_connection:
+  other: "✅ 連線保持了較長時間（%{seconds}秒），可能是:"
+diagnostic.analysis.long_connection_cause1:
+  other: "工具呼叫執行時間過長"
+diagnostic.analysis.long_connection_cause2:
+  other: "網路波動導致斷開"
+
+# 診斷建議
+diagnostic.suggestion.timeout_30s:
+  other: "聯絡服務提供商增加逾時限制"
+diagnostic.suggestion.timeout_client:
+  other: "使用 --request-timeout 參數設定客戶端逾時"
+diagnostic.suggestion.async_mode:
+  other: "考慮使用非同步處理模式（webhook 回呼）"
+diagnostic.suggestion.ping_interval:
+  other: "嘗試增加 ping 間隔: --ping-interval %{seconds}"
+diagnostic.suggestion.ping_timeout:
+  other: "增加 ping 逾時時間: --ping-timeout %{seconds}"
+diagnostic.suggestion.ping_disable:
+  other: "或停用 ping: --ping-interval 0"
+
+# ===========================================
+# 錯誤分類
+# ===========================================
+error_classify.timeout_30s:
+  other: "30秒逾時（可能是伺服器限制）"
+error_classify.service_unavailable_503:
+  other: "服務不可用(503)"
+error_classify.internal_server_error_500:
+  other: "伺服器內部錯誤(500)"
+error_classify.bad_gateway_502:
+  other: "閘道錯誤(502)"
+error_classify.gateway_timeout_504:
+  other: "閘道逾時(504)"
+error_classify.unauthorized_401:
+  other: "未授權(401)"
+error_classify.forbidden_403:
+  other: "禁止存取(403)"
+error_classify.not_found_404:
+  other: "資源未找到(404)"
+error_classify.request_timeout_408:
+  other: "請求逾時(408)"
+error_classify.timeout:
+  other: "逾時"
+error_classify.connection_refused:
+  other: "連線被拒絕"
+error_classify.connection_reset:
+  other: "連線被重設"
+error_classify.connection_closed:
+  other: "連線關閉"
+error_classify.dns_failed:
+  other: "DNS解析失敗"
+error_classify.ssl_tls_error:
+  other: "SSL/TLS錯誤"
+error_classify.network_error:
+  other: "網路錯誤"
+error_classify.session_error:
+  other: "工作階段錯誤"
+error_classify.unknown_error:
+  other: "未知錯誤"
+
+# ===========================================
+# CLI 訊息 - health 命令
+# ===========================================
+cli.health.checking:
+  other: "🔍 健康檢查服務: %{url}"
+cli.health.using_protocol:
+  other: "🔍 使用指定協定: %{protocol}"
+cli.health.detecting_protocol:
+  other: "🔍 正在偵測協定..."
+cli.health.detected_protocol:
+  other: "🔍 偵測到 %{protocol} 協定"
+cli.health.healthy:
+  other: "✅ 服務健康"
+cli.health.unhealthy:
+  other: "❌ 服務不健康"
+cli.health.stdio_not_supported:
+  other: "health 命令不支援 stdio 協定"
+
+# ===========================================
+# CLI 訊息 - check 命令
+# ===========================================
+cli.check.checking:
+  other: "🔍 檢查服務: %{url}"
+cli.check.healthy:
+  other: "✅ 服務正常，偵測到 %{protocol} 協定"
+cli.check.failed:
+  other: "❌ 服務檢查失敗: %{error}"
+
+# ===========================================
+# CLI 訊息 - document-parser
+# ===========================================
+doc_parser.startup.app_info:
+  other: "=== %{name} v%{version} 啟動 ==="
+doc_parser.startup.config_summary:
+  other: "設定摘要: %{summary}"
+doc_parser.startup.listening:
+  other: "服務監聽位址: %{host}:%{port}"
+doc_parser.startup.checking_python:
+  other: "開始檢查和初始化Python環境..."
+doc_parser.startup.checking_venv:
+  other: "檢查並啟用虛擬環境..."
+doc_parser.startup.venv_activate_failed:
+  other: "虛擬環境自動啟用失敗: %{error}"
+doc_parser.startup.venv_activate_manual:
+  other: "請手動啟用虛擬環境: source ./venv/bin/activate"
+doc_parser.startup.venv_activated:
+  other: "虛擬環境已自動啟用"
+doc_parser.startup.env_check_failed:
+  other: "環境檢查失敗，將在背景自動安裝: %{error}"
+doc_parser.startup.mineru_not_installed:
+  other: "MinerU相依套件未安裝，開始背景自動安裝..."
+doc_parser.startup.markitdown_not_installed:
+  other: "MarkItDown相依套件未安裝，開始背景自動安裝..."
+doc_parser.startup.install_complete:
+  other: "背景Python環境安裝完成"
+doc_parser.startup.install_failed:
+  other: "背景Python環境安裝失敗: %{error}"
+doc_parser.startup.install_task_started:
+  other: "Python相依套件安裝任務已啟動（背景進行），服務將正常啟動"
+doc_parser.startup.mineru_ready:
+  other: "MinerU相依套件已安裝，版本: %{version}"
+doc_parser.startup.markitdown_ready:
+  other: "MarkItDown相依套件已安裝"
+doc_parser.startup.python_ready:
+  other: "Python環境檢查完成，所有相依套件已就緒"
+doc_parser.startup.state_failed:
+  other: "無法建立應用狀態: %{error}"
+doc_parser.startup.health_check_failed:
+  other: "應用健康檢查失敗: %{error}"
+doc_parser.startup.state_ready:
+  other: "應用狀態初始化成功"
+doc_parser.startup.http_routes_ready:
+  other: "HTTP路由初始化成功"
+doc_parser.startup.background_tasks_started:
+  other: "背景任務已啟動"
+doc_parser.startup.service_ready:
+  other: "服務啟動成功，開始監聽連線..."
+doc_parser.shutdown.service_stopped:
+  other: "服務已關閉"
+doc_parser.shutdown.ctrl_c_received:
+  other: "收到 Ctrl+C 訊號，開始優雅關閉..."
+doc_parser.shutdown.terminate_received:
+  other: "收到 terminate 訊號，開始優雅關閉..."
+doc_parser.shutdown.closing:
+  other: "正在關閉服務..."
+
+# uv-init 命令
+doc_parser.uv_init.starting:
+  other: "🚀 開始在目前目錄初始化uv虛擬環境和相依套件..."
+doc_parser.uv_init.current_dir:
+  other: "📁 目前工作目錄: %{path}"
+doc_parser.uv_init.venv_path:
+  other: "📁 虛擬環境將建立在: ./venv/"
+doc_parser.uv_init.validating_dir:
+  other: "🔍 驗證目前目錄設定..."
+doc_parser.uv_init.dir_valid:
+  other: "   ✅ 目錄驗證通過"
+doc_parser.uv_init.warnings_found:
+  other: "   ⚠️  發現 %{count} 個警告"
+doc_parser.uv_init.dir_invalid:
+  other: "   ❌ 目錄驗證失敗，發現 %{count} 個問題"
+doc_parser.uv_init.auto_fixing:
+  other: "   🔧 嘗試自動修復 %{count} 個問題..."
+doc_parser.uv_init.fix_success:
+  other: "      ✅ %{message}"
+doc_parser.uv_init.fix_failed:
+  other: "      ❌ 清理失敗: %{error}"
+doc_parser.uv_init.manual_fix_hint:
+  other: "   💡 請手動解決以下問題:"
+doc_parser.uv_init.dir_validation_failed:
+  other: "目錄驗證失敗，請解決上述問題後重試"
+doc_parser.uv_init.dir_validation_error:
+  other: "   ⚠️  目錄驗證失敗: %{error}"
+doc_parser.uv_init.continue_install:
+  other: "   繼續進行安裝，但可能遇到問題..."
+
+# 環境檢查
+doc_parser.check.checking_env:
+  other: "🔍 檢查目前環境狀態..."
+doc_parser.check.env_check_complete:
+  other: "   環境檢查完成:"
+doc_parser.check.python_available:
+  other: "✅ 可用"
+doc_parser.check.python_unavailable:
+  other: "❌ 不可用"
+doc_parser.check.uv_available:
+  other: "✅ 可用"
+doc_parser.check.uv_unavailable:
+  other: "❌ 不可用"
+doc_parser.check.venv_active:
+  other: "✅ 啟用"
+doc_parser.check.venv_inactive:
+  other: "❌ 未啟用"
+doc_parser.check.mineru_available:
+  other: "✅ 可用"
+doc_parser.check.mineru_unavailable:
+  other: "❌ 不可用"
+doc_parser.check.markitdown_available:
+  other: "✅ 可用"
+doc_parser.check.markitdown_unavailable:
+  other: "❌ 不可用"
+doc_parser.check.env_check_failed:
+  other: "   ⚠️  環境檢查失敗: %{error}"
+doc_parser.check.continue_install:
+  other: "   繼續進行安裝..."
+
+# 安裝過程
+doc_parser.install.all_ready:
+  other: "✨ 所有相依套件都已就緒，無需安裝！"
+doc_parser.install.plan:
+  other: "📋 安裝計畫:"
+doc_parser.install.install_uv:
+  other: "安裝 uv 工具"
+doc_parser.install.create_venv:
+  other: "建立虛擬環境 (./venv/)"
+doc_parser.install.install_mineru:
+  other: "安裝 MinerU 相依套件"
+doc_parser.install.install_markitdown:
+  other: "安裝 MarkItDown 相依套件"
+doc_parser.install.starting:
+  other: "⚙️  開始設定Python環境和相依套件..."
+doc_parser.install.wait_hint:
+  other: "這可能需要幾分鐘時間，請耐心等待..."
+doc_parser.install.path_issues:
+  other: "⚠️  偵測到潛在的路徑問題:"
+doc_parser.install.auto_fixing:
+  other: "🔧 嘗試自動修復問題..."
+doc_parser.install.fixed:
+  other: "✅ 已修復以下問題:"
+doc_parser.install.cannot_auto_fix:
+  other: "無法自動修復，請手動解決上述問題"
+doc_parser.install.fix_failed:
+  other: "❌ 自動修復失敗: %{error}"
+doc_parser.install.manual_fix_hint:
+  other: "💡 手動修復建議:"
+doc_parser.install.python_setup_complete:
+  other: "✅ Python環境設定完成！"
+doc_parser.install.python_setup_failed:
+  other: "❌ Python環境設定失敗: %{error}"
+doc_parser.install.detailed_hints:
+  other: "💡 詳細故障排除建議:"
+doc_parser.install.diagnostic_commands:
+  other: "🔍 診斷命令:"
+doc_parser.install.check_env:
+  other: "檢查環境狀態: document-parser check"
+doc_parser.install.view_logs:
+  other: "查看詳細日誌: 檢查 logs/ 目錄"
+
+# 驗證
+doc_parser.verify.starting:
+  other: "🔍 驗證安裝結果..."
+doc_parser.verify.complete:
+  other: "驗證完成:"
+doc_parser.verify.version:
+  other: "版本: %{version}"
+doc_parser.verify.partial_issues:
+  other: "⚠️  部分相依套件安裝可能有問題"
+doc_parser.verify.need_fix:
+  other: "🔧 需要解決的問題:"
+doc_parser.verify.suggestion:
+  other: "建議: %{suggestion}"
+doc_parser.verify.init_incomplete:
+  other: "環境初始化未完全成功"
+doc_parser.verify.failed:
+  other: "❌ 驗證失敗: %{error}"
+
+# 成功訊息
+doc_parser.success.init_complete:
+  other: "🎉 uv環境初始化完成！"
+doc_parser.success.all_ready:
+  other: "✨ 所有相依套件都已就緒，現在可以啟動伺服器了"
+doc_parser.success.venv_activate:
+  other: "📋 虛擬環境啟用指令:"
+doc_parser.success.start_server:
+  other: "🚀 啟動伺服器:"
+doc_parser.success.use_uv:
+  other: "🔧 或者使用 uv 直接執行命令:"
+doc_parser.success.more_help:
+  other: "📚 更多說明:"
+doc_parser.success.tips:
+  other: "💡 提示:"
+doc_parser.success.venv_location:
+  other: "虛擬環境位置: ./venv/"
+doc_parser.success.python_path:
+  other: "Python可執行檔: ./venv/bin/python (Linux/macOS) 或 .\\venv\\Scripts\\python.exe (Windows)"
+doc_parser.success.troubleshoot_hint:
+  other: "如遇問題，請執行 'document-parser troubleshoot' 查看詳細指南"
+
+# troubleshoot 命令
+doc_parser.troubleshoot.title:
+  other: "🔧 Document Parser 故障排除指南"
+doc_parser.troubleshoot.env_overview:
+  other: "📊 目前環境概覽:"
+doc_parser.troubleshoot.work_dir:
+  other: "工作目錄: %{path}"
+doc_parser.troubleshoot.venv_path:
+  other: "虛擬環境: ./venv/"
+doc_parser.troubleshoot.os:
+  other: "作業系統: %{os}"
+
+# 虛擬環境問題
+doc_parser.troubleshoot.venv_problems:
+  other: "🏠 1. 虛擬環境問題"
+doc_parser.troubleshoot.venv_create_failed:
+  other: "❓ 問題: 虛擬環境建立失敗"
+doc_parser.troubleshoot.diagnostic_steps:
+  other: "🔍 診斷步驟:"
+doc_parser.troubleshoot.solutions:
+  other: "💡 解決方案:"
+doc_parser.troubleshoot.venv_activate_failed:
+  other: "❓ 問題: 虛擬環境啟用失敗"
+
+# 相依套件安裝問題
+doc_parser.troubleshoot.deps_problems:
+  other: "📦 2. 相依套件安裝問題"
+doc_parser.troubleshoot.uv_not_installed:
+  other: "❓ 問題: UV工具未安裝或不可用"
+doc_parser.troubleshoot.mineru_markitdown_failed:
+  other: "❓ 問題: MinerU或MarkItDown安裝失敗"
+
+# 網路問題
+doc_parser.troubleshoot.network_problems:
+  other: "🌐 3. 網路和下載問題"
+doc_parser.troubleshoot.network_timeout:
+  other: "❓ 問題: 網路連線逾時或下載失敗"
+
+# 系統環境問題
+doc_parser.troubleshoot.system_problems:
+  other: "⚙️  4. 系統環境問題"
+doc_parser.troubleshoot.python_incompatible:
+  other: "❓ 問題: Python版本不相容"
+doc_parser.troubleshoot.cuda_config:
+  other: "❓ 問題: CUDA環境設定 (可選，用於GPU加速)"
+
+# 診斷命令
+doc_parser.troubleshoot.diagnostic_commands:
+  other: "🔍 5. 常用診斷命令"
+doc_parser.troubleshoot.env_check:
+  other: "環境檢查:"
+doc_parser.troubleshoot.manual_verify:
+  other: "手動驗證:"
+doc_parser.troubleshoot.view_logs:
+  other: "日誌查看:"
+
+# 取得幫助
+doc_parser.troubleshoot.more_help:
+  other: "🆘 6. 取得更多幫助"
+doc_parser.troubleshoot.if_unsolved:
+  other: "如果上述方法都無法解決問題，請:"
+
+# 即時診斷
+doc_parser.troubleshoot.realtime_diagnosis:
+  other: "🔬 即時環境診斷"
+doc_parser.troubleshoot.env_good:
+  other: "✅ 環境狀態良好，所有相依套件都已就緒"
+doc_parser.troubleshoot.issues_found:
+  other: "⚠️  發現以下問題:"
+doc_parser.troubleshoot.env_check_failed:
+  other: "❌ 環境檢查失敗: %{error}"
+doc_parser.troubleshoot.follow_guide:
+  other: "請按照上述指南進行故障排除"
+
+# 提示
+doc_parser.troubleshoot.tip:
+  other: "💡 提示: 大多數問題可以透過重新執行 'document-parser uv-init' 解決"
+
+# 背景清理
+doc_parser.background.cleanup_failed:
+  other: "清理過期資料失敗: %{error}"
+doc_parser.background.cleanup_complete:
+  other: "背景清理任務執行完成"
+
+# 訊號處理
+doc_parser.signal.ctrl_c_failed:
+  other: "無法監聽 Ctrl+C 訊號"
+doc_parser.signal.terminate_failed:
+  other: "無法監聽 terminate 訊號"
+
+# ===========================================
+# 通用訊息
+# ===========================================
+common.yes: "是"
+common.no: "否"
+common.success: "成功"
+common.failed: "失敗"
+common.error: "錯誤"
+common.warning: "警告"
+common.info: "資訊"
+common.loading: "載入中..."
+common.please_wait: "請稍候..."
+common.retry: "重試"
+common.cancel: "取消"
+common.confirm: "確認"
+common.back: "返回"
+common.next: "下一步"
+common.previous: "上一步"
+common.done: "完成"
+common.skip: "跳過"

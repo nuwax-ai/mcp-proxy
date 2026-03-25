@@ -51,6 +51,9 @@ pulldown-cmark-toc = "0.7"
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
+
+# 国际化支持
+rust-i18n = { workspace = true }
 uuid = { workspace = true, features = ["v4", "v7", "serde"] }
 log = { workspace = true }
 tracing = { workspace = true }

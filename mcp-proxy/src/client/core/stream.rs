@@ -11,6 +11,7 @@ use crate::client::support::{
     ConvertArgs, classify_error, print_diagnostic_report, summarize_error, truncate_str,
 };
 use crate::proxy::{McpClientConfig, StreamClientConnection, StreamProxyHandler, ToolFilter};
+use crate::t;
 
 use mcp_streamable_proxy::{ServiceExt, stdio as stream_stdio};
 
@@ -34,12 +35,14 @@ pub async fn run_stream_mode(
     quiet: bool,
 ) -> Result<()> {
     tracing::info!("========================================");
-    tracing::info!("Stream 模式启动");
-    tracing::info!("目标 URL: {}", config.url);
+    tracing::info!("{}", t!("cli.stream.mode_starting"));
+    tracing::info!("{}", t!("cli.convert.target_url", url = config.url));
     tracing::info!(
-        "Ping 间隔: {}s, Ping 超时: {}s",
-        args.ping_interval,
-        args.ping_timeout
+        "{}",
+        t!("cli.convert.ping_config",
+            interval = args.ping_interval,
+            timeout = args.ping_timeout
+        )
     );
     tracing::info!("========================================");
 
@@ -50,8 +53,8 @@ pub async fn run_stream_mode(
     // 1. 使用高层 API 连接
     let connect_timeout = Duration::from_secs(30);
     tracing::info!(
-        "开始连接到后端服务 (超时: {}s)...",
-        connect_timeout.as_secs()
+        "{}",
+        t!("cli.convert.connecting_backend", timeout = connect_timeout.as_secs())
     );
     let connect_start = std::time::Instant::now();
 
@@ -61,16 +64,16 @@ pub async fn run_stream_mode(
     )
     .await
     .map_err(|_| {
-        tracing::error!("连接后端超时 ({}s)", connect_timeout.as_secs());
-        anyhow::anyhow!("连接后端超时 ({}秒)", connect_timeout.as_secs())
+        tracing::error!("{}", t!("cli.stream.connect_timeout", seconds = connect_timeout.as_secs()));
+        anyhow::anyhow!("Backend connection timeout ({}s)", connect_timeout.as_secs())
     })?
     .map_err(|e| {
-        tracing::error!("连接后端失败: {}", e);
-        anyhow::anyhow!("连接后端失败: {}", e)
+        tracing::error!("{}", t!("cli.stream.connect_failed", error = e.to_string()));
+        anyhow::anyhow!("Backend connection failed: {}", e)
     })?;
 
     let connect_duration = connect_start.elapsed();
-    tracing::info!("后端连接成功 (耗时: {:?})", connect_duration);
+    tracing::info!("{}", t!("cli.stream.connect_success", duration = format!("{:?}", connect_duration)));
 
     if !quiet {
         eprintln!("✅ 后端连接成功");
@@ -90,9 +93,9 @@ pub async fn run_stream_mode(
     tracing::debug!("ProxyHandler 创建完成");
 
     // 3. 启动 stdio server（使用 stream_stdio，即 rmcp 0.12 的 stdio）
-    tracing::info!("启动 stdio server...");
+    tracing::info!("{}", t!("cli.stream.stdio_starting"));
     let server = (*handler).clone().serve(stream_stdio()).await?;
-    tracing::info!("stdio server 已启动");
+    tracing::info!("{}", t!("cli.stream.stdio_started"));
 
     if !quiet {
         eprintln!("💡 stdio server 已启动，开始代理转换...");
@@ -111,18 +114,18 @@ pub async fn run_stream_mode(
     tracing::debug!("Watchdog 任务已启动");
 
     // 5. 等待 stdio server 退出
-    tracing::info!("开始等待 stdio server 事件...");
+    tracing::info!("{}", t!("cli.stream.waiting_events"));
     tokio::select! {
         result = server.waiting() => {
             tracing::info!("========================================");
-            tracing::info!("stdio server 退出 - 原因: MCP 客户端断开连接 (stdin EOF)");
+            tracing::info!("{}", t!("cli.stream.stdio_exit_eof"));
             tracing::info!("========================================");
             watchdog_handle.abort();
             result?;
         }
         watchdog_result = &mut watchdog_handle => {
             tracing::info!("========================================");
-            tracing::info!("Watchdog 任务退出");
+            tracing::info!("{}", t!("cli.stream.watchdog_exit"));
             tracing::info!("========================================");
             if let Err(e) = watchdog_result
                 && !e.is_cancelled()
@@ -132,7 +135,7 @@ pub async fn run_stream_mode(
         }
     }
 
-    tracing::info!("mcp-proxy convert (Stream 模式) 正常退出");
+    tracing::info!("{}", t!("cli.stream.normal_exit"));
     Ok(())
 }
 
@@ -263,7 +266,7 @@ async fn run_stream_watchdog(
                         &config.url,
                         0,
                         "连接失败，达到最大重试次数",
-                        Some(error_type),
+                        Some(&error_type),
                         args.logging.diagnostic,
                     );
                     break;

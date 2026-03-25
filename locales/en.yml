@@ -1,0 +1,888 @@
+_version: 2
+
+# ===========================================
+# Error Messages - mcp-proxy
+# ===========================================
+errors.mcp_proxy.service_not_found:
+  other: "Service %{service} not found"
+errors.mcp_proxy.service_restart_cooldown:
+  other: "Service %{service} is in restart cooldown, please try again later"
+errors.mcp_proxy.service_startup_in_progress:
+  other: "Service %{service} is starting, please wait"
+errors.mcp_proxy.service_startup_failed:
+  other: "Service startup failed: %{mcp_id}: %{reason}"
+errors.mcp_proxy.backend_connection:
+  other: "Backend connection error: %{detail}"
+errors.mcp_proxy.config_parse:
+  other: "Configuration parse error: %{detail}"
+errors.mcp_proxy.mcp_server_error:
+  other: "MCP server error: %{detail}"
+errors.mcp_proxy.json_serialization:
+  other: "JSON serialization error: %{detail}"
+errors.mcp_proxy.io_error:
+  other: "IO error: %{detail}"
+errors.mcp_proxy.route_not_found:
+  other: "Route not found: %{path}"
+errors.mcp_proxy.invalid_parameter:
+  other: "Invalid request parameter: %{detail}"
+
+# ===========================================
+# Error Messages - document-parser
+# ===========================================
+errors.document_parser.config:
+  other: "Configuration error: %{detail}"
+errors.document_parser.file:
+  other: "File operation error: %{detail}"
+errors.document_parser.unsupported_format:
+  other: "Unsupported file format: %{format}"
+errors.document_parser.parse:
+  other: "Parse error: %{detail}"
+errors.document_parser.mineru:
+  other: "MinerU error: %{detail}"
+errors.document_parser.markitdown:
+  other: "MarkItDown error: %{detail}"
+errors.document_parser.oss:
+  other: "OSS operation error: %{detail}"
+errors.document_parser.database:
+  other: "Database error: %{detail}"
+errors.document_parser.network:
+  other: "Network error: %{detail}"
+errors.document_parser.task:
+  other: "Task error: %{detail}"
+errors.document_parser.internal:
+  other: "Internal error: %{detail}"
+errors.document_parser.timeout:
+  other: "Operation timeout: %{detail}"
+errors.document_parser.validation:
+  other: "Validation error: %{detail}"
+errors.document_parser.environment:
+  other: "Environment error: %{detail}"
+errors.document_parser.virtual_environment_path:
+  other: "Virtual environment path error: %{detail}"
+errors.document_parser.permission:
+  other: "Permission error: %{detail}"
+errors.document_parser.path:
+  other: "Path error: %{detail}"
+errors.document_parser.queue:
+  other: "Queue error: %{detail}"
+errors.document_parser.processing:
+  other: "Processing error: %{detail}"
+
+# Error Suggestions - document-parser
+errors.document_parser.suggestions.config:
+  other: "Check configuration file and environment variables"
+errors.document_parser.suggestions.file:
+  other: "Check file path and permissions"
+errors.document_parser.suggestions.unsupported_format:
+  other: "Check if file format is supported"
+errors.document_parser.suggestions.parse:
+  other: "Check if file content is complete"
+errors.document_parser.suggestions.mineru:
+  other: "Check MinerU environment configuration"
+errors.document_parser.suggestions.markitdown:
+  other: "Check MarkItDown environment configuration"
+errors.document_parser.suggestions.oss:
+  other: "Check OSS configuration and network connection"
+errors.document_parser.suggestions.database:
+  other: "Check database connection and permissions"
+errors.document_parser.suggestions.network:
+  other: "Check network connection and firewall settings"
+errors.document_parser.suggestions.task:
+  other: "Check task parameters and status"
+errors.document_parser.suggestions.internal:
+  other: "Contact technical support"
+errors.document_parser.suggestions.timeout:
+  other: "Check network latency or increase timeout"
+errors.document_parser.suggestions.validation:
+  other: "Check input parameter format"
+errors.document_parser.suggestions.environment:
+  other: "Check system environment and dependency installation"
+errors.document_parser.suggestions.queue:
+  other: "Check queue service status and configuration"
+errors.document_parser.suggestions.processing:
+  other: "Check processing flow and data format"
+errors.document_parser.suggestions.virtual_environment_path:
+  other: "Check virtual environment path and directory permissions"
+errors.document_parser.suggestions.permission:
+  other: "Check file and directory permission settings"
+errors.document_parser.suggestions.path:
+  other: "Check if path exists and is accessible"
+
+# ===========================================
+# Error Messages - oss-client
+# ===========================================
+errors.oss.config:
+  other: "Configuration error: %{detail}"
+errors.oss.network:
+  other: "Network error: %{detail}"
+errors.oss.file_not_found:
+  other: "File not found: %{path}"
+errors.oss.permission:
+  other: "Permission denied: %{detail}"
+errors.oss.io:
+  other: "IO error: %{detail}"
+errors.oss.sdk:
+  other: "OSS SDK error: %{detail}"
+errors.oss.file_size_exceeded:
+  other: "File size exceeded: %{detail}"
+errors.oss.unsupported_file_type:
+  other: "Unsupported file type: %{detail}"
+errors.oss.timeout:
+  other: "Operation timeout: %{detail}"
+errors.oss.invalid_parameter:
+  other: "Invalid parameter: %{detail}"
+
+# ===========================================
+# Error Messages - voice-cli
+# ===========================================
+errors.voice.config:
+  other: "Configuration error: %{detail}"
+errors.voice.audio_processing:
+  other: "Audio processing error: %{detail}"
+errors.voice.transcription:
+  other: "Transcription error: %{detail}"
+errors.voice.model:
+  other: "Model error: %{detail}"
+errors.voice.file_io:
+  other: "File I/O error: %{detail}"
+errors.voice.http:
+  other: "HTTP request error: %{detail}"
+errors.voice.serialization:
+  other: "Serialization error: %{detail}"
+errors.voice.json:
+  other: "JSON error: %{detail}"
+errors.voice.config_rs:
+  other: "Config-rs error: %{detail}"
+errors.voice.daemon:
+  other: "Daemon error: %{detail}"
+errors.voice.unsupported_format:
+  other: "Audio format not supported: %{detail}"
+errors.voice.file_too_large:
+  other: "File too large: %{size} bytes (max: %{max} bytes)"
+errors.voice.model_not_found:
+  other: "Model not found: %{model}"
+errors.voice.invalid_model_name:
+  other: "Invalid model name: %{model}"
+errors.voice.worker_pool:
+  other: "Worker pool error: %{detail}"
+errors.voice.transcription_timeout:
+  other: "Transcription timeout after %{seconds} seconds"
+errors.voice.transcription_failed:
+  other: "Transcription failed: %{detail}"
+errors.voice.audio_conversion_failed:
+  other: "Audio conversion failed: %{detail}"
+errors.voice.audio_probe_error:
+  other: "Audio probe error: %{detail}"
+errors.voice.temp_file_error:
+  other: "Temporary file error: %{detail}"
+errors.voice.multipart_error:
+  other: "Multipart form error: %{detail}"
+errors.voice.missing_field:
+  other: "Missing required field: %{field}"
+errors.voice.network:
+  other: "Network error: %{detail}"
+errors.voice.storage:
+  other: "Storage error: %{detail}"
+errors.voice.task_management_disabled:
+  other: "Task management is disabled"
+errors.voice.not_found:
+  other: "Resource not found: %{resource}"
+errors.voice.initialization:
+  other: "Initialization error: %{detail}"
+errors.voice.tts:
+  other: "TTS error: %{detail}"
+errors.voice.invalid_input:
+  other: "Invalid input: %{detail}"
+errors.voice.io:
+  other: "IO error: %{detail}"
+
+# ===========================================
+# CLI Messages - mcp-proxy startup
+# ===========================================
+cli.mirror.not_configured:
+  other: "No mirror configured (npm/PyPI), using default sources"
+cli.mirror.npm:
+  other: "npm mirror: %{url}"
+cli.mirror.pypi:
+  other: "PyPI mirror: %{url}"
+cli.startup.service_starting:
+  other: "MCP-Proxy starting..."
+cli.startup.version:
+  other: "Version: %{version}"
+cli.startup.config_loaded:
+  other: "Configuration loaded"
+cli.startup.port:
+  other: "Port: %{port}"
+cli.startup.log_dir:
+  other: "Log directory: %{path}"
+cli.startup.log_level:
+  other: "Log level: %{level}"
+cli.startup.log_retain_days:
+  other: "Log retention days: %{days}"
+cli.startup.success:
+  other: "✅ Service started successfully, listening on: %{addr}"
+cli.startup.health_endpoint:
+  other: "✅ Health check endpoint: http://%{addr}/health"
+cli.startup.mcp_list:
+  other: "✅ MCP service list: http://%{addr}/mcp"
+cli.startup.schedule_task_started:
+  other: "✅ MCP service status check scheduled task started"
+cli.startup.log_rotation_configured:
+  other: "✅ Log rotation configured (keeping last %{count} log files)"
+cli.startup.system_info:
+  other: "System information:"
+cli.startup.os:
+  other: "Operating system: %{os}"
+cli.startup.arch:
+  other: "Architecture: %{arch}"
+cli.startup.work_dir:
+  other: "Working directory: %{path}"
+cli.startup.env_override:
+  other: "Environment variable overrides:"
+cli.startup.env_port_override:
+  other: "MCP_PROXY_PORT: %{port}"
+cli.startup.env_log_dir_override:
+  other: "MCP_PROXY_LOG_DIR: %{dir}"
+cli.startup.env_log_level_override:
+  other: "MCP_PROXY_LOG_LEVEL: %{level}"
+cli.startup.trying_bind:
+  other: "Attempting to bind to address: %{addr}"
+cli.startup.bind_success:
+  other: "Successfully bound to address: %{addr}"
+cli.startup.bind_failed:
+  other: "Failed to bind address %{addr}: %{error}"
+cli.startup.init_state:
+  other: "Initializing application state..."
+cli.startup.state_done:
+  other: "Application state initialized"
+cli.startup.init_router:
+  other: "Initializing router..."
+cli.startup.router_done:
+  other: "Router initialized"
+cli.startup.warming_up:
+  other: "🔄 Warming up uv/deno environment dependencies..."
+cli.startup.warmup_success:
+  other: "✅ uv/deno environment warmup complete"
+cli.startup.warmup_failed:
+  other: "❌ uv/deno environment warmup failed: %{error}"
+cli.startup.http_server_starting:
+  other: "🚀 HTTP server starting, waiting for connections..."
+cli.startup.proxy_mode:
+  other: "Command: proxy (HTTP server mode)"
+cli.startup.config_info:
+  other: "Configuration info:"
+cli.startup.listen_port:
+  other: "Listen port: %{port}"
+cli.startup.log_retention:
+  other: "Log retention: %{days} days"
+
+# CLI Messages - mcp-proxy shutdown
+cli.shutdown.signal_received:
+  other: "⚠️ Server received shutdown signal, cleaning up resources..."
+cli.shutdown.cleanup_success:
+  other: "✅ Resource cleanup successful"
+cli.shutdown.cleanup_failed:
+  other: "❌ Error during resource cleanup: %{error}"
+cli.shutdown.complete:
+  other: "✅ Resource cleanup complete, service fully shut down"
+cli.shutdown.service_error:
+  other: "❌ Service runtime error: %{error}"
+
+# CLI Messages - panic handling
+cli.panic.handler_started:
+  other: "Program panic occurred, executing cleanup..."
+cli.panic.reason:
+  other: "Panic reason: %{reason}"
+cli.panic.reason_unknown:
+  other: "Panic reason: unknown"
+cli.panic.location:
+  other: "Panic location: %{file}:%{line}"
+cli.panic.stack_trace:
+  other: "Stack trace:"
+
+# ===========================================
+# CLI Messages - convert mode
+# ===========================================
+cli.convert.starting:
+  other: "Starting URL mode processing"
+cli.convert.target_url:
+  other: "Target URL: %{url}"
+cli.convert.protocol_specified:
+  other: "Using specified protocol: %{protocol}"
+cli.convert.protocol_config:
+  other: "Using configured protocol: %{protocol}"
+cli.convert.detecting_protocol:
+  other: "Starting protocol auto-detection..."
+cli.convert.detect_failed:
+  other: "Protocol detection failed: %{error}"
+cli.convert.using_protocol:
+  other: "Using %{protocol} protocol mode"
+cli.convert.stdio_url_not_supported:
+  other: "Stdio protocol does not support URL conversion"
+cli.convert.tool_whitelist:
+  other: "Tool whitelist: %{tools}"
+cli.convert.tool_blacklist:
+  other: "Tool blacklist: %{tools}"
+cli.convert.config_parsed:
+  other: "Configuration parsed successfully"
+cli.convert.service_name:
+  other: "MCP service name: %{name}"
+cli.convert.service_name_not_specified:
+  other: "MCP service name: not specified (using direct URL)"
+cli.convert.cli_starting:
+  other: "MCP-Proxy CLI starting"
+cli.convert.command:
+  other: "Command: convert (stdio bridge mode)"
+cli.convert.version:
+  other: "Version: %{version}"
+cli.convert.diagnostic_mode:
+  other: "Diagnostic mode: %{enabled}"
+cli.convert.mode_direct_url:
+  other: "Mode: direct URL mode"
+cli.convert.mode_remote_service:
+  other: "Mode: remote service configuration mode"
+cli.convert.service_url:
+  other: "Service URL: %{url}"
+cli.convert.config_protocol:
+  other: "Configured protocol: %{protocol}"
+cli.convert.ping_config:
+  other: "Ping interval: %{interval}s, Ping timeout: %{timeout}s"
+cli.convert.connecting_backend:
+  other: "Connecting to backend service (timeout: %{timeout}s)..."
+cli.convert.detect_complete:
+  other: "Protocol detection complete: %{protocol} (duration: %{duration})"
+
+# ===========================================
+# CLI Messages - SSE mode
+# ===========================================
+cli.sse.mode_starting:
+  other: "SSE mode starting"
+cli.sse.connect_timeout:
+  other: "Backend connection timeout (%{seconds}s)"
+cli.sse.connect_failed:
+  other: "Backend connection failed: %{error}"
+cli.sse.connect_success:
+  other: "Backend connected (duration: %{duration})"
+cli.sse.stdio_starting:
+  other: "Starting stdio server..."
+cli.sse.stdio_started:
+  other: "Stdio server started"
+cli.sse.waiting_events:
+  other: "Waiting for stdio server events..."
+cli.sse.stdio_exit_eof:
+  other: "Stdio server exited - reason: MCP client disconnected (stdin EOF)"
+cli.sse.watchdog_exit:
+  other: "Watchdog task exited"
+cli.sse.normal_exit:
+  other: "mcp-proxy convert (SSE mode) exited normally"
+cli.sse.watchdog_starting:
+  other: "SSE Watchdog starting"
+cli.sse.max_retries:
+  other: "Max retries: %{count} (0=unlimited)"
+cli.sse.monitoring_connection:
+  other: "Monitoring initial connection..."
+cli.sse.initial_disconnect:
+  other: "Initial connection disconnected: %{reason}"
+cli.sse.connection_alive:
+  other: "Initial connection alive for: %{seconds}s"
+cli.sse.reconnect_attempt:
+  other: "Reconnect attempt #%{attempt}/%{max}"
+cli.sse.backoff_time:
+  other: "Backoff time: %{seconds}s"
+cli.sse.reconnect_success:
+  other: "Reconnect successful (duration: %{duration})"
+cli.sse.monitoring_reconnect:
+  other: "Monitoring reconnected connection..."
+cli.sse.reconnect_disconnect:
+  other: "Disconnected after reconnect: %{reason}"
+cli.sse.reconnect_alive:
+  other: "Reconnected connection alive for: %{seconds}s"
+cli.sse.max_retries_reached:
+  other: "Max retries reached (%{count}), stopping reconnect"
+cli.sse.watchdog_exit_msg:
+  other: "SSE Watchdog exited"
+
+# ===========================================
+# CLI Messages - Stream mode
+# ===========================================
+cli.stream.mode_starting:
+  other: "Stream mode starting"
+cli.stream.connect_timeout:
+  other: "Backend connection timeout (%{seconds}s)"
+cli.stream.connect_failed:
+  other: "Backend connection failed: %{error}"
+cli.stream.connect_success:
+  other: "Backend connected (duration: %{duration})"
+cli.stream.stdio_starting:
+  other: "Starting stdio server..."
+cli.stream.stdio_started:
+  other: "Stdio server started"
+cli.stream.waiting_events:
+  other: "Waiting for stdio server events..."
+cli.stream.stdio_exit_eof:
+  other: "Stdio server exited - reason: MCP client disconnected (stdin EOF)"
+cli.stream.watchdog_exit:
+  other: "Watchdog task exited"
+cli.stream.normal_exit:
+  other: "mcp-proxy convert (Stream mode) exited normally"
+
+# ===========================================
+# CLI Messages - Command mode
+# ===========================================
+cli.command.local_mode:
+  other: "Mode: local command mode"
+cli.command.command:
+  other: "Command: %{cmd} %{args}"
+cli.command.ctrl_c:
+  other: "Received Ctrl+C signal, shutting down..."
+
+# ===========================================
+# CLI Messages - monitoring
+# ===========================================
+cli.monitoring.health:
+  other: "Monitoring %{protocol} connection health"
+cli.monitoring.health_check_status:
+  other: "💓 [%{protocol}][Health Check] Connection status: %{status} (connection check only, no list_tools), check #%{count}, alive: %{seconds}s"
+cli.monitoring.health_check_normal:
+  other: "💓 [%{protocol}][Health Check] Backend service healthy (list_tools verified), Ping #%{count}, alive: %{seconds}s"
+
+# ===========================================
+# Diagnostic Messages
+# ===========================================
+diagnostic.report_header:
+  other: "========== Diagnostic Report =========="
+diagnostic.connection_protocol:
+  other: "Connection protocol: %{protocol}"
+diagnostic.service_url:
+  other: "Service URL: %{url}"
+diagnostic.connection_duration:
+  other: "Connection duration: %{seconds} seconds"
+diagnostic.disconnect_reason:
+  other: "Disconnect reason: %{reason}"
+diagnostic.error_type:
+  other: "Error type: %{error_type}"
+diagnostic.possible_causes:
+  other: "Possible causes:"
+diagnostic.suggestions:
+  other: "Suggestions:"
+
+# Diagnostic - 30s timeout analysis
+diagnostic.analysis.timeout_30s:
+  other: "⚠️  Connection dropped at ~30 seconds, likely causes:"
+diagnostic.analysis.timeout_30s_cause1:
+  other: "Server-side 30-second timeout limit"
+diagnostic.analysis.timeout_30s_cause2:
+  other: "Load balancer (e.g., Nginx/ALB) default timeout"
+diagnostic.analysis.timeout_30s_cause3:
+  other: "Cloud provider gateway timeout limit"
+
+# Diagnostic - Quick disconnect analysis
+diagnostic.analysis.quick_disconnect:
+  other: "⚠️  Connection dropped quickly (%{seconds}s), possible causes:"
+diagnostic.analysis.quick_disconnect_cause1:
+  other: "Authentication failed or invalid token"
+diagnostic.analysis.quick_disconnect_cause2:
+  other: "Server rejected connection"
+diagnostic.analysis.quick_disconnect_cause3:
+  other: "Network instability"
+
+# Diagnostic - Long connection analysis
+diagnostic.analysis.long_connection:
+  other: "✅ Connection maintained for a long time (%{seconds}s), possible causes:"
+diagnostic.analysis.long_connection_cause1:
+  other: "Tool call execution took too long"
+diagnostic.analysis.long_connection_cause2:
+  other: "Network fluctuation caused disconnect"
+
+# Diagnostic suggestions
+diagnostic.suggestion.timeout_30s:
+  other: "Contact service provider to increase timeout limit"
+diagnostic.suggestion.timeout_client:
+  other: "Use --request-timeout parameter to set client timeout"
+diagnostic.suggestion.async_mode:
+  other: "Consider using async processing mode (webhook callback)"
+diagnostic.suggestion.ping_interval:
+  other: "Try increasing ping interval: --ping-interval %{seconds}"
+diagnostic.suggestion.ping_timeout:
+  other: "Increase ping timeout: --ping-timeout %{seconds}"
+diagnostic.suggestion.ping_disable:
+  other: "Or disable ping: --ping-interval 0"
+
+# ===========================================
+# Error Classification
+# ===========================================
+error_classify.timeout_30s:
+  other: "30s timeout (possibly server limit)"
+error_classify.service_unavailable_503:
+  other: "Service unavailable (503)"
+error_classify.internal_server_error_500:
+  other: "Internal server error (500)"
+error_classify.bad_gateway_502:
+  other: "Bad gateway (502)"
+error_classify.gateway_timeout_504:
+  other: "Gateway timeout (504)"
+error_classify.unauthorized_401:
+  other: "Unauthorized (401)"
+error_classify.forbidden_403:
+  other: "Forbidden (403)"
+error_classify.not_found_404:
+  other: "Not found (404)"
+error_classify.request_timeout_408:
+  other: "Request timeout (408)"
+error_classify.timeout:
+  other: "Timeout"
+error_classify.connection_refused:
+  other: "Connection refused"
+error_classify.connection_reset:
+  other: "Connection reset"
+error_classify.connection_closed:
+  other: "Connection closed"
+error_classify.dns_failed:
+  other: "DNS resolution failed"
+error_classify.ssl_tls_error:
+  other: "SSL/TLS error"
+error_classify.network_error:
+  other: "Network error"
+error_classify.session_error:
+  other: "Session error"
+error_classify.unknown_error:
+  other: "Unknown error"
+
+# ===========================================
+# CLI Messages - health command
+# ===========================================
+cli.health.checking:
+  other: "🔍 Health checking service: %{url}"
+cli.health.using_protocol:
+  other: "🔍 Using specified protocol: %{protocol}"
+cli.health.detecting_protocol:
+  other: "🔍 Detecting protocol..."
+cli.health.detected_protocol:
+  other: "🔍 Detected %{protocol} protocol"
+cli.health.healthy:
+  other: "✅ Service healthy"
+cli.health.unhealthy:
+  other: "❌ Service unhealthy"
+cli.health.stdio_not_supported:
+  other: "health command does not support stdio protocol"
+
+# ===========================================
+# CLI Messages - check command
+# ===========================================
+cli.check.checking:
+  other: "🔍 Checking service: %{url}"
+cli.check.healthy:
+  other: "✅ Service healthy, detected %{protocol} protocol"
+cli.check.failed:
+  other: "❌ Service check failed: %{error}"
+
+# ===========================================
+# CLI Messages - document-parser
+# ===========================================
+doc_parser.startup.app_info:
+  other: "=== %{name} v%{version} starting ==="
+doc_parser.startup.config_summary:
+  other: "Configuration summary: %{summary}"
+doc_parser.startup.listening:
+  other: "Service listening on: %{host}:%{port}"
+doc_parser.startup.checking_python:
+  other: "Starting Python environment check and initialization..."
+doc_parser.startup.checking_venv:
+  other: "Checking and activating virtual environment..."
+doc_parser.startup.venv_activate_failed:
+  other: "Virtual environment auto-activation failed: %{error}"
+doc_parser.startup.venv_activate_manual:
+  other: "Please manually activate virtual environment: source ./venv/bin/activate"
+doc_parser.startup.venv_activated:
+  other: "Virtual environment auto-activated"
+doc_parser.startup.env_check_failed:
+  other: "Environment check failed, will auto-install in background: %{error}"
+doc_parser.startup.mineru_not_installed:
+  other: "MinerU dependencies not installed, starting background auto-install..."
+doc_parser.startup.markitdown_not_installed:
+  other: "MarkItDown dependencies not installed, starting background auto-install..."
+doc_parser.startup.install_complete:
+  other: "Background Python environment installation complete"
+doc_parser.startup.install_failed:
+  other: "Background Python environment installation failed: %{error}"
+doc_parser.startup.install_task_started:
+  other: "Python dependency installation task started (background), service will start normally"
+doc_parser.startup.mineru_ready:
+  other: "MinerU dependencies installed, version: %{version}"
+doc_parser.startup.markitdown_ready:
+  other: "MarkItDown dependencies installed"
+doc_parser.startup.python_ready:
+  other: "Python environment check complete, all dependencies ready"
+doc_parser.startup.state_failed:
+  other: "Failed to create application state: %{error}"
+doc_parser.startup.health_check_failed:
+  other: "Application health check failed: %{error}"
+doc_parser.startup.state_ready:
+  other: "Application state initialized successfully"
+doc_parser.startup.http_routes_ready:
+  other: "HTTP routes initialized successfully"
+doc_parser.startup.background_tasks_started:
+  other: "Background tasks started"
+doc_parser.startup.service_ready:
+  other: "Service started successfully, waiting for connections..."
+doc_parser.shutdown.service_stopped:
+  other: "Service stopped"
+doc_parser.shutdown.ctrl_c_received:
+  other: "Received Ctrl+C signal, starting graceful shutdown..."
+doc_parser.shutdown.terminate_received:
+  other: "Received terminate signal, starting graceful shutdown..."
+doc_parser.shutdown.closing:
+  other: "Shutting down service..."
+
+# uv-init command
+doc_parser.uv_init.starting:
+  other: "🚀 Starting uv virtual environment and dependency initialization in current directory..."
+doc_parser.uv_init.current_dir:
+  other: "📁 Current working directory: %{path}"
+doc_parser.uv_init.venv_path:
+  other: "📁 Virtual environment will be created at: ./venv/"
+doc_parser.uv_init.validating_dir:
+  other: "🔍 Validating current directory settings..."
+doc_parser.uv_init.dir_valid:
+  other: "   ✅ Directory validation passed"
+doc_parser.uv_init.warnings_found:
+  other: "   ⚠️  Found %{count} warnings"
+doc_parser.uv_init.dir_invalid:
+  other: "   ❌ Directory validation failed, found %{count} issues"
+doc_parser.uv_init.auto_fixing:
+  other: "   🔧 Attempting to auto-fix %{count} issues..."
+doc_parser.uv_init.fix_success:
+  other: "      ✅ %{message}"
+doc_parser.uv_init.fix_failed:
+  other: "      ❌ Cleanup failed: %{error}"
+doc_parser.uv_init.manual_fix_hint:
+  other: "   💡 Please manually resolve the following issues:"
+doc_parser.uv_init.dir_validation_failed:
+  other: "Directory validation failed, please resolve the above issues and try again"
+doc_parser.uv_init.dir_validation_error:
+  other: "   ⚠️  Directory validation failed: %{error}"
+doc_parser.uv_init.continue_install:
+  other: "   Continuing installation, but may encounter issues..."
+
+# Environment check
+doc_parser.check.checking_env:
+  other: "🔍 Checking current environment status..."
+doc_parser.check.env_check_complete:
+  other: "   Environment check complete:"
+doc_parser.check.python_available:
+  other: "✅ Available"
+doc_parser.check.python_unavailable:
+  other: "❌ Unavailable"
+doc_parser.check.uv_available:
+  other: "✅ Available"
+doc_parser.check.uv_unavailable:
+  other: "❌ Unavailable"
+doc_parser.check.venv_active:
+  other: "✅ Active"
+doc_parser.check.venv_inactive:
+  other: "❌ Inactive"
+doc_parser.check.mineru_available:
+  other: "✅ Available"
+doc_parser.check.mineru_unavailable:
+  other: "❌ Unavailable"
+doc_parser.check.markitdown_available:
+  other: "✅ Available"
+doc_parser.check.markitdown_unavailable:
+  other: "❌ Unavailable"
+doc_parser.check.env_check_failed:
+  other: "   ⚠️  Environment check failed: %{error}"
+doc_parser.check.continue_install:
+  other: "   Continuing installation..."
+
+# Installation process
+doc_parser.install.all_ready:
+  other: "✨ All dependencies are ready, no installation needed!"
+doc_parser.install.plan:
+  other: "📋 Installation plan:"
+doc_parser.install.install_uv:
+  other: "Install uv tool"
+doc_parser.install.create_venv:
+  other: "Create virtual environment (./venv/)"
+doc_parser.install.install_mineru:
+  other: "Install MinerU dependencies"
+doc_parser.install.install_markitdown:
+  other: "Install MarkItDown dependencies"
+doc_parser.install.starting:
+  other: "⚙️  Starting Python environment and dependency setup..."
+doc_parser.install.wait_hint:
+  other: "This may take a few minutes, please wait..."
+doc_parser.install.path_issues:
+  other: "⚠️  Detected potential path issues:"
+doc_parser.install.auto_fixing:
+  other: "🔧 Attempting to auto-fix issues..."
+doc_parser.install.fixed:
+  other: "✅ Fixed the following issues:"
+doc_parser.install.cannot_auto_fix:
+  other: "Cannot auto-fix, please manually resolve the above issues"
+doc_parser.install.fix_failed:
+  other: "❌ Auto-fix failed: %{error}"
+doc_parser.install.manual_fix_hint:
+  other: "💡 Manual fix suggestions:"
+doc_parser.install.python_setup_complete:
+  other: "✅ Python environment setup complete!"
+doc_parser.install.python_setup_failed:
+  other: "❌ Python environment setup failed: %{error}"
+doc_parser.install.detailed_hints:
+  other: "💡 Detailed troubleshooting suggestions:"
+doc_parser.install.diagnostic_commands:
+  other: "🔍 Diagnostic commands:"
+doc_parser.install.check_env:
+  other: "Check environment status: document-parser check"
+doc_parser.install.view_logs:
+  other: "View detailed logs: check logs/ directory"
+
+# Verification
+doc_parser.verify.starting:
+  other: "🔍 Verifying installation results..."
+doc_parser.verify.complete:
+  other: "Verification complete:"
+doc_parser.verify.version:
+  other: "Version: %{version}"
+doc_parser.verify.partial_issues:
+  other: "⚠️  Some dependencies may have installation issues"
+doc_parser.verify.need_fix:
+  other: "🔧 Issues to resolve:"
+doc_parser.verify.suggestion:
+  other: "Suggestion: %{suggestion}"
+doc_parser.verify.init_incomplete:
+  other: "Environment initialization incomplete"
+doc_parser.verify.failed:
+  other: "❌ Verification failed: %{error}"
+
+# Success messages
+doc_parser.success.init_complete:
+  other: "🎉 uv environment initialization complete!"
+doc_parser.success.all_ready:
+  other: "✨ All dependencies are ready, you can now start the server"
+doc_parser.success.venv_activate:
+  other: "📋 Virtual environment activation commands:"
+doc_parser.success.start_server:
+  other: "🚀 Start server:"
+doc_parser.success.use_uv:
+  other: "🔧 Or use uv to run commands directly:"
+doc_parser.success.more_help:
+  other: "📚 More help:"
+doc_parser.success.tips:
+  other: "💡 Tips:"
+doc_parser.success.venv_location:
+  other: "Virtual environment location: ./venv/"
+doc_parser.success.python_path:
+  other: "Python executable: ./venv/bin/python (Linux/macOS) or .\\venv\\Scripts\\python.exe (Windows)"
+doc_parser.success.troubleshoot_hint:
+  other: "If issues occur, run 'document-parser troubleshoot' for detailed guide"
+
+# troubleshoot command
+doc_parser.troubleshoot.title:
+  other: "🔧 Document Parser Troubleshooting Guide"
+doc_parser.troubleshoot.env_overview:
+  other: "📊 Current Environment Overview:"
+doc_parser.troubleshoot.work_dir:
+  other: "Working directory: %{path}"
+doc_parser.troubleshoot.venv_path:
+  other: "Virtual environment: ./venv/"
+doc_parser.troubleshoot.os:
+  other: "Operating system: %{os}"
+
+# Virtual environment issues
+doc_parser.troubleshoot.venv_problems:
+  other: "🏠 1. Virtual Environment Issues"
+doc_parser.troubleshoot.venv_create_failed:
+  other: "❓ Issue: Virtual environment creation failed"
+doc_parser.troubleshoot.diagnostic_steps:
+  other: "🔍 Diagnostic steps:"
+doc_parser.troubleshoot.solutions:
+  other: "💡 Solutions:"
+doc_parser.troubleshoot.venv_activate_failed:
+  other: "❓ Issue: Virtual environment activation failed"
+
+# Dependency installation issues
+doc_parser.troubleshoot.deps_problems:
+  other: "📦 2. Dependency Installation Issues"
+doc_parser.troubleshoot.uv_not_installed:
+  other: "❓ Issue: UV tool not installed or unavailable"
+doc_parser.troubleshoot.mineru_markitdown_failed:
+  other: "❓ Issue: MinerU or MarkItDown installation failed"
+
+# Network issues
+doc_parser.troubleshoot.network_problems:
+  other: "🌐 3. Network and Download Issues"
+doc_parser.troubleshoot.network_timeout:
+  other: "❓ Issue: Network connection timeout or download failed"
+
+# System environment issues
+doc_parser.troubleshoot.system_problems:
+  other: "⚙️  4. System Environment Issues"
+doc_parser.troubleshoot.python_incompatible:
+  other: "❓ Issue: Python version incompatible"
+doc_parser.troubleshoot.cuda_config:
+  other: "❓ Issue: CUDA environment configuration (optional, for GPU acceleration)"
+
+# Diagnostic commands
+doc_parser.troubleshoot.diagnostic_commands:
+  other: "🔍 5. Common Diagnostic Commands"
+doc_parser.troubleshoot.env_check:
+  other: "Environment check:"
+doc_parser.troubleshoot.manual_verify:
+  other: "Manual verification:"
+doc_parser.troubleshoot.view_logs:
+  other: "Log viewing:"
+
+# Get help
+doc_parser.troubleshoot.more_help:
+  other: "🆘 6. Get More Help"
+doc_parser.troubleshoot.if_unsolved:
+  other: "If the above methods don't resolve the issue:"
+
+# Real-time diagnosis
+doc_parser.troubleshoot.realtime_diagnosis:
+  other: "🔬 Real-time Environment Diagnosis"
+doc_parser.troubleshoot.env_good:
+  other: "✅ Environment status good, all dependencies ready"
+doc_parser.troubleshoot.issues_found:
+  other: "⚠️  Found the following issues:"
+doc_parser.troubleshoot.env_check_failed:
+  other: "❌ Environment check failed: %{error}"
+doc_parser.troubleshoot.follow_guide:
+  other: "Please follow the above guide for troubleshooting"
+
+# Tip
+doc_parser.troubleshoot.tip:
+  other: "💡 Tip: Most issues can be resolved by re-running 'document-parser uv-init'"
+
+# Background cleanup
+doc_parser.background.cleanup_failed:
+  other: "Failed to cleanup expired data: %{error}"
+doc_parser.background.cleanup_complete:
+  other: "Background cleanup task completed"
+
+# Signal handling
+doc_parser.signal.ctrl_c_failed:
+  other: "Failed to listen for Ctrl+C signal"
+doc_parser.signal.terminate_failed:
+  other: "Failed to listen for terminate signal"
+
+# ===========================================
+# Common Messages
+# ===========================================
+common.yes: "Yes"
+common.no: "No"
+common.success: "Success"
+common.failed: "Failed"
+common.error: "Error"
+common.warning: "Warning"
+common.info: "Info"
+common.loading: "Loading..."
+common.please_wait: "Please wait..."
+common.retry: "Retry"
+common.cancel: "Cancel"
+common.confirm: "Confirm"
+common.back: "Back"
+common.next: "Next"
+common.previous: "Previous"
+common.done: "Done"
+common.skip: "Skip"

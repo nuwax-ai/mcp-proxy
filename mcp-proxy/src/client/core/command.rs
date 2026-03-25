@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::process::Stdio;
 
 use crate::proxy::{StreamProxyHandler, ToolFilter};
+use crate::t;
 
 // 使用 mcp-streamable-proxy 的类型（rmcp 0.12，process-wrap 9.0）
 use mcp_streamable_proxy::{
@@ -34,8 +35,8 @@ pub async fn run_command_mode(
     tool_filter: ToolFilter,
     quiet: bool,
 ) -> Result<()> {
-    tracing::info!("模式: 本地命令模式");
-    tracing::info!("命令: {} {:?}", command, cmd_args);
+    tracing::info!("{}", t!("cli.command.local_mode"));
+    tracing::info!("{}", t!("cli.command.command", cmd = command, args = format!("{:?}", cmd_args)));
     if !env.is_empty() {
         tracing::debug!("环境变量数量: {}", env.len());
     }
@@ -142,7 +143,7 @@ pub async fn run_command_mode(
             result?;
         }
         _ = tokio::signal::ctrl_c() => {
-            tracing::info!("收到 Ctrl+C 信号，正在关闭...");
+            tracing::info!("{}", t!("cli.command.ctrl_c"));
             // tokio runtime 会清理资源，包括子进程
         }
     }

@@ -32,7 +32,7 @@ pub async fn add_route_handler(
 
         //根据 mcp_id 和协议,生成 mcp_router_path
         let mcp_router_path =
-            McpRouterPath::new(mcp_id, mcp_protocol).map_err(AppError::McpServerError)?;
+            McpRouterPath::new(mcp_id, mcp_protocol).map_err(|e| AppError::mcp_server_error(e.to_string()))?;
 
         let mcp_plugin_json = params.mcp_json_config;
         // 将mcp_plugin_json转换为 McpServerConfig 结构体
@@ -61,7 +61,7 @@ pub async fn add_route_handler(
         .await
         .map_err(|e| {
             error!("启动 MCP 服务失败: {e}");
-            AppError::McpServerError(e)
+            AppError::mcp_server_error(e.to_string())
         })?;
 
         //区分 mcp协议
@@ -93,6 +93,6 @@ pub async fn add_route_handler(
         Ok(HttpResult::success(data, None))
     } else {
         //返回 bad request,400 错误
-        return Err(AppError::McpServerError(anyhow::anyhow!("无效的请求路径")));
+        return Err(AppError::invalid_parameter("无效的请求路径"));
     }
 }

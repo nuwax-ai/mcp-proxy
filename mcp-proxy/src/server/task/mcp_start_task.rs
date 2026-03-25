@@ -34,7 +34,7 @@ pub async fn mcp_start_task(
 
     // Create router path based on client protocol (determines exposed API interface)
     let mcp_router_path: McpRouterPath =
-        McpRouterPath::new(mcp_id, client_protocol).map_err(AppError::McpServerError)?;
+        McpRouterPath::new(mcp_id, client_protocol).map_err(|e| AppError::mcp_server_error(e.to_string()))?;
 
     let mcp_json_config = mcp_config
         .mcp_json_config

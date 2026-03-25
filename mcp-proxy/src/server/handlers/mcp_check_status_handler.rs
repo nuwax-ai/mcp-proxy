@@ -219,7 +219,7 @@ fn spawn_mcp_service(
 
     // 设置初始化状态 - 使用客户端协议创建路由路径
     let mcp_router_path = McpRouterPath::new(mcp_id.clone(), client_protocol.clone())
-        .map_err(AppError::McpServerError)?;
+        .map_err(|e| AppError::mcp_server_error(e.to_string()))?;
     let mcp_service_status = McpServiceStatus::new(
         mcp_id.clone(),
         mcp_type.clone(),

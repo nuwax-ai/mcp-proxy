@@ -28,6 +28,9 @@ dashmap = { workspace = true }
 # 错误处理
 anyhow = { workspace = true }
 
+# 国际化支持
+rust-i18n = { workspace = true }
+
 # OpenTelemetry 核心（条件依赖）
 opentelemetry = { workspace = true, optional = true }
 opentelemetry_sdk = { workspace = true, optional = true }

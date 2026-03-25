@@ -5,6 +5,8 @@
 use std::future::Future;
 use std::time::Duration;
 
+use crate::t;
+
 /// 健康检查能力 trait
 ///
 /// 抽象 SSE 和 Stream handler 的共同行为
@@ -38,7 +40,7 @@ pub async fn monitor_connection_health<H: HealthChecker>(
 ) -> String {
     let connection_start = std::time::Instant::now();
     if !quiet {
-        tracing::info!("💓 开始监控 {} 连接健康状态", protocol_name);
+        tracing::info!("{}", t!("cli.monitoring.health", protocol = protocol_name));
     }
 
     // 健康检查日志间隔：与 ping 间隔一致，但至少 30 秒
@@ -73,11 +75,13 @@ pub async fn monitor_connection_health<H: HealthChecker>(
                     let alive_duration = connection_start.elapsed();
                     let backend_available = handler.is_backend_available();
                     tracing::info!(
-                        "💓 [{}][健康检查] 连接状态: {} (仅检查连接通道, 未调用 list_tools), 检查 #{}, 已存活: {}s",
-                        protocol_name,
-                        if backend_available { "正常" } else { "异常" },
-                        check_count,
-                        alive_duration.as_secs()
+                        "{}",
+                        t!("cli.monitoring.health_check_status",
+                            protocol = protocol_name,
+                            status = if backend_available { "正常" } else { "异常" },
+                            count = check_count,
+                            seconds = alive_duration.as_secs()
+                        )
                     );
                 }
             }
@@ -131,10 +135,12 @@ pub async fn monitor_connection_health<H: HealthChecker>(
                 let since_last_log = last_health_log.elapsed().as_secs();
                 if first_ping || since_last_log >= health_log_interval_secs {
                     tracing::info!(
-                        "💓 [{}][健康检查] 后端服务正常 (list_tools 验证通过), Ping #{}, 已存活: {}s",
-                        protocol_name,
-                        ping_count,
-                        alive_duration.as_secs()
+                        "{}",
+                        t!("cli.monitoring.health_check_normal",
+                            protocol = protocol_name,
+                            count = ping_count,
+                            seconds = alive_duration.as_secs()
+                        )
                     );
                     last_health_log = std::time::Instant::now();
                     first_ping = false;

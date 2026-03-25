@@ -4,6 +4,7 @@
 //! - 镜像源（npm_config_registry / UV_INDEX_URL）
 
 use crate::config::{AppConfig, MirrorYamlConfig};
+use mcp_common::t;
 
 /// 初始化进程环境（镜像源）
 ///
@@ -30,15 +31,15 @@ fn init_mirror(yml: &MirrorYamlConfig) {
     }
 
     if config.is_empty() {
-        eprintln!("  - 未配置镜像源（npm/PyPI），将使用默认源");
+        eprintln!("  - {}", t!("cli.mirror.not_configured"));
         return;
     }
 
     if let Some(ref npm) = config.npm_registry {
-        eprintln!("  - npm 镜像: {}", npm);
+        eprintln!("  - {}", t!("cli.mirror.npm", url = npm));
     }
     if let Some(ref pypi) = config.pypi_index_url {
-        eprintln!("  - PyPI 镜像: {}", pypi);
+        eprintln!("  - {}", t!("cli.mirror.pypi", url = pypi));
     }
     config.apply_to_process_env();
 }

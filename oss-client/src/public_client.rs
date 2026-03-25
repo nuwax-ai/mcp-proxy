@@ -377,12 +377,12 @@ impl OssClientTrait for PublicOssClient {
         let prefixed_key = self.config.get_prefixed_key(object_key);
 
         // 创建临时文件
-        let temp_file = tempfile::NamedTempFile::new().map_err(OssError::Io)?;
+        let temp_file = tempfile::NamedTempFile::new().map_err(|e| OssError::io_error(e.to_string()))?;
 
         // 写入内容到临时文件
         tokio::fs::write(temp_file.path(), content)
             .await
-            .map_err(OssError::Io)?;
+            .map_err(|e| OssError::io_error(e.to_string()))?;
 
         // 创建OSS客户端（使用公有bucket）
         let oss_client = OSS::new(

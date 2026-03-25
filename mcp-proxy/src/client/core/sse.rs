@@ -12,6 +12,7 @@ use crate::client::support::{
     ConvertArgs, classify_error, print_diagnostic_report, summarize_error, truncate_str,
 };
 use crate::proxy::{McpClientConfig, ProxyHandler, SseClientConnection, ToolFilter};
+use crate::t;
 
 use mcp_sse_proxy::{ServiceExt, stdio as sse_stdio};
 
@@ -35,12 +36,14 @@ pub async fn run_sse_mode(
     quiet: bool,
 ) -> Result<()> {
     tracing::info!("========================================");
-    tracing::info!("SSE 模式启动");
-    tracing::info!("目标 URL: {}", config.url);
+    tracing::info!("{}", t!("cli.sse.mode_starting"));
+    tracing::info!("{}", t!("cli.convert.target_url", url = config.url));
     tracing::info!(
-        "Ping 间隔: {}s, Ping 超时: {}s",
-        args.ping_interval,
-        args.ping_timeout
+        "{}",
+        t!("cli.convert.ping_config",
+            interval = args.ping_interval,
+            timeout = args.ping_timeout
+        )
     );
     tracing::info!("========================================");
 
@@ -51,8 +54,8 @@ pub async fn run_sse_mode(
     // 1. 使用高层 API 连接
     let connect_timeout = Duration::from_secs(30);
     tracing::info!(
-        "开始连接到后端服务 (超时: {}s)...",
-        connect_timeout.as_secs()
+        "{}",
+        t!("cli.convert.connecting_backend", timeout = connect_timeout.as_secs())
     );
     let connect_start = std::time::Instant::now();
 
@@ -62,16 +65,16 @@ pub async fn run_sse_mode(
     )
     .await
     .map_err(|_| {
-        tracing::error!("连接后端超时 ({}s)", connect_timeout.as_secs());
-        anyhow::anyhow!("连接后端超时 ({}秒)", connect_timeout.as_secs())
+        tracing::error!("{}", t!("cli.sse.connect_timeout", seconds = connect_timeout.as_secs()));
+        anyhow::anyhow!("Backend connection timeout ({}s)", connect_timeout.as_secs())
     })?
     .map_err(|e| {
-        tracing::error!("连接后端失败: {}", e);
-        anyhow::anyhow!("连接后端失败: {}", e)
+        tracing::error!("{}", t!("cli.sse.connect_failed", error = e.to_string()));
+        anyhow::anyhow!("Backend connection failed: {}", e)
     })?;
 
     let connect_duration = connect_start.elapsed();
-    tracing::info!("后端连接成功 (耗时: {:?})", connect_duration);
+    tracing::info!("{}", t!("cli.sse.connect_success", duration = format!("{:?}", connect_duration)));
 
     if !quiet {
         eprintln!("✅ 后端连接成功");
@@ -91,9 +94,9 @@ pub async fn run_sse_mode(
     tracing::debug!("ProxyHandler 创建完成");
 
     // 3. 启动 stdio server
-    tracing::info!("启动 stdio server...");
+    tracing::info!("{}", t!("cli.sse.stdio_starting"));
     let server = (*handler).clone().serve(sse_stdio()).await?;
-    tracing::info!("stdio server 已启动");
+    tracing::info!("{}", t!("cli.sse.stdio_started"));
 
     if !quiet {
         eprintln!("💡 stdio server 已启动，开始代理转换...");
@@ -112,18 +115,18 @@ pub async fn run_sse_mode(
     tracing::debug!("Watchdog 任务已启动");
 
     // 5. 等待 stdio server 退出
-    tracing::info!("开始等待 stdio server 事件...");
+    tracing::info!("{}", t!("cli.sse.waiting_events"));
     tokio::select! {
         result = server.waiting() => {
             tracing::info!("========================================");
-            tracing::info!("stdio server 退出 - 原因: MCP 客户端断开连接 (stdin EOF)");
+            tracing::info!("{}", t!("cli.sse.stdio_exit_eof"));
             tracing::info!("========================================");
             watchdog_handle.abort();
             result?;
         }
         watchdog_result = &mut watchdog_handle => {
             tracing::info!("========================================");
-            tracing::info!("Watchdog 任务退出");
+            tracing::info!("{}", t!("cli.sse.watchdog_exit"));
             tracing::info!("========================================");
             if let Err(e) = watchdog_result
                 && !e.is_cancelled()
@@ -133,7 +136,7 @@ pub async fn run_sse_mode(
         }
     }
 
-    tracing::info!("mcp-proxy convert (SSE 模式) 正常退出");
+    tracing::info!("{}", t!("cli.sse.normal_exit"));
     Ok(())
 }
 
@@ -171,8 +174,8 @@ async fn run_sse_watchdog(
     quiet: bool,
 ) {
     tracing::info!("========================================");
-    tracing::info!("SSE Watchdog 启动");
-    tracing::info!("最大重试次数: {} (0=无限)", args.retries);
+    tracing::info!("{}", t!("cli.sse.watchdog_starting"));
+    tracing::info!("{}", t!("cli.sse.max_retries", count = args.retries));
     tracing::info!("========================================");
 
     let max_retries = args.retries;
@@ -182,16 +185,16 @@ async fn run_sse_watchdog(
     let initial_connection_start = std::time::Instant::now();
 
     // 首先监控现有连接的健康状态
-    tracing::info!("开始监控初始连接...");
+    tracing::info!("{}", t!("cli.sse.monitoring_connection"));
     let disconnect_reason =
         monitor_sse_connection(&handler, args.ping_interval, args.ping_timeout, quiet).await;
 
     // 连接断开，标记后端不可用
-    tracing::warn!("初始连接断开: {}", disconnect_reason);
+    tracing::warn!("{}", t!("cli.sse.initial_disconnect", reason = disconnect_reason));
     handler.swap_backend(None);
 
     let alive_duration = initial_connection_start.elapsed();
-    tracing::info!("初始连接存活时长: {}s", alive_duration.as_secs());
+    tracing::info!("{}", t!("cli.sse.connection_alive", seconds = alive_duration.as_secs()));
 
     if !quiet {
         eprintln!("⚠️  连接断开: {}", disconnect_reason);
@@ -211,8 +214,8 @@ async fn run_sse_watchdog(
     loop {
         attempt += 1;
         tracing::info!("========================================");
-        tracing::info!("重连尝试 #{}/{}", attempt, max_retries);
-        tracing::info!("退避时间: {}s", backoff_secs);
+        tracing::info!("{}", t!("cli.sse.reconnect_attempt", attempt = attempt, max = max_retries));
+        tracing::info!("{}", t!("cli.sse.backoff_time", seconds = backoff_secs));
 
         if !quiet {
             eprintln!("🔗 正在重新连接 (第{}次尝试)...", attempt);
@@ -226,7 +229,7 @@ async fn run_sse_watchdog(
 
         match connect_result {
             Ok(conn) => {
-                tracing::info!("重连成功 (耗时: {:?})", connect_duration);
+                tracing::info!("{}", t!("cli.sse.reconnect_success", duration = format!("{:?}", connect_duration)));
 
                 // 连接成功，获取 RunningService 并热替换后端
                 let running = conn.into_running_service();
@@ -238,17 +241,17 @@ async fn run_sse_watchdog(
                 }
 
                 // 监控连接健康
-                tracing::info!("开始监控重连后的连接...");
+                tracing::info!("{}", t!("cli.sse.monitoring_reconnect"));
                 let reconnect_start = std::time::Instant::now();
                 let disconnect_reason =
                     monitor_sse_connection(&handler, args.ping_interval, args.ping_timeout, quiet)
                         .await;
 
                 // 连接断开，标记后端不可用
-                tracing::warn!("重连后断开: {}", disconnect_reason);
+                tracing::warn!("{}", t!("cli.sse.reconnect_disconnect", reason = disconnect_reason));
                 handler.swap_backend(None);
                 let reconnect_alive_duration = reconnect_start.elapsed();
-                tracing::info!("重连后存活时长: {}s", reconnect_alive_duration.as_secs());
+                tracing::info!("{}", t!("cli.sse.reconnect_alive", seconds = reconnect_alive_duration.as_secs()));
 
                 if !quiet {
                     eprintln!("⚠️  连接断开: {}", disconnect_reason);
@@ -274,7 +277,7 @@ async fn run_sse_watchdog(
                 );
 
                 if max_retries > 0 && attempt >= max_retries {
-                    tracing::error!("达到最大重试次数 ({}), 停止重连", max_retries);
+                    tracing::error!("{}", t!("cli.sse.max_retries_reached", count = max_retries));
                     if !quiet {
                         eprintln!("❌ 连接失败，已达最大重试次数 ({})", max_retries);
                         eprintln!("   错误类型: {}", error_type);
@@ -286,7 +289,7 @@ async fn run_sse_watchdog(
                         &config.url,
                         0,
                         "连接失败，达到最大重试次数",
-                        Some(error_type),
+                        Some(&error_type),
                         args.logging.diagnostic,
                     );
                     break;
@@ -324,7 +327,7 @@ async fn run_sse_watchdog(
         backoff_secs = (backoff_secs * 2).min(MAX_BACKOFF_SECS);
     }
 
-    tracing::info!("SSE Watchdog 退出");
+    tracing::info!("{}", t!("cli.sse.watchdog_exit_msg"));
 }
 
 /// 监控 SSE 连接健康状态

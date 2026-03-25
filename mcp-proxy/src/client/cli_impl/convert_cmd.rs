@@ -7,20 +7,21 @@ use anyhow::Result;
 use crate::client::core::{run_command_mode, run_url_mode_with_retry};
 use crate::client::support::{ConvertArgs, init_logging, parse_convert_config};
 use crate::proxy::ToolFilter;
+use crate::t;
 
 /// 运行转换命令 - 核心功能
 pub async fn run_convert_command(args: ConvertArgs, verbose: bool, quiet: bool) -> Result<()> {
     // 检查 --allow-tools 和 --deny-tools 互斥
     if args.allow_tools.is_some() && args.deny_tools.is_some() {
-        anyhow::bail!("--allow-tools 和 --deny-tools 不能同时使用，请只选择其中一个");
+        anyhow::bail!("--allow-tools and --deny-tools cannot be used together, please choose only one");
     }
 
     // 创建工具过滤器
     let tool_filter = if let Some(allow_tools) = args.allow_tools.clone() {
-        tracing::info!("工具白名单: {:?}", allow_tools);
+        tracing::info!("{}", t!("cli.convert.tool_whitelist", tools = format!("{:?}", allow_tools)));
         ToolFilter::allow(allow_tools)
     } else if let Some(deny_tools) = args.deny_tools.clone() {
-        tracing::info!("工具黑名单: {:?}", deny_tools);
+        tracing::info!("{}", t!("cli.convert.tool_blacklist", tools = format!("{:?}", deny_tools)));
         ToolFilter::deny(deny_tools)
     } else {
         tracing::debug!("工具过滤器: 未启用");
@@ -30,20 +31,20 @@ pub async fn run_convert_command(args: ConvertArgs, verbose: bool, quiet: bool) 
     // 解析配置
     tracing::debug!("开始解析配置...");
     let config_source = parse_convert_config(&args)?;
-    tracing::info!("配置解析成功");
+    tracing::info!("{}", t!("cli.convert.config_parsed"));
 
     // 提取 MCP 名称用于日志文件命名
     let mcp_name = match &config_source {
         crate::client::support::McpConfigSource::RemoteService { name, .. } => {
-            tracing::info!("MCP 服务名称: {}", name);
+            tracing::info!("{}", t!("cli.convert.service_name", name = name));
             Some(name.as_str())
         }
         crate::client::support::McpConfigSource::LocalCommand { name, .. } => {
-            tracing::info!("MCP 服务名称: {}", name);
+            tracing::info!("{}", t!("cli.convert.service_name", name = name));
             Some(name.as_str())
         }
         _ => {
-            tracing::info!("MCP 服务名称: 未指定（使用 direct URL）");
+            tracing::info!("{}", t!("cli.convert.service_name_not_specified"));
             None
         }
     };
@@ -54,17 +55,17 @@ pub async fn run_convert_command(args: ConvertArgs, verbose: bool, quiet: bool) 
 
     // 记录命令启动（必须在日志系统初始化之后）
     tracing::info!("========================================");
-    tracing::info!("MCP-Proxy CLI 启动");
-    tracing::info!("命令: convert (stdio 桥接模式)");
-    tracing::info!("版本: {}", env!("CARGO_PKG_VERSION"));
-    tracing::info!("诊断模式: {}", args.logging.diagnostic);
+    tracing::info!("{}", t!("cli.convert.cli_starting"));
+    tracing::info!("{}", t!("cli.convert.command"));
+    tracing::info!("{}", t!("cli.convert.version", version = env!("CARGO_PKG_VERSION")));
+    tracing::info!("{}", t!("cli.convert.diagnostic_mode", enabled = args.logging.diagnostic));
     tracing::info!("========================================");
 
     // 根据配置源执行不同逻辑
     match config_source {
         crate::client::support::McpConfigSource::DirectUrl { url } => {
-            tracing::info!("模式: 直接 URL 模式");
-            tracing::info!("目标 URL: {}", url);
+            tracing::info!("{}", t!("cli.convert.mode_direct_url"));
+            tracing::info!("{}", t!("cli.convert.target_url", url = url));
             // 直接 URL 模式（带自动重连）
             run_url_mode_with_retry(
                 &args,
@@ -85,11 +86,11 @@ pub async fn run_convert_command(args: ConvertArgs, verbose: bool, quiet: bool) 
             timeout,
         } => {
             // 远程服务配置模式
-            tracing::info!("模式: 远程服务配置模式");
-            tracing::info!("服务名称: {}", name);
-            tracing::info!("服务 URL: {}", url);
+            tracing::info!("{}", t!("cli.convert.mode_remote_service"));
+            tracing::info!("{}", t!("cli.convert.service_name", name = name));
+            tracing::info!("{}", t!("cli.convert.service_url", url = url));
             if let Some(proto) = &protocol {
-                tracing::info!("配置协议: {:?}", proto);
+                tracing::info!("{}", t!("cli.convert.config_protocol", protocol = format!("{:?}", proto)));
             }
             if !headers.is_empty() {
                 tracing::debug!("自定义 headers: {:?}", headers);

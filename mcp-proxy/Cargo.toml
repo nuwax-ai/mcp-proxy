@@ -24,6 +24,9 @@ default = []
 [dependencies]
 # 共享类型和工具
 mcp-common = { version = "0.1.22", path = "../mcp-common", features = ["otlp"] }
+
+# 国际化支持
+rust-i18n = { workspace = true }
 # 新增：协议特定的代理库
 mcp-streamable-proxy = { version = "0.1.22", path = "../mcp-streamable-proxy" }
 mcp-sse-proxy = { version = "0.1.22", path = "../mcp-sse-proxy" }

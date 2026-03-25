@@ -1,3 +1,10 @@
+// 初始化 i18n，使用 workspace 根目录的翻译文件
+#[macro_use]
+extern crate rust_i18n;
+
+// 初始化翻译文件，指向 workspace 根目录的 locales
+i18n!("../locales", fallback = "en");
+
 pub mod cli;
 pub mod config;
 pub mod config_rs_integration;

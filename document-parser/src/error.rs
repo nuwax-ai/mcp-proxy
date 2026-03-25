@@ -4,96 +4,189 @@ use thiserror::Error;
 #[derive(Error, Debug, Clone)]
 pub enum AppError {
     /// 配置错误
-    #[error("配置错误: {0}")]
+    #[error("{0}")]
     Config(String),
 
     /// 文件操作错误
-    #[error("文件操作错误: {0}")]
+    #[error("{0}")]
     File(String),
 
     /// 格式不支持错误
-    #[error("不支持的文件格式: {0}")]
+    #[error("{0}")]
     UnsupportedFormat(String),
 
     /// 解析错误
-    #[error("解析错误: {0}")]
+    #[error("{0}")]
     Parse(String),
 
     /// MinerU错误
-    #[error("MinerU错误: {0}")]
+    #[error("{0}")]
     MinerU(String),
 
     /// MarkItDown错误
-    #[error("MarkItDown错误: {0}")]
+    #[error("{0}")]
     MarkItDown(String),
 
     /// OSS操作错误
-    #[error("OSS操作错误: {0}")]
+    #[error("{0}")]
     Oss(String),
 
     /// 数据库错误
-    #[error("数据库错误: {0}")]
+    #[error("{0}")]
     Database(String),
 
     /// 网络错误
-    #[error("网络错误: {0}")]
+    #[error("{0}")]
     Network(String),
 
     /// 任务错误
-    #[error("任务错误: {0}")]
+    #[error("{0}")]
     Task(String),
 
     /// 内部错误
-    #[error("内部错误: {0}")]
+    #[error("{0}")]
     Internal(String),
 
     /// 超时错误
-    #[error("操作超时: {0}")]
+    #[error("{0}")]
     Timeout(String),
 
     /// 验证错误
-    #[error("验证错误: {0}")]
+    #[error("{0}")]
     Validation(String),
 
     /// 环境错误
-    #[error("环境错误: {0}")]
+    #[error("{0}")]
     Environment(String),
 
     /// 虚拟环境路径错误
-    #[error("虚拟环境路径错误: {0}")]
+    #[error("{0}")]
     VirtualEnvironmentPath(String),
 
     /// 权限错误
-    #[error("权限错误: {0}")]
+    #[error("{0}")]
     Permission(String),
 
     /// 路径错误
-    #[error("路径错误: {0}")]
+    #[error("{0}")]
     Path(String),
 
     /// 队列错误
-    #[error("队列错误: {0}")]
+    #[error("{0}")]
     Queue(String),
 
     /// 处理错误
-    #[error("处理错误: {0}")]
+    #[error("{0}")]
     Processing(String),
 }
 
 impl AppError {
+    // ===========================================
+    // 工厂方法 - 创建带国际化消息的错误
+    // ===========================================
+
+    /// 创建配置错误
+    pub fn config_error(detail: impl Into<String>) -> Self {
+        Self::Config(t!("errors.document_parser.config", detail = detail.into()).to_string())
+    }
+
+    /// 创建文件操作错误
+    pub fn file_error(detail: impl Into<String>) -> Self {
+        Self::File(t!("errors.document_parser.file", detail = detail.into()).to_string())
+    }
+
+    /// 创建格式不支持错误
+    pub fn unsupported_format(format: impl Into<String>) -> Self {
+        Self::UnsupportedFormat(t!("errors.document_parser.unsupported_format", format = format.into()).to_string())
+    }
+
+    /// 创建解析错误
+    pub fn parse_error(detail: impl Into<String>) -> Self {
+        Self::Parse(t!("errors.document_parser.parse", detail = detail.into()).to_string())
+    }
+
+    /// 创建 MinerU 错误
+    pub fn mineru_error(detail: impl Into<String>) -> Self {
+        Self::MinerU(t!("errors.document_parser.mineru", detail = detail.into()).to_string())
+    }
+
+    /// 创建 MarkItDown 错误
+    pub fn markitdown_error(detail: impl Into<String>) -> Self {
+        Self::MarkItDown(t!("errors.document_parser.markitdown", detail = detail.into()).to_string())
+    }
+
+    /// 创建 OSS 错误
+    pub fn oss_error(detail: impl Into<String>) -> Self {
+        Self::Oss(t!("errors.document_parser.oss", detail = detail.into()).to_string())
+    }
+
+    /// 创建数据库错误
+    pub fn database_error(detail: impl Into<String>) -> Self {
+        Self::Database(t!("errors.document_parser.database", detail = detail.into()).to_string())
+    }
+
+    /// 创建网络错误
+    pub fn network_error(detail: impl Into<String>) -> Self {
+        Self::Network(t!("errors.document_parser.network", detail = detail.into()).to_string())
+    }
+
+    /// 创建任务错误
+    pub fn task_error(detail: impl Into<String>) -> Self {
+        Self::Task(t!("errors.document_parser.task", detail = detail.into()).to_string())
+    }
+
+    /// 创建内部错误
+    pub fn internal_error(detail: impl Into<String>) -> Self {
+        Self::Internal(t!("errors.document_parser.internal", detail = detail.into()).to_string())
+    }
+
+    /// 创建超时错误
+    pub fn timeout_error(detail: impl Into<String>) -> Self {
+        Self::Timeout(t!("errors.document_parser.timeout", detail = detail.into()).to_string())
+    }
+
+    /// 创建验证错误
+    pub fn validation_error(detail: impl Into<String>) -> Self {
+        Self::Validation(t!("errors.document_parser.validation", detail = detail.into()).to_string())
+    }
+
+    /// 创建环境错误
+    pub fn environment_error(detail: impl Into<String>) -> Self {
+        Self::Environment(t!("errors.document_parser.environment", detail = detail.into()).to_string())
+    }
+
     /// 创建虚拟环境路径错误
     pub fn virtual_environment_path_error(message: String, path: &std::path::Path) -> Self {
-        AppError::VirtualEnvironmentPath(format!("{} (路径: {})", message, path.display()))
+        let path_str = path.display().to_string();
+        Self::VirtualEnvironmentPath(
+            t!("errors.document_parser.virtual_environment_path", detail = format!("{} (path: {})", message, path_str)).to_string()
+        )
     }
 
     /// 创建权限错误
     pub fn permission_error(message: String, path: &std::path::Path) -> Self {
-        AppError::Permission(format!("{} (路径: {})", message, path.display()))
+        let path_str = path.display().to_string();
+        Self::Permission(
+            t!("errors.document_parser.permission", detail = format!("{} (path: {})", message, path_str)).to_string()
+        )
     }
 
     /// 创建路径错误
     pub fn path_error(message: String, path: &std::path::Path) -> Self {
-        AppError::Path(format!("{} (路径: {})", message, path.display()))
+        let path_str = path.display().to_string();
+        Self::Path(
+            t!("errors.document_parser.path", detail = format!("{} (path: {})", message, path_str)).to_string()
+        )
+    }
+
+    /// 创建队列错误
+    pub fn queue_error(detail: impl Into<String>) -> Self {
+        Self::Queue(t!("errors.document_parser.queue", detail = detail.into()).to_string())
+    }
+
+    /// 创建处理错误
+    pub fn processing_error(detail: impl Into<String>) -> Self {
+        Self::Processing(t!("errors.document_parser.processing", detail = detail.into()).to_string())
     }
 
     /// 获取路径相关错误的详细恢复建议
@@ -186,28 +279,28 @@ impl AppError {
         }
     }
 
-    /// 获取错误建议
-    pub fn get_suggestion(&self) -> &'static str {
+    /// 获取错误建议（国际化）
+    pub fn get_suggestion(&self) -> String {
         match self {
-            AppError::Config(_) => "检查配置文件和环境变量",
-            AppError::File(_) => "检查文件路径和权限",
-            AppError::UnsupportedFormat(_) => "检查文件格式是否支持",
-            AppError::Parse(_) => "检查文件内容是否完整",
-            AppError::MinerU(_) => "检查MinerU环境配置",
-            AppError::MarkItDown(_) => "检查MarkItDown环境配置",
-            AppError::Oss(_) => "检查OSS配置和网络连接",
-            AppError::Database(_) => "检查数据库连接和权限",
-            AppError::Network(_) => "检查网络连接和防火墙设置",
-            AppError::Task(_) => "检查任务参数和状态",
-            AppError::Internal(_) => "联系技术支持",
-            AppError::Timeout(_) => "检查网络延迟或增加超时时间",
-            AppError::Validation(_) => "检查输入参数格式",
-            AppError::Environment(_) => "检查系统环境和依赖安装",
-            AppError::Queue(_) => "检查队列服务状态和配置",
-            AppError::Processing(_) => "检查处理流程和数据格式",
-            AppError::VirtualEnvironmentPath(_) => "检查虚拟环境路径和目录权限",
-            AppError::Permission(_) => "检查文件和目录权限设置",
-            AppError::Path(_) => "检查路径是否存在和可访问",
+            AppError::Config(_) => t!("errors.document_parser.suggestions.config").to_string(),
+            AppError::File(_) => t!("errors.document_parser.suggestions.file").to_string(),
+            AppError::UnsupportedFormat(_) => t!("errors.document_parser.suggestions.unsupported_format").to_string(),
+            AppError::Parse(_) => t!("errors.document_parser.suggestions.parse").to_string(),
+            AppError::MinerU(_) => t!("errors.document_parser.suggestions.mineru").to_string(),
+            AppError::MarkItDown(_) => t!("errors.document_parser.suggestions.markitdown").to_string(),
+            AppError::Oss(_) => t!("errors.document_parser.suggestions.oss").to_string(),
+            AppError::Database(_) => t!("errors.document_parser.suggestions.database").to_string(),
+            AppError::Network(_) => t!("errors.document_parser.suggestions.network").to_string(),
+            AppError::Task(_) => t!("errors.document_parser.suggestions.task").to_string(),
+            AppError::Internal(_) => t!("errors.document_parser.suggestions.internal").to_string(),
+            AppError::Timeout(_) => t!("errors.document_parser.suggestions.timeout").to_string(),
+            AppError::Validation(_) => t!("errors.document_parser.suggestions.validation").to_string(),
+            AppError::Environment(_) => t!("errors.document_parser.suggestions.environment").to_string(),
+            AppError::Queue(_) => t!("errors.document_parser.suggestions.queue").to_string(),
+            AppError::Processing(_) => t!("errors.document_parser.suggestions.processing").to_string(),
+            AppError::VirtualEnvironmentPath(_) => t!("errors.document_parser.suggestions.virtual_environment_path").to_string(),
+            AppError::Permission(_) => t!("errors.document_parser.suggestions.permission").to_string(),
+            AppError::Path(_) => t!("errors.document_parser.suggestions.path").to_string(),
         }
     }
 
@@ -225,28 +318,28 @@ impl AppError {
 /// 从标准库错误转换
 impl From<std::io::Error> for AppError {
     fn from(err: std::io::Error) -> Self {
-        AppError::File(err.to_string())
+        Self::file_error(err.to_string())
     }
 }
 
 /// 从serde错误转换
 impl From<serde_json::Error> for AppError {
     fn from(err: serde_json::Error) -> Self {
-        AppError::Parse(format!("JSON解析错误: {err}"))
+        Self::parse_error(format!("JSON: {err}"))
     }
 }
 
 /// 从serde_yaml错误转换
 impl From<serde_yaml::Error> for AppError {
     fn from(err: serde_yaml::Error) -> Self {
-        AppError::Config(format!("YAML配置错误: {err}"))
+        Self::config_error(format!("YAML: {err}"))
     }
 }
 
 /// 从sled错误转换
 impl From<sled::Error> for AppError {
     fn from(err: sled::Error) -> Self {
-        AppError::Database(format!("Sled数据库错误: {err}"))
+        Self::database_error(format!("Sled: {err}"))
     }
 }
 
@@ -254,11 +347,11 @@ impl From<sled::Error> for AppError {
 impl From<reqwest::Error> for AppError {
     fn from(err: reqwest::Error) -> Self {
         if err.is_timeout() {
-            AppError::Timeout("HTTP请求超时".to_string())
+            Self::timeout_error("HTTP request")
         } else if err.is_connect() {
-            AppError::Network("网络连接失败".to_string())
+            Self::network_error("connection failed")
         } else {
-            AppError::Network(format!("HTTP请求错误: {err}"))
+            Self::network_error(err.to_string())
         }
     }
 }
@@ -266,34 +359,34 @@ impl From<reqwest::Error> for AppError {
 /// 从anyhow错误转换
 impl From<anyhow::Error> for AppError {
     fn from(err: anyhow::Error) -> Self {
-        AppError::Internal(err.to_string())
+        Self::internal_error(err.to_string())
     }
 }
 
 /// 从std::env::VarError转换
 impl From<std::env::VarError> for AppError {
     fn from(err: std::env::VarError) -> Self {
-        AppError::Config(format!("环境变量错误: {err}"))
+        Self::config_error(format!("environment variable: {err}"))
     }
 }
 
 /// 从std::num::ParseIntError转换
 impl From<std::num::ParseIntError> for AppError {
     fn from(err: std::num::ParseIntError) -> Self {
-        AppError::Config(format!("数字解析错误: {err}"))
+        Self::config_error(format!("integer parse: {err}"))
     }
 }
 
 /// 从std::str::ParseBoolError转换
 impl From<std::str::ParseBoolError> for AppError {
     fn from(err: std::str::ParseBoolError) -> Self {
-        AppError::Config(format!("布尔值解析错误: {err}"))
+        Self::config_error(format!("boolean parse: {err}"))
     }
 }
 
 /// 从std::time::SystemTimeError转换
 impl From<std::time::SystemTimeError> for AppError {
     fn from(err: std::time::SystemTimeError) -> Self {
-        AppError::Internal(err.to_string())
+        Self::internal_error(err.to_string())
     }
 }

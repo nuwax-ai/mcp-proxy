@@ -7,6 +7,7 @@ use std::collections::HashMap;
 
 use crate::client::support::{ConvertArgs, protocol_name};
 use crate::proxy::{McpClientConfig, ToolFilter};
+use crate::t;
 
 use super::sse::run_sse_mode;
 use super::stream::run_stream_mode;
@@ -22,8 +23,8 @@ pub async fn run_url_mode_with_retry(
     verbose: bool,
     quiet: bool,
 ) -> Result<()> {
-    tracing::info!("开始 URL 模式处理");
-    tracing::info!("目标 URL: {}", url);
+    tracing::info!("{}", t!("cli.convert.starting"));
+    tracing::info!("{}", t!("cli.convert.target_url", url = url));
     tracing::debug!("Headers 数量: {}", merged_headers.len());
     tracing::debug!(
         "Ping 间隔: {}s, Ping 超时: {}s",
@@ -39,10 +40,10 @@ pub async fn run_url_mode_with_retry(
     // 显示过滤器配置
     if !quiet {
         if let Some(ref allow_tools) = args.allow_tools {
-            eprintln!("🔧 工具白名单: {:?}", allow_tools);
+            tracing::info!("{}", t!("cli.convert.tool_whitelist", tools = format!("{:?}", allow_tools)));
         }
         if let Some(ref deny_tools) = args.deny_tools {
-            eprintln!("🔧 工具黑名单: {:?}", deny_tools);
+            tracing::info!("{}", t!("cli.convert.tool_blacklist", tools = format!("{:?}", deny_tools)));
         }
     }
 
@@ -56,19 +57,19 @@ pub async fn run_url_mode_with_retry(
                 crate::client::protocol::McpProtocol::Stream
             }
         };
-        tracing::info!("使用命令行指定协议: {}", protocol_name(&detected));
+        tracing::info!("{}", t!("cli.convert.protocol_specified", protocol = protocol_name(&detected)));
         if !quiet {
             eprintln!("🔧 使用指定协议: {}", protocol_name(&detected));
         }
         detected
     } else if let Some(proto) = config_protocol {
-        tracing::info!("使用配置文件协议: {}", protocol_name(&proto));
+        tracing::info!("{}", t!("cli.convert.protocol_config", protocol = protocol_name(&proto)));
         if !quiet {
             eprintln!("🔧 使用配置协议: {}", protocol_name(&proto));
         }
         proto
     } else {
-        tracing::info!("开始自动检测协议...");
+        tracing::info!("{}", t!("cli.convert.detecting_protocol"));
         if !quiet {
             eprintln!("🔍 正在检测协议...");
         }
@@ -76,14 +77,16 @@ pub async fn run_url_mode_with_retry(
         let detected = crate::client::protocol::detect_mcp_protocol(url)
             .await
             .map_err(|e| {
-                tracing::error!("协议检测失败: {}", e);
+                tracing::error!("{}", t!("cli.convert.detect_failed", error = e.to_string()));
                 e
             })?;
         let detection_duration = detection_start.elapsed();
         tracing::info!(
-            "协议检测完成: {} (耗时: {:?})",
-            protocol_name(&detected),
-            detection_duration
+            "{}",
+            t!("cli.convert.detect_complete",
+                protocol = protocol_name(&detected),
+                duration = format!("{:?}", detection_duration)
+            )
         );
         if !quiet {
             eprintln!("🔍 检测到 {} 协议", protocol_name(&detected));
@@ -97,7 +100,7 @@ pub async fn run_url_mode_with_retry(
     tracing::debug!("MCP 客户端配置构建完成");
 
     // 根据协议类型分支处理
-    tracing::info!("使用 {} 协议模式", protocol_name(&protocol));
+    tracing::info!("{}", t!("cli.convert.using_protocol", protocol = protocol_name(&protocol)));
     match protocol {
         crate::client::protocol::McpProtocol::Sse => {
             run_sse_mode(config, args.clone(), tool_filter, verbose, quiet).await
@@ -106,8 +109,8 @@ pub async fn run_url_mode_with_retry(
             run_stream_mode(config, args.clone(), tool_filter, verbose, quiet).await
         }
         crate::client::protocol::McpProtocol::Stdio => {
-            tracing::error!("Stdio 协议不支持通过 URL 转换");
-            anyhow::bail!("Stdio 协议不支持通过 URL 转换，请使用 --config 配置本地命令")
+            tracing::error!("{}", t!("cli.convert.stdio_url_not_supported"));
+            anyhow::bail!("Stdio protocol does not support URL conversion, please use --config for local commands")
         }
     }
 }
