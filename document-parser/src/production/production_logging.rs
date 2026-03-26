@@ -1,6 +1,7 @@
 //! 生产环境日志模块
 //!
 //! 提供生产环境专用的日志功能，包括结构化日志、日志聚合、性能监控等。
+#![allow(dead_code)]
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -473,7 +474,7 @@ impl LogCollector for ConsoleCollector {
 
 impl LogCollector for FileCollector {
     fn collect(&self, entry: &LogEntry) -> Result<()> {
-        let formatted = self.formatter.format(entry)?;
+        let _formatted = self.formatter.format(entry)?;
         // 这里应该实现文件写入逻辑
         // 包括轮转检查
         Ok(())
@@ -490,7 +491,7 @@ impl LogCollector for FileCollector {
 }
 
 impl LogCollector for RemoteCollector {
-    fn collect(&self, entry: &LogEntry) -> Result<()> {
+    fn collect(&self, _entry: &LogEntry) -> Result<()> {
         // 这里应该实现异步发送到远程服务
         // 可以使用队列缓冲
         Ok(())
@@ -578,7 +579,7 @@ impl LogFilter for ModuleFilter {
 }
 
 impl LogFilter for RateLimitFilter {
-    fn filter(&self, entry: &LogEntry) -> bool {
+    fn filter(&self, _entry: &LogEntry) -> bool {
         // 这里应该实现速率限制逻辑
         // 基于模块或其他标识符
         true

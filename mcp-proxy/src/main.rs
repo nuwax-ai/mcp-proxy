@@ -5,10 +5,10 @@
 
 mod config;
 
-// 初始化 i18n，使用 workspace 根目录的翻译文件
+// 初始化 i18n，使用 crate 内置翻译文件
 #[macro_use]
 extern crate rust_i18n;
-i18n!("../locales", fallback = "en");
+i18n!("locales", fallback = "en");
 
 use anyhow::Result;
 use backtrace::Backtrace;

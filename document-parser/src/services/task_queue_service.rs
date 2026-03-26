@@ -144,10 +144,10 @@ pub struct TaskQueueService {
 /// 任务执行上下文
 #[derive(Debug, Clone)]
 struct TaskExecutionContext {
-    task_id: String,
+    _task_id: String,
     started_at: Instant,
-    worker_id: usize,
-    retry_count: u32,
+    _worker_id: usize,
+    _retry_count: u32,
 }
 
 impl TaskQueueService {
@@ -344,10 +344,10 @@ impl TaskQueueService {
                                     tasks.insert(
                                         task_id.clone(),
                                         TaskExecutionContext {
-                                            task_id: task_id.clone(),
+                                            _task_id: task_id.clone(),
                                             started_at: start_time,
-                                            worker_id,
-                                            retry_count: queue_item.retry_count,
+                                            _worker_id: worker_id,
+                                            _retry_count: queue_item.retry_count,
                                         },
                                     );
                                 }

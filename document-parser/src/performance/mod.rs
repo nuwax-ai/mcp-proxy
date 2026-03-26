@@ -22,7 +22,7 @@ pub struct PerformanceOptimizer {
     cache_manager: Arc<cache_manager::CacheManager>,
     metrics_collector: Arc<metrics_collector::MetricsCollector>,
     // resource_monitor: Arc<resource_monitor::ResourceMonitor>, // 模块不存在，暂时注释
-    config: PerformanceConfig,
+    _config: PerformanceConfig,
 }
 
 impl PerformanceOptimizer {
@@ -42,7 +42,7 @@ impl PerformanceOptimizer {
             cache_manager,
             metrics_collector,
             // resource_monitor, // 模块不存在，暂时注释
-            config: performance_config,
+            _config: performance_config,
         })
     }
 

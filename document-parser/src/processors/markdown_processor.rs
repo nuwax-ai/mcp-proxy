@@ -6,7 +6,6 @@ use anyhow::Result;
 use moka::future::Cache;
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use std::collections::HashMap;
-use std::io::BufRead;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
@@ -223,7 +222,7 @@ impl MarkdownProcessor {
         let max_level = toc_items.iter().map(|item| item.level).max().unwrap_or(1);
 
         // 构建结构化文档
-        let structured_doc = self
+        let _structured_doc = self
             .generate_structured_document_optimized(content, &events, &toc_items)
             .await?;
 
@@ -255,8 +254,6 @@ impl MarkdownProcessor {
         let mut current_content = String::new();
 
         let lines: Vec<&str> = content.lines().collect();
-        let total_lines = lines.len();
-
         for (line_num, line) in lines.iter().enumerate() {
             // 检查是否为标题行
             if let Some((level, title)) = self.parse_heading_line(line) {
@@ -343,10 +340,10 @@ impl MarkdownProcessor {
     }
 
     /// 优化版TOC生成
-    #[instrument(skip(self, content, events))]
+    #[instrument(skip(self, _content, events))]
     async fn generate_toc_optimized<'a>(
         &self,
-        content: &'a str,
+        _content: &'a str,
         events: &'a [Event<'a>],
     ) -> Result<Vec<TocItem>, AppError> {
         if !self.config.enable_toc {
@@ -466,6 +463,7 @@ impl MarkdownProcessor {
 
     /// 手动TOC生成（备用方案）
     #[instrument(skip(self, events))]
+    #[allow(dead_code)]
     async fn generate_toc_manual<'a>(
         &self,
         events: &'a [Event<'a>],
@@ -542,6 +540,7 @@ impl MarkdownProcessor {
 
     /// 内容清理和验证
     #[instrument(skip(self, content))]
+    #[allow(dead_code)]
     fn sanitize_content(&self, content: &str) -> Result<String, AppError> {
         if !self.config.enable_content_validation {
             return Ok(content.to_string());
@@ -586,12 +585,12 @@ impl MarkdownProcessor {
     }
 
     /// 生成结构化文档（优化版本）
-    #[instrument(skip(self, content, events, toc_items))]
+    #[instrument(skip(self, _content, events, _toc_items))]
     async fn generate_structured_document_optimized<'a>(
         &self,
-        content: &'a str,
+        _content: &'a str,
         events: &'a [Event<'a>],
-        toc_items: &'a [TocItem],
+        _toc_items: &'a [TocItem],
     ) -> Result<StructuredDocument, AppError> {
         let mut doc = StructuredDocument::new(
             uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string(),
@@ -865,7 +864,6 @@ impl MarkdownProcessor {
 
     /// 清空缓存
     pub async fn clear_cache(&self) {
-        let cache = self.cache.lock().await;
         // moka 缓存没有 clear 方法，我们重新创建一个新的缓存
         *self.cache.lock().await = Cache::builder()
             .max_capacity(self.config.max_cache_entries as u64)
@@ -889,16 +887,17 @@ impl MarkdownProcessor {
     /// 获取章节内容
     pub fn get_section_content(
         &self,
-        doc_structure: &DocumentStructure,
-        section_id: &str,
+        _doc_structure: &DocumentStructure,
+        _section_id: &str,
     ) -> Option<String> {
         // 递归查找章节
         // DocumentStructure.sections 是 HashMap<String, String>，不是 StructuredSection
         // 我们需要从其他地方获取章节信息，暂时返回空结果
-        None.map(|section: &StructuredSection| section.content.clone())
+        None
     }
 
     /// 递归查找章节
+    #[allow(dead_code)]
     fn find_section_recursive<'a>(
         &self,
         sections: &'a HashMap<String, StructuredSection>,
@@ -961,6 +960,7 @@ impl MarkdownProcessor {
     }
 
     /// 递归搜索章节
+    #[allow(dead_code)]
     fn search_sections_recursive(
         &self,
         sections: &[StructuredSection],

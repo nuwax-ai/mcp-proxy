@@ -816,6 +816,7 @@ impl AsyncMetricsCollector {
         }
     }
 
+    #[allow(dead_code)]
     fn extract_kb_value(line: &str) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() >= 2 {

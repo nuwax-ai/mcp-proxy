@@ -1,6 +1,7 @@
 //! 监控集成模块
 //!
 //! 提供与各种监控系统的集成，包括指标收集、告警、追踪等功能。
+#![allow(dead_code)]
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -500,8 +501,8 @@ impl MonitoringIntegration {
 
     /// 启动追踪收集
     async fn start_trace_collection(&self) {
-        let collectors = self.trace_collectors.clone();
-        let stats = Arc::clone(&self.stats);
+        let _collectors = self.trace_collectors.clone();
+        let _stats = Arc::clone(&self.stats);
 
         tokio::spawn(async move {
             // 这里应该实现追踪数据的收集逻辑

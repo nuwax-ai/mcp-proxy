@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::sync::RwLock;
 use tracing::{info, instrument, warn};
-use tracing_subscriber::{EnvFilter, Registry, util::SubscriberInitExt};
+use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
 /// 日志级别
@@ -457,7 +457,6 @@ impl EnhancedLoggingSystem {
     #[instrument(skip(config))]
     pub fn init(config: LoggingConfig) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let guards = Vec::new();
-        let layers: Vec<Box<dyn tracing_subscriber::Layer<Registry> + Send + Sync>> = Vec::new();
 
         // 设置环境过滤器
         let env_filter = EnvFilter::try_from_default_env()
@@ -473,7 +472,7 @@ impl EnhancedLoggingSystem {
         }
 
         // 文件输出层
-        if let Some(ref file_path) = config.file_path {
+        if let Some(ref _file_path) = config.file_path {
             if config.output == LogOutputTarget::File || config.output == LogOutputTarget::Both {
                 // 简化的文件层配置
                 // 在实际实现中，这里需要更复杂的配置

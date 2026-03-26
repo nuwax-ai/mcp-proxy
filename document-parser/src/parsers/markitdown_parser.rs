@@ -429,7 +429,7 @@ impl MarkItDownParser {
             return Err(e.clone());
         }
 
-        let (markdown_content, temp_files) = conversion_result.unwrap();
+        let (markdown_content, _temp_files) = conversion_result.unwrap();
 
         if cancellation_token.is_cancelled().await {
             // 解析已取消，清理工作目录
@@ -526,7 +526,7 @@ impl MarkItDownParser {
         &self,
         file_path: &str,
         work_dir: &Path,
-        format: &DocumentFormat,
+        _format: &DocumentFormat,
         progress_callback: &F,
         cancellation_token: &CancellationToken,
         start_time: Instant,
@@ -802,6 +802,7 @@ impl MarkItDownParser {
     }
 
     /// 收集图片文件
+    #[allow(dead_code)]
     async fn collect_images(&self, work_dir: &Path) -> Result<Vec<String>, AppError> {
         debug!("收集图片文件: {}", work_dir.display());
 
@@ -823,6 +824,7 @@ impl MarkItDownParser {
     }
 
     /// 从指定目录收集图片
+    #[allow(dead_code)]
     fn collect_images_from_dir<'a>(
         &'a self,
         dir: &'a Path,

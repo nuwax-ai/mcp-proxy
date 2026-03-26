@@ -149,26 +149,6 @@ impl ConfigRsLoader {
         Ok(())
     }
 
-    /// Manually merge environment variable overrides (config-rs adds underscore prefix)
-    fn merge_environment_overrides(_config: &mut Config, _built_config: &ConfigRs) {
-        use config::ValueKind;
-
-        // Check if there are any underscore-prefixed values from environment variables
-        if let ValueKind::Table(cache) = &_built_config.cache.kind {
-            for (key, value) in cache {
-                if key.starts_with('_') {
-                    // This is an environment variable override
-                    let clean_key = &key[1..]; // Remove the underscore prefix
-
-                    // Handle specific environment variable overrides
-                    // Add environment variable overrides here as needed
-                    let _ = clean_key; // Avoid unused variable warning
-                    let _ = value; // Avoid unused variable warning
-                }
-            }
-        }
-    }
-
     /// Generate CLI overrides from command line arguments
     pub fn generate_cli_overrides_from_args(
         args: &crate::cli::Cli,

@@ -529,7 +529,6 @@ impl OssService {
         image_paths: &[String],
         progress_callback: Option<ProgressCallback>,
     ) -> Result<BatchUploadResult, AppError> {
-        let start_time = std::time::Instant::now();
         let total_count = image_paths.len();
 
         info!("开始批量上传{}个图片", total_count);
@@ -577,7 +576,7 @@ impl OssService {
 
         let mut processed = 0;
 
-        while let Some((index, local_path, object_key, result)) = stream.next().await {
+        while let Some((_index, local_path, object_key, result)) = stream.next().await {
             processed += 1;
 
             match result {
@@ -824,7 +823,7 @@ impl OssService {
     #[instrument(skip(self), fields(object_key))]
     pub async fn get_object_metadata(
         &self,
-        object_key: &str,
+        _object_key: &str,
     ) -> Result<HashMap<String, String>, AppError> {
         // 暂时返回空的元数据，因为 get_object_metadata 方法可能不存在
         // 如果需要元数据，可能需要使用其他方法或者升级SDK版本
@@ -889,8 +888,8 @@ impl OssService {
     #[instrument(skip(self), fields(prefix, max_keys))]
     pub async fn list_objects(
         &self,
-        prefix: Option<&str>,
-        max_keys: Option<i32>,
+        _prefix: Option<&str>,
+        _max_keys: Option<i32>,
     ) -> Result<Vec<String>, AppError> {
         // 注意：aliyun-oss-rust-sdk可能没有直接的list_objects API
         // 这里返回空列表，实际使用时需要根据SDK的API来实现

@@ -1,6 +1,7 @@
 //! 并发优化器
 //!
 //! 提供任务队列管理、工作线程池和负载均衡功能
+#![allow(dead_code)]
 
 use futures::future::BoxFuture;
 use std::collections::VecDeque;
@@ -27,7 +28,7 @@ pub struct ConcurrencyOptimizer {
 
 impl ConcurrencyOptimizer {
     /// 创建新的并发优化器
-    pub async fn new(config: &AppConfig) -> Result<Self, AppError> {
+    pub async fn new(_config: &AppConfig) -> Result<Self, AppError> {
         let concurrency_config = ConcurrencyConfig::default(); // 从配置中获取
 
         let task_queue = Arc::new(TaskQueue::new(concurrency_config.task_queue_size));
@@ -215,7 +216,7 @@ impl TaskQueue {
         }
     }
 
-    pub async fn enqueue(&self, task: ConcurrentTask) -> Result<(), AppError> {
+    async fn enqueue(&self, task: ConcurrentTask) -> Result<(), AppError> {
         let mut queue = self.normal_queue.lock().await;
 
         if queue.len() >= self.max_size {
@@ -228,7 +229,7 @@ impl TaskQueue {
         Ok(())
     }
 
-    pub async fn enqueue_priority(&self, task: ConcurrentTask) -> Result<(), AppError> {
+    async fn enqueue_priority(&self, task: ConcurrentTask) -> Result<(), AppError> {
         let mut queue = self.priority_queue.lock().await;
 
         if queue.len() >= self.max_size / 2 {
@@ -242,7 +243,7 @@ impl TaskQueue {
         Ok(())
     }
 
-    pub async fn dequeue(&self) -> Option<ConcurrentTask> {
+    async fn dequeue(&self) -> Option<ConcurrentTask> {
         // 优先处理高优先级任务
         {
             let mut priority_queue = self.priority_queue.lock().await;
@@ -348,7 +349,7 @@ pub struct Worker {
 }
 
 impl Worker {
-    pub async fn new(
+    async fn new(
         id: usize,
         task_receiver: Arc<Mutex<mpsc::UnboundedReceiver<WorkerMessage>>>,
         stats: Arc<WorkerStats>,
@@ -428,7 +429,7 @@ impl LoadBalancer {
         }
     }
 
-    pub async fn balance(&self, worker_pool: &WorkerPool) -> Result<(), AppError> {
+    pub async fn balance(&self, _worker_pool: &WorkerPool) -> Result<(), AppError> {
         match self.strategy {
             LoadBalancingStrategy::RoundRobin => {
                 // 轮询负载均衡逻辑

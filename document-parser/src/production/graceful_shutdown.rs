@@ -1,6 +1,7 @@
 //! 优雅关闭管理器
 //!
 //! 提供优雅关闭处理，确保所有资源得到正确清理
+#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

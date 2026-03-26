@@ -60,9 +60,9 @@ pub struct RuntimeInfo {
 }
 
 /// 健康检查端点
-#[instrument(skip(state))]
+#[instrument(skip(_state))]
 pub async fn health_check(
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
     Query(_query): Query<HealthCheckQuery>,
 ) -> Result<Response, AppError> {
     info!("健康检查请求");

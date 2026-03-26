@@ -1,6 +1,7 @@
 //! 配置验证模块
 //!
 //! 提供生产环境配置验证功能，确保所有配置项都符合生产要求。
+#![allow(dead_code)]
 
 use crate::config::AppConfig;
 use anyhow::Result;
@@ -290,7 +291,7 @@ impl ConfigValidator {
     fn validate_security_config(
         &self,
         _config: &AppConfig,
-        errors: &mut Vec<ValidationError>,
+        _errors: &mut Vec<ValidationError>,
         warnings: &mut Vec<ValidationWarning>,
     ) -> Result<()> {
         // 验证 HTTPS 要求
@@ -494,7 +495,7 @@ impl EnvironmentValidator {
     /// 验证环境特定要求
     fn validate_environment_specific(
         &self,
-        errors: &mut Vec<ValidationError>,
+        _errors: &mut Vec<ValidationError>,
         warnings: &mut Vec<ValidationWarning>,
     ) -> Result<()> {
         match self.environment {

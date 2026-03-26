@@ -17,7 +17,6 @@ use std::collections::HashMap;
 use std::path::Path;
 use tokio::fs::File;
 use tokio::io::{AsyncWriteExt, BufWriter};
-use tokio_stream::StreamExt;
 use tracing::{error, info, warn};
 use utoipa::ToSchema;
 
@@ -265,7 +264,7 @@ pub async fn upload_document(
     }
 
     // 6. 验证TOC配置
-    let (enable_toc, max_toc_depth) =
+    let (_enable_toc, _max_toc_depth) =
         match RequestValidator::validate_toc_config(params.enable_toc, params.max_toc_depth) {
             Ok(config) => config,
             Err(e) => {
@@ -347,6 +346,7 @@ pub async fn upload_document(
 }
 
 /// 处理multipart文件上传
+#[allow(dead_code)]
 async fn process_multipart_upload_streaming(
     multipart: &mut Multipart,
     config: &UploadConfig,
@@ -761,6 +761,7 @@ async fn cleanup_temp_file(file_path: &str) {
 }
 
 /// 检查URL下载是否支持该格式
+#[allow(dead_code)]
 fn is_format_supported_for_url(format: &DocumentFormat) -> bool {
     matches!(
         format,
@@ -773,6 +774,7 @@ fn is_format_supported_for_url(format: &DocumentFormat) -> bool {
 }
 
 /// 检查OSS是否支持该格式
+#[allow(dead_code)]
 fn is_format_supported_for_oss(format: &DocumentFormat) -> bool {
     matches!(
         format,
@@ -819,7 +821,7 @@ pub async fn download_document_from_url(
     let original_url = &request.url;
 
     // 验证TOC配置
-    let (enable_toc, max_toc_depth) =
+    let (_enable_toc, _max_toc_depth) =
         match RequestValidator::validate_toc_config(request.enable_toc, request.max_toc_depth) {
             Ok(config) => config,
             Err(e) => {
@@ -895,7 +897,7 @@ pub async fn generate_structured_document(
     }
 
     // 验证TOC配置
-    let (enable_toc, max_toc_depth) =
+    let (_enable_toc, _max_toc_depth) =
         match RequestValidator::validate_toc_config(request.enable_toc, request.max_toc_depth) {
             Ok(config) => config,
             Err(e) => {
@@ -1069,6 +1071,7 @@ fn validate_upload_request(params: &UploadDocumentRequest) -> Result<(), AppErro
 }
 
 /// 从URL检测文档格式
+#[allow(dead_code)]
 fn detect_format_from_url(url: &str) -> Option<DocumentFormat> {
     // 从URL路径中提取文件扩展名
     let path = url.split('?').next().unwrap_or(url); // 移除查询参数

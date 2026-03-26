@@ -9,7 +9,6 @@ use uuid::{NoContext, Timestamp, Uuid};
 
 /// 任务服务
 pub struct TaskService {
-    db: Arc<Db>,
     tasks_tree: sled::Tree,
 }
 
@@ -20,7 +19,7 @@ impl TaskService {
             .open_tree("tasks")
             .map_err(|e| AppError::Database(format!("打开任务树失败: {e}")))?;
 
-        Ok(Self { db, tasks_tree })
+        Ok(Self { tasks_tree })
     }
 
     /// 创建新任务

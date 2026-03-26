@@ -31,7 +31,7 @@ pub struct CacheManager {
 
 impl CacheManager {
     /// 创建新的缓存管理器
-    pub async fn new(config: &AppConfig) -> Result<Self, AppError> {
+    pub async fn new(_config: &AppConfig) -> Result<Self, AppError> {
         let cache_config = CacheConfig::default(); // 从配置中获取
 
         let document_cache = Arc::new(DocumentCache::new(cache_config.document_cache_size));
@@ -328,7 +328,7 @@ impl CacheManager {
         // 分析缓存使用模式
         let document_usage = self.document_cache.get_usage().await;
         let result_usage = self.result_cache.get_usage().await;
-        let metadata_usage = self.metadata_cache.get_usage().await;
+        let _metadata_usage = self.metadata_cache.get_usage().await;
 
         // 根据使用情况调整缓存大小
         if document_usage.hit_rate < 0.5 && document_usage.size > 100 {

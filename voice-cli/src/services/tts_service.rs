@@ -3,7 +3,7 @@ use crate::models::{TtsAsyncRequest, TtsSyncRequest, TtsTaskResponse};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tempfile::NamedTempFile;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 use uuid::Uuid;
 
 /// TTS服务 - 处理文本到语音转换
@@ -169,6 +169,7 @@ impl TtsService {
         if let Some(ref model_path) = self.model_path {
             cmd.env("TTS_MODEL_PATH", model_path.to_string_lossy().as_ref());
         }
+        cmd.env("TTS_PYTHON_PATH", self.python_path.to_string_lossy().as_ref());
 
         debug!("执行TTS命令: {:?}", cmd);
 

@@ -211,7 +211,7 @@ impl AppError {
 
                 suggestions
             }
-            AppError::Permission(msg) => {
+            AppError::Permission(_msg) => {
                 let mut suggestions = vec![
                     "检查文件和目录权限设置".to_string(),
                     "确保当前用户有足够的权限".to_string(),

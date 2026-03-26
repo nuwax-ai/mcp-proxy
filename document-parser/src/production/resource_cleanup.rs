@@ -1,6 +1,7 @@
 //! 资源清理模块
 //!
 //! 提供应用关闭时的资源清理功能，确保所有资源得到正确释放。
+#![allow(dead_code)]
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};

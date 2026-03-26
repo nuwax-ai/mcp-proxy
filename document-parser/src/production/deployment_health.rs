@@ -1,6 +1,7 @@
 //! 部署健康检查模块
 //!
 //! 提供应用部署后的健康检查功能，包括启动检查、就绪检查、存活检查等。
+#![allow(dead_code)]
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};

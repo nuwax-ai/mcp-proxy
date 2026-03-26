@@ -524,6 +524,7 @@ impl SystemResourceChecker {
         }
     }
 
+    #[allow(dead_code)]
     fn extract_kb_value(line: &str) -> Result<u64, Box<dyn std::error::Error>> {
         let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.len() >= 2 {
@@ -651,7 +652,6 @@ impl EnhancedHealthCheckManager {
     pub async fn check_all(&self) -> SystemHealthStatus {
         let start_time = std::time::Instant::now();
         let checkers = self.checkers.read().await;
-        let mut results = Vec::new();
 
         tracing::debug!("开始执行 {} 个健康检查", checkers.len());
 
@@ -680,7 +680,7 @@ impl EnhancedHealthCheckManager {
             })
             .collect();
 
-        results = futures::future::join_all(check_futures).await;
+        let results = futures::future::join_all(check_futures).await;
 
         let total_duration = start_time.elapsed();
         let status = SystemHealthStatus::new(results);
@@ -781,7 +781,6 @@ impl EnhancedHealthCheckManager {
 
                 let start_time = std::time::Instant::now();
                 let checkers_guard = checkers.read().await;
-                let mut results = Vec::new();
 
                 // 并发执行健康检查
                 let check_futures: Vec<_> = checkers_guard
@@ -806,7 +805,7 @@ impl EnhancedHealthCheckManager {
                     })
                     .collect();
 
-                results = futures::future::join_all(check_futures).await;
+                let results = futures::future::join_all(check_futures).await;
                 drop(checkers_guard);
 
                 let status = SystemHealthStatus::new(results);

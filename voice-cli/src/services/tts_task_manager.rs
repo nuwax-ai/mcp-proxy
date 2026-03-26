@@ -2,16 +2,13 @@ use crate::VoiceCliError;
 use crate::models::{
     TtsAsyncRequest, TtsProcessingStage, TtsProgressDetails, TtsTaskError, TtsTaskStatus,
 };
-use apalis::prelude::*;
 use apalis_sql::sqlite::SqliteStorage;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
-use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
+use tracing::info;
 use uuid::Uuid;
 
 /// TTS任务
@@ -297,7 +294,10 @@ impl TtsTaskManager {
 
     /// 启动任务处理器
     pub async fn start_worker(&self) -> Result<(), VoiceCliError> {
-        info!("启动TTS任务处理器");
+        info!(
+            "启动TTS任务处理器，最大并发任务数: {}",
+            self.max_concurrent_tasks
+        );
 
         // TODO: 实现实际的任务处理逻辑
         // 这里应该启动一个后台worker来处理TTS任务队列

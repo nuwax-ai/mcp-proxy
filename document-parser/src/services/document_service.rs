@@ -1,14 +1,11 @@
 use anyhow::{Context, Result as AnyhowResult};
-use oss_client::OssClientTrait;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-use tempfile;
 use tokio::sync::RwLock;
 use tokio::time::timeout;
 use tracing::{debug, error, info, instrument, warn};
-use url;
 
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 use pulldown_cmark_to_cmark::cmark;

@@ -192,8 +192,8 @@ pub async fn parse_markdown_sections(
 async fn process_markdown_content(
     state: AppState,
     content: String,
-    enable_toc: bool,
-    max_toc_depth: usize,
+    _enable_toc: bool,
+    _max_toc_depth: usize,
     start_time: std::time::Instant,
 ) -> axum::response::Response {
     // 验证Markdown内容
@@ -649,6 +649,7 @@ fn generate_markdown_from_document(doc: &StructuredDocument) -> String {
 }
 
 /// 检查是否有Range请求
+#[allow(dead_code)]
 fn has_range_request(headers: &HeaderMap) -> bool {
     headers.get(header::RANGE).is_some()
 }
@@ -793,8 +794,8 @@ pub async fn get_markdown_url(
 }
 
 /// 获取OSS文件大小
-async fn get_file_size_from_oss(state: &AppState, oss_url: &str) -> Option<u64> {
-    if let Some(oss_client) = &state.oss_client {
+async fn get_file_size_from_oss(_state: &AppState, _oss_url: &str) -> Option<u64> {
+    if let Some(_oss_client) = &_state.oss_client {
         // 暂时跳过文件大小获取功能，需要重新实现
         None
         /*
@@ -1014,6 +1015,7 @@ fn range_not_satisfiable(total_len: u64) -> Response {
 }
 
 /// 从URL下载文件内容
+#[allow(dead_code)]
 async fn download_file_content(url: &str) -> Result<String, AppError> {
     info!("开始下载文件: {}", url);
 

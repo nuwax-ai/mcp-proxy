@@ -207,7 +207,7 @@ impl ImageProcessor {
 
         // 收集所有需要替换的图片
         for cap in image_regex.captures_iter(markdown_content) {
-            let alt_text = &cap[1];
+            let _alt_text = &cap[1];
             let image_path = &cap[2];
 
             // 跳过已经是URL的图片

@@ -26,9 +26,8 @@
 //! # 配置优先级
 //!
 //! 1. `DEFAULT_LOCALE` 环境变量（最高优先级）
-//! 2. `MCP_PROXY_LANG` 环境变量
-//! 3. `LANG` 系统环境变量
-//! 4. 默认使用英文
+//! 2. `LANG` 系统环境变量
+//! 3. 默认使用英文
 //!
 //! # 线程安全
 //!
@@ -84,9 +83,8 @@ pub const DEFAULT_LOCALE: &str = "en";
 ///
 /// 按照以下优先级设置语言：
 /// 1. `DEFAULT_LOCALE` 环境变量（最高优先级）
-/// 2. `MCP_PROXY_LANG` 环境变量
-/// 3. `LANG` 系统环境变量（自动解析语言代码）
-/// 4. 默认使用英文
+/// 2. `LANG` 系统环境变量（自动解析语言代码）
+/// 3. 默认使用英文
 ///
 /// # 示例
 ///
@@ -112,22 +110,7 @@ pub fn init_locale_from_env() {
         }
     }
 
-    // 其次使用 MCP_PROXY_LANG 环境变量
-    if let Ok(lang) = std::env::var("MCP_PROXY_LANG") {
-        let locale = normalize_locale(&lang);
-        if AVAILABLE_LOCALES.contains(&locale.as_str()) {
-            set_locale(&locale);
-            return;
-        } else {
-            tracing::warn!(
-                "Invalid locale '{}' from MCP_PROXY_LANG, falling back. Supported: {:?}",
-                locale,
-                AVAILABLE_LOCALES
-            );
-        }
-    }
-
-    // 尝试从 LANG 环境变量解析
+    // 其次尝试从 LANG 环境变量解析
     if let Ok(lang) = std::env::var("LANG") {
         let locale = parse_lang_env(&lang);
         if AVAILABLE_LOCALES.contains(&locale.as_str()) {
@@ -145,10 +128,13 @@ pub fn init_locale_from_env() {
 /// 支持的输入格式：
 /// - `en`, `EN`, `En`, `en_US`, `en_US.UTF-8` -> `en`
 /// - `zh-CN`, `zh-cn`, `ZH-CN` -> `zh-CN`
-/// - `zh_TW`, `zh-TW`, `zh` -> `zh-TW`
+/// - `zh_TW`, `zh-TW` -> `zh-TW`
 /// - `zh`, `ZH` -> `zh-CN` (默认简体中文)
 fn normalize_locale(input: &str) -> String {
     let input = input.trim();
+    // 支持解析带编码/修饰符的值（例如 en_US.UTF-8、zh_CN@cjk）
+    let input = input.split('.').next().unwrap_or(input);
+    let input = input.split('@').next().unwrap_or(input);
 
     // 直接匹配
     match input.to_lowercase().as_str() {
@@ -195,9 +181,50 @@ fn parse_lang_env(lang: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn test_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    struct EnvRestore {
+        saved: Vec<(&'static str, Option<String>)>,
+    }
+
+    impl Drop for EnvRestore {
+        fn drop(&mut self) {
+            for (key, value) in &self.saved {
+                match value {
+                    Some(v) => unsafe { std::env::set_var(key, v) },
+                    None => unsafe { std::env::remove_var(key) },
+                }
+            }
+        }
+    }
+
+    fn prepare_env(overrides: &[(&'static str, Option<&str>)]) -> EnvRestore {
+        let tracked_keys = ["DEFAULT_LOCALE", "LANG", "MCP_PROXY_LANG", "APP_LANG"];
+        let mut saved = Vec::with_capacity(tracked_keys.len());
+
+        for key in tracked_keys {
+            saved.push((key, std::env::var(key).ok()));
+            unsafe { std::env::remove_var(key) };
+        }
+
+        for (key, value) in overrides {
+            match value {
+                Some(v) => unsafe { std::env::set_var(key, v) },
+                None => unsafe { std::env::remove_var(key) },
+            }
+        }
+
+        EnvRestore { saved }
+    }
 
     #[test]
     fn test_normalize_locale() {
+        let _guard = test_lock().lock().expect("locale test lock poisoned");
         assert_eq!(normalize_locale("en"), "en");
         assert_eq!(normalize_locale("EN"), "en");
         assert_eq!(normalize_locale("zh-CN"), "zh-CN");
@@ -206,10 +233,13 @@ mod tests {
         assert_eq!(normalize_locale("zh-TW"), "zh-TW");
         assert_eq!(normalize_locale("zh_tw"), "zh-TW");
         assert_eq!(normalize_locale("zh"), "zh-CN");
+        assert_eq!(normalize_locale("en_US.UTF-8"), "en");
+        assert_eq!(normalize_locale("zh_CN@cjk"), "zh-CN");
     }
 
     #[test]
     fn test_parse_lang_env() {
+        let _guard = test_lock().lock().expect("locale test lock poisoned");
         assert_eq!(parse_lang_env("en_US.UTF-8"), "en");
         assert_eq!(parse_lang_env("zh_CN.UTF-8"), "zh-CN");
         assert_eq!(parse_lang_env("zh_TW.UTF-8"), "zh-TW");
@@ -219,6 +249,7 @@ mod tests {
 
     #[test]
     fn test_set_and_get_locale() {
+        let _guard = test_lock().lock().expect("locale test lock poisoned");
         set_locale("zh-CN");
         assert_eq!(current_locale(), "zh-CN");
 
@@ -230,21 +261,15 @@ mod tests {
     }
 
     /// 关键翻译键在所有语言中都存在的测试
-    ///
-    /// 注意：此测试在测试环境中可能因翻译文件路径问题而跳过。
-    /// 在实际运行时，翻译文件应能正确加载。
     #[test]
     fn test_translation_completeness() {
-        // 首先检查翻译是否可用（测试环境可能无法加载翻译文件）
+        let _guard = test_lock().lock().expect("locale test lock poisoned");
         set_locale("en");
         let test_msg = t!("common.success").to_string();
-
-        // 如果翻译不可用（返回键本身），跳过完整性测试
-        // 这在 CI 环境或测试环境中是可接受的
-        if test_msg == "common.success" {
-            eprintln!("Skipping translation completeness test: translations not loaded in test environment");
-            return;
-        }
+        assert_ne!(
+            test_msg, "common.success",
+            "Translations are not loaded; expected crate-local locales to be available"
+        );
 
         // 测试关键错误消息键
         let critical_keys = [
@@ -274,14 +299,8 @@ mod tests {
                     }
                     _ => t!(*key).to_string(),
                 };
-                // 翻译不应该返回键本身（表示翻译缺失）
-                assert!(
-                    !msg.starts_with("errors.") || msg.contains(":"),
-                    "Missing translation for '{}' in locale '{}'. Got: '{}'",
-                    key,
-                    locale,
-                    msg
-                );
+                // 翻译不应该返回 key 本身（表示翻译缺失）
+                assert_ne!(msg, *key, "Missing translation for '{}' in locale '{}'", key, locale);
             }
         }
     }
@@ -292,6 +311,7 @@ mod tests {
     /// 但在实际运行时，语言切换功能是正常的。
     #[test]
     fn test_all_locales_available() {
+        let _guard = test_lock().lock().expect("locale test lock poisoned");
         // 测试每个语言代码都是有效的
         for locale in AVAILABLE_LOCALES {
             // 验证语言代码格式正确
@@ -305,6 +325,60 @@ mod tests {
         }
 
         // 重置为默认语言
+        set_locale(DEFAULT_LOCALE);
+    }
+
+    #[test]
+    fn test_init_locale_from_env_prefers_default_locale() {
+        let _guard = test_lock().lock().expect("locale test lock poisoned");
+        let _env = prepare_env(&[
+            ("DEFAULT_LOCALE", Some("zh-TW")),
+            ("LANG", Some("en_US.UTF-8")),
+            ("MCP_PROXY_LANG", Some("zh-CN")),
+            ("APP_LANG", Some("zh-CN")),
+        ]);
+
+        init_locale_from_env();
+        assert_eq!(current_locale(), "zh-TW");
+        set_locale(DEFAULT_LOCALE);
+    }
+
+    #[test]
+    fn test_init_locale_from_env_falls_back_to_lang() {
+        let _guard = test_lock().lock().expect("locale test lock poisoned");
+        let _env = prepare_env(&[
+            ("DEFAULT_LOCALE", Some("unsupported")),
+            ("LANG", Some("zh_CN.UTF-8")),
+        ]);
+
+        init_locale_from_env();
+        assert_eq!(current_locale(), "zh-CN");
+        set_locale(DEFAULT_LOCALE);
+    }
+
+    #[test]
+    fn test_init_locale_from_env_falls_back_to_english() {
+        let _guard = test_lock().lock().expect("locale test lock poisoned");
+        let _env = prepare_env(&[
+            ("DEFAULT_LOCALE", Some("unsupported")),
+            ("LANG", Some("ja_JP.UTF-8")),
+        ]);
+
+        init_locale_from_env();
+        assert_eq!(current_locale(), "en");
+        set_locale(DEFAULT_LOCALE);
+    }
+
+    #[test]
+    fn test_init_locale_from_env_ignores_removed_env_vars() {
+        let _guard = test_lock().lock().expect("locale test lock poisoned");
+        let _env = prepare_env(&[
+            ("MCP_PROXY_LANG", Some("zh-TW")),
+            ("APP_LANG", Some("zh-CN")),
+        ]);
+
+        init_locale_from_env();
+        assert_eq!(current_locale(), "en");
         set_locale(DEFAULT_LOCALE);
     }
 }
