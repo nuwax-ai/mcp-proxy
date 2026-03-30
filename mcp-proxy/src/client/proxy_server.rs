@@ -111,12 +111,12 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
         std::panic::set_hook(Box::new(|panic_info| {
             let backtrace = std::backtrace::Backtrace::capture();
             error!(
-                "[PANIC] 程序 panic - 位置: {}:{}, 消息: {:?}",
+                "[PANIC] Program panic - Location: {}:{}, Message: {:?}",
                 panic_info.location().map(|l| l.file()).unwrap_or("unknown"),
                 panic_info.location().map(|l| l.line()).unwrap_or(0),
                 panic_info.payload().downcast_ref::<String>()
             );
-            error!("[PANIC] 堆栈跟踪:\n{:?}", backtrace);
+            error!("[PANIC] Stack trace:\\n{:?}", backtrace);
         }));
     });
 
@@ -156,7 +156,7 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
 
     // 记录服务启动信息到日志文件
     info!(
-        "[服务启动] MCP Proxy 服务启动 - 协议: {}, 服务名: {}, 命令: {} {:?}",
+        "[Service startup] MCP Proxy service startup - protocol: {}, service name: {}, command: {} {:?}",
         protocol_name,
         parsed.name,
         parsed.config.command,
@@ -164,30 +164,30 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
     );
 
     if let Some(ref allow_tools) = args.allow_tools {
-        info!("[服务启动] 工具白名单: {:?}", allow_tools);
+        info!("[Service startup] Tool whitelist: {:?}", allow_tools);
     }
     if let Some(ref deny_tools) = args.deny_tools {
-        info!("[服务启动] 工具黑名单: {:?}", deny_tools);
+        info!("[Service startup] Tool blacklist: {:?}", deny_tools);
     }
 
     if !quiet {
-        eprintln!("🚀 MCP Proxy 服务");
-        eprintln!("   协议类型: {}", protocol_name);
-        eprintln!("   服务名称: {}", parsed.name);
+        eprintln!("🚀 MCP Proxy Service");
+        eprintln!("Protocol type: {}", protocol_name);
+        eprintln!("Service name: {}", parsed.name);
         eprintln!(
-            "   命令: {} {:?}",
+            "Command: {} {:?}",
             parsed.config.command,
             parsed.config.args.as_ref().unwrap_or(&vec![])
         );
         if verbose && let Some(ref env) = parsed.config.env {
-            eprintln!("   环境变量: {:?}", env);
+            eprintln!("Environment variable: {:?}", env);
         }
         // 显示过滤器配置
         if let Some(ref allow_tools) = args.allow_tools {
-            eprintln!("   工具白名单: {:?}", allow_tools);
+            eprintln!("Tool whitelist: {:?}", allow_tools);
         }
         if let Some(ref deny_tools) = args.deny_tools {
-            eprintln!("   工具黑名单: {:?}", deny_tools);
+            eprintln!("Tool blacklist: {:?}", deny_tools);
         }
     }
 
@@ -198,7 +198,7 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
     std_listener
         .set_nonblocking(true)
         .map_err(|e| anyhow::anyhow!("设置非阻塞失败: {}", e))?;
-    info!("[端口绑定] 已绑定 {}", bind_addr);
+    info!("[Port Binding] Binded {}", bind_addr);
 
     // 6. 主循环 - 支持子进程崩溃后自动重启（指数退避，有上限）
     let mut retry_count: u32 = 0;
@@ -219,11 +219,11 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
             Ok(_) => {
                 // 正常退出（如 Ctrl+C）
                 info!(
-                    "[服务停止] MCP Proxy 服务正常停止 - 服务名: {}",
+                    "[Service stopped] MCP Proxy service stopped normally - service name: {}",
                     parsed.name
                 );
                 if !quiet {
-                    eprintln!("🛑 服务已停止");
+                    eprintln!("🛑 Service has been stopped");
                 }
                 break;
             }
@@ -233,7 +233,7 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
                 #[allow(clippy::absurd_extreme_comparisons)]
                 if MAX_RETRIES > 0 && retry_count >= MAX_RETRIES {
                     error!(
-                        "[服务终止] 达到最大重试次数 {}, 服务名: {}, 最后错误: {}",
+                        "[Service Termination] Maximum number of retries reached {}, service name: {}, last error: {}",
                         MAX_RETRIES, parsed.name, e
                     );
                     return Err(e);
@@ -244,14 +244,14 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
                     format!("第{}/{}次", retry_count, MAX_RETRIES)
                 };
                 error!(
-                    "[服务异常] MCP Proxy 服务异常退出 - 服务名: {}, 错误: {}, {}秒后重启 ({})",
+                    "[Service exception] MCP Proxy service exited abnormally - service name: {}, error: {}, {} and restarts after seconds ({})",
                     parsed.name,
                     e,
                     retry_delay.as_secs(),
                     retry_info
                 );
                 eprintln!(
-                    "⚠️  服务异常: {}，{}秒后重启 ({})...",
+                    "⚠️ Service exception: {}, {}, restart after seconds ({})...",
                     e,
                     retry_delay.as_secs(),
                     retry_info
@@ -260,11 +260,11 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
                 retry_delay =
                     std::cmp::min(retry_delay * 2, Duration::from_secs(MAX_RETRY_DELAY_SECS));
                 warn!(
-                    "[服务重启] 正在重启 MCP Proxy 服务 - 服务名: {}",
+                    "[Service Restart] Restarting MCP Proxy service - Service name: {}",
                     parsed.name
                 );
                 if !quiet {
-                    eprintln!("🔄 正在重启服务...");
+                    eprintln!("🔄 Restarting service...");
                 }
                 continue;
             }
@@ -287,7 +287,7 @@ async fn run_proxy_server(
     let resolved_command = mcp_common::resolve_windows_command(&parsed.config.command);
     if resolved_command != parsed.config.command {
         info!(
-            "[命令解析] Windows 命令已解析: {} -> {}",
+            "[Command parsing] Windows command parsed: {} -> {}",
             parsed.config.command, resolved_command
         );
     }

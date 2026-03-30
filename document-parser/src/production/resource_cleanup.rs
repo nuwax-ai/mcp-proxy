@@ -281,7 +281,7 @@ impl ResourceCleanupManager {
 
     /// 执行完整清理
     pub async fn cleanup_all(&self) -> Result<CleanupStatus> {
-        info!("开始执行资源清理");
+        info!("Start resource cleanup");
 
         let mut status = self.cleanup_status.write().await;
         status.is_cleaning = true;
@@ -336,7 +336,7 @@ impl ResourceCleanupManager {
         let final_status = status.clone();
         drop(status);
 
-        info!("资源清理完成");
+        info!("Resource cleanup completed");
         Ok(final_status)
     }
 
@@ -347,7 +347,7 @@ impl ResourceCleanupManager {
         phase: Option<&CleanupPhase>,
     ) -> Result<()> {
         if let Some(phase) = phase {
-            info!("执行清理阶段: {:?}", phase);
+            info!("Execute cleanup phase: {:?}", phase);
 
             let mut status = self.cleanup_status.write().await;
             status.current_phase = Some(phase.clone());
@@ -397,13 +397,16 @@ impl ResourceCleanupManager {
         for task in tasks {
             match task.await {
                 Ok(Ok(result)) => {
-                    info!("清理器 {} 完成: {:?}", result.cleaner_name, result.status);
+                    info!(
+                        "Cleaner {} Completed: {:?}",
+                        result.cleaner_name, result.status
+                    );
                 }
                 Ok(Err(e)) => {
-                    error!("清理器执行失败: {}", e);
+                    error!("Cleaner execution failed: {}", e);
                 }
                 Err(e) => {
-                    error!("清理任务失败: {}", e);
+                    error!("Cleanup task failed: {}", e);
                 }
             }
         }
@@ -504,7 +507,7 @@ impl ResourceCleanupManager {
 
     /// 强制停止清理
     pub async fn force_stop_cleanup(&self) -> Result<()> {
-        warn!("强制停止资源清理");
+        warn!("Force stop resource cleanup");
 
         let mut status = self.cleanup_status.write().await;
         status.is_cleaning = false;
@@ -521,7 +524,7 @@ impl ResourceCleaner for DatabaseConnectionCleaner {
         let start_time = SystemTime::now();
 
         // 这里应该实现实际的数据库连接清理逻辑
-        info!("清理数据库连接池");
+        info!("Clean database connection pool");
 
         let duration = start_time.elapsed().unwrap_or_default();
 
@@ -560,7 +563,7 @@ impl ResourceCleaner for TempFileCleaner {
 
         // 这里应该实现实际的临时文件清理逻辑
         for temp_dir in &self.config.temp_directories {
-            info!("清理临时目录: {}", temp_dir);
+            info!("Clean up the temporary directory: {}", temp_dir);
             // 实际的文件清理逻辑
             files_cleaned += 10; // 示例值
             memory_freed += 1024 * 1024; // 示例值
@@ -602,18 +605,18 @@ impl ResourceCleaner for MemoryCleaner {
 
         if self.config.enabled {
             if self.config.clear_caches {
-                info!("清理内存缓存");
+                info!("Clear memory cache");
                 memory_freed += 1024 * 1024; // 示例值
             }
 
             if self.config.force_gc {
-                info!("强制垃圾回收");
+                info!("Force garbage collection");
                 // 这里应该触发垃圾回收
                 memory_freed += 512 * 1024; // 示例值
             }
 
             if self.config.release_unused_memory {
-                info!("释放未使用内存");
+                info!("Release unused memory");
                 memory_freed += 256 * 1024; // 示例值
             }
         }

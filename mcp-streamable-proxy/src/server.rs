@@ -52,7 +52,7 @@ pub async fn run_stream_server_from_config(
     check_windows_command(&config.command);
 
     info!(
-        "[子进程][{}] 命令: {} {:?}",
+        "[Subprocess][{}] Command: {} {:?}",
         config.name,
         config.command,
         config.args.as_ref().unwrap_or(&vec![])
@@ -105,29 +105,32 @@ pub async fn run_stream_server_from_config(
 
     // 记录子进程启动到日志文件
     info!(
-        "[子进程启动] Streamable HTTP - 服务名: {}, 命令: {} {:?}",
+        "[Subprocess startup] Streamable HTTP - Service name: {}, Command: {} {:?}",
         config.name,
         config.command,
         config.args.as_ref().unwrap_or(&vec![])
     );
 
     if !quiet {
-        eprintln!("✅ 子进程已启动");
+        eprintln!("✅ The child process has been started");
 
         // 获取并打印工具列表
         match client.list_tools(None).await {
             Ok(tools_result) => {
                 let tools = &tools_result.tools;
                 if tools.is_empty() {
-                    warn!("[工具列表] 工具列表为空 - 服务名: {}", config.name);
-                    eprintln!("⚠️  工具列表为空");
+                    warn!(
+                        "[Tool list] Tool list is empty - Service name: {}",
+                        config.name
+                    );
+                    eprintln!("⚠️Tool list is empty");
                 } else {
                     info!(
-                        "[工具列表] 服务名: {}, 工具数量: {}",
+                        "[Tool list] Service name: {}, Number of tools: {}",
                         config.name,
                         tools.len()
                     );
-                    eprintln!("🔧 可用工具 ({} 个):", tools.len());
+                    eprintln!("🔧 Available tools ({}):", tools.len());
                     for tool in tools.iter().take(10) {
                         let desc = tool.description.as_deref().unwrap_or("无描述");
                         let desc_short = if desc.len() > 50 {
@@ -138,16 +141,16 @@ pub async fn run_stream_server_from_config(
                         eprintln!("   - {} : {}", tool.name, desc_short);
                     }
                     if tools.len() > 10 {
-                        eprintln!("   ... 和 {} 个其他工具", tools.len() - 10);
+                        eprintln!("... and {} other tools", tools.len() - 10);
                     }
                 }
             }
             Err(e) => {
                 error!(
-                    "[工具列表] 获取工具列表失败 - 服务名: {}, 错误: {}",
+                    "[Tool List] Failed to obtain tool list - Service name: {}, Error: {}",
                     config.name, e
                 );
-                eprintln!("⚠️  获取工具列表失败: {}", e);
+                eprintln!("⚠️ Failed to obtain tool list: {}", e);
             }
         }
     } else {
@@ -155,14 +158,14 @@ pub async fn run_stream_server_from_config(
         match client.list_tools(None).await {
             Ok(tools_result) => {
                 info!(
-                    "[工具列表] 服务名: {}, 工具数量: {}",
+                    "[Tool list] Service name: {}, Number of tools: {}",
                     config.name,
                     tools_result.tools.len()
                 );
             }
             Err(e) => {
                 error!(
-                    "[工具列表] 获取工具列表失败 - 服务名: {}, 错误: {}",
+                    "[Tool List] Failed to obtain tool list - Service name: {}, Error: {}",
                     config.name, e
                 );
             }
@@ -207,16 +210,16 @@ pub async fn run_stream_server(
 
     // 记录服务启动到日志文件
     info!(
-        "[HTTP服务启动] Streamable HTTP 服务启动 - 地址: {}, MCP ID: {}",
+        "[HTTP service startup] Streamable HTTP service startup - Address: {}, MCP ID: {}",
         bind_addr, mcp_id
     );
 
     if !quiet {
-        eprintln!("📡 Streamable HTTP 服务启动: http://{}", bind_addr);
-        eprintln!("💡 MCP 客户端可直接使用: http://{}", bind_addr);
-        eprintln!("✨ 特性: stateful_mode (会话管理 + 服务端推送)");
-        eprintln!("🔄 后端版本控制: 启用 (自动处理重连)");
-        eprintln!("💡 按 Ctrl+C 停止服务");
+        eprintln!("📡 Streamable HTTP service startup: http://{}", bind_addr);
+        eprintln!("💡 MCP client can be used directly: http://{}", bind_addr);
+        eprintln!("✨ Feature: stateful_mode (session management + server push)");
+        eprintln!("🔄 Backend version control: Enable (automatically handles reconnections)");
+        eprintln!("💡 Press Ctrl+C to stop the service");
     }
 
     // 包装 handler 为 Arc，供 SessionManager 和 service factory 共享
@@ -247,7 +250,7 @@ pub async fn run_stream_server(
         result = axum::serve(listener, router) => {
             if let Err(e) = result {
                 error!(
-                    "[HTTP服务错误] Streamable HTTP 服务器错误 - MCP ID: {}, 错误: {}",
+                    "[HTTP Service Error] Streamable HTTP Server Error - MCP ID: {}, Error: {}",
                     mcp_id, e
                 );
                 bail!("服务器错误: {}", e);
@@ -255,11 +258,11 @@ pub async fn run_stream_server(
         }
         _ = tokio::signal::ctrl_c() => {
             info!(
-                "[HTTP服务关闭] 收到退出信号，正在关闭 Streamable HTTP 服务 - MCP ID: {}",
+                "[HTTP service shutdown] Received exit signal, closing Streamable HTTP service - MCP ID: {}",
                 mcp_id
             );
             if !quiet {
-                eprintln!("\n🛑 收到退出信号，正在关闭...");
+                eprintln!("\\n🛑 Received exit signal, closing...");
             }
         }
     }

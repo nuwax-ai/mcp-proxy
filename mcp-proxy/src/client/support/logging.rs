@@ -83,7 +83,8 @@ fn determine_log_file_path(
         let name_part = mcp_name.unwrap_or("unknown");
         let filename = format!("mcp-proxy-{}-{}-{}.log", name_part, date, session_id);
 
-        std::fs::create_dir_all(log_dir).map_err(|e| anyhow::anyhow!("无法创建日志目录: {}", e))?;
+        std::fs::create_dir_all(log_dir)
+            .map_err(|e| anyhow::anyhow!("Failed to create log directory: {}", e))?;
         Ok(Some(log_dir.join(filename)))
     } else if logging.diagnostic {
         // diagnostic=true 时，使用系统临时目录
@@ -97,7 +98,11 @@ fn determine_log_file_path(
 
         // 尝试创建文件，验证目录可写
         std::fs::File::create(&file_path).map_err(|e| {
-            anyhow::anyhow!("无法创建日志文件: {} (路径: {})", e, file_path.display())
+            anyhow::anyhow!(
+                "Failed to create log file: {} (path: {})",
+                e,
+                file_path.display()
+            )
         })?;
 
         Ok(Some(file_path))
@@ -126,17 +131,17 @@ fn init_with_file_and_otlp(
     quiet: bool,
     verbose: bool,
 ) -> Result<()> {
-    let file =
-        std::fs::File::create(file_path).map_err(|e| anyhow::anyhow!("无法创建日志文件: {}", e))?;
+    let file = std::fs::File::create(file_path)
+        .map_err(|e| anyhow::anyhow!("Failed to create log file: {}", e))?;
 
     if !quiet {
-        eprintln!("📝 日志文件: {}", file_path.display());
+        eprintln!("📝 Log file: {}", file_path.display());
         eprintln!(
-            "📋 诊断模式: {} (日志级别: {})",
+            "📋 Diagnostic mode: {} (log level: {})",
             if logging.diagnostic {
-                "启用"
+                "enabled"
             } else {
-                "禁用"
+                "disabled"
             },
             if logging.diagnostic { "DEBUG" } else { "WARN" }
         );
@@ -166,17 +171,17 @@ fn init_with_file_only(
     quiet: bool,
     verbose: bool,
 ) -> Result<()> {
-    let file =
-        std::fs::File::create(file_path).map_err(|e| anyhow::anyhow!("无法创建日志文件: {}", e))?;
+    let file = std::fs::File::create(file_path)
+        .map_err(|e| anyhow::anyhow!("Failed to create log file: {}", e))?;
 
     if !quiet {
-        eprintln!("📝 日志文件: {}", file_path.display());
+        eprintln!("📝 Log file: {}", file_path.display());
         eprintln!(
-            "📋 诊断模式: {} (日志级别: {})",
+            "📋 Diagnostic mode: {} (log level: {})",
             if logging.diagnostic {
-                "启用"
+                "enabled"
             } else {
-                "禁用"
+                "disabled"
             },
             if logging.diagnostic { "DEBUG" } else { "WARN" }
         );
@@ -201,7 +206,7 @@ fn init_with_file_only(
 /// 初始化：stderr + OTLP
 fn init_stderr_with_otlp(logging: &LoggingArgs, quiet: bool, verbose: bool) -> Result<()> {
     if !quiet && !logging.diagnostic {
-        eprintln!("📋 诊断模式: 禁用 (不创建日志文件)");
+        eprintln!("📋 Diagnostic mode: disabled (no log file will be created)");
     }
 
     let filter = create_filter(logging, verbose);
@@ -218,7 +223,7 @@ fn init_stderr_with_otlp(logging: &LoggingArgs, quiet: bool, verbose: bool) -> R
 /// 初始化：仅 stderr
 fn init_stderr_only(logging: &LoggingArgs, quiet: bool, verbose: bool) -> Result<()> {
     if !quiet && !logging.diagnostic {
-        eprintln!("📋 诊断模式: 禁用 (不创建日志文件)");
+        eprintln!("📋 Diagnostic mode: disabled (no log file will be created)");
     }
 
     let filter = create_filter(logging, verbose);
@@ -246,9 +251,9 @@ fn init_otlp_tracing(logging: &LoggingArgs, mcp_name: Option<&str>, quiet: bool)
         let _ = TRACING_GUARD.set(guard);
 
         if !quiet {
-            eprintln!("🔭 OTLP 追踪: 已启用");
-            eprintln!("   端点: {}", endpoint);
-            eprintln!("   服务名: {}", service_name);
+            eprintln!("🔭 OTLP tracing: enabled");
+            eprintln!("   Endpoint: {}", endpoint);
+            eprintln!("   Service: {}", service_name);
         }
     }
 

@@ -325,7 +325,7 @@ impl FormatDetector {
         mime_type: Option<&str>,
     ) -> Result<DetectionResult> {
         let start_time = Instant::now();
-        debug!("开始检测文件格式: {}", file_path);
+        debug!("Start detecting file format: {}", file_path);
 
         // 1. 安全检查
         self.validate_file_security(file_path)?;
@@ -351,7 +351,10 @@ impl FormatDetector {
             result.security_status = self.assess_security_status(&result.format, file_path);
 
             if result.confidence >= 0.9 {
-                debug!("高置信度检测成功: custom_mapping ({})", result.confidence);
+                debug!(
+                    "High confidence detection successful: custom_mapping ({})",
+                    result.confidence
+                );
                 return Ok(result);
             }
             best_result = Some(result);
@@ -376,7 +379,7 @@ impl FormatDetector {
 
                     if best_result.as_ref().unwrap().confidence >= 0.9 {
                         debug!(
-                            "高置信度检测成功: magic_number ({})",
+                            "High confidence detection successful: magic_number ({})",
                             best_result.as_ref().unwrap().confidence
                         );
                         return Ok(best_result.unwrap());
@@ -386,7 +389,7 @@ impl FormatDetector {
                     fallback_methods.push(DetectionMethod::MagicNumber);
                 }
                 Err(e) => {
-                    warn!("魔数检测失败: {}", e);
+                    warn!("Magic number detection failed: {}", e);
                     fallback_methods.push(DetectionMethod::MagicNumber);
                 }
             }
@@ -451,7 +454,7 @@ impl FormatDetector {
                     fallback_methods.push(DetectionMethod::ContentAnalysis);
                 }
                 Err(e) => {
-                    warn!("内容分析检测失败: {}", e);
+                    warn!("Content analysis detection failed: {}", e);
                     fallback_methods.push(DetectionMethod::ContentAnalysis);
                 }
             }
@@ -482,7 +485,7 @@ impl FormatDetector {
                 self.assess_security_status(&final_result.format, file_path);
         }
 
-        debug!("文件格式检测完成: {:?}", final_result);
+        debug!("File format detection completed: {:?}", final_result);
         Ok(final_result)
     }
 
@@ -493,7 +496,7 @@ impl FormatDetector {
         mime_type: Option<&str>,
     ) -> Result<DetectionResult> {
         let start_time = Instant::now();
-        debug!("开始异步检测文件格式: {}", file_path);
+        debug!("Start asynchronous detection of file format: {}", file_path);
 
         // 1. 安全检查
         self.validate_file_security(file_path)?;
@@ -573,7 +576,10 @@ impl FormatDetector {
         final_result.fallback_methods = fallback_methods;
         final_result.security_status = self.assess_security_status(&final_result.format, file_path);
 
-        debug!("异步文件格式检测完成: {:?}", final_result);
+        debug!(
+            "Asynchronous file format detection completed: {:?}",
+            final_result
+        );
         Ok(final_result)
     }
 
@@ -869,7 +875,7 @@ impl FormatDetector {
             {
                 // 如果扩展名和检测结果不一致，降低置信度
                 warn!(
-                    "格式检测结果与文件扩展名不一致: 检测={:?}, 扩展名={:?}",
+                    "The format detection result is inconsistent with the file extension: detection={:?}, extension={:?}",
                     result.format, expected_format
                 );
             }
@@ -879,7 +885,7 @@ impl FormatDetector {
         let expected_engine = Self::select_engine_for_format(&result.format);
         if result.recommended_engine != expected_engine {
             warn!(
-                "推荐引擎不正确: 检测={:?}, 期望={:?}",
+                "Incorrect recommendation engine: detect={:?}, expect={:?}",
                 result.recommended_engine, expected_engine
             );
         }

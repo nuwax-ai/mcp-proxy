@@ -34,7 +34,11 @@ mod tests {
         match error {
             AppError::VirtualEnvironmentPath(msg) => {
                 // 验证路径信息被包含
-                assert!(msg.contains("/test/path"), "Message should contain '/test/path': {}", msg);
+                assert!(
+                    msg.contains("/test/path"),
+                    "Message should contain '/test/path': {}",
+                    msg
+                );
             }
             _ => panic!("Expected VirtualEnvironmentPath error"),
         }
@@ -47,7 +51,11 @@ mod tests {
 
         match error {
             AppError::Permission(msg) => {
-                assert!(msg.contains("/test/path"), "Message should contain '/test/path': {}", msg);
+                assert!(
+                    msg.contains("/test/path"),
+                    "Message should contain '/test/path': {}",
+                    msg
+                );
             }
             _ => panic!("Expected Permission error"),
         }
@@ -60,7 +68,11 @@ mod tests {
 
         match error {
             AppError::Path(msg) => {
-                assert!(msg.contains("/test/path"), "Message should contain '/test/path': {}", msg);
+                assert!(
+                    msg.contains("/test/path"),
+                    "Message should contain '/test/path': {}",
+                    msg
+                );
             }
             _ => panic!("Expected Path error"),
         }

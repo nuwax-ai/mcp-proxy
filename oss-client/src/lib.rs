@@ -24,7 +24,7 @@
 //!
 //!     // 上传文件
 //!     let url = client.upload_file("local/file.txt", "remote/file.txt").await?;
-//!     println!("文件上传成功: {}", url);
+//!     println!("File uploaded successfully: {}", url);
 //!     Ok(())
 //! }
 //! ```

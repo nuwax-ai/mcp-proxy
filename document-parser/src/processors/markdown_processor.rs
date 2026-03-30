@@ -138,7 +138,7 @@ impl MarkdownProcessor {
         // 尝试从缓存获取
         if self.config.enable_cache {
             if let Some(cached_result) = self.get_from_cache(&cache_key).await {
-                debug!("从缓存获取Markdown解析结果");
+                debug!("Get Markdown parsing results from cache");
                 return Ok(cached_result);
             }
         }
@@ -164,7 +164,10 @@ impl MarkdownProcessor {
         }
 
         let processing_time = start_time.elapsed();
-        info!("Markdown解析完成，耗时: {:?}", processing_time);
+        info!(
+            "Markdown parsing completed, time consuming: {:?}",
+            processing_time
+        );
 
         Ok(result)
     }
@@ -178,7 +181,10 @@ impl MarkdownProcessor {
                 let image_paths = ImageProcessor::extract_image_paths(content);
 
                 if !image_paths.is_empty() {
-                    info!("发现 {} 个图片需要处理", image_paths.len());
+                    info!(
+                        "Found {} pictures that need to be processed",
+                        image_paths.len()
+                    );
 
                     // 批量上传图片
                     let upload_results = image_processor.batch_upload_images(image_paths).await?;
@@ -188,9 +194,12 @@ impl MarkdownProcessor {
                     let failed = upload_results.len() - successful;
 
                     if failed > 0 {
-                        warn!("图片上传完成：成功 {} 个，失败 {} 个", successful, failed);
+                        warn!(
+                            "Image upload completed: {} successfully, {} failed",
+                            successful, failed
+                        );
                     } else {
-                        info!("所有图片上传成功：{} 个", successful);
+                        info!("All pictures uploaded successfully: {}", successful);
                     }
 
                     // 替换Markdown中的图片路径
@@ -555,7 +564,10 @@ impl MarkdownProcessor {
 
         // 检查内容长度
         if sanitized.len() < 10 {
-            warn!("文档内容过短: {} 字符", sanitized.len());
+            warn!(
+                "Document content is too short: {} characters",
+                sanitized.len()
+            );
         }
 
         // 移除不可见字符（保留换行符和制表符）
@@ -1062,7 +1074,7 @@ impl MarkdownProcessor {
                     results.push((file_path, doc_structure));
                 }
                 Err(e) => {
-                    warn!("处理文档失败 {}: {}", file_path, e);
+                    warn!("Failed to process document {}: {}", file_path, e);
                 }
             }
         }
@@ -1414,9 +1426,13 @@ mod tests {
         for section in &doc.toc {
             // 从sections中获取内容
             if let Some(content) = doc.sections.get(&section.id) {
-                println!("章节: {} - 内容长度: {}", section.title, content.len());
                 println!(
-                    "内容预览: {}",
+                    "Chapter: {} - Content length: {}",
+                    section.title,
+                    content.len()
+                );
+                println!(
+                    "Content preview: {}",
                     if content.chars().count() > 50 {
                         format!("{}...", content.chars().take(50).collect::<String>())
                     } else {
@@ -1434,7 +1450,10 @@ mod tests {
                     );
                 }
             } else {
-                println!("警告: 章节 '{}' 没有对应的内容", section.title);
+                println!(
+                    "Warning: Chapter '{}' has no corresponding content",
+                    section.title
+                );
             }
         }
     }

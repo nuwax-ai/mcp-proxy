@@ -22,8 +22,8 @@ pub async fn add_route_handler(
 ) -> Result<impl IntoResponse, AppError> {
     // 获取请求路径
     let request_path = uri.path().to_string();
-    debug!("请求路径: {}", request_path);
-    debug!("完整URI: {:?}", uri);
+    debug!("Request path: {}", request_path);
+    debug!("Full URI: {:?}", uri);
 
     let mcp_protocol = McpRouterPath::from_uri_prefix_protocol(&request_path);
     if let Some(mcp_protocol) = mcp_protocol {
@@ -31,8 +31,8 @@ pub async fn add_route_handler(
         let mcp_id = Uuid::now_v7().to_string().replace("-", "");
 
         //根据 mcp_id 和协议,生成 mcp_router_path
-        let mcp_router_path =
-            McpRouterPath::new(mcp_id, mcp_protocol).map_err(|e| AppError::mcp_server_error(e.to_string()))?;
+        let mcp_router_path = McpRouterPath::new(mcp_id, mcp_protocol)
+            .map_err(|e| AppError::mcp_server_error(e.to_string()))?;
 
         let mcp_plugin_json = params.mcp_json_config;
         // 将mcp_plugin_json转换为 McpServerConfig 结构体
@@ -41,7 +41,7 @@ pub async fn add_route_handler(
 
         let mcp_type = params.mcp_type.unwrap_or(McpType::default());
 
-        debug!("客户端协议: {:?}", mcp_router_path.mcp_protocol);
+        debug!("Client protocol: {:?}", mcp_router_path.mcp_protocol);
 
         // 构建完整的 McpConfig（用于自动重启）
         let full_mcp_config = McpConfig {
@@ -60,7 +60,7 @@ pub async fn add_route_handler(
         )
         .await
         .map_err(|e| {
-            error!("启动 MCP 服务失败: {e}");
+            error!("Failed to start MCP service: {e}");
             AppError::mcp_server_error(e.to_string())
         })?;
 

@@ -34,12 +34,12 @@ pub fn get_or_init_model(
 ) -> Result<Arc<Mutex<TextEmbedding>>> {
     // 检查缓存
     if let Some(existing) = MODEL_CACHE.get(&model) {
-        tracing::debug!("从缓存获取模型: {:?}", model);
+        tracing::debug!("Get model from cache: {:?}", model);
         return Ok(existing.clone());
     }
 
     // 初始化模型
-    tracing::info!("初始化模型: {:?}", model);
+    tracing::info!("Initialization model: {:?}", model);
     let mut options = InitOptions::new(model.clone());
 
     if let Some(dir) = cache_dir {
@@ -60,7 +60,7 @@ pub fn get_or_init_model(
     let model_key = model.clone();
     MODEL_CACHE.insert(model_key, arc.clone());
 
-    tracing::info!("模型初始化成功: {:?}", model);
+    tracing::info!("Model initialization successful: {:?}", model);
     Ok(arc)
 }
 

@@ -81,7 +81,7 @@ mod test_helpers {
         for i in 0..max_retries {
             match tokio::net::TcpStream::connect(addr).await {
                 Ok(_) => {
-                    println!("✅ 服务器就绪 (尝试 #{})", i + 1);
+                    println!("✅ Server ready (try #{})", i + 1);
                     return Ok(());
                 }
                 Err(_) => {
@@ -120,10 +120,10 @@ mod test_helpers {
         Ok(child)
     }
 
-    /// 监控 stderr 输出，查找特定日志模式
-    pub async fn wait_for_stderr_pattern(
+    /// 监控 stderr 输出，查找任一日志模式
+    pub async fn wait_for_stderr_patterns(
         stderr: &mut BufReader<tokio::process::ChildStderr>,
-        pattern: &str,
+        patterns: &[&str],
         timeout_duration: Duration,
     ) -> anyhow::Result<bool> {
         let result = timeout(timeout_duration, async {
@@ -134,7 +134,7 @@ mod test_helpers {
                     Ok(0) => return false, // EOF
                     Ok(_) => {
                         print!("[stderr] {}", line);
-                        if line.contains(pattern) {
+                        if patterns.iter().any(|pattern| line.contains(pattern)) {
                             return true;
                         }
                     }
@@ -224,10 +224,10 @@ mod integration_tests {
     /// 验证完整的 MCP 通信流程：initialize -> tools/list -> tools/call
     #[tokio::test]
     async fn test_real_mcp_service_communication() {
-        println!("\n========== 测试: MCP 服务连接和通信 ==========");
+        println!("\\n========== Test: MCP service connection and communication ==========");
 
         // 1. 启动本地 proxy 服务器
-        println!("🚀 启动本地 proxy 服务器...");
+        println!("🚀 Start local proxy server...");
         let mut proxy = spawn_proxy_server(TEST_PORT_INTEGRATION)
             .await
             .expect("启动 proxy 失败");
@@ -241,7 +241,7 @@ mod integration_tests {
         tokio::time::sleep(Duration::from_secs(3)).await;
 
         // 2. 启动 convert 客户端连接到本地 proxy
-        println!("🔗 启动 convert 客户端...");
+        println!("🔗 Start convert client...");
         let url = format!("http://{}", addr);
         let mut client = spawn_convert_client(&url, 30, 10)
             .await
@@ -254,26 +254,29 @@ mod integration_tests {
         let mut stderr_reader = BufReader::new(stderr);
 
         // 等待客户端连接成功
-        println!("⏳ 等待客户端连接...");
-        let connected =
-            wait_for_stderr_pattern(&mut stderr_reader, "开始代理转换", Duration::from_secs(15))
-                .await
-                .expect("监控 stderr 失败");
+        println!("⏳ Waiting for client to connect...");
+        let connected = wait_for_stderr_patterns(
+            &mut stderr_reader,
+            &["开始代理转换", "proxying traffic", "Stdio server started"],
+            Duration::from_secs(15),
+        )
+        .await
+        .expect("监控 stderr 失败");
 
         if !connected {
-            println!("⚠️  未检测到连接成功日志，尝试直接通信...");
+            println!("⚠️ No connection success log detected, trying to communicate directly...");
             // 额外等待以确保连接建立
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
 
         // 3. 初始化 MCP 客户端
-        println!("🤝 初始化 MCP 客户端...");
+        println!("🤝 Initialize MCP client...");
         initialize_mcp_client(&mut stdin, &mut stdout_reader)
             .await
             .expect("初始化失败");
 
         // 4. 发送 tools/list 请求
-        println!("📋 获取工具列表...");
+        println!("📋 Get tool list...");
         let tools_request = json!({
             "jsonrpc": "2.0",
             "id": 2,
@@ -289,16 +292,16 @@ mod integration_tests {
         assert!(tools_response["result"]["tools"].is_array());
 
         let tools = tools_response["result"]["tools"].as_array().unwrap();
-        println!("✅ 获取到 {} 个工具", tools.len());
+        println!("✅ Obtained {} tools", tools.len());
 
         // 验证本地测试工具存在
         let tool_names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
-        println!("   工具列表: {:?}", tool_names);
+        println!("Tool list: {:?}", tool_names);
         assert!(tool_names.contains(&"echo"), "应该包含 echo 工具");
         assert!(tool_names.contains(&"increment"), "应该包含 increment 工具");
 
         // 5. 测试调用 echo 工具
-        println!("🔧 调用 echo 工具...");
+        println!("🔧 Call the echo tool...");
         let call_tool_request = json!({
             "jsonrpc": "2.0",
             "id": 3,
@@ -347,7 +350,7 @@ mod integration_tests {
         println!("✅ Tool call successful! Response: {}", text);
 
         // 6. 测试调用 increment 工具
-        println!("🔧 调用 increment 工具...");
+        println!("🔧 Call the increment tool...");
         let increment_request = json!({
             "jsonrpc": "2.0",
             "id": 4,
@@ -369,15 +372,15 @@ mod integration_tests {
                 .unwrap_or(true),
             "increment 调用不应该出错"
         );
-        println!("✅ increment 调用成功");
+        println!("✅ increment call successful");
 
         // 清理：关闭进程
-        println!("🧹 清理进程...");
+        println!("🧹 Cleaning process...");
         drop(stdin);
         let _ = client.kill().await;
         let _ = proxy.kill().await;
 
-        println!("========== 测试完成 ==========\n");
+        println!("========== Test completed ==========\\n");
     }
 
     /// 测试协议检测功能
@@ -386,10 +389,10 @@ mod integration_tests {
     /// 本地 proxy 默认使用 Streamable HTTP 协议
     #[tokio::test]
     async fn test_protocol_detection() {
-        println!("\n========== 测试: 协议检测 ==========");
+        println!("\\n========== Test: Protocol Detection ==========");
 
         // 1. 启动本地 proxy 服务器（Streamable HTTP 模式）
-        println!("🚀 启动本地 proxy 服务器...");
+        println!("🚀 Start local proxy server...");
         let mut proxy = spawn_proxy_server(TEST_PORT_PROTOCOL)
             .await
             .expect("启动 proxy 失败");
@@ -400,7 +403,7 @@ mod integration_tests {
             .expect("服务器启动超时");
 
         // 2. 测试协议检测
-        println!("🔍 检测协议类型...");
+        println!("🔍Detect protocol type...");
         let url = format!("http://{}", addr);
         let protocol = crate::client::protocol::detect_mcp_protocol(&url).await;
 
@@ -415,13 +418,13 @@ mod integration_tests {
             "应该检测到 Streamable HTTP 协议"
         );
 
-        println!("✅ 检测到协议: {:?}", protocol);
+        println!("✅ Protocol detected: {:?}", protocol);
 
         // 清理
-        println!("🧹 清理进程...");
+        println!("🧹 Cleaning process...");
         let _ = proxy.kill().await;
 
-        println!("========== 测试完成 ==========\n");
+        println!("========== Test completed ==========\\n");
     }
 }
 
@@ -449,10 +452,10 @@ mod reconnection_tests {
     /// - tools/list 请求正常响应
     #[tokio::test]
     async fn test_reconnection_normal_connection() {
-        println!("\n========== 测试 1: 正常连接和通信 ==========");
+        println!("\\n========== Test 1: Normal connection and communication ==========");
 
         // 1. 启动 proxy 服务器
-        println!("🚀 启动 proxy 服务器...");
+        println!("🚀 Start proxy server...");
         let mut proxy = spawn_proxy_server(TEST_PORT_RECONNECT)
             .await
             .expect("启动 proxy 失败");
@@ -464,7 +467,7 @@ mod reconnection_tests {
             .expect("服务器启动超时");
 
         // 2. 启动 convert 客户端
-        println!("🔗 启动 convert 客户端...");
+        println!("🔗 Start convert client...");
         let url = format!("http://{}", addr);
         let mut client = spawn_convert_client(&url, 5, 3)
             .await
@@ -477,25 +480,28 @@ mod reconnection_tests {
         let mut stderr_reader = BufReader::new(stderr);
 
         // 等待客户端连接成功（监控 stderr）
-        println!("⏳ 等待客户端连接...");
-        let connected =
-            wait_for_stderr_pattern(&mut stderr_reader, "连接成功", CLIENT_CONNECT_TIMEOUT)
-                .await
-                .expect("监控 stderr 失败");
+        println!("⏳ Waiting for client to connect...");
+        let connected = wait_for_stderr_patterns(
+            &mut stderr_reader,
+            &["连接成功", "Backend connected successfully"],
+            CLIENT_CONNECT_TIMEOUT,
+        )
+        .await
+        .expect("监控 stderr 失败");
 
         if !connected {
             // 可能连接很快，直接尝试初始化
-            println!("⚠️  未检测到连接成功日志，尝试直接通信...");
+            println!("⚠️ No connection success log detected, trying to communicate directly...");
         }
 
         // 3. 初始化 MCP 客户端
-        println!("🤝 初始化 MCP 客户端...");
+        println!("🤝 Initialize MCP client...");
         initialize_mcp_client(&mut stdin, &mut stdout_reader)
             .await
             .expect("初始化失败");
 
         // 4. 发送 tools/list 请求
-        println!("📋 获取工具列表...");
+        println!("📋 Get tool list...");
         let tools_request = json!({
             "jsonrpc": "2.0",
             "id": 2,
@@ -511,7 +517,7 @@ mod reconnection_tests {
             "应该返回工具列表"
         );
         let tools = tools_response["result"]["tools"].as_array().unwrap();
-        println!("✅ 获取到 {} 个工具", tools.len());
+        println!("✅ Obtained {} tools", tools.len());
 
         // 验证我们的测试工具存在
         let tool_names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
@@ -519,7 +525,7 @@ mod reconnection_tests {
         assert!(tool_names.contains(&"increment"), "应该包含 increment 工具");
 
         // 5. 测试调用 increment 工具
-        println!("🔧 调用 increment 工具...");
+        println!("🔧 Call the increment tool...");
         let call_request = json!({
             "jsonrpc": "2.0",
             "id": 3,
@@ -537,15 +543,15 @@ mod reconnection_tests {
             !call_response["result"]["isError"].as_bool().unwrap_or(true),
             "increment 调用不应该出错"
         );
-        println!("✅ increment 调用成功");
+        println!("✅ increment call successful");
 
         // 清理
-        println!("🧹 清理进程...");
+        println!("🧹 Cleaning process...");
         drop(stdin);
         let _ = client.kill().await;
         let _ = proxy.kill().await;
 
-        println!("========== 测试 1 完成 ==========\n");
+        println!("========== Test 1 Complete ==========\\n");
     }
 
     /// 测试 2: 服务器重启后自动重连
@@ -556,10 +562,10 @@ mod reconnection_tests {
     /// - 重连后功能正常
     #[tokio::test]
     async fn test_reconnection_on_server_restart() {
-        println!("\n========== 测试 2: 服务器重启后自动重连 ==========");
+        println!("\\n========== Test 2: Automatically reconnect after server restart ==========");
 
         // 1. 启动 proxy 服务器
-        println!("🚀 启动 proxy 服务器...");
+        println!("🚀 Start proxy server...");
         let mut proxy = spawn_proxy_server(TEST_PORT_RECONNECT + 1)
             .await
             .expect("启动 proxy 失败");
@@ -570,7 +576,7 @@ mod reconnection_tests {
             .expect("服务器启动超时");
 
         // 2. 启动 convert 客户端（短 ping 间隔以快速检测断开）
-        println!("🔗 启动 convert 客户端...");
+        println!("🔗 Start convert client...");
         let url = format!("http://{}", addr);
         let mut client = spawn_convert_client(&url, 2, 2)
             .await
@@ -580,27 +586,32 @@ mod reconnection_tests {
         let mut stderr_reader = BufReader::new(stderr);
 
         // 等待客户端连接成功
-        println!("⏳ 等待客户端连接...");
+        println!("⏳ Waiting for client to connect...");
         tokio::time::sleep(Duration::from_secs(5)).await;
 
         // 3. 杀死 proxy 服务器
-        println!("💀 杀死 proxy 服务器...");
+        println!("💀 Kill proxy server...");
         let _ = proxy.kill().await;
 
         // 4. 等待客户端检测到断开
-        println!("⏳ 等待客户端检测到断开...");
-        let disconnected =
-            wait_for_stderr_pattern(&mut stderr_reader, "连接断开", RECONNECT_DETECT_TIMEOUT)
-                .await
-                .expect("监控 stderr 失败");
+        println!("⏳ Waiting for the client to detect the disconnect...");
+        let disconnected = wait_for_stderr_patterns(
+            &mut stderr_reader,
+            &["连接断开", "EVENT_DISCONNECTED", "Connection disconnected"],
+            RECONNECT_DETECT_TIMEOUT,
+        )
+        .await
+        .expect("监控 stderr 失败");
 
         // 也可能是 "Ping 检测" 或 "后端连接已关闭"
         if !disconnected {
-            println!("⚠️  未检测到明确的断开日志，检查是否有重连尝试...");
+            println!(
+                "⚠️ No clear disconnection log detected, check if there are any reconnection attempts..."
+            );
         }
 
         // 5. 重启 proxy 服务器
-        println!("🔄 重启 proxy 服务器...");
+        println!("🔄 Restart proxy server...");
         let mut proxy = spawn_proxy_server(TEST_PORT_RECONNECT + 1)
             .await
             .expect("重启 proxy 失败");
@@ -610,24 +621,33 @@ mod reconnection_tests {
             .expect("服务器重启超时");
 
         // 6. 等待客户端重连成功
-        println!("⏳ 等待客户端重连...");
-        let reconnected =
-            wait_for_stderr_pattern(&mut stderr_reader, "重连成功", RECONNECT_DETECT_TIMEOUT)
-                .await
-                .expect("监控 stderr 失败");
+        println!("⏳ Waiting for the client to reconnect...");
+        let reconnected = wait_for_stderr_patterns(
+            &mut stderr_reader,
+            &[
+                "重连成功",
+                "EVENT_RECONNECTED",
+                "Reconnected, proxy service resumed",
+            ],
+            RECONNECT_DETECT_TIMEOUT,
+        )
+        .await
+        .expect("监控 stderr 失败");
 
         if reconnected {
-            println!("✅ 客户端已重连成功");
+            println!("✅ The client has been reconnected successfully");
         } else {
-            println!("⚠️  未检测到重连成功日志（可能已在超时前重连）");
+            println!(
+                "⚠️ No reconnection success log detected (may have reconnected before timeout)"
+            );
         }
 
         // 清理
-        println!("🧹 清理进程...");
+        println!("🧹 Cleaning process...");
         let _ = client.kill().await;
         let _ = proxy.kill().await;
 
-        println!("========== 测试 2 完成 ==========\n");
+        println!("========== Test 2 Complete ==========\\n");
     }
 
     /// 测试 3: 指数退避验证
@@ -635,11 +655,11 @@ mod reconnection_tests {
     /// 验证退避时间递增（1s, 2s, 4s...）
     #[tokio::test]
     async fn test_reconnection_exponential_backoff() {
-        println!("\n========== 测试 3: 指数退避验证 ==========");
+        println!("\\n========== Test 3: Exponential Backoff Verification ==========");
 
         // 不启动服务器，直接启动客户端
         // 客户端应该不断尝试连接并显示退避时间
-        println!("🔗 启动 convert 客户端（无服务器）...");
+        println!("🔗 Start convert client (serverless)...");
         let url = format!("http://127.0.0.1:{}", TEST_PORT_RECONNECT + 2);
         let mut client = spawn_convert_client(&url, 30, 10)
             .await
@@ -649,7 +669,7 @@ mod reconnection_tests {
         let mut stderr_reader = BufReader::new(stderr);
 
         // 监控退避日志
-        println!("⏳ 监控退避日志（等待约 15 秒）...");
+        println!("⏳ Monitor the backoff log (wait about 15 seconds)...");
         let mut backoff_times: Vec<String> = Vec::new();
 
         let result = timeout(Duration::from_secs(15), async {
@@ -660,8 +680,11 @@ mod reconnection_tests {
                     Ok(0) => break,
                     Ok(_) => {
                         print!("[stderr] {}", line);
-                        // 查找退避时间日志 "N秒后重连"
-                        if line.contains("秒后重连") {
+                        // 查找退避时间日志（兼容中英文/事件标记）
+                        if line.contains("秒后重连")
+                            || line.contains("retrying in")
+                            || line.contains("EVENT_RETRY_BACKOFF")
+                        {
                             backoff_times.push(line.clone());
                             if backoff_times.len() >= 3 {
                                 break;
@@ -675,23 +698,23 @@ mod reconnection_tests {
         .await;
 
         if result.is_err() {
-            println!("⚠️  监控超时");
+            println!("⚠️ Monitoring timeout");
         }
 
-        println!("📊 检测到的退避日志: {:?}", backoff_times);
+        println!("📊 Detected backoff log: {:?}", backoff_times);
 
         // 验证退避时间递增
         if backoff_times.len() >= 2 {
-            println!("✅ 检测到退避机制正在工作");
+            println!("✅ It has been detected that the backoff mechanism is working");
         } else {
-            println!("⚠️  未检测到足够的退避日志");
+            println!("⚠️ Not enough backoff logs detected");
         }
 
         // 清理
-        println!("🧹 清理进程...");
+        println!("🧹 Cleaning process...");
         let _ = client.kill().await;
 
-        println!("========== 测试 3 完成 ==========\n");
+        println!("========== Test 3 Complete ==========\\n");
     }
 
     /// 测试 4: 通道断开后请求是否立即返回错误
@@ -701,10 +724,12 @@ mod reconnection_tests {
     /// - 而不是空等超时
     #[tokio::test]
     async fn test_request_returns_error_when_connection_closed() {
-        println!("\n========== 测试 4: 通道断开后请求立即返回错误 ==========");
+        println!(
+            "\\n========== Test 4: The request returns an error immediately after the channel is disconnected =========="
+        );
 
         // 1. 启动 proxy 服务器
-        println!("🚀 启动 proxy 服务器...");
+        println!("🚀 Start proxy server...");
         let mut proxy = spawn_proxy_server(TEST_PORT_RECONNECT + 3)
             .await
             .expect("启动 proxy 失败");
@@ -715,7 +740,7 @@ mod reconnection_tests {
             .expect("服务器启动超时");
 
         // 2. 启动 convert 客户端（短 ping 间隔以快速检测断开）
-        println!("🔗 启动 convert 客户端...");
+        println!("🔗 Start convert client...");
         let url = format!("http://{}", addr);
         let mut client = spawn_convert_client(&url, 2, 2)
             .await
@@ -746,13 +771,13 @@ mod reconnection_tests {
         tokio::time::sleep(Duration::from_secs(3)).await;
 
         // 3. 初始化 MCP 客户端
-        println!("🤝 初始化 MCP 客户端...");
+        println!("🤝 Initialize MCP client...");
         initialize_mcp_client(&mut stdin, &mut stdout_reader)
             .await
             .expect("初始化失败");
 
         // 4. 发送第一个 tools/list 请求确认通信正常
-        println!("📋 发送第一个 tools/list 请求（应该成功）...");
+        println!("📋 Send first tools/list request (should succeed)...");
         let tools_request = json!({
             "jsonrpc": "2.0",
             "id": 2,
@@ -770,18 +795,21 @@ mod reconnection_tests {
             tools_response["result"]["tools"].is_array(),
             "第一个请求应该成功返回工具列表"
         );
-        println!("✅ 第一个请求成功，耗时: {:?}", elapsed);
+        println!(
+            "✅ The first request was successful and took time: {:?}",
+            elapsed
+        );
 
         // 5. 杀死 proxy 服务器
-        println!("💀 杀死 proxy 服务器...");
+        println!("💀 Kill proxy server...");
         let _ = proxy.kill().await;
 
         // 等待 ping 检测发现连接断开（ping 间隔是 2s，超时也是 2s）
-        println!("⏳ 等待 ping 检测发现断开（约 5 秒）...");
+        println!("⏳ Wait for the ping to detect the disconnection (about 5 seconds)...");
         tokio::time::sleep(Duration::from_secs(5)).await;
 
         // 6. 发送第二个 tools/list 请求
-        println!("📋 发送第二个 tools/list 请求（应该快速返回错误）...");
+        println!("📋 Send a second tools/list request (should return an error quickly)...");
         let tools_request2 = json!({
             "jsonrpc": "2.0",
             "id": 3,
@@ -800,8 +828,8 @@ mod reconnection_tests {
             Ok(Ok(response)) => {
                 // 检查是否是错误响应
                 if response["error"].is_object() {
-                    println!("✅ 收到错误响应，耗时: {:?}", elapsed);
-                    println!("   错误信息: {:?}", response["error"]);
+                    println!("✅ Error response received, time taken: {:?}", elapsed);
+                    println!("Error message: {:?}", response["error"]);
                     assert!(
                         elapsed < Duration::from_secs(3),
                         "错误响应应该在 3 秒内返回，实际耗时: {:?}",
@@ -809,12 +837,18 @@ mod reconnection_tests {
                     );
                 } else {
                     // 如果返回了成功响应，说明可能重连了
-                    println!("⚠️  收到成功响应（可能已重连），耗时: {:?}", elapsed);
+                    println!(
+                        "⚠️ Successful response received (may have been reconnected), time taken: {:?}",
+                        elapsed
+                    );
                 }
             }
             Ok(Err(e)) => {
-                println!("✅ 请求失败（符合预期），耗时: {:?}", elapsed);
-                println!("   错误: {}", e);
+                println!(
+                    "✅ The request failed (as expected), time taken: {:?}",
+                    elapsed
+                );
+                println!("Error: {}", e);
                 assert!(
                     elapsed < Duration::from_secs(3),
                     "错误应该在 3 秒内返回，实际耗时: {:?}",
@@ -822,17 +856,19 @@ mod reconnection_tests {
                 );
             }
             Err(_) => {
-                println!("❌ 请求超时（5秒），说明客户端在空等！");
+                println!(
+                    "❌ The request times out (5 seconds), indicating that the client is waiting!"
+                );
                 panic!("请求应该快速返回错误，而不是超时空等");
             }
         }
 
         // 清理
-        println!("🧹 清理进程...");
+        println!("🧹 Cleaning process...");
         drop(stdin);
         stderr_monitor.abort();
         let _ = client.kill().await;
 
-        println!("========== 测试 4 完成 ==========\n");
+        println!("========== Test 4 Complete ==========\\n");
     }
 }

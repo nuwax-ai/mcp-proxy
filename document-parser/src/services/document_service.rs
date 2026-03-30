@@ -153,7 +153,7 @@ impl DocumentService {
         task_id: &str,
         file_path: &str,
     ) -> AnyhowResult<ParseResult> {
-        info!("开始解析文档: {}", file_path);
+        info!("Start parsing the document: {}", file_path);
 
         // Wrap the entire operation in a timeout
         let result = timeout(self.config.task_timeout, async {
@@ -188,13 +188,13 @@ impl DocumentService {
         file_path: &str,
     ) -> AnyhowResult<ParseResult> {
         debug!(
-            "parse_document_internal - 任务ID: {}, 文件路径: {}",
+            "parse_document_internal - Task ID: {}, File path: {}",
             task_id, file_path
         );
 
         // 验证文件是否存在
         if !std::path::Path::new(file_path).exists() {
-            error!("文件不存在: {}", file_path);
+            error!("File does not exist: {}", file_path);
             return Err(anyhow::anyhow!("文件不存在: {}", file_path));
         }
 
@@ -204,7 +204,7 @@ impl DocumentService {
             .map_err(|e| anyhow::anyhow!("无法获取文件绝对路径: {}", e))?
             .to_string_lossy()
             .to_string();
-        debug!("文件绝对路径: {}", absolute_path);
+        debug!("Absolute file path: {}", absolute_path);
         // 记录开始时间
         let start_time = std::time::Instant::now();
         // Update task status with proper error handling
@@ -250,7 +250,7 @@ impl DocumentService {
         let format = detection.format;
         let selected_engine = ParserEngine::select_for_format(&format);
         debug!(
-            "检测到格式: {:?}, 选择的解析引擎: {:?}",
+            "Detected format: {:?}, selected parsing engine: {:?}",
             format, selected_engine
         );
         // 将检测到的文档格式保存到任务记录
@@ -266,22 +266,25 @@ impl DocumentService {
             ParserEngine::MinerU => ProcessingStage::MinerUExecuting,
             _ => ProcessingStage::MarkItDownExecuting,
         };
-        debug!("任务阶段更新为: {:?}", stage);
+        debug!("The mission phase is updated to: {:?}", stage);
         self.update_task_stage_safe(task_id, stage).await;
 
         // Parse document - 使用绝对路径
-        info!("开始调用解析器，使用绝对路径: {}", absolute_path);
+        info!(
+            "Start calling the parser, using the absolute path: {}",
+            absolute_path
+        );
         let parse_result = self
             .dual_parser
             .parse_document_auto(&absolute_path)
             .await
             .with_context(|| format!("文档解析失败[parse_document_internal]"))?;
         debug!(
-            "解析器调用完成，内容长度: {}",
+            "Parser call completed, content length: {}",
             parse_result.markdown_content.len()
         );
 
-        info!("文档解析成功: {}", file_path.display());
+        info!("Document parsed successfully: {}", file_path.display());
         self.update_task_progress_safe(task_id, 80).await;
 
         // 新增：处理图片上传和路径替换
@@ -289,7 +292,10 @@ impl DocumentService {
             .process_images_and_replace_paths(task_id, parse_result)
             .await?;
 
-        info!("图片处理和路径替换完成: {}", file_path.display());
+        info!(
+            "Image processing and path replacement completed: {}",
+            file_path.display()
+        );
         self.update_task_progress_safe(task_id, 90).await;
 
         // 将处理后的新Markdown内容上传到OSS
@@ -298,7 +304,7 @@ impl DocumentService {
             .await?;
 
         info!(
-            "Markdown内容已上传到OSS: {} -> {}",
+            "Markdown content has been uploaded to OSS: {} -> {}",
             oss_object_key, oss_markdown_url
         );
         self.update_task_progress_safe(task_id, 95).await;
@@ -330,7 +336,7 @@ impl DocumentService {
         parse_result: &ParseResult,
         oss_markdown_data: Option<(String, String)>,
     ) -> Result<(), AppError> {
-        info!("开始保存解析结果到任务: {}", task_id);
+        info!("Start saving parsing results to task: {}", task_id);
 
         // 获取任务
         let mut task = self
@@ -368,7 +374,10 @@ impl DocumentService {
         // 保存任务
         self.task_service.save_task(&task).await?;
 
-        info!("成功保存解析结果到任务: {}", task_id);
+        info!(
+            "Successfully saved the parsing results to the task: {}",
+            task_id
+        );
         Ok(())
     }
 
@@ -419,14 +428,14 @@ impl DocumentService {
         task_id: &str,
         parse_result: ParseResult,
     ) -> AnyhowResult<ParseResult> {
-        info!("开始处理图片上传和路径替换");
+        info!("Start processing image upload and path replacement");
 
         // 检查OSS客户端是否可用
         let oss_client: &Arc<dyn oss_client::OssClientTrait + Send + Sync> = match &self.oss_client
         {
             Some(client) => client,
             None => {
-                warn!("OSS客户端未配置，跳过图片上传");
+                warn!("The OSS client is not configured and image uploading is skipped.");
                 return Ok(parse_result);
             }
         };
@@ -434,7 +443,7 @@ impl DocumentService {
         let mut local_image_paths: Vec<PathBuf> = Vec::new();
         if let Some(output_path) = parse_result.output_dir.as_ref() {
             let collected = Self::collect_local_images_from_output(output_path).await?;
-            info!("扫描到 {} 个图片文件用于上传", collected.len());
+            info!("Scan to {} image files for upload", collected.len());
             local_image_paths.extend(collected);
         }
 
@@ -448,7 +457,10 @@ impl DocumentService {
             let original_filename = match local_path.file_name().and_then(|n| n.to_str()) {
                 Some(name) => name.to_string(),
                 None => {
-                    warn!("无法获取文件名，跳过: {}", local_path.display());
+                    warn!(
+                        "Unable to get file name, skipping: {}",
+                        local_path.display()
+                    );
                     continue;
                 }
             };
@@ -504,7 +516,10 @@ impl DocumentService {
                 mime_type,
             ));
         }
-        info!("成功上传 {} 个图片到OSS", image_results.len());
+        info!(
+            "Successfully uploaded {} pictures to OSS",
+            image_results.len()
+        );
         debug!("image_results: {:?}", image_results);
 
         // 5. 更新任务状态
@@ -521,7 +536,7 @@ impl DocumentService {
         final_result.markdown_content = updated_content;
 
         info!(
-            "图片路径替换完成，内容长度: {} 字符，替换了 {} 个图片路径",
+            "Image path replacement completed, content length: {} characters, {} image paths replaced",
             final_result.markdown_content.len(),
             image_results.len()
         );
@@ -530,7 +545,10 @@ impl DocumentService {
 
     /// 递归查找 `images` 目录，并收集其下所有图片文件
     async fn collect_local_images_from_output(output_path: &str) -> AnyhowResult<Vec<PathBuf>> {
-        debug!("扫描输出目录下名为 'images' 的目录: {}", output_path);
+        debug!(
+            "Scan the directory named 'images' under the output directory: {}",
+            output_path
+        );
         let base_dir = Path::new(output_path);
         let mut found: Vec<PathBuf> = Vec::new();
 
@@ -621,7 +639,7 @@ impl DocumentService {
         markdown_content: &str,
         image_results: &[ImageInfo],
     ) -> AnyhowResult<String> {
-        info!("替换Markdown中的 {} 个图片路径", image_results.len());
+        info!("Replace {} image paths in Markdown", image_results.len());
 
         // 创建文件名到OSS URL的映射表
         let mut filename_to_oss_url = HashMap::new();
@@ -639,7 +657,7 @@ impl DocumentService {
             }
         }
 
-        info!("创建了 {} 个文件名映射", filename_to_oss_url.len());
+        info!("Created {} filename mappings", filename_to_oss_url.len());
 
         // 使用pulldown-cmark解析Markdown，直接修改Event
         let parser = Parser::new(markdown_content);
@@ -691,7 +709,7 @@ impl DocumentService {
         cmark(updated_events.into_iter(), &mut output)?;
 
         info!(
-            "图片路径替换完成，处理了 {} 个图片，替换了 {} 个路径",
+            "Image path replacement completed, {} images processed, {} paths replaced",
             image_results.len(),
             replacements_count
         );
@@ -745,7 +763,7 @@ impl DocumentService {
         task_id: &str,
         url: &str,
     ) -> AnyhowResult<ParseResult> {
-        info!("从URL解析文档: {} ", url);
+        info!("Parse document from URL: {}", url);
 
         // Update task status
         self.update_task_stage_safe(task_id, crate::models::ProcessingStage::DownloadingDocument)
@@ -758,18 +776,18 @@ impl DocumentService {
             .next_back()
             .unwrap_or("downloaded_file")
             .to_string();
-        debug!("从URL提取的文件名: {}", filename);
-        debug!("URL (去掉查询参数): {}", url_without_query);
+        debug!("File name extracted from URL: {}", filename);
+        debug!("URL (remove query parameters): {}", url_without_query);
 
         // 创建基于 taskId 的临时文件路径
         let file_path = self.create_temp_file_for_task("./temp", task_id, &filename)?;
-        debug!("创建的临时文件路径: {}", file_path);
+        debug!("Created temporary file path: {}", file_path);
 
         // 下载文件到指定路径
         self.download_file_to_path(url, &file_path)
             .await
             .with_context(|| format!("下载文件失败: {url}"))?;
-        debug!("文件下载完成: {}", file_path);
+        debug!("File download completed: {}", file_path);
 
         // 将本地文件路径写回任务，便于后续清理临时文件
         if let Err(e) = self
@@ -782,10 +800,13 @@ impl DocumentService {
             )
             .await
         {
-            warn!("更新任务本地路径失败: task_id={}, error={}", task_id, e);
+            warn!(
+                "Failed to update task local path: task_id={}, error={}",
+                task_id, e
+            );
         } else {
             debug!(
-                "已更新任务本地路径: task_id={}, path={}",
+                "Updated task local path: task_id={}, path={}",
                 task_id, file_path
             );
         }
@@ -794,7 +815,7 @@ impl DocumentService {
         self.update_task_progress_safe(task_id, 30).await;
 
         // Parse document
-        debug!("开始解析文档: {}", file_path);
+        debug!("Start parsing the document: {}", file_path);
 
         self.parse_document(task_id, &file_path).await
     }
@@ -807,7 +828,10 @@ impl DocumentService {
         markdown_content: &str,
         title: Option<String>,
     ) -> AnyhowResult<StructuredDocument> {
-        info!("生成结构化文档，内容长度: {} 字符", markdown_content.len());
+        info!(
+            "Generate structured document, content length: {} characters",
+            markdown_content.len()
+        );
 
         // Update task status
         self.update_task_stage_safe(task_id, crate::models::ProcessingStage::ProcessingMarkdown)
@@ -828,7 +852,7 @@ impl DocumentService {
         match result {
             Ok(doc) => {
                 info!(
-                    "结构化文档生成完成，章节数: {}",
+                    "Structured document generation is completed, number of chapters: {}",
                     doc.as_ref().map(|d| d.total_sections).unwrap_or(0)
                 );
                 doc
@@ -973,7 +997,7 @@ impl DocumentService {
         use std::path::Path;
 
         debug!(
-            "创建临时文件 - 输入参数: temp_dir={}, task_id={}, filename={}",
+            "Create a temporary file - input parameters: temp_dir={}, task_id={}, filename={}",
             temp_dir, task_id, filename
         );
 
@@ -993,7 +1017,7 @@ impl DocumentService {
             .and_then(|ext| ext.to_str())
             .unwrap_or("tmp");
 
-        debug!("提取的文件扩展名: {}", extension);
+        debug!("Extracted file extension: {}", extension);
 
         // 从文件名中移除扩展名，然后清理文件名
         let stem = Path::new(filename)
@@ -1006,7 +1030,7 @@ impl DocumentService {
             .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-' || *c == '.')
             .collect::<String>();
 
-        debug!("清理后的文件名主体: {}", clean_stem);
+        debug!("Cleaned file name body: {}", clean_stem);
 
         // 使用 taskId 作为文件名的一部分，确保唯一性和可追踪性
         let task_filename = format!("task_{task_id}_{clean_stem}.{extension}");
@@ -1018,7 +1042,7 @@ impl DocumentService {
         }
 
         let final_path = file_path.to_string_lossy().to_string();
-        debug!("创建临时文件 - 最终路径: {}", final_path);
+        debug!("Create temporary file - final path: {}", final_path);
 
         Ok(final_path)
     }
@@ -1076,7 +1100,7 @@ impl DocumentService {
     pub async fn check_parser_health(
         &self,
     ) -> AnyhowResult<std::collections::HashMap<String, bool>> {
-        debug!("检查解析器健康状态");
+        debug!("Check parser health status");
 
         let health_check_result = timeout(Duration::from_secs(60), async {
             self.dual_parser.health_check().await
@@ -1090,17 +1114,17 @@ impl DocumentService {
                 health_status.insert("parser_healthy".to_string(), true);
                 health_status.insert("mineru_available".to_string(), true);
                 health_status.insert("markitdown_available".to_string(), true);
-                info!("解析器健康检查通过");
+                info!("Parser health check passed");
             }
             Ok(Err(e)) => {
                 health_status.insert("parser_healthy".to_string(), false);
                 health_status.insert("error_message".to_string(), false);
-                warn!("解析器健康检查失败: {}", e);
+                warn!("Parser health check failed: {}", e);
             }
             Err(_) => {
                 health_status.insert("parser_healthy".to_string(), false);
                 health_status.insert("timeout".to_string(), true);
-                warn!("解析器健康检查超时");
+                warn!("Resolver health check timeout");
             }
         }
 
@@ -1115,13 +1139,13 @@ impl DocumentService {
     /// 清理Markdown处理器缓存 - Enhanced with proper async patterns
     #[instrument(skip(self))]
     pub async fn clear_processor_cache(&self) -> AnyhowResult<()> {
-        debug!("清理Markdown处理器缓存");
+        debug!("Clean Markdown processor cache");
 
         // Use write lock to ensure exclusive access during cache clearing
         let processor = self.markdown_processor.write().await;
         processor.clear_cache().await;
 
-        info!("Markdown处理器缓存已清理");
+        info!("Markdown processor cache cleared");
         Ok(())
     }
 
@@ -1131,7 +1155,7 @@ impl DocumentService {
         &self,
         markdown_content: &str,
     ) -> AnyhowResult<StructuredDocument> {
-        debug!("生成简单结构化文档");
+        debug!("Generate simple structured documents");
 
         if markdown_content.is_empty() {
             return Err(anyhow::anyhow!("Markdown内容为空"));
@@ -1178,18 +1202,18 @@ impl DocumentService {
                 structured_doc.calculate_total_word_count();
 
                 info!(
-                    "简单结构化文档生成完成，章节数: {}",
+                    "Simple structured document generation is completed, number of chapters: {}",
                     structured_doc.total_sections
                 );
 
                 Ok(structured_doc)
             }
             Ok(Err(e)) => {
-                error!("结构化文档生成失败: {}", e);
+                error!("Structured document generation failed: {}", e);
                 Err(anyhow::anyhow!("结构化文档生成失败: {}", e))
             }
             Err(_) => {
-                error!("结构化文档生成超时");
+                error!("Structured document generation timeout");
                 Err(anyhow::anyhow!("结构化文档生成超时"))
             }
         }
@@ -1210,7 +1234,10 @@ impl DocumentService {
         filename: &str,
         file_size: u64,
     ) -> AnyhowResult<String> {
-        info!("创建文件上传任务: {} (大小: {} bytes)", filename, file_size);
+        info!(
+            "Create file upload task: {} (size: {} bytes)",
+            filename, file_size
+        );
 
         // Validate file size
         let global_config = GlobalFileSizeConfig::new();
@@ -1245,7 +1272,7 @@ impl DocumentService {
 
     /// 创建URL下载任务
     pub async fn create_url_task(&self, url: &str, filename: &str) -> Result<String, AppError> {
-        log::info!("创建URL下载任务: {url} -> {filename}");
+        log::info!("Create URL download task: {url} -> {filename}");
 
         // 创建任务：URL 作为 source_url，原始文件名保留
         let task = self
@@ -1267,7 +1294,7 @@ impl DocumentService {
         &self,
         task_id: &str,
     ) -> Result<crate::models::DocumentTask, AppError> {
-        log::debug!("获取任务状态: {task_id}");
+        log::debug!("Get task status: {task_id}");
 
         self.task_service
             .get_task(task_id)
@@ -1389,7 +1416,10 @@ impl DocumentService {
         task_id: &str,
         markdown_content: &str,
     ) -> AnyhowResult<(String, String)> {
-        info!("开始上传处理后的Markdown内容到OSS: {}", task_id);
+        info!(
+            "Start uploading the processed Markdown content to OSS: {}",
+            task_id
+        );
 
         // 检查OSS客户端是否可用
         let oss_client = match &self.oss_client {
@@ -1411,7 +1441,10 @@ impl DocumentService {
             .await
             .map_err(|e| anyhow::anyhow!("上传Markdown内容到OSS失败: {}: {}", object_key, e))?;
 
-        info!("Markdown内容上传成功: {} -> {}", object_key, upload_result);
+        info!(
+            "Markdown content uploaded successfully: {} -> {}",
+            object_key, upload_result
+        );
 
         Ok((upload_result, object_key))
     }

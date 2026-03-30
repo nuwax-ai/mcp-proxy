@@ -175,7 +175,7 @@ async fn main() -> Result<()> {
         .map_err(|e| anyhow::anyhow!("全局配置初始化失败: {}", e))?;
 
     // 检查并缓存CUDA环境状态到全局配置
-    info!("检查CUDA环境状态...");
+    info!("Check CUDA environment status...");
     let environment_manager = EnvironmentManager::for_current_directory()
         .map_err(|e| anyhow::anyhow!("无法创建环境管理器: {}", e))?;
 
@@ -202,26 +202,26 @@ async fn main() -> Result<()> {
 
             if status.available {
                 info!(
-                    "CUDA环境可用: version={:?}, devices={}, recommended={}",
+                    "CUDA environment is available: version={:?}, devices={}, recommended={}",
                     status.version.as_deref().unwrap_or("unknown"),
                     status.device_count,
                     status.recommended_device.as_deref().unwrap_or("cuda")
                 );
             } else {
-                info!("CUDA环境不可用，将使用CPU模式");
+                info!("CUDA environment is not available, CPU mode will be used");
             }
 
             status
         }
         Err(e) => {
-            warn!("CUDA环境检查失败: {e}, 将使用CPU模式");
+            warn!("CUDA environment check failed: {e}, CPU mode will be used");
             CudaStatus::default()
         }
     };
 
     // 初始化全局CUDA状态
     if let Err(e) = init_global_cuda_status(cuda_status) {
-        warn!("初始化全局CUDA状态失败: {e}");
+        warn!("Failed to initialize global CUDA state: {e}");
     }
 
     let log_level = app_config.log.level.clone();
@@ -261,8 +261,8 @@ async fn main() -> Result<()> {
         .with(file_layer)
         .init();
 
-    info!("=== {APP_NAME} v{APP_VERSION} 启动 ===");
-    info!("配置摘要: {}", app_config.summary());
+    info!("=== {APP_NAME} v{APP_VERSION} Start ===");
+    info!("Configuration summary: {}", app_config.summary());
 
     // 创建环境管理器 - 使用当前目录方法
     let environment_manager = EnvironmentManager::for_current_directory()
@@ -295,30 +295,32 @@ async fn main() -> Result<()> {
         }
     }
 
-    info!("服务监听地址: {server_host}:{server_port}");
+    info!("Service listening address: {server_host}:{server_port}");
 
     // 初始化环境管理器并检查Python环境
-    info!("开始检查和初始化Python环境...");
+    info!("Start checking and initializing the Python environment...");
     let environment_manager = EnvironmentManager::for_current_directory()
         .map_err(|e| anyhow::anyhow!("无法创建环境管理器: {}", e))?;
 
     // 自动激活虚拟环境（如果存在且未激活）
-    info!("检查并激活虚拟环境...");
+    info!("Check and activate virtual environment...");
     if let Err(e) = environment_manager
         .auto_activate_virtual_environment()
         .await
     {
-        warn!("虚拟环境自动激活失败: {e}");
-        info!("请手动激活虚拟环境: source ./venv/bin/activate");
+        warn!("Automatic activation of virtual environment failed: {e}");
+        info!("Please activate the virtual environment manually: source ./venv/bin/activate");
     } else {
-        info!("虚拟环境已自动激活");
+        info!("The virtual environment has been automatically activated");
     }
 
     // 检查环境状态（非阻塞）
     let env_status = match environment_manager.check_environment().await {
         Ok(status) => status,
         Err(e) => {
-            warn!("环境检查失败，将在后台自动安装: {e}");
+            warn!(
+                "The environment check failed and will be automatically installed in the background: {e}"
+            );
             // 创建默认状态，表示需要安装
             EnvironmentStatus::default()
         }
@@ -329,26 +331,35 @@ async fn main() -> Result<()> {
         let env_manager = environment_manager.clone();
         tokio::spawn(async move {
             if !env_status.mineru_available {
-                info!("MinerU依赖未安装，开始后台自动安装...");
+                info!(
+                    "MinerU dependencies are not installed, and automatic background installation starts..."
+                );
             }
             if !env_status.markitdown_available {
-                info!("MarkItDown依赖未安装，开始后台自动安装...");
+                info!(
+                    "The MarkItDown dependency is not installed, and automatic background installation starts..."
+                );
             }
 
             match env_manager.setup_python_environment().await {
                 Ok(_) => {
-                    info!("后台Python环境安装完成");
+                    info!("The background Python environment installation is completed");
                 }
                 Err(e) => {
-                    error!("后台Python环境安装失败: {e}");
+                    error!("Background Python environment installation failed: {e}");
                 }
             }
         });
-        info!("Python依赖安装任务已启动（后台进行），服务将正常启动");
+        info!(
+            "The Python dependency installation task has been started (in the background) and the service will start normally."
+        );
     } else {
-        info!("MinerU依赖已安装，版本: {:?}", env_status.mineru_version);
-        info!("MarkItDown依赖已安装");
-        info!("Python环境检查完成，所有依赖已就绪");
+        info!(
+            "MinerU dependency has been installed, version: {:?}",
+            env_status.mineru_version
+        );
+        info!("MarkItDown dependencies are installed");
+        info!("Python environment check is completed and all dependencies are in place");
     }
 
     // 创建应用状态
@@ -358,11 +369,11 @@ async fn main() -> Result<()> {
 
     // 健康检查
     if let Err(e) = state.health_check().await {
-        error!("应用健康检查失败: {e}");
+        error!("Application health check failed: {e}");
         return Err(anyhow::anyhow!("应用健康检查失败: {}", e));
     }
 
-    info!("应用状态初始化成功");
+    info!("Application status initialization successful");
 
     // 监听地址
     let addr = format!("{server_host}:{server_port}");
@@ -370,43 +381,43 @@ async fn main() -> Result<()> {
 
     // 构建 axum 路由
     let app = create_router(state.clone()).await?;
-    info!("HTTP路由初始化成功");
+    info!("HTTP routing initialization successful");
 
     // 启动定时任务
     tokio::spawn(start_background_tasks(state.clone()));
-    info!("后台任务已启动");
+    info!("Background task started");
 
     // 注册关闭处理函数
     tokio::spawn(async move {
         std::panic::set_hook(Box::new(move |panic_info| {
-            warn!("程序发生panic，执行清理...");
+            warn!("The program panics, perform cleanup...");
 
             if let Some(s) = panic_info.payload().downcast_ref::<String>() {
-                error!("Panic 原因: {s}");
+                error!("Panic reason: {s}");
             } else if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
-                error!("Panic 原因: {s}");
+                error!("Panic reason: {s}");
             } else {
-                error!("Panic 原因: 未知");
+                error!("Panic Reason: Unknown");
             }
 
             if let Some(location) = panic_info.location() {
-                error!("Panic 位置: {}:{}", location.file(), location.line());
+                error!("Panic Location: {}:{}", location.file(), location.line());
             }
 
-            error!("堆栈跟踪:");
+            error!("Stack trace:");
             let backtrace = Backtrace::capture();
             error!("{backtrace:?}");
         }));
     });
 
-    info!("服务启动成功，开始监听连接...");
+    info!("The service started successfully and started listening for connections...");
 
     // 启动服务器
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
 
-    info!("服务已关闭");
+    info!("Service is down");
     Ok(())
 }
 
@@ -455,13 +466,15 @@ fn normalize_locale(input: &str) -> String {
 
 /// 处理uv环境初始化命令
 async fn handle_uv_init_command(_environment_manager: &EnvironmentManager) -> Result<()> {
-    println!("🚀 开始在当前目录初始化uv虚拟环境和依赖...");
+    println!(
+        "🚀 Start initializing the uv virtual environment and dependencies in the current directory..."
+    );
     println!();
 
     // 检查当前目录
     let current_dir = env::current_dir().map_err(|e| anyhow::anyhow!("无法获取当前目录: {}", e))?;
-    println!("📁 当前工作目录: {}", current_dir.display());
-    println!("📁 虚拟环境将创建在: ./venv/");
+    println!("📁 Current working directory: {}", current_dir.display());
+    println!("📁 The virtual environment will be created in: ./venv/");
     println!();
 
     // 创建基于当前目录的环境管理器
@@ -469,19 +482,22 @@ async fn handle_uv_init_command(_environment_manager: &EnvironmentManager) -> Re
         .map_err(|e| anyhow::anyhow!("无法创建环境管理器: {}", e))?;
 
     // 1. 验证当前目录设置（任务12的核心功能）
-    println!("🔍 验证当前目录设置...");
+    println!("🔍 Verify current directory settings...");
     let _validation_result = match local_env_manager.check_current_directory_readiness().await {
         Ok(result) => {
             if result.is_valid {
-                println!("   ✅ 目录验证通过");
+                println!("✅ Directory verification passed");
                 if !result.warnings.is_empty() {
-                    println!("   ⚠️  发现 {} 个警告", result.warnings.len());
+                    println!("⚠️ Found {} warnings", result.warnings.len());
                     for warning in &result.warnings {
                         println!("      • {}", warning.message);
                     }
                 }
             } else {
-                println!("   ❌ 目录验证失败，发现 {} 个问题", result.issues.len());
+                println!(
+                    "❌ Directory verification failed, {} problems found",
+                    result.issues.len()
+                );
                 for issue in &result.issues {
                     println!(
                         "      • [{}] {}",
@@ -498,7 +514,10 @@ async fn handle_uv_init_command(_environment_manager: &EnvironmentManager) -> Re
                     .collect();
 
                 if !auto_fixable.is_empty() {
-                    println!("   🔧 尝试自动修复 {} 个问题...", auto_fixable.len());
+                    println!(
+                        "🔧 Try to automatically fix {} problems...",
+                        auto_fixable.len()
+                    );
 
                     for cleanup_option in &result.cleanup_options {
                         if cleanup_option.risk_level == CleanupRisk::Low
@@ -509,12 +528,12 @@ async fn handle_uv_init_command(_environment_manager: &EnvironmentManager) -> Re
                                 .await
                             {
                                 Ok(message) => println!("      ✅ {message}"),
-                                Err(e) => println!("      ❌ 清理失败: {e}"),
+                                Err(e) => println!("❌ Cleanup failed: {e}"),
                             }
                         }
                     }
                 } else {
-                    println!("   💡 请手动解决以下问题:");
+                    println!("💡 Please solve the following problems manually:");
                     for recommendation in &result.recommendations {
                         println!("      • {recommendation}");
                     }
@@ -525,8 +544,8 @@ async fn handle_uv_init_command(_environment_manager: &EnvironmentManager) -> Re
             result
         }
         Err(e) => {
-            println!("   ⚠️  目录验证失败: {e}");
-            println!("   继续进行安装，但可能遇到问题...");
+            println!("⚠️ Directory verification failed: {e}");
+            println!("Proceed with the installation, but you may encounter problems...");
             // 创建一个默认的验证结果以继续执行
             DirectoryValidationResult {
                 is_valid: false,
@@ -542,56 +561,56 @@ async fn handle_uv_init_command(_environment_manager: &EnvironmentManager) -> Re
     println!();
 
     // 1. 检查当前环境状态
-    println!("🔍 检查当前环境状态...");
+    println!("🔍 Check current environment status...");
     let env_status = match local_env_manager.check_environment().await {
         Ok(status) => {
-            println!("   环境检查完成:");
+            println!("Environmental check completed:");
             println!(
                 "   Python:     {}",
                 if status.python_available {
-                    "✅ 可用"
+                    "✅ Available"
                 } else {
-                    "❌ 不可用"
+                    "❌ Unavailable"
                 }
             );
             println!(
-                "   uv工具:     {}",
+                "uv tool: {}",
                 if status.uv_available {
-                    "✅ 可用"
+                    "✅ Available"
                 } else {
-                    "❌ 不可用"
+                    "❌ Unavailable"
                 }
             );
             println!(
-                "   虚拟环境:   {}",
+                "Virtual environment: {}",
                 if status.virtual_env_active {
-                    "✅ 激活"
+                    "✅ Active"
                 } else {
-                    "❌ 未激活"
+                    "❌ Inactive"
                 }
             );
             println!(
                 "   MinerU:     {}",
                 if status.mineru_available {
-                    "✅ 可用"
+                    "✅ Available"
                 } else {
-                    "❌ 不可用"
+                    "❌ Unavailable"
                 }
             );
             println!(
                 "   MarkItDown: {}",
                 if status.markitdown_available {
-                    "✅ 可用"
+                    "✅ Available"
                 } else {
-                    "❌ 不可用"
+                    "❌ Unavailable"
                 }
             );
             println!();
             status
         }
         Err(e) => {
-            println!("   ⚠️  环境检查失败: {e}");
-            println!("   继续进行安装...");
+            println!("⚠️ Environment check failed: {e}");
+            println!("Proceed with the installation...");
             println!();
             EnvironmentStatus::default()
         }
@@ -604,30 +623,30 @@ async fn handle_uv_init_command(_environment_manager: &EnvironmentManager) -> Re
         || !env_status.markitdown_available;
 
     if !needs_setup {
-        println!("✨ 所有依赖都已就绪，无需安装！");
+        println!("✨ All dependencies are ready, no installation required!");
         print_success_message(&current_dir);
         return Ok(());
     }
 
     // 3. 显示安装计划
-    println!("📋 安装计划:");
+    println!("📋 Installation plan:");
     if !env_status.uv_available {
-        println!("   • 安装 uv 工具");
+        println!("• Install uv tools");
     }
     if !env_status.virtual_env_active {
-        println!("   • 创建虚拟环境 (./venv/)");
+        println!("• Create a virtual environment (./venv/)");
     }
     if !env_status.mineru_available {
-        println!("   • 安装 MinerU 依赖");
+        println!("• Install MinerU dependencies");
     }
     if !env_status.markitdown_available {
-        println!("   • 安装 MarkItDown 依赖");
+        println!("• Install MarkItDown dependencies");
     }
     println!();
 
     // 4. 执行环境设置
-    println!("⚙️  开始设置Python环境和依赖...");
-    println!("   这可能需要几分钟时间，请耐心等待...");
+    println!("⚙️ Start setting up the Python environment and dependencies...");
+    println!("This may take a few minutes, please be patient...");
     println!();
 
     // 创建进度监控
@@ -656,7 +675,7 @@ async fn handle_uv_init_command(_environment_manager: &EnvironmentManager) -> Re
                         max_attempts,
                     } => {
                         println!(
-                            "   🔄 重试 {}/{}: {}",
+                            "🔄 Try again {}/{}: {}",
                             attempt, max_attempts, progress.message
                         );
                         continue;
@@ -678,24 +697,26 @@ async fn handle_uv_init_command(_environment_manager: &EnvironmentManager) -> Re
     // 预检查：诊断潜在的路径问题
     let path_issues = env_manager_with_progress.diagnose_venv_path_issues().await;
     if !path_issues.is_empty() {
-        println!("⚠️  检测到潜在的路径问题:");
+        println!("⚠️ Potential routing issue detected:");
         for issue in &path_issues {
             println!("   • {issue}");
         }
         println!();
 
         // 尝试自动修复
-        println!("🔧 尝试自动修复问题...");
+        println!("🔧 Try to fix the problem automatically...");
         match env_manager_with_progress.auto_fix_venv_path_issues().await {
             Ok(fixed) => {
                 if !fixed.is_empty() {
-                    println!("✅ 已修复以下问题:");
+                    println!("✅ The following issues have been fixed:");
                     for fix in &fixed {
                         println!("   • {fix}");
                     }
                     println!();
                 } else {
-                    println!("   无法自动修复，请手动解决上述问题");
+                    println!(
+                        "Unable to be repaired automatically, please solve the above problem manually"
+                    );
                     println!();
 
                     // 显示详细的恢复建议
@@ -711,11 +732,11 @@ async fn handle_uv_init_command(_environment_manager: &EnvironmentManager) -> Re
                 }
             }
             Err(e) => {
-                println!("❌ 自动修复失败: {e}");
+                println!("❌ Automatic repair failed: {e}");
                 println!();
 
                 // 显示详细的恢复建议
-                println!("💡 手动修复建议:");
+                println!("💡 Manual repair suggestions:");
                 for suggestion in e.get_path_recovery_suggestions() {
                     println!("   • {suggestion}");
                 }
@@ -736,15 +757,15 @@ async fn handle_uv_init_command(_environment_manager: &EnvironmentManager) -> Re
     match install_result {
         Ok(_) => {
             println!();
-            println!("✅ Python环境设置完成！");
+            println!("✅ Python environment setup completed!");
         }
         Err(e) => {
             println!();
-            println!("❌ Python环境设置失败: {e}");
+            println!("❌ Python environment setting failed: {e}");
             println!();
 
             // 提供基于错误类型的详细建议
-            println!("💡 详细故障排除建议:");
+            println!("💡 Detailed troubleshooting suggestions:");
             match &e {
                 AppError::VirtualEnvironmentPath(_)
                 | AppError::Permission(_)
@@ -754,32 +775,34 @@ async fn handle_uv_init_command(_environment_manager: &EnvironmentManager) -> Re
                     }
                 }
                 AppError::Environment(msg) if msg.contains("超时") => {
-                    println!("   • 网络连接可能较慢，请检查网络状态");
-                    println!("   • 尝试使用国内镜像源");
-                    println!("   • 增加超时时间后重试");
+                    println!(
+                        "• The network connection may be slow, please check the network status"
+                    );
+                    println!("• Try to use domestic mirror sources");
+                    println!("• Increase the timeout and try again");
                 }
                 AppError::Environment(msg) if msg.contains("权限") => {
-                    println!("   • 使用管理员权限运行命令");
-                    println!("   • 检查目录权限设置");
+                    println!("• Run the command with administrator privileges");
+                    println!("• Check directory permission settings");
                     if cfg!(unix) {
-                        println!("   • 运行: chmod 755 .");
-                        println!("   • 运行: chown $USER .");
+                        println!("• Run: chmod 755 .");
+                        println!("• Run: chown $USER .");
                     }
                 }
                 _ => {
-                    println!("   • 检查网络连接");
-                    println!("   • 确保有足够的磁盘空间 (至少500MB)");
-                    println!("   • 检查防火墙设置");
-                    println!("   • 尝试重新运行命令");
-                    println!("   • 检查防病毒软件是否阻止操作");
+                    println!("• Check network connection");
+                    println!("• Make sure there is enough disk space (at least 500MB)");
+                    println!("• Check firewall settings");
+                    println!("• Try rerunning the command");
+                    println!("• Check if antivirus software is blocking the operation");
                 }
             }
 
             // 提供诊断命令
             println!();
-            println!("🔍 诊断命令:");
-            println!("   • 检查环境状态: document-parser check");
-            println!("   • 查看详细日志: 检查 logs/ 目录");
+            println!("🔍 Diagnostic commands:");
+            println!("• Check environment status: document-parser check");
+            println!("• View detailed logs: Check the logs/ directory");
 
             return Err(anyhow::anyhow!("Python环境设置失败: {}", e));
         }
@@ -787,82 +810,82 @@ async fn handle_uv_init_command(_environment_manager: &EnvironmentManager) -> Re
 
     // 5. 验证安装结果
     println!();
-    println!("🔍 验证安装结果...");
+    println!("🔍 Verify installation results...");
     match local_env_manager.check_environment().await {
         Ok(status) => {
-            println!("   验证完成:");
+            println!("Verification completed:");
             println!(
                 "   Python:     {}",
                 if status.python_available {
-                    "✅ 可用"
+                    "✅ Available"
                 } else {
-                    "❌ 不可用"
+                    "❌ Unavailable"
                 }
             );
             if let Some(ref version) = status.python_version {
-                println!("               版本: {version}");
+                println!("Version: {version}");
             }
             println!(
-                "   uv工具:     {}",
+                "uv tool: {}",
                 if status.uv_available {
-                    "✅ 可用"
+                    "✅ Available"
                 } else {
-                    "❌ 不可用"
+                    "❌ Unavailable"
                 }
             );
             if let Some(ref version) = status.uv_version {
-                println!("               版本: {version}");
+                println!("Version: {version}");
             }
             println!(
-                "   虚拟环境:   {}",
+                "Virtual environment: {}",
                 if status.virtual_env_active {
-                    "✅ 激活"
+                    "✅ Active"
                 } else {
-                    "❌ 未激活"
+                    "❌ Inactive"
                 }
             );
             println!(
                 "   MinerU:     {}",
                 if status.mineru_available {
-                    "✅ 可用"
+                    "✅ Available"
                 } else {
-                    "❌ 不可用"
+                    "❌ Unavailable"
                 }
             );
             if let Some(ref version) = status.mineru_version {
-                println!("               版本: {version}");
+                println!("Version: {version}");
             }
             println!(
                 "   MarkItDown: {}",
                 if status.markitdown_available {
-                    "✅ 可用"
+                    "✅ Available"
                 } else {
-                    "❌ 不可用"
+                    "❌ Unavailable"
                 }
             );
             if let Some(ref version) = status.markitdown_version {
-                println!("               版本: {version}");
+                println!("Version: {version}");
             }
             println!();
 
             if status.is_ready() {
                 print_success_message(&current_dir);
             } else {
-                println!("⚠️  部分依赖安装可能存在问题");
+                println!("⚠️ There may be problems with the installation of some dependencies");
                 println!();
                 let critical_issues = status.get_critical_issues();
                 if !critical_issues.is_empty() {
-                    println!("🔧 需要解决的问题:");
+                    println!("🔧 Problems that need to be solved:");
                     for issue in critical_issues {
                         println!("   • {}: {}", issue.component, issue.message);
-                        println!("     建议: {}", issue.suggestion);
+                        println!("Suggestion: {}", issue.suggestion);
                     }
                 }
                 return Err(anyhow::anyhow!("环境初始化未完全成功"));
             }
         }
         Err(e) => {
-            println!("❌ 验证失败: {e}");
+            println!("❌ Verification failed: {e}");
             return Err(anyhow::anyhow!("环境验证失败: {}", e));
         }
     }
@@ -881,13 +904,13 @@ fn create_progress_bar(progress: f32) -> String {
 
 /// 打印成功消息和下一步指引
 fn print_success_message(_current_dir: &std::path::Path) {
-    println!("🎉 uv环境初始化完成！");
+    println!("🎉 The uv environment initialization is completed!");
     println!();
-    println!("✨ 所有依赖都已就绪，现在可以启动服务器了");
+    println!("✨ All dependencies are in place, now you can start the server");
     println!();
 
     // 提供激活虚拟环境的指令
-    println!("📋 虚拟环境激活指令:");
+    println!("📋 Virtual environment activation instructions:");
 
     // 检测当前shell类型并提供相应的激活命令
     if let Ok(shell) = std::env::var("SHELL") {
@@ -905,24 +928,26 @@ fn print_success_message(_current_dir: &std::path::Path) {
     }
 
     println!();
-    println!("🚀 启动服务器:");
+    println!("🚀 Start the server:");
     println!("   document-parser server");
     println!();
-    println!("🔧 或者使用 uv 直接运行命令:");
+    println!("🔧 Or use uv to run the command directly:");
     println!("   uv run mineru -h");
     println!("   uv run python -m markitdown --help");
     println!();
-    println!("📚 更多帮助:");
+    println!("📚 More help:");
     println!("   document-parser --help");
-    println!("   document-parser check         # 检查环境状态");
-    println!("   document-parser troubleshoot  # 故障排除指南");
+    println!("document-parser check # Check environment status");
+    println!("document-parser troubleshoot # Troubleshooting guide");
     println!();
-    println!("💡 提示:");
-    println!("   • 虚拟环境位置: ./venv/");
+    println!("💡 Tips:");
+    println!("• Virtual environment location: ./venv/");
     println!(
-        "   • Python可执行文件: ./venv/bin/python (Linux/macOS) 或 .\\venv\\Scripts\\python.exe (Windows)"
+        "• Python executable file: ./venv/bin/python (Linux/macOS) or .\\\\venv\\\\Scripts\\\\python.exe (Windows)"
     );
-    println!("   • 如遇问题，请运行 'document-parser troubleshoot' 查看详细指南");
+    println!(
+        "• If you encounter problems, run 'document-parser troubleshoot' for detailed guidance"
+    );
 }
 
 /// 创建路由
@@ -940,9 +965,9 @@ async fn start_background_tasks(state: AppState) {
 
         // 清理过期数据
         if let Err(e) = state.cleanup_expired_data().await {
-            error!("清理过期数据失败: {e}");
+            error!("Failed to clear expired data: {e}");
         } else {
-            info!("后台清理任务执行完成");
+            info!("Background cleanup task execution completed");
         }
     }
 }
@@ -966,29 +991,29 @@ async fn shutdown_signal() {
 
     tokio::select! {
         _ = ctrl_c => {
-            info!("收到 Ctrl+C 信号，开始优雅关闭...");
+            info!("Receive Ctrl+C signal and start graceful shutdown...");
         }
         _ = terminate => {
-            info!("收到 terminate 信号，开始优雅关闭...");
+            info!("Receive terminate signal and start graceful shutdown...");
         }
     }
 
-    info!("正在关闭服务...");
+    info!("Closing service...");
 }
 
 /// 处理故障排除命令
 async fn handle_troubleshoot_command(environment_manager: &EnvironmentManager) -> Result<()> {
-    println!("🔧 Document Parser 故障排除指南");
+    println!("🔧 Document Parser Troubleshooting Guide");
     println!("═══════════════════════════════════════════════════════════════");
     println!();
 
     // 显示当前环境概览
-    println!("📊 当前环境概览:");
+    println!("📊 Current environment overview:");
     let current_dir = env::current_dir().map_err(|e| anyhow::anyhow!("无法获取当前目录: {}", e))?;
-    println!("   工作目录: {}", current_dir.display());
-    println!("   虚拟环境: ./venv/");
+    println!("Working directory: {}", current_dir.display());
+    println!("Virtual environment: ./venv/");
     println!(
-        "   操作系统: {}",
+        "Operating system: {}",
         if cfg!(windows) {
             "Windows"
         } else if cfg!(target_os = "macos") {
@@ -1000,220 +1025,226 @@ async fn handle_troubleshoot_command(environment_manager: &EnvironmentManager) -
     println!();
 
     // 1. 虚拟环境问题
-    println!("🏠 1. 虚拟环境问题");
+    println!("🏠 1. Virtual environment issues");
     println!("───────────────────────────────────────────────────────────────");
     println!();
 
-    println!("❓ 问题: 虚拟环境创建失败");
-    println!("🔍 诊断步骤:");
-    println!("   1. 检查当前目录权限: ls -la (Linux/macOS) 或 dir (Windows)");
-    println!("   2. 检查磁盘空间: df -h (Linux/macOS) 或 dir (Windows)");
-    println!("   3. 检查是否存在同名文件: ls -la venv");
+    println!("❓ Problem: Virtual environment creation failed");
+    println!("🔍 Diagnosis steps:");
+    println!("1. Check the current directory permissions: ls -la (Linux/macOS) or dir (Windows)");
+    println!("2. Check disk space: df -h (Linux/macOS) or dir (Windows)");
+    println!("3. Check whether a file with the same name exists: ls -la venv");
     println!();
-    println!("💡 解决方案:");
-    println!("   • 确保当前目录有写入权限");
+    println!("💡 Solution:");
+    println!("• Make sure the current directory has write permissions");
     if cfg!(unix) {
-        println!("   • 修改权限: chmod 755 .");
-        println!("   • 修改所有者: chown $USER .");
+        println!("• Modify permissions: chmod 755.");
+        println!("• Change owner: chown $USER .");
     } else if cfg!(windows) {
-        println!("   • 以管理员身份运行命令提示符");
-        println!("   • 检查用户账户控制(UAC)设置");
+        println!("• Run command prompt as administrator");
+        println!("• Check User Account Control (UAC) settings");
     }
-    println!("   • 删除现有的venv文件: rm -rf ./venv (Linux/macOS) 或 rmdir /s .\\venv (Windows)");
-    println!("   • 确保至少有500MB可用磁盘空间");
+    println!(
+        "• Delete existing venv files: rm -rf ./venv (Linux/macOS) or rmdir /s .\\\\venv (Windows)"
+    );
+    println!("• Make sure there is at least 500MB of free disk space");
     println!();
 
-    println!("❓ 问题: 虚拟环境激活失败");
-    println!("🔍 诊断步骤:");
+    println!("❓ Problem: Virtual environment activation failed");
+    println!("🔍 Diagnosis steps:");
     println!(
-        "   1. 检查虚拟环境是否存在: ls ./venv/bin/ (Linux/macOS) 或 dir .\\venv\\Scripts\\ (Windows)"
+        "1. Check whether the virtual environment exists: ls ./venv/bin/ (Linux/macOS) or dir .\\\\venv\\\\Scripts\\\\ (Windows)"
     );
-    println!("   2. 检查激活脚本权限");
+    println!("2. Check activation script permissions");
     println!();
-    println!("💡 解决方案:");
+    println!("💡 Solution:");
     if cfg!(windows) {
         println!("   • Windows: .\\venv\\Scripts\\activate");
         println!("   • PowerShell: .\\venv\\Scripts\\Activate.ps1");
         println!(
-            "   • 如果PowerShell执行策略限制，运行: Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser"
+            "• If PowerShell enforcement policy restrictions, run: Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser"
         );
     } else {
         println!("   • Bash/Zsh: source ./venv/bin/activate");
         println!("   • Fish: source ./venv/bin/activate.fish");
-        println!("   • 检查脚本权限: chmod +x ./venv/bin/activate");
+        println!("• Check script permissions: chmod +x ./venv/bin/activate");
     }
     println!();
 
     // 2. 依赖安装问题
-    println!("📦 2. 依赖安装问题");
+    println!("📦 2. Dependency installation issues");
     println!("───────────────────────────────────────────────────────────────");
     println!();
 
-    println!("❓ 问题: UV工具未安装或不可用");
-    println!("💡 解决方案:");
-    println!("   • 使用官方安装脚本: curl -LsSf https://astral.sh/uv/install.sh | sh");
-    println!("   • 或使用pip安装: pip install uv");
-    println!("   • 或使用包管理器:");
+    println!("❓ Problem: UV tool is not installed or unavailable");
+    println!("💡 Solution:");
+    println!(
+        "• Use the official installation script: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    );
+    println!("• Or install using pip: pip install uv");
+    println!("• Or use a package manager:");
     if cfg!(target_os = "macos") {
         println!("     - macOS: brew install uv");
     } else if cfg!(unix) {
-        println!(
-            "     - Ubuntu/Debian: 参考 https://docs.astral.sh/uv/getting-started/installation/"
-        );
+        println!("- Ubuntu/Debian: See https://docs.astral.sh/uv/getting-started/installation/");
     } else if cfg!(windows) {
         println!("     - Windows: winget install astral-sh.uv");
     }
-    println!("   • 重启终端后重试");
+    println!("• Restart the terminal and try again");
     println!();
 
-    println!("❓ 问题: MinerU或MarkItDown安装失败");
-    println!("🔍 诊断步骤:");
-    println!("   1. 检查网络连接: ping pypi.org");
-    println!("   2. 检查Python版本: python --version (需要3.8+)");
-    println!("   3. 检查虚拟环境中的pip: ./venv/bin/pip --version");
+    println!("❓ Problem: MinerU or MarkItDown installation failed");
+    println!("🔍 Diagnosis steps:");
+    println!("1. Check network connection: ping pypi.org");
+    println!("2. Check Python version: python --version (requires 3.8+)");
+    println!("3. Check pip in the virtual environment: ./venv/bin/pip --version");
     println!();
-    println!("💡 解决方案:");
-    println!("   • 使用国内镜像源:");
+    println!("💡 Solution:");
+    println!("• Use domestic mirror sources:");
     println!("     uv pip install -i https://pypi.tuna.tsinghua.edu.cn/simple/ mineru[core]");
-    println!("   • 增加超时时间: uv pip install --timeout 300 mineru[core]");
-    println!("   • 分步安装:");
+    println!("• Increase timeout: uv pip install --timeout 300 mineru[core]");
+    println!("• Step-by-step installation:");
     println!("     1. uv pip install --upgrade pip");
     println!("     2. uv pip install mineru[core]");
     println!("     3. uv pip install markitdown");
-    println!("   • 清理缓存后重试: uv cache clean");
+    println!("• Clean the cache and try again: uv cache clean");
     println!();
 
     // 3. 网络和下载问题
-    println!("🌐 3. 网络和下载问题");
+    println!("🌐 3. Network and download issues");
     println!("───────────────────────────────────────────────────────────────");
     println!();
 
-    println!("❓ 问题: 网络连接超时或下载失败");
-    println!("💡 解决方案:");
-    println!("   • 检查网络连接和防火墙设置");
-    println!("   • 使用代理 (如果需要):");
+    println!("❓ Problem: Network connection timed out or download failed");
+    println!("💡 Solution:");
+    println!("• Check network connections and firewall settings");
+    println!("• Using a proxy (if required):");
     println!("     export HTTP_PROXY=http://proxy:port");
     println!("     export HTTPS_PROXY=http://proxy:port");
-    println!("   • 使用国内镜像源:");
-    println!("     - 清华源: https://pypi.tuna.tsinghua.edu.cn/simple/");
-    println!("     - 阿里源: https://mirrors.aliyun.com/pypi/simple/");
-    println!("   • 重试安装: document-parser uv-init");
+    println!("• Use domestic mirror sources:");
+    println!("- Tsinghua source: https://pypi.tuna.tsinghua.edu.cn/simple/");
+    println!("- Ali source: https://mirrors.aliyun.com/pypi/simple/");
+    println!("• Retry installation: document-parser uv-init");
     println!();
 
     // 4. 系统环境问题
-    println!("⚙️  4. 系统环境问题");
+    println!("⚙️ 4. System environment issues");
     println!("───────────────────────────────────────────────────────────────");
     println!();
 
-    println!("❓ 问题: Python版本不兼容");
-    println!("🔍 检查命令: python --version 或 python3 --version");
-    println!("💡 解决方案:");
-    println!("   • 需要Python 3.8或更高版本");
+    println!("❓ Problem: Python version is incompatible");
+    println!("🔍 Check command: python --version or python3 --version");
+    println!("💡 Solution:");
+    println!("• Requires Python 3.8 or higher");
     if cfg!(target_os = "macos") {
-        println!("   • macOS安装: brew install python@3.11");
+        println!("• macOS installation: brew install python@3.11");
     } else if cfg!(unix) {
         println!("   • Ubuntu/Debian: sudo apt update && sudo apt install python3.11");
         println!("   • CentOS/RHEL: sudo yum install python311");
     } else if cfg!(windows) {
-        println!("   • Windows: 从 https://python.org 下载安装");
+        println!("• Windows: Download and install from https://python.org");
     }
     println!();
 
-    println!("❓ 问题: CUDA环境配置 (可选，用于GPU加速)");
-    println!("🔍 检查命令: nvidia-smi");
-    println!("💡 解决方案:");
-    println!("   • 安装NVIDIA驱动程序");
-    println!("   • 安装CUDA Toolkit (推荐11.8或12.x)");
-    println!("   • 验证安装: nvidia-smi 和 nvcc --version");
-    println!("   • 注意: CPU模式也可正常工作，GPU仅用于加速");
+    println!("❓ Question: CUDA environment configuration (optional, for GPU acceleration)");
+    println!("🔍 Check command: nvidia-smi");
+    println!("💡 Solution:");
+    println!("• Install NVIDIA driver");
+    println!("• Install CUDA Toolkit (11.8 or 12.x recommended)");
+    println!("• Verify installation: nvidia-smi and nvcc --version");
+    println!("• Note: CPU mode also works normally, GPU is only used for acceleration");
     println!();
 
     // 5. 常用诊断命令
-    println!("🔍 5. 常用诊断命令");
+    println!("🔍 5. Common diagnostic commands");
     println!("───────────────────────────────────────────────────────────────");
     println!();
-    println!("环境检查:");
-    println!("   document-parser check           # 完整环境检查");
-    println!("   document-parser uv-init         # 重新初始化环境");
+    println!("Environmental inspection:");
+    println!("document-parser check # Complete environment check");
+    println!("document-parser uv-init # Reinitialize the environment");
     println!();
-    println!("手动验证:");
-    println!("   uv --version                    # 检查UV版本");
-    println!("   ./venv/bin/python --version     # 检查虚拟环境Python (Linux/macOS)");
-    println!("   .\\venv\\Scripts\\python --version  # 检查虚拟环境Python (Windows)");
-    println!("   ./venv/bin/mineru --help        # 检查MinerU (Linux/macOS)");
-    println!("   .\\venv\\Scripts\\mineru --help    # 检查MinerU (Windows)");
+    println!("Manual verification:");
+    println!("uv --version # Check UV version");
+    println!("./venv/bin/python --version # Check virtual environment Python (Linux/macOS)");
+    println!(
+        ".\\\\venv\\\\Scripts\\\\python --version # Check the virtual environment Python (Windows)"
+    );
+    println!("./venv/bin/mineru --help # Check MinerU (Linux/macOS)");
+    println!(".\\\\venv\\\\Scripts\\\\mineru --help # Check MinerU (Windows)");
     println!();
-    println!("日志查看:");
-    println!("   tail -f logs/log.$(date +%Y-%m-%d)  # 查看当天日志 (Linux/macOS)");
-    println!("   type logs\\log.%date:~0,10%          # 查看当天日志 (Windows)");
+    println!("Log view:");
+    println!("tail -f logs/log.$(date +%Y-%m-%d) # View today’s logs (Linux/macOS)");
+    println!("type logs\\\\log.%date:~0,10% # View today’s log (Windows)");
     println!();
 
     // 6. 获取帮助
-    println!("🆘 6. 获取更多帮助");
+    println!("🆘 6. Get more help");
     println!("───────────────────────────────────────────────────────────────");
     println!();
-    println!("如果上述方法都无法解决问题，请:");
-    println!("   1. 运行详细诊断: document-parser check");
-    println!("   2. 收集错误信息:");
-    println!("      • 完整的错误消息");
-    println!("      • 操作系统版本");
-    println!("      • Python版本");
-    println!("      • 当前工作目录");
-    println!("   3. 查看日志文件: logs/ 目录");
-    println!("   4. 尝试在新的目录中重新初始化");
+    println!("If none of the above resolves the issue, please:");
+    println!("1. Run detailed diagnostics: document-parser check");
+    println!("2. Collect error information:");
+    println!("• Complete error message");
+    println!("• Operating system version");
+    println!("• Python version");
+    println!("• Current working directory");
+    println!("3. View log files: logs/ directory");
+    println!("4. Try reinitializing in a new directory");
     println!();
 
     // 执行实时诊断
-    println!("🔬 实时环境诊断");
+    println!("🔬 Real-time environment diagnosis");
     println!("───────────────────────────────────────────────────────────────");
     match environment_manager.check_environment().await {
         Ok(status) => {
             if status.is_ready() {
-                println!("✅ 环境状态良好，所有依赖都已就绪");
+                println!(
+                    "✅ The environment is in good condition and all dependencies are in place"
+                );
             } else {
-                println!("⚠️  发现以下问题:");
+                println!("⚠️ Found the following issues:");
                 let issues = status.get_critical_issues();
                 for issue in issues {
                     println!("   • {}: {}", issue.component, issue.message);
-                    println!("     建议: {}", issue.suggestion);
+                    println!("Suggestion: {}", issue.suggestion);
                 }
             }
         }
         Err(e) => {
-            println!("❌ 环境检查失败: {e}");
-            println!("   请按照上述指南进行故障排除");
+            println!("❌ Environment check failed: {e}");
+            println!("Please follow the above guide to troubleshoot");
         }
     }
 
     println!();
     println!("═══════════════════════════════════════════════════════════════");
-    println!("💡 提示: 大多数问题可以通过重新运行 'document-parser uv-init' 解决");
+    println!("💡 Tip: Most problems can be solved by re-running 'document-parser uv-init'");
 
     Ok(())
 }
 
 /// 处理环境检查命令
 async fn handle_check_command(environment_manager: &EnvironmentManager) -> Result<()> {
-    info!("检查Python环境状态...");
+    info!("Check Python environment status...");
 
     // 首先进行路径诊断
-    println!("🔍 诊断虚拟环境路径...");
+    println!("🔍 Diagnose virtual environment path...");
     let path_issues = environment_manager.diagnose_venv_path_issues().await;
     if !path_issues.is_empty() {
-        println!("⚠️  发现路径相关问题:");
+        println!("⚠️ Found path related issues:");
         for issue in &path_issues {
             println!("   • {issue}");
         }
         println!();
 
-        println!("💡 路径问题解决建议:");
+        println!("💡 Suggestions for solving path problems:");
         let suggestions = environment_manager.get_venv_recovery_suggestions().await;
         for suggestion in suggestions {
             println!("   {suggestion}");
         }
         println!();
     } else {
-        println!("✅ 虚拟环境路径检查通过");
+        println!("✅Virtual environment path check passed");
         println!();
     }
 
@@ -1223,13 +1254,13 @@ async fn handle_check_command(environment_manager: &EnvironmentManager) -> Resul
             println!("{detailed_report}");
 
             // 输出增强的依赖验证报告
-            println!("🔬 执行增强依赖验证...");
+            println!("🔬 Perform enhanced dependency verification...");
             match environment_manager.get_enhanced_dependency_report().await {
                 Ok(enhanced_report) => {
                     println!("{enhanced_report}");
                 }
                 Err(e) => {
-                    println!("⚠️  增强依赖验证失败: {e}");
+                    println!("⚠️ Enhanced dependency verification failed: {e}");
                 }
             }
 
@@ -1237,22 +1268,27 @@ async fn handle_check_command(environment_manager: &EnvironmentManager) -> Resul
             match environment_manager.check_environment().await {
                 Ok(status) => {
                     if status.is_ready() {
-                        println!("✅ 环境检查通过！所有依赖都已就绪。");
+                        println!(
+                            "✅ Environmental inspection passed! All dependencies are in place."
+                        );
                         Ok(())
                     } else {
                         let critical_issues = status.get_critical_issues();
                         if !critical_issues.is_empty() {
-                            println!("❌ 发现 {} 个关键问题需要解决", critical_issues.len());
+                            println!(
+                                "❌ Found {} key issues that need to be resolved",
+                                critical_issues.len()
+                            );
                             for issue in critical_issues {
                                 println!("  • {}: {}", issue.component, issue.message);
-                                println!("    建议: {}", issue.suggestion);
+                                println!("Suggestion: {}", issue.suggestion);
                             }
                         }
 
                         let auto_fixable = status.get_auto_fixable_issues();
                         if !auto_fixable.is_empty() {
                             println!(
-                                "💡 {} 个问题可以自动修复，运行 'document-parser uv-init' 进行修复",
+                                "💡 {} problems can be fixed automatically, run 'document-parser uv-init' to fix them",
                                 auto_fixable.len()
                             );
                         }
@@ -1260,9 +1296,13 @@ async fn handle_check_command(environment_manager: &EnvironmentManager) -> Resul
                         // 如果有路径问题，提供额外的建议
                         if !path_issues.is_empty() {
                             println!();
-                            println!("🔧 路径问题修复:");
-                            println!("   • 运行 'document-parser uv-init' 会尝试自动修复路径问题");
-                            println!("   • 或者手动按照上述建议解决路径问题");
+                            println!("🔧 Path problem fix:");
+                            println!(
+                                "• Running 'document-parser uv-init' will try to fix path issues automatically"
+                            );
+                            println!(
+                                "• Or manually solve the path problem by following the suggestions above"
+                            );
                         }
 
                         Err(anyhow::anyhow!(
@@ -1272,7 +1312,7 @@ async fn handle_check_command(environment_manager: &EnvironmentManager) -> Resul
                     }
                 }
                 Err(e) => {
-                    println!("❌ 环境状态检查失败: {e}");
+                    println!("❌ Environment status check failed: {e}");
 
                     // 如果是路径相关错误，提供详细建议
                     match &e {
@@ -1280,7 +1320,7 @@ async fn handle_check_command(environment_manager: &EnvironmentManager) -> Resul
                         | AppError::Permission(_)
                         | AppError::Path(_) => {
                             println!();
-                            println!("💡 路径错误解决建议:");
+                            println!("💡 Suggestions for solving path errors:");
                             for suggestion in e.get_path_recovery_suggestions() {
                                 println!("   • {suggestion}");
                             }
@@ -1293,7 +1333,7 @@ async fn handle_check_command(environment_manager: &EnvironmentManager) -> Resul
             }
         }
         Err(e) => {
-            println!("❌ 环境检查失败: {e}");
+            println!("❌ Environment check failed: {e}");
 
             // 如果是路径相关错误，提供详细建议
             match &e {
@@ -1301,7 +1341,7 @@ async fn handle_check_command(environment_manager: &EnvironmentManager) -> Resul
                 | AppError::Permission(_)
                 | AppError::Path(_) => {
                     println!();
-                    println!("💡 路径错误解决建议:");
+                    println!("💡 Suggestions for solving path errors:");
                     for suggestion in e.get_path_recovery_suggestions() {
                         println!("   • {suggestion}");
                     }
@@ -1316,28 +1356,32 @@ async fn handle_check_command(environment_manager: &EnvironmentManager) -> Resul
 
 /// 处理依赖安装命令
 async fn handle_install_command(environment_manager: &EnvironmentManager) -> Result<()> {
-    info!("开始安装Python依赖...");
+    info!("Start installing Python dependencies...");
 
     match environment_manager.setup_python_environment().await {
         Ok(_) => {
-            info!("Python依赖安装完成！");
+            info!("Python dependency installation is complete!");
 
             // 验证安装结果
             match environment_manager.check_environment().await {
                 Ok(status) => {
                     if status.mineru_available && status.markitdown_available {
-                        info!("安装验证成功，所有依赖都已就绪！");
+                        info!(
+                            "The installation verification was successful and all dependencies are in place!"
+                        );
                     } else {
-                        warn!("安装完成但验证失败，部分依赖可能未正确安装");
+                        warn!(
+                            "The installation is completed but verification fails. Some dependencies may not be installed correctly."
+                        );
                     }
                 }
                 Err(e) => {
-                    warn!("安装完成但验证失败: {e}");
+                    warn!("Installation completed but verification failed: {e}");
                 }
             }
         }
         Err(e) => {
-            error!("Python依赖安装失败: {e}");
+            error!("Python dependency installation failed: {e}");
             return Err(anyhow::anyhow!("Python依赖安装失败: {}", e));
         }
     }
@@ -1353,8 +1397,8 @@ async fn handle_parse_command(
     output: Option<PathBuf>,
     parser: String,
 ) -> Result<()> {
-    info!("开始解析文件: {input:?}");
-    info!("使用解析器: {parser}");
+    info!("Start parsing file: {input:?}");
+    info!("Use parser: {parser}");
 
     // 检查输入文件是否存在
     if !input.exists() {
@@ -1397,7 +1441,7 @@ async fn handle_parse_command(
 
     // TODO: 实现实际的文件解析逻辑
     // 这里需要调用相应的解析器服务
-    info!("文件解析功能正在开发中...");
+    info!("The file parsing function is under development...");
 
     // 确定输出路径
     let output_path = output.unwrap_or_else(|| {
@@ -1406,7 +1450,7 @@ async fn handle_parse_command(
         path
     });
 
-    info!("解析完成，结果将保存到: {output_path:?}");
+    info!("The analysis is completed and the results will be saved to: {output_path:?}");
 
     Ok(())
 }

@@ -52,7 +52,9 @@ pub use process_compat::spawn_stderr_reader;
 pub use tool_filter::ToolFilter;
 
 // Re-export i18n types
-pub use i18n::{current_locale, init_locale_from_env, set_locale, t, AVAILABLE_LOCALES, DEFAULT_LOCALE};
+pub use i18n::{
+    AVAILABLE_LOCALES, DEFAULT_LOCALE, current_locale, init_locale_from_env, set_locale, t,
+};
 
 // Re-export telemetry types when feature is enabled
 #[cfg(feature = "telemetry")]

@@ -97,7 +97,13 @@ impl AppError {
 
     /// 创建格式不支持错误
     pub fn unsupported_format(format: impl Into<String>) -> Self {
-        Self::UnsupportedFormat(t!("errors.document_parser.unsupported_format", format = format.into()).to_string())
+        Self::UnsupportedFormat(
+            t!(
+                "errors.document_parser.unsupported_format",
+                format = format.into()
+            )
+            .to_string(),
+        )
     }
 
     /// 创建解析错误
@@ -112,7 +118,9 @@ impl AppError {
 
     /// 创建 MarkItDown 错误
     pub fn markitdown_error(detail: impl Into<String>) -> Self {
-        Self::MarkItDown(t!("errors.document_parser.markitdown", detail = detail.into()).to_string())
+        Self::MarkItDown(
+            t!("errors.document_parser.markitdown", detail = detail.into()).to_string(),
+        )
     }
 
     /// 创建 OSS 错误
@@ -147,19 +155,27 @@ impl AppError {
 
     /// 创建验证错误
     pub fn validation_error(detail: impl Into<String>) -> Self {
-        Self::Validation(t!("errors.document_parser.validation", detail = detail.into()).to_string())
+        Self::Validation(
+            t!("errors.document_parser.validation", detail = detail.into()).to_string(),
+        )
     }
 
     /// 创建环境错误
     pub fn environment_error(detail: impl Into<String>) -> Self {
-        Self::Environment(t!("errors.document_parser.environment", detail = detail.into()).to_string())
+        Self::Environment(
+            t!("errors.document_parser.environment", detail = detail.into()).to_string(),
+        )
     }
 
     /// 创建虚拟环境路径错误
     pub fn virtual_environment_path_error(message: String, path: &std::path::Path) -> Self {
         let path_str = path.display().to_string();
         Self::VirtualEnvironmentPath(
-            t!("errors.document_parser.virtual_environment_path", detail = format!("{} (path: {})", message, path_str)).to_string()
+            t!(
+                "errors.document_parser.virtual_environment_path",
+                detail = format!("{} (path: {})", message, path_str)
+            )
+            .to_string(),
         )
     }
 
@@ -167,7 +183,11 @@ impl AppError {
     pub fn permission_error(message: String, path: &std::path::Path) -> Self {
         let path_str = path.display().to_string();
         Self::Permission(
-            t!("errors.document_parser.permission", detail = format!("{} (path: {})", message, path_str)).to_string()
+            t!(
+                "errors.document_parser.permission",
+                detail = format!("{} (path: {})", message, path_str)
+            )
+            .to_string(),
         )
     }
 
@@ -175,7 +195,11 @@ impl AppError {
     pub fn path_error(message: String, path: &std::path::Path) -> Self {
         let path_str = path.display().to_string();
         Self::Path(
-            t!("errors.document_parser.path", detail = format!("{} (path: {})", message, path_str)).to_string()
+            t!(
+                "errors.document_parser.path",
+                detail = format!("{} (path: {})", message, path_str)
+            )
+            .to_string(),
         )
     }
 
@@ -186,7 +210,9 @@ impl AppError {
 
     /// 创建处理错误
     pub fn processing_error(detail: impl Into<String>) -> Self {
-        Self::Processing(t!("errors.document_parser.processing", detail = detail.into()).to_string())
+        Self::Processing(
+            t!("errors.document_parser.processing", detail = detail.into()).to_string(),
+        )
     }
 
     /// 获取路径相关错误的详细恢复建议
@@ -284,22 +310,36 @@ impl AppError {
         match self {
             AppError::Config(_) => t!("errors.document_parser.suggestions.config").to_string(),
             AppError::File(_) => t!("errors.document_parser.suggestions.file").to_string(),
-            AppError::UnsupportedFormat(_) => t!("errors.document_parser.suggestions.unsupported_format").to_string(),
+            AppError::UnsupportedFormat(_) => {
+                t!("errors.document_parser.suggestions.unsupported_format").to_string()
+            }
             AppError::Parse(_) => t!("errors.document_parser.suggestions.parse").to_string(),
             AppError::MinerU(_) => t!("errors.document_parser.suggestions.mineru").to_string(),
-            AppError::MarkItDown(_) => t!("errors.document_parser.suggestions.markitdown").to_string(),
+            AppError::MarkItDown(_) => {
+                t!("errors.document_parser.suggestions.markitdown").to_string()
+            }
             AppError::Oss(_) => t!("errors.document_parser.suggestions.oss").to_string(),
             AppError::Database(_) => t!("errors.document_parser.suggestions.database").to_string(),
             AppError::Network(_) => t!("errors.document_parser.suggestions.network").to_string(),
             AppError::Task(_) => t!("errors.document_parser.suggestions.task").to_string(),
             AppError::Internal(_) => t!("errors.document_parser.suggestions.internal").to_string(),
             AppError::Timeout(_) => t!("errors.document_parser.suggestions.timeout").to_string(),
-            AppError::Validation(_) => t!("errors.document_parser.suggestions.validation").to_string(),
-            AppError::Environment(_) => t!("errors.document_parser.suggestions.environment").to_string(),
+            AppError::Validation(_) => {
+                t!("errors.document_parser.suggestions.validation").to_string()
+            }
+            AppError::Environment(_) => {
+                t!("errors.document_parser.suggestions.environment").to_string()
+            }
             AppError::Queue(_) => t!("errors.document_parser.suggestions.queue").to_string(),
-            AppError::Processing(_) => t!("errors.document_parser.suggestions.processing").to_string(),
-            AppError::VirtualEnvironmentPath(_) => t!("errors.document_parser.suggestions.virtual_environment_path").to_string(),
-            AppError::Permission(_) => t!("errors.document_parser.suggestions.permission").to_string(),
+            AppError::Processing(_) => {
+                t!("errors.document_parser.suggestions.processing").to_string()
+            }
+            AppError::VirtualEnvironmentPath(_) => {
+                t!("errors.document_parser.suggestions.virtual_environment_path").to_string()
+            }
+            AppError::Permission(_) => {
+                t!("errors.document_parser.suggestions.permission").to_string()
+            }
             AppError::Path(_) => t!("errors.document_parser.suggestions.path").to_string(),
         }
     }

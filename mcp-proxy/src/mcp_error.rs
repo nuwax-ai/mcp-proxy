@@ -64,37 +64,58 @@ impl AppError {
 
     /// 创建服务未找到错误
     pub fn service_not_found(service: impl Into<String>) -> Self {
-        Self::ServiceNotFound(t!("errors.mcp_proxy.service_not_found", service = service.into()).to_string())
+        Self::ServiceNotFound(
+            t!(
+                "errors.mcp_proxy.service_not_found",
+                service = service.into()
+            )
+            .to_string(),
+        )
     }
 
     /// 创建服务重启冷却期错误
     pub fn service_restart_cooldown(service: impl Into<String>) -> Self {
-        Self::ServiceRestartCooldown(t!(
-            "errors.mcp_proxy.service_restart_cooldown",
-            service = service.into()
-        ).to_string())
+        Self::ServiceRestartCooldown(
+            t!(
+                "errors.mcp_proxy.service_restart_cooldown",
+                service = service.into()
+            )
+            .to_string(),
+        )
     }
 
     /// 创建服务启动中错误
     pub fn service_startup_in_progress(service: impl Into<String>) -> Self {
-        Self::ServiceStartupInProgress(t!(
-            "errors.mcp_proxy.service_startup_in_progress",
-            service = service.into()
-        ).to_string())
+        Self::ServiceStartupInProgress(
+            t!(
+                "errors.mcp_proxy.service_startup_in_progress",
+                service = service.into()
+            )
+            .to_string(),
+        )
     }
 
     /// 创建服务启动失败错误
     pub fn service_startup_failed(mcp_id: impl Into<String>, reason: impl Into<String>) -> Self {
-        Self::ServiceStartupFailed(t!(
-            "errors.mcp_proxy.service_startup_failed",
-            mcp_id = mcp_id.into(),
-            reason = reason.into()
-        ).to_string())
+        Self::ServiceStartupFailed(
+            t!(
+                "errors.mcp_proxy.service_startup_failed",
+                mcp_id = mcp_id.into(),
+                reason = reason.into()
+            )
+            .to_string(),
+        )
     }
 
     /// 创建后端连接错误
     pub fn backend_connection(detail: impl Into<String>) -> Self {
-        Self::BackendConnection(t!("errors.mcp_proxy.backend_connection", detail = detail.into()).to_string())
+        Self::BackendConnection(
+            t!(
+                "errors.mcp_proxy.backend_connection",
+                detail = detail.into()
+            )
+            .to_string(),
+        )
     }
 
     /// 创建配置解析错误
@@ -104,15 +125,20 @@ impl AppError {
 
     /// 创建 MCP 服务器错误
     pub fn mcp_server_error(detail: impl Into<String>) -> Self {
-        Self::McpServerError(t!("errors.mcp_proxy.mcp_server_error", detail = detail.into()).to_string())
+        Self::McpServerError(
+            t!("errors.mcp_proxy.mcp_server_error", detail = detail.into()).to_string(),
+        )
     }
 
     /// 创建 JSON 序列化错误
     pub fn json_serialization(detail: impl Into<String>) -> Self {
-        Self::SerdeJsonError(t!(
-            "errors.mcp_proxy.json_serialization",
-            detail = detail.into()
-        ).to_string())
+        Self::SerdeJsonError(
+            t!(
+                "errors.mcp_proxy.json_serialization",
+                detail = detail.into()
+            )
+            .to_string(),
+        )
     }
 
     /// 创建 IO 错误
@@ -127,7 +153,9 @@ impl AppError {
 
     /// 创建无效参数错误
     pub fn invalid_parameter(detail: impl Into<String>) -> Self {
-        Self::InvalidParameter(t!("errors.mcp_proxy.invalid_parameter", detail = detail.into()).to_string())
+        Self::InvalidParameter(
+            t!("errors.mcp_proxy.invalid_parameter", detail = detail.into()).to_string(),
+        )
     }
 
     // ===========================================

@@ -107,7 +107,7 @@ impl AppConfig {
 
         std::fs::write(path, yaml).with_context(|| format!("无法写入配置文件: {:?}", path))?;
 
-        tracing::info!("已生成默认配置文件: {:?}", path);
+        tracing::info!("Default configuration file has been generated: {:?}", path);
         Ok(())
     }
 
@@ -115,7 +115,7 @@ impl AppConfig {
     pub fn apply_env_overrides(&mut self) {
         // FASTEMBED_CACHE_DIR 可以覆盖 cache_dir
         if let Ok(cache_dir) = std::env::var("FASTEMBED_CACHE_DIR") {
-            tracing::info!("环境变量 FASTEMBED_CACHE_DIR 覆盖缓存目录: {}", cache_dir);
+            tracing::info!("Environment variable FASTEMBED_CACHE_DIR overrides the cache directory: {}", cache_dir);
             self.fastembed.cache_dir = cache_dir;
         }
     }
@@ -125,10 +125,10 @@ impl AppConfig {
         let path = config_path.unwrap_or_else(|| PathBuf::from("./config.yml"));
 
         let mut config = if path.exists() {
-            tracing::info!("从文件加载配置: {:?}", path);
+            tracing::info!("Load configuration from file: {:?}", path);
             Self::from_file(&path)?
         } else {
-            tracing::warn!("配置文件不存在: {:?}，生成默认配置", path);
+            tracing::warn!("Configuration file does not exist: {:?}, generate default configuration", path);
             Self::generate_default_config(&path)?;
             Self::default()
         };
@@ -137,7 +137,7 @@ impl AppConfig {
         config.apply_env_overrides();
 
         // 打印最终配置
-        tracing::info!("最终配置: {:?}", config);
+        tracing::info!("Final configuration: {:?}", config);
 
         Ok(config)
     }

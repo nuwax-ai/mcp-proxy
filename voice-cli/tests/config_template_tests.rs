@@ -26,7 +26,7 @@ mod config_template_tests {
         );
 
         println!(
-            "✅ Server配置模板包含所有必要的配置项，长度: {} 字节",
+            "✅ Server configuration template contains all necessary configuration items, length: {} bytes",
             server_template.len()
         );
     }
@@ -41,7 +41,7 @@ mod config_template_tests {
 
         match yaml_result {
             Ok(yaml_value) => {
-                println!("✅ Server配置模板YAML格式有效");
+                println!("✅ Server configuration template YAML format is valid");
 
                 // 验证关键配置节点存在
                 assert!(

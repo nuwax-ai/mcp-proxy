@@ -101,11 +101,11 @@ impl ServerHandler for SseHandler {
 
                                 // 记录工具列表结果，这些结果会通过 SSE 推送给客户端
                                 info!(
-                                    "[list_tools] 工具列表结果 - MCP ID: {}, 工具数量: {}{}",
+                                    "[list_tools] Tool list results - MCP ID: {}, number of tools: {}{}",
                                     self.mcp_id,
                                     filtered_tools.len(),
                                     if self.tool_filter.is_enabled() {
-                                        " (已过滤)"
+                                        " (filtered)"
                                     } else {
                                         ""
                                     }
@@ -130,7 +130,7 @@ impl ServerHandler for SseHandler {
                         }
                     }
                     _ = context.ct.cancelled() => {
-                        info!("[list_tools] 请求被取消 - MCP ID: {}", self.mcp_id);
+                        info!("[list_tools] Request canceled - MCP ID: {}", self.mcp_id);
                         Err(ErrorData::internal_error(
                             "Request cancelled".to_string(),
                             None,
@@ -162,14 +162,14 @@ impl ServerHandler for SseHandler {
         let start_time = SystemTime::now();
 
         info!(
-            "[call_tool:{}] 开始 - 工具: {}, MCP ID: {}, 时间: {:?}",
+            "[call_tool:{}] Start - Tool: {}, MCP ID: {}, Time: {:?}",
             request_id, request.name, self.mcp_id, start_time
         );
 
         // 首先检查工具是否被过滤
         if !self.tool_filter.is_allowed(&request.name) {
             info!(
-                "[call_tool:{}] 工具被过滤 - MCP ID: {}, 工具: {}",
+                "[call_tool:{}] Tool is filtered - MCP ID: {}, Tool: {}",
                 request_id, self.mcp_id, request.name
             );
             return Ok(CallToolResult::error(vec![Content::text(format!(
@@ -184,14 +184,14 @@ impl ServerHandler for SseHandler {
             Some(inner) => {
                 let transport_closed = inner.peer.is_transport_closed();
                 info!(
-                    "[call_tool:{}] 后端连接存在 - transport_closed: {}",
+                    "[call_tool:{}] Backend connection exists - transport_closed: {}",
                     request_id, transport_closed
                 );
                 inner
             }
             None => {
                 error!(
-                    "[call_tool:{}] 后端连接不可用 (正在重连) - MCP ID: {}",
+                    "[call_tool:{}] Backend connection unavailable (reconnecting) - MCP ID: {}",
                     request_id, self.mcp_id
                 );
                 return Ok(CallToolResult::error(vec![Content::text(
@@ -203,7 +203,7 @@ impl ServerHandler for SseHandler {
         // 检查后端连接是否已关闭
         if inner.peer.is_transport_closed() {
             error!(
-                "[call_tool:{}] 后端 transport 已关闭 - MCP ID: {}",
+                "[call_tool:{}] Backend transport is closed - MCP ID: {}",
                 request_id, self.mcp_id
             );
             return Ok(CallToolResult::error(vec![Content::text(
@@ -216,7 +216,7 @@ impl ServerHandler for SseHandler {
             Some(_) => {
                 // 记录发送请求到后端的时间点
                 info!(
-                    "[call_tool:{}] 发送请求到后端... - 工具: {}, 已耗时: {}ms",
+                    "[call_tool:{}] Send request to backend... - Tool: {}, Elapsed time: {}ms",
                     request_id,
                     request.name,
                     start.elapsed().as_millis()
@@ -231,13 +231,13 @@ impl ServerHandler for SseHandler {
                                 // 记录工具调用结果，这些结果会通过 SSE 推送给客户端
                                 let is_error = call_result.is_error.unwrap_or(false);
                                 info!(
-                                    "[call_tool:{}] 收到响应 - 工具: {}, 耗时: {}ms, is_error: {}, MCP ID: {}",
+                                    "[call_tool:{}] Response received - tool: {}, time taken: {}ms, is_error: {}, MCP ID: {}",
                                     request_id, request.name, elapsed.as_millis(), is_error, self.mcp_id
                                 );
                                 if is_error {
                                     // 记录错误响应的内容（用于调试）
                                     debug!(
-                                        "[call_tool:{}] 错误响应内容: {:?}",
+                                        "[call_tool:{}] Error response content: {:?}",
                                         request_id, call_result.content
                                     );
                                 }
@@ -245,7 +245,7 @@ impl ServerHandler for SseHandler {
                             }
                             Err(err) => {
                                 error!(
-                                    "[call_tool:{}] 后端返回错误 - 工具: {}, 耗时: {}ms, 错误: {:?}, MCP ID: {}",
+                                    "[call_tool:{}] Backend returns error - Tool: {}, Time: {}ms, Error: {:?}, MCP ID: {}",
                                     request_id, request.name, elapsed.as_millis(), err, self.mcp_id
                                 );
                                 // Return an error result instead of propagating the error
@@ -258,7 +258,7 @@ impl ServerHandler for SseHandler {
                     _ = context.ct.cancelled() => {
                         let elapsed = start.elapsed();
                         warn!(
-                            "[call_tool:{}] 请求被取消 - 工具: {}, 耗时: {}ms, MCP ID: {}",
+                            "[call_tool:{}] Request canceled - Tool: {}, Time taken: {}ms, MCP ID: {}",
                             request_id, request.name, elapsed.as_millis(), self.mcp_id
                         );
                         Ok(CallToolResult::error(vec![Content::text(
@@ -269,7 +269,7 @@ impl ServerHandler for SseHandler {
             }
             None => {
                 error!(
-                    "[call_tool:{}] 服务器不支持 tools capability - MCP ID: {}",
+                    "[call_tool:{}] The server does not support tools capability - MCP ID: {}",
                     request_id, self.mcp_id
                 );
                 Ok(CallToolResult::error(vec![Content::text(
@@ -280,7 +280,7 @@ impl ServerHandler for SseHandler {
 
         let total_elapsed = start.elapsed();
         info!(
-            "[call_tool:{}] 完成 - 工具: {}, 总耗时: {}ms",
+            "[call_tool:{}] Completed - Tool: {}, total time taken: {}ms",
             request_id,
             request.name,
             total_elapsed.as_millis()
@@ -321,7 +321,7 @@ impl ServerHandler for SseHandler {
                             Ok(result) => {
                                 // 记录资源列表结果，这些结果会通过 SSE 推送给客户端
                                 info!(
-                                    "[list_resources] 资源列表结果 - MCP ID: {}, 资源数量: {}",
+                                    "[list_resources] Resource list results - MCP ID: {}, resource quantity: {}",
                                     self.mcp_id,
                                     result.resources.len()
                                 );
@@ -339,7 +339,7 @@ impl ServerHandler for SseHandler {
                         }
                     }
                     _ = context.ct.cancelled() => {
-                        info!("[list_resources] 请求被取消 - MCP ID: {}", self.mcp_id);
+                        info!("[list_resources] Request canceled - MCP ID: {}", self.mcp_id);
                         Err(ErrorData::internal_error(
                             "Request cancelled".to_string(),
                             None,
@@ -390,7 +390,7 @@ impl ServerHandler for SseHandler {
                             Ok(result) => {
                                 // 记录资源读取结果，这些结果会通过 SSE 推送给客户端
                                 info!(
-                                    "[read_resource] 资源读取结果 - MCP ID: {}, URI: {}",
+                                    "[read_resource] Resource read result - MCP ID: {}, URI: {}",
                                     self.mcp_id, request.uri
                                 );
 
@@ -407,7 +407,7 @@ impl ServerHandler for SseHandler {
                         }
                     }
                     _ = context.ct.cancelled() => {
-                        info!("[read_resource] 请求被取消 - MCP ID: {}, URI: {}", self.mcp_id, request.uri);
+                        info!("[read_resource] Request canceled - MCP ID: {}, URI: {}", self.mcp_id, request.uri);
                         Err(ErrorData::internal_error(
                             "Request cancelled".to_string(),
                             None,
@@ -469,7 +469,7 @@ impl ServerHandler for SseHandler {
                         }
                     }
                     _ = context.ct.cancelled() => {
-                        info!("[list_resource_templates] 请求被取消 - MCP ID: {}", self.mcp_id);
+                        info!("[list_resource_templates] request canceled - MCP ID: {}", self.mcp_id);
                         Err(ErrorData::internal_error(
                             "Request cancelled".to_string(),
                             None,
@@ -529,7 +529,7 @@ impl ServerHandler for SseHandler {
                         }
                     }
                     _ = context.ct.cancelled() => {
-                        info!("[list_prompts] 请求被取消 - MCP ID: {}", self.mcp_id);
+                        info!("[list_prompts] Request canceled - MCP ID: {}", self.mcp_id);
                         Err(ErrorData::internal_error(
                             "Request cancelled".to_string(),
                             None,
@@ -589,7 +589,7 @@ impl ServerHandler for SseHandler {
                         }
                     }
                     _ = context.ct.cancelled() => {
-                        info!("[get_prompt] 请求被取消 - MCP ID: {}, prompt: {:?}", self.mcp_id, request.name);
+                        info!("[get_prompt] Request canceled - MCP ID: {}, prompt: {:?}", self.mcp_id, request.name);
                         Err(ErrorData::internal_error(
                             "Request cancelled".to_string(),
                             None,
@@ -649,7 +649,7 @@ impl ServerHandler for SseHandler {
                 }
             }
             _ = context.ct.cancelled() => {
-                info!("[complete] 请求被取消 - MCP ID: {}", self.mcp_id);
+                info!("[complete] Request canceled - MCP ID: {}", self.mcp_id);
                 Err(ErrorData::internal_error(
                     "Request cancelled".to_string(),
                     None,
@@ -732,7 +732,10 @@ impl SseHandler {
 
     /// 创建一个默认的 ServerInfo（用于断开状态）
     fn default_server_info(mcp_id: &str) -> ServerInfo {
-        warn!("[SseHandler] 创建默认 ServerInfo - MCP ID: {}", mcp_id);
+        warn!(
+            "[SseHandler] Create default ServerInfo - MCP ID: {}",
+            mcp_id
+        );
         ServerInfo {
             protocol_version: ProtocolVersion::V_2024_11_05,
             server_info: Implementation {
@@ -776,19 +779,22 @@ impl SseHandler {
         tool_filter: ToolFilter,
         default_info: ServerInfo,
     ) -> Self {
-        info!("[SseHandler] 创建断开状态的 handler - MCP ID: {}", mcp_id);
+        info!(
+            "[SseHandler] Create a disconnected handler - MCP ID: {}",
+            mcp_id
+        );
 
         // 记录过滤器配置
         if tool_filter.is_enabled() {
             if let Some(ref allow_list) = tool_filter.allow_tools {
                 info!(
-                    "[SseHandler] 工具白名单已启用 - MCP ID: {}, 允许的工具: {:?}",
+                    "[SseHandler] Tool whitelist enabled - MCP ID: {}, allowed tools: {:?}",
                     mcp_id, allow_list
                 );
             }
             if let Some(ref deny_list) = tool_filter.deny_tools {
                 info!(
-                    "[SseHandler] 工具黑名单已启用 - MCP ID: {}, 排除的工具: {:?}",
+                    "[SseHandler] Tool blacklist enabled - MCP ID: {}, excluded tools: {:?}",
                     mcp_id, deny_list
                 );
             }
@@ -828,13 +834,13 @@ impl SseHandler {
         if tool_filter.is_enabled() {
             if let Some(ref allow_list) = tool_filter.allow_tools {
                 info!(
-                    "[SseHandler] 工具白名单已启用 - MCP ID: {}, 允许的工具: {:?}",
+                    "[SseHandler] Tool whitelist enabled - MCP ID: {}, allowed tools: {:?}",
                     mcp_id, allow_list
                 );
             }
             if let Some(ref deny_list) = tool_filter.deny_tools {
                 info!(
-                    "[SseHandler] 工具黑名单已启用 - MCP ID: {}, 排除的工具: {:?}",
+                    "[SseHandler] Tool blacklist enabled - MCP ID: {}, excluded tools: {:?}",
                     mcp_id, deny_list
                 );
             }
@@ -868,11 +874,17 @@ impl SseHandler {
                     _running: Arc::new(client),
                 };
                 self.peer.store(Some(Arc::new(inner)));
-                info!("[SseHandler] 后端连接已更新 - MCP ID: {}", self.mcp_id);
+                info!(
+                    "[SseHandler] Backend connection updated - MCP ID: {}",
+                    self.mcp_id
+                );
             }
             None => {
                 self.peer.store(None);
-                info!("[SseHandler] 后端连接已断开 - MCP ID: {}", self.mcp_id);
+                info!(
+                    "[SseHandler] Backend connection disconnected - MCP ID: {}",
+                    self.mcp_id
+                );
             }
         }
     }
@@ -913,11 +925,11 @@ impl SseHandler {
         // 通过发送轻量级请求来验证连接
         match inner.peer.list_tools(None).await {
             Ok(_) => {
-                debug!("后端连接状态检查: 正常");
+                debug!("Backend connection status check: OK");
                 false
             }
             Err(e) => {
-                info!("后端连接状态检查: 已断开，原因: {e}");
+                info!("Backend connection status check: Disconnected, reason: {e}");
                 true
             }
         }

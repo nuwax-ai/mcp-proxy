@@ -135,7 +135,7 @@ fn log_connection_timing(
 
     if total_duration.as_secs() >= warn_threshold_secs {
         warn!(
-            "[SseServerBuilder] {} 后端连接耗时较长 - MCP ID: {}, 耗时: {:?}, {}",
+            "[SseServerBuilder] {} backend connection takes a long time - MCP ID: {}, time: {:?}, {}",
             backend_type, mcp_id, total_duration, warn_message
         );
     }

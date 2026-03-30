@@ -3,26 +3,25 @@
 //! 实现服务状态检查和协议检测功能
 
 use anyhow::Result;
-use mcp_common::t;
 
 use crate::client::support::{CheckArgs, DetectArgs};
 
 /// 运行检查命令
 pub async fn run_check_command(args: CheckArgs, _verbose: bool, quiet: bool) -> Result<()> {
     if !quiet {
-        eprintln!("{}", t!("cli.check.checking", url = &args.url));
+        eprintln!("Checking service health: {}", &args.url);
     }
 
     match crate::client::protocol::detect_mcp_protocol(&args.url).await {
         Ok(protocol) => {
             if !quiet {
-                eprintln!("{}", t!("cli.check.healthy", protocol = protocol.to_string()));
+                eprintln!("Service is healthy (protocol: {protocol})");
             }
             Ok(())
         }
         Err(e) => {
             if !quiet {
-                eprintln!("{}", t!("cli.check.failed", error = e.to_string()));
+                eprintln!("Service check failed: {e}");
             }
             Err(e)
         }

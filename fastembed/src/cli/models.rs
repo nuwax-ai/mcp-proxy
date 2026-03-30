@@ -6,7 +6,7 @@ use anyhow::Result;
 pub async fn download_model(args: DownloadArgs) -> Result<()> {
     use fastembed::{InitOptions, TextEmbedding};
 
-    tracing::info!("开始下载模型...");
+    tracing::info!("Start downloading the model...");
 
     // 解析模型
     let model = if let Some(model_name) = args.model {
@@ -21,11 +21,11 @@ pub async fn download_model(args: DownloadArgs) -> Result<()> {
 
     // 显示下载信息
     let model_info = ModelInfo::from_embedding_model(&model);
-    println!("📦 下载模型:");
-    println!("   变体名: {}", model_info.variant);
-    println!("   模型代码: {}", model_info.code);
-    println!("   向量维度: {}", model_info.dim);
-    println!("   缓存目录: {}", args.cache_dir.display());
+    println!("📦 Download model:");
+    println!("Variant name: {}", model_info.variant);
+    println!("Model code: {}", model_info.code);
+    println!("Vector dimensions: {}", model_info.dim);
+    println!("Cache directory: {}", args.cache_dir.display());
     println!();
 
     // 初始化模型（会自动下载）
@@ -33,7 +33,7 @@ pub async fn download_model(args: DownloadArgs) -> Result<()> {
     options = options.with_cache_dir(args.cache_dir.clone());
     options = options.with_show_download_progress(args.progress);
 
-    println!("⬇️  正在下载模型文件...");
+    println!("⬇️ Downloading model files...");
     let start = std::time::Instant::now();
 
     let _embedding = TextEmbedding::try_new(options)?;
@@ -41,19 +41,19 @@ pub async fn download_model(args: DownloadArgs) -> Result<()> {
     let elapsed = start.elapsed();
 
     println!();
-    println!("✅ 模型下载完成!");
-    println!("   耗时: {:?}", elapsed);
-    println!("   缓存位置: {}", args.cache_dir.display());
+    println!("✅ Model download completed!");
+    println!("Time taken: {:?}", elapsed);
+    println!("Cache location: {}", args.cache_dir.display());
 
     // 验证文件
     println!();
-    println!("🔍 验证模型文件...");
+    println!("🔍 Verify model file...");
     let available = list_available_models(args.cache_dir.to_str().unwrap())?;
 
     if available.iter().any(|m| m.variant == model_info.variant) {
-        println!("✅ 模型文件验证成功!");
+        println!("✅ Model file verification successful!");
     } else {
-        println!("⚠️  警告: 模型文件可能不完整");
+        println!("⚠️ WARNING: Model file may be incomplete");
     }
 
     Ok(())
@@ -63,15 +63,15 @@ pub async fn download_model(args: DownloadArgs) -> Result<()> {
 pub async fn list_models(args: ListArgs) -> Result<()> {
     use crate::models::list_available_models;
 
-    println!("📋 查询已下载的模型...");
-    println!("   类型: {}", args.r#type);
-    println!("   缓存目录: {}", args.cache_dir.display());
+    println!("📋 Query downloaded models...");
+    println!("Type: {}", args.r#type);
+    println!("Cache directory: {}", args.cache_dir.display());
     println!();
 
     // 检查缓存目录是否存在
     if !args.cache_dir.exists() {
-        println!("⚠️  缓存目录不存在: {}", args.cache_dir.display());
-        println!("   提示: 请先下载模型");
+        println!("⚠️ The cache directory does not exist: {}", args.cache_dir.display());
+        println!("Tip: Please download the model first");
         return Ok(());
     }
 
@@ -79,12 +79,12 @@ pub async fn list_models(args: ListArgs) -> Result<()> {
     let models = list_available_models(args.cache_dir.to_str().unwrap())?;
 
     if models.is_empty() {
-        println!("📭 没有找到已下载的模型");
-        println!("   提示: 使用 'fastembed models download --model BGELargeZHV15' 下载模型");
+        println!("📭 No downloaded model found");
+        println!("Tip: Use 'fastembed models download --model BGELargeZHV15' to download the model");
     } else {
-        println!("✅ 找到 {} 个已下载的模型:", models.len());
+        println!("✅ Found {} downloaded models:", models.len());
         println!();
-        println!("{:<20} {:<40} {:<10}", "变体名", "模型代码", "维度");
+        println!("{:<20} {:<40} {:<10}", "Variant", "Model Code", "Dim");
         println!("{}", "─".repeat(72));
 
         for model in models {

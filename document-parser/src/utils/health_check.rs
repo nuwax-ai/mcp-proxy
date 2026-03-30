@@ -644,7 +644,7 @@ impl EnhancedHealthCheckManager {
         let component_name = checker.component_name().to_string();
         let mut checkers = self.checkers.write().await;
         checkers.push(checker);
-        tracing::info!("注册健康检查器: {}", component_name);
+        tracing::info!("Registered health checker: {}", component_name);
     }
 
     /// 执行所有健康检查
@@ -653,7 +653,7 @@ impl EnhancedHealthCheckManager {
         let start_time = std::time::Instant::now();
         let checkers = self.checkers.read().await;
 
-        tracing::debug!("开始执行 {} 个健康检查", checkers.len());
+        tracing::debug!("Start executing {} health checks", checkers.len());
 
         // 并发执行所有健康检查
         let check_futures: Vec<_> = checkers
@@ -667,7 +667,7 @@ impl EnhancedHealthCheckManager {
                     match result {
                         Ok(health_result) => health_result,
                         Err(_) => {
-                            tracing::warn!("健康检查超时: {}", checker.component_name());
+                            tracing::warn!("Health check timeout: {}", checker.component_name());
                             HealthCheckResult::new(
                                 checker.component_name().to_string(),
                                 HealthStatus::Unhealthy,
@@ -701,7 +701,7 @@ impl EnhancedHealthCheckManager {
             unhealthy_count = status.unhealthy_count,
             total_response_time_ms = status.total_response_time_ms,
             check_duration_ms = total_duration.as_millis(),
-            "健康检查完成"
+            "Health check completed"
         );
 
         status
@@ -774,7 +774,10 @@ impl EnhancedHealthCheckManager {
 
         tokio::spawn(async move {
             let mut interval_timer = tokio::time::interval(config.check_interval);
-            tracing::info!("启动定期健康检查，间隔: {:?}", config.check_interval);
+            tracing::info!(
+                "Start regular health check, interval: {:?}",
+                config.check_interval
+            );
 
             while is_running.load(std::sync::atomic::Ordering::SeqCst) {
                 interval_timer.tick().await;
@@ -813,7 +816,7 @@ impl EnhancedHealthCheckManager {
                 // 更新指标
                 if let Some(ref registry) = metrics_registry {
                     if let Err(e) = Self::update_health_metrics_static(registry, &status).await {
-                        tracing::warn!("更新健康检查指标失败: {}", e);
+                        tracing::warn!("Failed to update health check indicators: {}", e);
                     }
                 }
 
@@ -825,7 +828,7 @@ impl EnhancedHealthCheckManager {
                             tracing::warn!(
                                 previous_status = %previous.overall_status,
                                 new_status = %status.overall_status,
-                                "系统健康状态发生变化"
+                                "System health status changed"
                             );
                         }
                     }
@@ -833,10 +836,13 @@ impl EnhancedHealthCheckManager {
                 }
 
                 let check_duration = start_time.elapsed();
-                tracing::debug!("定期健康检查完成，耗时: {:?}", check_duration);
+                tracing::debug!(
+                    "Regular health check completed, time taken: {:?}",
+                    check_duration
+                );
             }
 
-            tracing::info!("定期健康检查已停止");
+            tracing::info!("Regular health checks have been stopped");
         });
 
         Ok(())
@@ -871,7 +877,7 @@ impl EnhancedHealthCheckManager {
     pub fn stop_periodic_checks(&self) {
         self.is_running
             .store(false, std::sync::atomic::Ordering::SeqCst);
-        tracing::info!("停止定期健康检查");
+        tracing::info!("Stop regular health check-ups");
     }
 
     /// 获取最后的健康检查结果
@@ -896,12 +902,12 @@ impl EnhancedHealthCheckManager {
                             component = component_name,
                             status = %health_result.status,
                             response_time_ms = health_result.response_time_ms,
-                            "组件健康检查完成"
+                            "Component health check completed"
                         );
                         Some(health_result)
                     }
                     Err(_) => {
-                        tracing::warn!("组件健康检查超时: {}", component_name);
+                        tracing::warn!("Component health check timeout: {}", component_name);
                         Some(
                             HealthCheckResult::new(
                                 component_name.to_string(),

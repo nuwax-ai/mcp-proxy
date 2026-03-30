@@ -63,7 +63,7 @@ pub async fn check_mcp_status_handler(
                 // 如果状态是 Pending，说明服务正在启动中，直接返回 Pending
                 // 不要再次尝试启动！
                 debug!(
-                    "[check_mcp_status] mcp_id={} 状态为 Pending，服务正在启动中",
+                    "[check_mcp_status] mcp_id={} status is Pending and the service is starting",
                     params.mcp_id
                 );
                 // 更新最后访问时间，避免启动过程中因超时被清理
@@ -78,7 +78,7 @@ pub async fn check_mcp_status_handler(
             CheckMcpStatusResponseStatus::Ready => {
                 // 如果已经在运行，继续检查服务是否真的可用
                 debug!(
-                    "[check_mcp_status] mcp_id={} 状态为 Ready，检查后端健康状态",
+                    "[check_mcp_status] mcp_id={} status is Ready, check the backend health status",
                     params.mcp_id
                 );
             }
@@ -114,7 +114,7 @@ pub async fn check_mcp_status_handler(
     let _startup_guard = match GLOBAL_RESTART_TRACKER.try_acquire_startup_lock(&params.mcp_id) {
         Some(guard) => {
             debug!(
-                "[check_mcp_status] mcp_id={} 获取启动锁成功，开始启动服务",
+                "[check_mcp_status] mcp_id={} Obtained the startup lock successfully and started to start the service",
                 params.mcp_id
             );
             guard
@@ -122,7 +122,7 @@ pub async fn check_mcp_status_handler(
         None => {
             // 锁被占用，服务正在启动中
             debug!(
-                "[check_mcp_status] mcp_id={} 启动锁被占用，服务正在启动中，返回 Pending",
+                "[check_mcp_status] mcp_id={} The startup lock is occupied and the service is starting. Return to Pending.",
                 params.mcp_id
             );
             return create_response(
@@ -136,7 +136,7 @@ pub async fn check_mcp_status_handler(
     // 双重检查：获取锁后再次检查服务是否已存在
     if proxy_manager.get_proxy_handler(&params.mcp_id).is_some() {
         debug!(
-            "[check_mcp_status] mcp_id={} 双重检查发现服务已存在，返回 Ready",
+            "[check_mcp_status] mcp_id={} Double check found that the service already exists, return Ready",
             params.mcp_id
         );
         return create_response(true, CheckMcpStatusResponseStatus::Ready, None);
@@ -148,7 +148,7 @@ pub async fn check_mcp_status_handler(
         .is_some()
     {
         debug!(
-            "[check_mcp_status] mcp_id={} 服务状态已存在，可能正在启动中，返回 Pending",
+            "[check_mcp_status] mcp_id={} The service status already exists and may be starting. Return to Pending.",
             params.mcp_id
         );
         return create_response(
@@ -212,7 +212,10 @@ fn spawn_mcp_service(
     client_protocol: McpProtocol,
 ) -> Result<(), AppError> {
     let mcp_id = mcp_id.to_string();
-    info!("[spawn_mcp_service] mcp_id={} 开始启动服务", mcp_id);
+    info!(
+        "[spawn_mcp_service] mcp_id={} Start starting the service",
+        mcp_id
+    );
 
     // 使用全局 ProxyHandlerManager
     let proxy_manager = get_proxy_manager();
@@ -244,13 +247,13 @@ fn spawn_mcp_service(
 
     tokio::spawn(async move {
         info!(
-            "[spawn_mcp_service] mcp_id={} tokio::spawn 开始执行 mcp_start_task",
+            "[spawn_mcp_service] mcp_id={} tokio::spawn starts executing mcp_start_task",
             mcp_id_clone
         );
         match mcp_start_task(mcp_config).await {
             Ok(_) => {
                 info!(
-                    "[spawn_mcp_service] mcp_id={} mcp_start_task 成功，设置状态为 Ready",
+                    "[spawn_mcp_service] mcp_id={} mcp_start_task successful, set status to Ready",
                     mcp_id_clone
                 );
                 get_proxy_manager()
@@ -259,7 +262,7 @@ fn spawn_mcp_service(
             Err(e) => {
                 let error_msg = format!("启动MCP服务失败: {e}");
                 error!(
-                    "[spawn_mcp_service] mcp_id={} mcp_start_task 失败: {}",
+                    "[spawn_mcp_service] mcp_id={} mcp_start_task failed: {}",
                     mcp_id_clone, e
                 );
                 get_proxy_manager().update_mcp_service_status(
@@ -270,6 +273,9 @@ fn spawn_mcp_service(
         }
     });
 
-    info!("[spawn_mcp_service] mcp_id={} 服务启动任务已提交", mcp_id);
+    info!(
+        "[spawn_mcp_service] mcp_id={} Service startup task has been submitted",
+        mcp_id
+    );
     Ok(())
 }

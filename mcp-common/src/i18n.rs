@@ -294,13 +294,20 @@ mod tests {
                     "errors.mcp_proxy.service_not_found" => {
                         t!("errors.mcp_proxy.service_not_found", service = "test").to_string()
                     }
-                    "errors.mcp_proxy.service_startup_failed" => {
-                        t!("errors.mcp_proxy.service_startup_failed", mcp_id = "test", reason = "test").to_string()
-                    }
+                    "errors.mcp_proxy.service_startup_failed" => t!(
+                        "errors.mcp_proxy.service_startup_failed",
+                        mcp_id = "test",
+                        reason = "test"
+                    )
+                    .to_string(),
                     _ => t!(*key).to_string(),
                 };
                 // 翻译不应该返回 key 本身（表示翻译缺失）
-                assert_ne!(msg, *key, "Missing translation for '{}' in locale '{}'", key, locale);
+                assert_ne!(
+                    msg, *key,
+                    "Missing translation for '{}' in locale '{}'",
+                    key, locale
+                );
             }
         }
     }

@@ -2,8 +2,6 @@
 //!
 //! 提供错误分类、诊断报告生成等功能
 
-use mcp_common::t;
-
 /// 错误分类
 pub fn classify_error(e: &anyhow::Error) -> String {
     let err_str = e.to_string().to_lowercase();
@@ -12,57 +10,57 @@ pub fn classify_error(e: &anyhow::Error) -> String {
     if (err_str.contains("30") || err_str.contains("thirty"))
         && (err_str.contains("timeout") || err_str.contains("second") || err_str.contains("秒"))
     {
-        t!("error_classify.timeout_30s").to_string()
+        "30-second timeout".to_string()
     }
     // 识别 503 服务不可用
     else if err_str.contains("503") || err_str.contains("service unavailable") {
-        t!("error_classify.service_unavailable_503").to_string()
+        "503 Service Unavailable".to_string()
     }
     // 识别其他 HTTP 5xx 错误
     else if err_str.contains("500") || err_str.contains("internal server error") {
-        t!("error_classify.internal_server_error_500").to_string()
+        "500 Internal Server Error".to_string()
     } else if err_str.contains("502") || err_str.contains("bad gateway") {
-        t!("error_classify.bad_gateway_502").to_string()
+        "502 Bad Gateway".to_string()
     } else if err_str.contains("504") || err_str.contains("gateway timeout") {
-        t!("error_classify.gateway_timeout_504").to_string()
+        "504 Gateway Timeout".to_string()
     }
     // 识别 HTTP 4xx 错误
     else if err_str.contains("401") || err_str.contains("unauthorized") {
-        t!("error_classify.unauthorized_401").to_string()
+        "401 Unauthorized".to_string()
     } else if err_str.contains("403") || err_str.contains("forbidden") {
-        t!("error_classify.forbidden_403").to_string()
+        "403 Forbidden".to_string()
     } else if err_str.contains("404") || err_str.contains("not found") {
-        t!("error_classify.not_found_404").to_string()
+        "404 Not Found".to_string()
     } else if err_str.contains("408") || err_str.contains("request timeout") {
-        t!("error_classify.request_timeout_408").to_string()
+        "408 Request Timeout".to_string()
     }
     // 通用超时
     else if err_str.contains("timeout") || err_str.contains("timed out") {
-        t!("error_classify.timeout").to_string()
+        "Timeout".to_string()
     }
     // 连接相关错误
     else if err_str.contains("connection refused") {
-        t!("error_classify.connection_refused").to_string()
+        "Connection Refused".to_string()
     } else if err_str.contains("connection reset") {
-        t!("error_classify.connection_reset").to_string()
+        "Connection Reset".to_string()
     } else if err_str.contains("eof") || err_str.contains("closed") || err_str.contains("shutdown")
     {
-        t!("error_classify.connection_closed").to_string()
+        "Connection Closed".to_string()
     }
     // 网络相关错误
     else if err_str.contains("dns") || err_str.contains("resolve") {
-        t!("error_classify.dns_failed").to_string()
+        "DNS Resolution Failed".to_string()
     } else if err_str.contains("certificate") || err_str.contains("ssl") || err_str.contains("tls")
     {
-        t!("error_classify.ssl_tls_error").to_string()
+        "SSL/TLS Error".to_string()
     } else if err_str.contains("sending request") || err_str.contains("network") {
-        t!("error_classify.network_error").to_string()
+        "Network Error".to_string()
     }
     // 会话相关
     else if err_str.contains("session") {
-        t!("error_classify.session_error").to_string()
+        "Session Error".to_string()
     } else {
-        t!("error_classify.unknown_error").to_string()
+        "Unknown Error".to_string()
     }
 }
 
@@ -92,8 +90,8 @@ pub fn print_diagnostic_report(
         return;
     }
 
-    eprintln!("\n{}", t!("diagnostic.report_header"));
-    eprintln!("{}", t!("diagnostic.connection_protocol", protocol = protocol));
+    eprintln!("\n=== Connection Diagnostic Report ===");
+    eprintln!("Protocol: {protocol}");
 
     // 隐藏 URL 中的敏感信息（如 token/ak/key/secret 参数）
     let masked_url = if url.contains("?") {
@@ -131,47 +129,46 @@ pub fn print_diagnostic_report(
         url.to_string()
     };
 
-    eprintln!("{}", t!("diagnostic.service_url", url = masked_url));
-    eprintln!("{}", t!("diagnostic.connection_duration", seconds = alive_duration_secs));
-    eprintln!("{}", t!("diagnostic.disconnect_reason", reason = disconnect_reason));
+    eprintln!("Service URL: {masked_url}");
+    eprintln!("Connection duration: {}s", alive_duration_secs);
+    eprintln!("Disconnect reason: {disconnect_reason}");
 
     if let Some(err_type) = error_type {
-        eprintln!("{}", t!("diagnostic.error_type", error_type = err_type));
+        eprintln!("Error type: {err_type}");
     }
 
     // 分析可能的原因
-    eprintln!("\n{}", t!("diagnostic.possible_causes"));
+    eprintln!("\nPossible causes:");
     if (28..=32).contains(&alive_duration_secs) {
-        eprintln!("  {}", t!("diagnostic.analysis.timeout_30s"));
-        eprintln!("     1. {}", t!("diagnostic.analysis.timeout_30s_cause1"));
-        eprintln!("     2. {}", t!("diagnostic.analysis.timeout_30s_cause2"));
-        eprintln!("     3. {}", t!("diagnostic.analysis.timeout_30s_cause3"));
+        eprintln!("  Connection dropped around 30 seconds:");
+        eprintln!("     1. The backend may enforce a fixed session timeout");
+        eprintln!("     2. A load balancer or gateway may be closing idle connections");
+        eprintln!("     3. Keepalive/ping settings may be too weak for this environment");
     } else if alive_duration_secs < 10 {
-        eprintln!("  {}", t!("diagnostic.analysis.quick_disconnect", seconds = alive_duration_secs));
-        eprintln!("     1. {}", t!("diagnostic.analysis.quick_disconnect_cause1"));
-        eprintln!("     2. {}", t!("diagnostic.analysis.quick_disconnect_cause2"));
-        eprintln!("     3. {}", t!("diagnostic.analysis.quick_disconnect_cause3"));
+        eprintln!("  Quick disconnect ({}s):", alive_duration_secs);
+        eprintln!("     1. Service may be unavailable or misconfigured");
+        eprintln!("     2. Authentication/headers may be invalid");
+        eprintln!("     3. URL/path may point to a non-MCP endpoint");
     } else if alive_duration_secs >= 60 {
-        eprintln!("  {}", t!("diagnostic.analysis.long_connection", seconds = alive_duration_secs));
-        eprintln!("     1. {}", t!("diagnostic.analysis.long_connection_cause1"));
-        eprintln!("     2. {}", t!("diagnostic.analysis.long_connection_cause2"));
+        eprintln!("  Long-lived connection ({}s):", alive_duration_secs);
+        eprintln!("     1. Disconnect may be caused by transient network instability");
+        eprintln!("     2. Backend restarts or rolling deployments may interrupt sessions");
     }
 
-    // 获取翻译后的错误类型用于比较
-    let timeout_30s = t!("error_classify.timeout_30s").to_string();
-    let service_unavailable = t!("error_classify.service_unavailable_503").to_string();
+    let timeout_30s = "30-second timeout";
+    let service_unavailable = "503 Service Unavailable";
 
-    if error_type == Some(&timeout_30s) || error_type == Some(&service_unavailable) {
-        eprintln!("\n{}", t!("diagnostic.suggestions"));
-        eprintln!("  1. {}", t!("diagnostic.suggestion.timeout_30s"));
-        eprintln!("  2. {}", t!("diagnostic.suggestion.timeout_client"));
-        eprintln!("  3. {}", t!("diagnostic.suggestion.async_mode"));
-        eprintln!("  4. {}", t!("diagnostic.suggestion.ping_interval", seconds = 120));
+    if error_type == Some(timeout_30s) || error_type == Some(service_unavailable) {
+        eprintln!("\nSuggestions:");
+        eprintln!("  1. Increase backend/read timeout settings");
+        eprintln!("  2. Increase client ping timeout if the backend is slow");
+        eprintln!("  3. Consider async/task-based invocation patterns");
+        eprintln!("  4. Increase ping interval to {}s to reduce pressure", 120);
     } else if disconnect_reason.contains("Ping") || disconnect_reason.contains("ping") {
-        eprintln!("\n{}", t!("diagnostic.suggestions"));
-        eprintln!("  1. {}", t!("diagnostic.suggestion.ping_timeout", seconds = 30));
-        eprintln!("  2. {}", t!("diagnostic.suggestion.ping_interval", seconds = 60));
-        eprintln!("  3. {}", t!("diagnostic.suggestion.ping_disable"));
+        eprintln!("\nSuggestions:");
+        eprintln!("  1. Increase ping timeout to {}s", 30);
+        eprintln!("  2. Increase ping interval to {}s", 60);
+        eprintln!("  3. Disable ping if the backend does not support stable probes");
     }
 
     eprintln!("==============================\n");
@@ -184,16 +181,19 @@ mod tests {
 
     #[test]
     fn test_classify_error() {
-        // 初始化语言设置为英文进行测试
-        mcp_common::set_locale("en");
-
-        assert_eq!(classify_error(&anyhow!("connection timeout")), t!("error_classify.timeout").to_string());
-        assert_eq!(classify_error(&anyhow!("connection refused")), t!("error_classify.connection_refused").to_string());
+        assert_eq!(classify_error(&anyhow!("connection timeout")), "Timeout");
+        assert_eq!(
+            classify_error(&anyhow!("connection refused")),
+            "Connection Refused"
+        );
         assert_eq!(
             classify_error(&anyhow!("503 Service Unavailable")),
-            t!("error_classify.service_unavailable_503").to_string()
+            "503 Service Unavailable"
         );
-        assert_eq!(classify_error(&anyhow!("401 Unauthorized")), t!("error_classify.unauthorized_401").to_string());
+        assert_eq!(
+            classify_error(&anyhow!("401 Unauthorized")),
+            "401 Unauthorized"
+        );
     }
 
     #[test]

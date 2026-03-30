@@ -115,7 +115,9 @@ impl VoiceCliError {
     }
 
     pub fn audio_processing_error(detail: impl Into<String>) -> Self {
-        Self::AudioProcessing(t!("errors.voice.audio_processing", detail = detail.into()).to_string())
+        Self::AudioProcessing(
+            t!("errors.voice.audio_processing", detail = detail.into()).to_string(),
+        )
     }
 
     pub fn transcription_error(detail: impl Into<String>) -> Self {
@@ -151,7 +153,9 @@ impl VoiceCliError {
     }
 
     pub fn unsupported_format(detail: impl Into<String>) -> Self {
-        Self::UnsupportedFormat(t!("errors.voice.unsupported_format", detail = detail.into()).to_string())
+        Self::UnsupportedFormat(
+            t!("errors.voice.unsupported_format", detail = detail.into()).to_string(),
+        )
     }
 
     pub fn file_too_large(size: usize, max: usize) -> Self {
@@ -163,7 +167,9 @@ impl VoiceCliError {
     }
 
     pub fn invalid_model_name(model: impl Into<String>) -> Self {
-        Self::InvalidModelName(t!("errors.voice.invalid_model_name", model = model.into()).to_string())
+        Self::InvalidModelName(
+            t!("errors.voice.invalid_model_name", model = model.into()).to_string(),
+        )
     }
 
     pub fn worker_pool_error(detail: impl Into<String>) -> Self {
@@ -171,19 +177,31 @@ impl VoiceCliError {
     }
 
     pub fn transcription_timeout(seconds: u64) -> Self {
-        Self::TranscriptionTimeout(t!("errors.voice.transcription_timeout", seconds = seconds).to_string())
+        Self::TranscriptionTimeout(
+            t!("errors.voice.transcription_timeout", seconds = seconds).to_string(),
+        )
     }
 
     pub fn transcription_failed(detail: impl Into<String>) -> Self {
-        Self::TranscriptionFailed(t!("errors.voice.transcription_failed", detail = detail.into()).to_string())
+        Self::TranscriptionFailed(
+            t!("errors.voice.transcription_failed", detail = detail.into()).to_string(),
+        )
     }
 
     pub fn audio_conversion_failed(detail: impl Into<String>) -> Self {
-        Self::AudioConversionFailed(t!("errors.voice.audio_conversion_failed", detail = detail.into()).to_string())
+        Self::AudioConversionFailed(
+            t!(
+                "errors.voice.audio_conversion_failed",
+                detail = detail.into()
+            )
+            .to_string(),
+        )
     }
 
     pub fn audio_probe_error(detail: impl Into<String>) -> Self {
-        Self::AudioProbeError(t!("errors.voice.audio_probe_error", detail = detail.into()).to_string())
+        Self::AudioProbeError(
+            t!("errors.voice.audio_probe_error", detail = detail.into()).to_string(),
+        )
     }
 
     pub fn temp_file_error(detail: impl Into<String>) -> Self {

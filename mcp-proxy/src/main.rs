@@ -5,11 +5,6 @@
 
 mod config;
 
-// 初始化 i18n，使用 crate 内置翻译文件
-#[macro_use]
-extern crate rust_i18n;
-i18n!("locales", fallback = "en");
-
 use anyhow::Result;
 use backtrace::Backtrace;
 use clap::Parser;
@@ -102,13 +97,13 @@ async fn run_server_mode() -> Result<()> {
 
     // 打印配置信息到 stderr（在日志系统初始化之前）
     eprintln!("========================================");
-    eprintln!("{}", t!("cli.startup.service_starting"));
-    eprintln!("{}", t!("cli.startup.version", version = env!("CARGO_PKG_VERSION")));
-    eprintln!("{}", t!("cli.startup.config_loaded"));
-    eprintln!("  - {}", t!("cli.startup.port", port = app_config.server.port));
-    eprintln!("  - {}", t!("cli.startup.log_dir", path = &app_config.log.path));
-    eprintln!("  - {}", t!("cli.startup.log_level", level = &app_config.log.level));
-    eprintln!("  - {}", t!("cli.startup.log_retain_days", days = app_config.log.retain_days));
+    eprintln!("Starting MCP proxy service...");
+    eprintln!("Version: {}", env!("CARGO_PKG_VERSION"));
+    eprintln!("Configuration loaded:");
+    eprintln!("  - Port: {}", app_config.server.port);
+    eprintln!("  - Log directory: {}", &app_config.log.path);
+    eprintln!("  - Log level: {}", &app_config.log.level);
+    eprintln!("  - Log retention days: {}", app_config.log.retain_days);
     mcp_stdio_proxy::env_init::init(&app_config);
     eprintln!("========================================");
 
@@ -184,64 +179,61 @@ async fn run_server_mode() -> Result<()> {
     // 记录服务信息
     log_service_info("mcp-proxy", "0.1.0")?;
     tracing::info!("========================================");
-    tracing::info!("{}", t!("cli.startup.service_starting"));
-    tracing::info!("{}", t!("cli.startup.proxy_mode"));
-    tracing::info!("{}", t!("cli.startup.version", version = env!("CARGO_PKG_VERSION")));
-    tracing::info!("{}", t!("cli.startup.config_info"));
-    tracing::info!("  - {}", t!("cli.startup.listen_port", port = server_port));
-    tracing::info!("  - {}", t!("cli.startup.log_dir", path = log_path));
-    tracing::info!("  - {}", t!("cli.startup.log_level", level = &app_config.log.level));
-    tracing::info!("  - {}", t!("cli.startup.log_retention", days = retain_days));
-    tracing::info!("{}", t!("cli.startup.env_override"));
+    tracing::info!("Starting MCP proxy service...");
+    tracing::info!("Running in proxy server mode");
+    tracing::info!("Version: {}", env!("CARGO_PKG_VERSION"));
+    tracing::info!("Configuration:");
+    tracing::info!("  - Listen port: {}", server_port);
+    tracing::info!("  - Log directory: {}", log_path);
+    tracing::info!("  - Log level: {}", &app_config.log.level);
+    tracing::info!("  - Log retention days: {}", retain_days);
+    tracing::info!("Environment overrides:");
     if std::env::var("MCP_PROXY_PORT").is_ok() {
-        tracing::info!("  - {}", t!("cli.startup.env_port_override", port = server_port));
+        tracing::info!("  - MCP_PROXY_PORT override detected: {}", server_port);
     }
     if let Ok(log_dir) = std::env::var("MCP_PROXY_LOG_DIR") {
-        tracing::info!("  - {}", t!("cli.startup.env_log_dir_override", dir = log_dir));
+        tracing::info!("  - MCP_PROXY_LOG_DIR override detected: {}", log_dir);
     }
     if let Ok(level) = std::env::var("MCP_PROXY_LOG_LEVEL") {
-        tracing::info!("  - {}", t!("cli.startup.env_log_level_override", level = level));
+        tracing::info!("  - MCP_PROXY_LOG_LEVEL override detected: {}", level);
     }
     tracing::info!("========================================");
 
     // 监听地址
     let addr = format!("0.0.0.0:{server_port}");
-    tracing::info!("{}", t!("cli.startup.trying_bind", addr = &addr));
+    tracing::info!("Binding to {addr}...");
     let listener = TcpListener::bind(&addr).await.map_err(|e| {
-        tracing::error!("{}", t!("cli.startup.bind_failed", addr = &addr, error = e.to_string()));
+        tracing::error!("Failed to bind to {addr}: {e}");
         e
     })?;
-    tracing::info!("{}", t!("cli.startup.bind_success", addr = &addr));
+    tracing::info!("Successfully bound to {addr}");
 
     // 构建 axum 路由
-    tracing::info!("{}", t!("cli.startup.init_state"));
+    tracing::info!("Initializing application state...");
     let state = AppState::new(app_config.clone()).await;
-    tracing::info!("{}", t!("cli.startup.state_done"));
+    tracing::info!("Application state initialized");
 
     // 初始化 MCP 路由
-    tracing::info!("{}", t!("cli.startup.init_router"));
+    tracing::info!("Initializing MCP router...");
     let app = get_router(state.clone()).await?;
-    tracing::info!("{}", t!("cli.startup.router_done"));
+    tracing::info!("MCP router initialized");
 
-    info!("{}", t!("cli.startup.success", addr = &addr));
-    info!("{}", t!("cli.startup.health_endpoint", addr = &addr));
-    info!("{}", t!("cli.startup.mcp_list", addr = &addr));
+    info!("MCP proxy started: {addr}");
+    info!("Health endpoint: http://{addr}/health");
+    info!("MCP list endpoint: http://{addr}/mcp/list");
 
     // 启动定时任务，定期检查MCP服务状态
     tokio::spawn(start_schedule_task());
-    info!("{}", t!("cli.startup.schedule_task_started"));
-    info!(
-        "{}",
-        t!("cli.startup.log_rotation_configured", count = retain_days)
-    );
+    info!("Background schedule task started");
+    info!("Log rotation configured (keep last {retain_days} files)");
 
     // 打印系统信息
-    tracing::info!("{}", t!("cli.startup.system_info"));
-    tracing::info!("  - {}", t!("cli.startup.os", os = std::env::consts::OS));
-    tracing::info!("  - {}", t!("cli.startup.arch", arch = std::env::consts::ARCH));
+    tracing::info!("System info:");
+    tracing::info!("  - OS: {}", std::env::consts::OS);
+    tracing::info!("  - Arch: {}", std::env::consts::ARCH);
     tracing::info!(
-        "  - {}",
-        t!("cli.startup.work_dir", path = format!("{:?}", std::env::current_dir().unwrap_or_default()))
+        "  - Working directory: {:?}",
+        std::env::current_dir().unwrap_or_default()
     );
 
     // 注册关闭处理函数，确保在程序退出前执行清理
@@ -249,24 +241,24 @@ async fn run_server_mode() -> Result<()> {
         // 确保在程序退出前执行清理
         std::panic::set_hook(Box::new(move |panic_info| {
             // 记录详细的 panic 信息
-            warn!("{}", t!("cli.panic.handler_started"));
+            warn!("Panic hook triggered");
 
             // 记录 panic 消息
             if let Some(s) = panic_info.payload().downcast_ref::<String>() {
-                error!("{}", t!("cli.panic.reason", reason = s));
+                error!("Panic reason: {s}");
             } else if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
-                error!("{}", t!("cli.panic.reason", reason = s));
+                error!("Panic reason: {s}");
             } else {
-                error!("{}", t!("cli.panic.reason_unknown"));
+                error!("Panic reason: <unknown>");
             }
 
             // 记录 panic 位置
             if let Some(location) = panic_info.location() {
-                error!("{}", t!("cli.panic.location", file = location.file(), line = location.line()));
+                error!("Panic location: {}:{}", location.file(), location.line());
             }
 
             // 尝试获取堆栈跟踪
-            error!("{}", t!("cli.panic.stack_trace"));
+            error!("Panic backtrace:");
             let backtrace = Backtrace::new();
             error!("{backtrace:?}");
         }));
@@ -274,42 +266,44 @@ async fn run_server_mode() -> Result<()> {
 
     // 预热 uv/deno 环境依赖
     tokio::spawn(async move {
-        info!("{}", t!("cli.startup.warming_up"));
+        info!("Warming up uv/deno runtime dependencies...");
         match warm_up_all_envs(None, None, None, None).await {
-            Ok(_) => info!("{}", t!("cli.startup.warmup_success")),
-            Err(e) => error!("{}", t!("cli.startup.warmup_failed", error = e.to_string())),
+            Ok(_) => info!("Runtime dependency warm-up completed"),
+            Err(e) => error!("Runtime dependency warm-up failed: {e}"),
         }
     });
 
     // 启动服务器，监听多种信号以实现优雅关闭
-    info!("{}", t!("cli.startup.http_server_starting"));
+    info!("Starting HTTP server...");
     let server =
         axum::serve(listener, app.into_make_service()).with_graceful_shutdown(shutdown_signal());
 
     // 运行服务器
     if let Err(e) = server.await {
-        error!("{}", t!("cli.shutdown.service_error", error = e.to_string()));
+        error!("HTTP server exited with error: {e}");
     }
 
     // 服务器关闭后执行清理逻辑
-    warn!("{}", t!("cli.shutdown.signal_received"));
+    warn!("Shutdown signal received, starting cleanup...");
 
     // 清理所有SSE服务
     match get_proxy_manager().cleanup_all_resources().await {
-        Ok(_) => info!("{}", t!("cli.shutdown.cleanup_success")),
-        Err(e) => error!("{}", t!("cli.shutdown.cleanup_failed", error = e.to_string())),
+        Ok(_) => info!("Resource cleanup completed"),
+        Err(e) => error!("Resource cleanup failed: {e}"),
     }
 
     // 等待一小段时间确保所有资源都被清理
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-    info!("{}", t!("cli.shutdown.complete"));
+    info!("Shutdown complete");
     Ok(())
 }
 
 // 监听多种终止信号
 async fn shutdown_signal() {
-    signal::ctrl_c().await.expect("Failed to install Ctrl+C handler");
+    signal::ctrl_c()
+        .await
+        .expect("Failed to install Ctrl+C handler");
 }
 
 #[cfg(test)]

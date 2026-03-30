@@ -94,9 +94,7 @@ where
 impl<T> From<VoiceCliError> for HttpResult<T> {
     fn from(error: VoiceCliError) -> Self {
         match error {
-            VoiceCliError::Config(msg) => {
-                Self::system_error(msg)
-            }
+            VoiceCliError::Config(msg) => Self::system_error(msg),
             VoiceCliError::FileTooLarge(msg) => Self::unsupported_format(msg),
             VoiceCliError::UnsupportedFormat(msg) => Self::unsupported_format(msg),
             VoiceCliError::ModelNotFound(msg) => Self::task_not_found(msg),
@@ -119,9 +117,7 @@ impl<T> From<VoiceCliError> for HttpResult<T> {
             VoiceCliError::Daemon(msg) => Self::system_error(msg),
             VoiceCliError::ConfigRs(msg) => Self::system_error(msg),
             VoiceCliError::Storage(msg) => Self::system_error(msg),
-            VoiceCliError::TaskManagementDisabled(msg) => {
-                Self::system_error(msg)
-            }
+            VoiceCliError::TaskManagementDisabled(msg) => Self::system_error(msg),
             VoiceCliError::NotFound(msg) => Self::task_not_found(msg),
             VoiceCliError::Network(msg) => Self::system_error(msg),
             VoiceCliError::Initialization(msg) => Self::system_error(msg),

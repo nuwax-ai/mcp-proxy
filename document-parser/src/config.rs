@@ -831,7 +831,10 @@ impl AppConfig {
 
         // 如果都没有找到，尝试在当前目录创建默认配置文件
         if let Err(e) = Self::create_default_config_in_current_dir() {
-            warn!("无法在当前目录创建默认配置文件: {}", e);
+            warn!(
+                "Unable to create default configuration file in current directory: {}",
+                e
+            );
         }
 
         // 使用默认配置
@@ -864,7 +867,10 @@ impl AppConfig {
         std::fs::write(&config_path, DEFAULT_CONFIG_YAML)
             .map_err(|e| ConfigError::FileRead(format!("无法创建默认配置文件: {e}")))?;
 
-        info!("已在当前目录创建默认配置文件: {}", config_path.display());
+        info!(
+            "The default configuration file has been created in the current directory: {}",
+            config_path.display()
+        );
         Ok(())
     }
 
@@ -1171,7 +1177,7 @@ pub fn get_global_config() -> &'static AppConfig {
 /// 获取全局文件大小配置
 pub fn get_global_file_size_config() -> &'static GlobalFileSizeConfig {
     let max_file_sieze = &get_global_config().file_size_config;
-    info!("全局文件大小配置: {:?}", max_file_sieze);
+    info!("Global file size configuration: {:?}", max_file_sieze);
     max_file_sieze
 }
 
@@ -1243,7 +1249,7 @@ pub fn get_global_cuda_status_clone() -> CudaStatus {
             return status.clone();
         }
     }
-    warn!("全局CUDA状态尚未初始化，返回默认值");
+    warn!("The global CUDA state has not been initialized and returns to the default value.");
     CudaStatus::default()
 }
 

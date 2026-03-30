@@ -163,7 +163,10 @@ pub async fn parse_markdown_sections(
     Query(params): Query<MarkdownProcessRequest>,
     mut multipart: Multipart,
 ) -> axum::response::Response {
-    info!("同步解析Markdown请求开始(multipart): {:?}", params);
+    info!(
+        "Synchronous parsing of Markdown request starts (multipart): {:?}",
+        params
+    );
     let start_time = std::time::Instant::now();
 
     // 验证TOC配置
@@ -179,7 +182,7 @@ pub async fn parse_markdown_sections(
     let content = match process_markdown_multipart(&mut multipart).await {
         Ok(content) => content,
         Err(e) => {
-            error!("处理Markdown上传失败: {}", e);
+            error!("Processing Markdown upload failure: {}", e);
             return ApiResponse::from_app_error::<SectionsSyncResponse>(e).into_response();
         }
     };
@@ -212,7 +215,7 @@ async fn process_markdown_content(
             let word_count = calculate_word_count(&content);
 
             info!(
-                "Markdown解析成功，耗时: {}ms，字数: {:?}",
+                "Markdown parsing was successful, time taken: {}ms, word count: {:?}",
                 processing_time, word_count
             );
 
@@ -225,7 +228,7 @@ async fn process_markdown_content(
             ApiResponse::success_with_status(response, StatusCode::OK).into_response()
         }
         Err(e) => {
-            error!("解析Markdown失败: {}", e);
+            error!("Failed to parse Markdown: {}", e);
             ApiResponse::from_app_error::<SectionsSyncResponse>(e.into()).into_response()
         }
     }
@@ -240,36 +243,36 @@ async fn process_markdown_multipart(multipart: &mut Multipart) -> Result<String,
     let mut field_count = 0;
 
     info!(
-        "开始处理multipart数据，最大文件大小: {} 字节",
+        "Start processing multipart data, maximum file size: {} bytes",
         max_markdown_size
     );
 
     while let Some(field) = multipart.next_field().await.map_err(|e| {
-        error!("解析multipart数据失败: {}", e);
+        error!("Failed to parse multipart data: {}", e);
         AppError::Validation(format!("解析multipart数据失败: {e}"))
     })? {
         field_count += 1;
-        info!("处理第 {} 个字段", field_count);
+        info!("Process field {}", field_count);
 
         if let Some(name) = field.name() {
-            info!("字段名称: {}", name);
+            info!("Field name: {}", name);
 
             if let Some(filename) = field.file_name() {
-                info!("文件名: {}", filename);
+                info!("File name: {}", filename);
             }
 
             if let Some(content_type) = field.content_type() {
-                info!("内容类型: {}", content_type);
+                info!("Content type: {}", content_type);
             }
 
             if name == "file" {
                 // 检查文件名
                 if let Some(filename) = field.file_name() {
-                    info!("处理Markdown文件: {}", filename);
+                    info!("Process Markdown files: {}", filename);
 
                     // 验证文件扩展名
                     if !is_markdown_file(filename) {
-                        error!("不支持的文件类型: {}", filename);
+                        error!("Unsupported file types: {}", filename);
                         return Err(AppError::Validation("只支持.md和.markdown文件".to_string()));
                     }
                 }
@@ -280,20 +283,23 @@ async fn process_markdown_multipart(multipart: &mut Multipart) -> Result<String,
                 let mut chunk_count = 0;
 
                 while let Some(chunk) = stream.chunk().await.map_err(|e| {
-                    error!("读取文件块失败: {}", e);
+                    error!("Failed to read file block: {}", e);
                     AppError::File(format!("读取文件块失败: {e}"))
                 })? {
                     chunk_count += 1;
                     total_size += chunk.len();
                     info!(
-                        "读取第 {} 个数据块，大小: {} 字节，总大小: {} 字节",
+                        "Read the {}th data block, size: {} bytes, total size: {} bytes",
                         chunk_count,
                         chunk.len(),
                         total_size
                     );
 
                     if total_size > max_markdown_size {
-                        error!("文件过大: {} > {} 字节", total_size, max_markdown_size);
+                        error!(
+                            "File too large: {} > {} bytes",
+                            total_size, max_markdown_size
+                        );
                         return Err(AppError::Validation(format!(
                             "Markdown文件过大: {total_size} > {max_markdown_size} 字节"
                         )));
@@ -303,19 +309,19 @@ async fn process_markdown_multipart(multipart: &mut Multipart) -> Result<String,
                 }
 
                 info!(
-                    "文件读取完成，总共 {} 个数据块，总大小: {} 字节",
+                    "File reading completed, total {} data blocks, total size: {} bytes",
                     chunk_count, total_size
                 );
 
                 // 转换为UTF-8字符串
                 let content_str = String::from_utf8(buffer).map_err(|e| {
-                    error!("文件不是有效的UTF-8格式: {}", e);
+                    error!("File is not in valid UTF-8 format: {}", e);
                     AppError::Validation(format!("文件不是有效的UTF-8格式: {e}"))
                 })?;
 
-                info!("文件内容长度: {} 字符", content_str.len());
+                info!("File content length: {} characters", content_str.len());
                 info!(
-                    "文件内容预览 (前200字符): {}",
+                    "File content preview (first 200 characters): {}",
                     if content_str.len() > 200 {
                         format!("{}...", &content_str[..200])
                     } else {
@@ -326,22 +332,28 @@ async fn process_markdown_multipart(multipart: &mut Multipart) -> Result<String,
                 content = Some(content_str);
                 break;
             } else {
-                info!("跳过非file字段: {}", name);
+                info!("Skip non-file fields: {}", name);
             }
         } else {
-            info!("字段没有名称");
+            info!("Field has no name");
         }
     }
 
-    info!("multipart处理完成，总共处理了 {} 个字段", field_count);
+    info!(
+        "Multipart processing is completed, a total of {} fields have been processed",
+        field_count
+    );
 
     match &content {
         Some(c) => {
-            info!("成功获取到内容，长度: {} 字符", c.len());
+            info!(
+                "Successfully obtained content, length: {} characters",
+                c.len()
+            );
             Ok(c.clone())
         }
         None => {
-            error!("未找到名为 'file' 的表单字段");
+            error!("Form field named 'file' not found");
             Err(AppError::Validation(
                 "未找到名为 'file' 的表单字段".to_string(),
             ))
@@ -396,7 +408,10 @@ pub async fn download_markdown(
     Query(params): Query<DownloadParams>,
     headers_in: HeaderMap,
 ) -> impl axum::response::IntoResponse {
-    info!("下载Markdown请求: task_id={}, params={:?}", task_id, params);
+    info!(
+        "Download Markdown request: task_id={}, params={:?}",
+        task_id, params
+    );
 
     // 验证任务ID
     if let Err(e) = RequestValidator::validate_task_id(&task_id) {
@@ -411,7 +426,7 @@ pub async fn download_markdown(
                 .into_response();
         }
         Err(e) => {
-            error!("查询任务失败: task_id={}, error={}", task_id, e);
+            error!("Query task failed: task_id={}, error={}", task_id, e);
             return ApiResponse::from_app_error::<String>(e).into_response();
         }
     };
@@ -491,7 +506,10 @@ async fn download_from_oss(
     headers_in: &HeaderMap,
     _streaming_config: &StreamingConfig,
 ) -> Response {
-    info!("从OSS下载Markdown: task_id={}, url={}", task.id, oss_url);
+    info!(
+        "Download Markdown from OSS: task_id={}, url={}",
+        task.id, oss_url
+    );
 
     let oss_client = match &state.oss_client {
         Some(client) => client,
@@ -503,7 +521,7 @@ async fn download_from_oss(
     // 优先使用任务中存储的 markdown_object_key，如果没有则从URL解析
     let object_key = if let Some(ref oss_data) = task.oss_data {
         if let Some(ref stored_key) = oss_data.markdown_object_key {
-            info!("使用存储的object_key: {}", stored_key);
+            info!("Use stored object_key: {}", stored_key);
             stored_key.clone()
         } else {
             // 回退到从URL解析
@@ -513,7 +531,7 @@ async fn download_from_oss(
                 .skip(1) // 跳过域名部分
                 .collect::<Vec<&str>>()
                 .join("/");
-            info!("从URL解析的object_key: {}", parsed_key);
+            info!("object_key parsed from URL: {}", parsed_key);
             parsed_key
         }
     } else {
@@ -524,7 +542,10 @@ async fn download_from_oss(
             .skip(1) // 跳过域名部分
             .collect::<Vec<&str>>()
             .join("/");
-        info!("从URL解析的object_key (无oss_data): {}", parsed_key);
+        info!(
+            "object_key parsed from URL (without oss_data): {}",
+            parsed_key
+        );
         parsed_key
     };
 
@@ -534,7 +555,7 @@ async fn download_from_oss(
             Ok(url) => url,
             Err(e) => {
                 error!(
-                    "生成下载URL失败: task_id={}, object_key={}, error={}",
+                    "Failed to generate download URL: task_id={}, object_key={}, error={}",
                     task.id, object_key, e
                 );
                 return ApiResponse::internal_error::<String>("生成下载URL失败").into_response();
@@ -549,7 +570,7 @@ async fn download_from_oss(
                 match response.bytes().await {
                     Ok(content) => {
                         info!(
-                            "成功从OSS下载Markdown内容: task_id={}, size={} bytes",
+                            "Successfully downloaded Markdown content from OSS: task_id={}, size={} bytes",
                             task.id,
                             content.len()
                         );
@@ -562,13 +583,16 @@ async fn download_from_oss(
                         build_range_response(&task.id, content.to_vec(), range_header)
                     }
                     Err(e) => {
-                        error!("读取响应内容失败: task_id={}, error={}", task.id, e);
+                        error!(
+                            "Failed to read response content: task_id={}, error={}",
+                            task.id, e
+                        );
                         ApiResponse::internal_error::<String>("读取文件内容失败").into_response()
                     }
                 }
             } else {
                 error!(
-                    "下载请求失败: task_id={}, status={}",
+                    "Download request failed: task_id={}, status={}",
                     task.id,
                     response.status()
                 );
@@ -576,7 +600,7 @@ async fn download_from_oss(
             }
         }
         Err(e) => {
-            error!("HTTP请求失败: task_id={}, error={}", task.id, e);
+            error!("HTTP request failed: task_id={}, error={}", task.id, e);
             ApiResponse::internal_error::<String>("网络请求失败").into_response()
         }
     }
@@ -589,7 +613,10 @@ async fn download_from_structured_document(
     headers_in: &HeaderMap,
     _streaming_config: &StreamingConfig,
 ) -> Response {
-    info!("从结构化文档生成Markdown: task_id={}", task_id);
+    info!(
+        "Generate Markdown from structured documents: task_id={}",
+        task_id
+    );
 
     // 生成Markdown内容
     let markdown_content = generate_markdown_from_document(doc);
@@ -681,7 +708,7 @@ pub async fn get_markdown_url(
     Query(params): Query<DownloadParams>,
 ) -> axum::response::Response {
     info!(
-        "获取Markdown URL请求: task_id={}, params={:?}",
+        "Get Markdown URL request: task_id={}, params={:?}",
         task_id, params
     );
 
@@ -700,7 +727,7 @@ pub async fn get_markdown_url(
             .into_response();
         }
         Err(e) => {
-            error!("查询任务失败: task_id={}, error={}", task_id, e);
+            error!("Query task failed: task_id={}, error={}", task_id, e);
             return ApiResponse::from_app_error::<MarkdownUrlResponse>(e).into_response();
         }
     };
@@ -740,7 +767,7 @@ pub async fn get_markdown_url(
         let object_key = match &oss_data.markdown_object_key {
             Some(key) => key,
             None => {
-                error!("任务 {} 的 OSS 数据缺少 object_key", task_id);
+                error!("The OSS data of task {} is missing object_key", task_id);
                 return ApiResponse::internal_error::<MarkdownUrlResponse>(
                     "OSS 对象键缺失，无法生成临时URL",
                 )
@@ -751,7 +778,7 @@ pub async fn get_markdown_url(
         match oss_client.generate_download_url(object_key, Some(expires_in)) {
             Ok(temp_url) => {
                 info!(
-                    "生成临时URL成功: task_id={}, expires_in={}h",
+                    "Temporary URL generated successfully: task_id={}, expires_in={}h",
                     task_id, expires_in_hours
                 );
 
@@ -769,14 +796,17 @@ pub async fn get_markdown_url(
                 ApiResponse::success_with_status(response, StatusCode::OK).into_response()
             }
             Err(e) => {
-                error!("生成临时URL失败: task_id={}, error={}", task_id, e);
+                error!(
+                    "Failed to generate temporary URL: task_id={}, error={}",
+                    task_id, e
+                );
                 ApiResponse::internal_error::<MarkdownUrlResponse>(&format!("生成下载URL失败: {e}"))
                     .into_response()
             }
         }
     } else {
         // 返回原始OSS URL
-        info!("返回原始OSS URL: task_id={}", task_id);
+        info!("Return to the original OSS URL: task_id={}", task_id);
 
         let response = MarkdownUrlResponse {
             url: oss_data.markdown_url.clone(),
@@ -805,7 +835,7 @@ async fn get_file_size_from_oss(_state: &AppState, _oss_url: &str) -> Option<u64
                     .and_then(|s| s.parse::<u64>().ok())
             }
             Err(e) => {
-                warn!("获取OSS文件元数据失败: {}", e);
+                warn!("Failed to obtain OSS file metadata: {}", e);
                 None
             }
         }
@@ -951,18 +981,21 @@ fn build_range_response(
                             .unwrap_or(header::HeaderValue::from_static("0")),
                     );
 
-                    info!("返回Range响应: {}-{}/{} 字节", start, end, total_len);
+                    info!(
+                        "Return Range response: {}-{}/{} bytes",
+                        start, end, total_len
+                    );
                     return (StatusCode::PARTIAL_CONTENT, range_headers, slice).into_response();
                 }
             }
         }
 
         // Range请求无效
-        warn!("无效的Range请求: {}", range_str);
+        warn!("Invalid Range request: {}", range_str);
         return range_not_satisfiable(total_len);
     }
 
-    info!("返回完整文件响应: {} 字节", total_len);
+    info!("Return full file response: {} bytes", total_len);
     (StatusCode::OK, headers, full).into_response()
 }
 
@@ -1017,7 +1050,7 @@ fn range_not_satisfiable(total_len: u64) -> Response {
 /// 从URL下载文件内容
 #[allow(dead_code)]
 async fn download_file_content(url: &str) -> Result<String, AppError> {
-    info!("开始下载文件: {}", url);
+    info!("Start downloading file: {}", url);
 
     // 创建HTTP客户端，设置超时
     let client = reqwest::Client::builder()
@@ -1046,6 +1079,6 @@ async fn download_file_content(url: &str) -> Result<String, AppError> {
         .await
         .map_err(|e| AppError::Network(format!("读取文件内容失败: {e}")))?;
 
-    info!("文件下载完成: {} 字符", content.len());
+    info!("File download completed: {} characters", content.len());
     Ok(content)
 }

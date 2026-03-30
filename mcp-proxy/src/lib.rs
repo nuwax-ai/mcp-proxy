@@ -34,7 +34,7 @@ pub use server::{
 pub use client::{Cli, Commands, run_cli};
 
 // 导出 i18n 功能
-pub use mcp_common::{init_locale_from_env, set_locale, t, current_locale};
+pub use mcp_common::{current_locale, init_locale_from_env, set_locale, t};
 
 // 导出用于基准测试的组件
 pub use server::handlers::run_code_handler::{RunCodeMessageRequest, run_code_handler};

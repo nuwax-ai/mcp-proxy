@@ -75,7 +75,7 @@ pub async fn is_sse_with_headers(
     };
 
     for probe_url in &candidates {
-        debug!("SSE 探测: 尝试 {}", probe_url);
+        debug!("SSE probe: try {}", probe_url);
         match tokio::time::timeout(
             Duration::from_secs(5),
             probe_sse_endpoint(&client, probe_url, &headers),
@@ -84,16 +84,16 @@ pub async fn is_sse_with_headers(
         {
             Ok(true) => {
                 debug!(
-                    "SSE 探测: 确认 {} 是 MCP SSE 协议 (发现 endpoint 事件)",
+                    "SSE probe: Confirm {} is MCP SSE protocol (discover endpoint event)",
                     probe_url
                 );
                 return true;
             }
             Ok(false) => {
-                debug!("SSE 探测: {} 不是 MCP SSE 协议", probe_url);
+                debug!("SSE probe: {} is not MCP SSE protocol", probe_url);
             }
             Err(_) => {
-                debug!("SSE 探测: {} 超时", probe_url);
+                debug!("SSE probe: {} timeout", probe_url);
             }
         }
     }

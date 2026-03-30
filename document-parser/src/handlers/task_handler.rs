@@ -177,7 +177,7 @@ pub async fn create_task(
     State(state): State<AppState>,
     Json(request): Json<CreateTaskRequest>,
 ) -> impl axum::response::IntoResponse {
-    info!("创建任务请求: {:?}", request);
+    info!("Create task request: {:?}", request);
 
     // 验证文档格式
     if let Err(e) = RequestValidator::validate_document_format(&request.format) {
@@ -208,7 +208,7 @@ pub async fn create_task(
         .await
     {
         Ok(task) => {
-            info!("任务创建成功: {}", task.id);
+            info!("Task created successfully: {}", task.id);
             let complete = task.status.is_terminal();
             let response = TaskOperationResponse {
                 task_id: task.id.clone(),
@@ -222,7 +222,7 @@ pub async fn create_task(
             ApiResponse::success_with_status(response, StatusCode::CREATED).into_response()
         }
         Err(e) => {
-            error!("任务创建失败: {}", e);
+            error!("Task creation failed: {}", e);
             ApiResponse::from_app_error::<TaskOperationResponse>(e).into_response()
         }
     }
@@ -246,7 +246,7 @@ pub async fn get_task(
     State(state): State<AppState>,
     Path(task_id): Path<String>,
 ) -> impl axum::response::IntoResponse {
-    info!("获取任务详情请求: {}", task_id);
+    info!("Request to get task details: {}", task_id);
 
     // 验证任务ID
     if let Err(e) = RequestValidator::validate_task_id(&task_id) {
@@ -255,7 +255,7 @@ pub async fn get_task(
 
     match state.task_service.get_task(&task_id).await {
         Ok(Some(task)) => {
-            info!("获取任务详情成功: {}", task_id);
+            info!("Successfully obtained task details: {}", task_id);
             let complete = task.status.is_terminal();
 
             // 如果任务状态为 Failed，使用 ApiResponse::error 返回错误响应
@@ -281,12 +281,15 @@ pub async fn get_task(
             ApiResponse::success(response).into_response()
         }
         Ok(None) => {
-            warn!("任务不存在: {}", task_id);
+            warn!("Task does not exist: {}", task_id);
             ApiResponse::not_found::<TaskOperationResponse>(&format!("任务不存在: {task_id}"))
                 .into_response()
         }
         Err(e) => {
-            error!("获取任务详情失败: task_id={}, error={}", task_id, e);
+            error!(
+                "Failed to obtain task details: task_id={}, error={}",
+                task_id, e
+            );
             ApiResponse::from_app_error::<TaskOperationResponse>(e).into_response()
         }
     }
@@ -308,7 +311,7 @@ pub async fn list_tasks(
     State(state): State<AppState>,
     Query(params): Query<TaskQueryParams>,
 ) -> impl axum::response::IntoResponse {
-    info!("获取任务列表请求: {:?}", params);
+    info!("Get task list request: {:?}", params);
 
     // 验证分页参数
     let (page, page_size) =
@@ -360,7 +363,10 @@ pub async fn list_tasks(
                 Vec::new()
             };
 
-            info!("获取任务列表成功: {} 个任务，第 {} 页", total, page);
+            info!(
+                "Successfully obtained task list: {} tasks, page {}",
+                total, page
+            );
 
             let total_pages = total.div_ceil(page_size);
             let task_summaries: Vec<TaskSummary> =
@@ -376,7 +382,7 @@ pub async fn list_tasks(
             ApiResponse::success(response).into_response()
         }
         Err(e) => {
-            error!("获取任务列表失败: {}", e);
+            error!("Failed to get task list: {}", e);
             ApiResponse::from_app_error::<TaskListResponse>(e).into_response()
         }
     }
@@ -403,7 +409,7 @@ pub async fn cancel_task(
     Path(task_id): Path<String>,
     Query(request): Query<CancelTaskRequest>,
 ) -> impl axum::response::IntoResponse {
-    info!("取消任务请求: {}", task_id);
+    info!("Cancel task request: {}", task_id);
 
     // 验证任务ID
     if let Err(e) = RequestValidator::validate_task_id(&task_id) {
@@ -426,7 +432,10 @@ pub async fn cancel_task(
             .into_response();
         }
         Err(e) => {
-            error!("检查任务状态失败: task_id={}, error={}", task_id, e);
+            error!(
+                "Failed to check task status: task_id={}, error={}",
+                task_id, e
+            );
             return ApiResponse::from_app_error::<TaskOperationResponse>(e).into_response();
         }
     }
@@ -438,7 +447,7 @@ pub async fn cancel_task(
         .await
     {
         Ok(task) => {
-            info!("任务取消成功: {}", task_id);
+            info!("Task canceled successfully: {}", task_id);
             let complete = task.status.is_terminal();
             let response = TaskOperationResponse {
                 task_id: task.id.clone(),
@@ -452,7 +461,7 @@ pub async fn cancel_task(
             ApiResponse::success(response).into_response()
         }
         Err(e) => {
-            error!("任务取消失败: task_id={}, error={}", task_id, e);
+            error!("Task cancellation failed: task_id={}, error={}", task_id, e);
             ApiResponse::from_app_error::<TaskOperationResponse>(e).into_response()
         }
     }
@@ -477,7 +486,7 @@ pub async fn delete_task(
     State(state): State<AppState>,
     Path(task_id): Path<String>,
 ) -> impl axum::response::IntoResponse {
-    info!("删除任务请求: {}", task_id);
+    info!("Delete task request: {}", task_id);
 
     // 验证任务ID
     if let Err(e) = RequestValidator::validate_task_id(&task_id) {
@@ -500,7 +509,10 @@ pub async fn delete_task(
             .into_response();
         }
         Err(e) => {
-            error!("检查任务状态失败: task_id={}, error={}", task_id, e);
+            error!(
+                "Failed to check task status: task_id={}, error={}",
+                task_id, e
+            );
             return ApiResponse::from_app_error::<TaskOperationResponse>(e).into_response();
         }
     }
@@ -508,7 +520,7 @@ pub async fn delete_task(
     // 执行删除操作
     match state.task_service.delete_task(&task_id).await {
         Ok(_) => {
-            info!("任务删除成功: {}", task_id);
+            info!("Task deleted successfully: {}", task_id);
             let response = TaskOperationResponse {
                 task_id: task_id.clone(),
                 operation: "delete".to_string(),
@@ -521,7 +533,7 @@ pub async fn delete_task(
             ApiResponse::success(response).into_response()
         }
         Err(e) => {
-            error!("任务删除失败: task_id={}, error={}", task_id, e);
+            error!("Task deletion failed: task_id={}, error={}", task_id, e);
             ApiResponse::from_app_error::<TaskOperationResponse>(e).into_response()
         }
     }
@@ -547,7 +559,7 @@ pub async fn batch_operation_tasks(
     State(state): State<AppState>,
     Query(request): Query<BatchOperationRequest>,
 ) -> impl axum::response::IntoResponse {
-    info!("批量操作任务请求: {:?}", request.operation);
+    info!("Batch operation task request: {:?}", request.operation);
 
     let total = request.task_ids.len();
     let mut successful = 0;
@@ -580,14 +592,14 @@ pub async fn batch_operation_tasks(
             Ok(_) => {
                 successful += 1;
                 info!(
-                    "批量操作成功: task_id={}, operation={:?}",
+                    "Batch operation successful: task_id={}, operation={:?}",
                     task_id, request.operation
                 );
             }
             Err(e) => {
                 failed += 1;
                 error!(
-                    "批量操作失败: task_id={}, operation={:?}, error={}",
+                    "Batch operation failed: task_id={}, operation={:?}, error={}",
                     task_id, request.operation, e
                 );
                 errors.push(crate::handlers::response::BatchError {
@@ -607,7 +619,7 @@ pub async fn batch_operation_tasks(
     };
 
     info!(
-        "批量操作完成: 总计={}, 成功={}, 失败={}",
+        "Batch operation completed: total={}, success={}, failure={}",
         total, successful, failed
     );
 
@@ -645,7 +657,7 @@ pub async fn retry_task(
     State(state): State<AppState>,
     Path(task_id): Path<String>,
 ) -> impl axum::response::IntoResponse {
-    info!("重试任务请求: {}", task_id);
+    info!("Retry task request: {}", task_id);
 
     // 验证任务ID
     if let Err(e) = RequestValidator::validate_task_id(&task_id) {
@@ -668,7 +680,10 @@ pub async fn retry_task(
             .into_response();
         }
         Err(e) => {
-            error!("检查任务状态失败: task_id={}, error={}", task_id, e);
+            error!(
+                "Failed to check task status: task_id={}, error={}",
+                task_id, e
+            );
             return ApiResponse::from_app_error::<TaskOperationResponse>(e).into_response();
         }
     }
@@ -676,7 +691,7 @@ pub async fn retry_task(
     // 执行重试操作
     match state.task_service.retry_task(&task_id).await {
         Ok(task) => {
-            info!("任务重试成功: {}", task_id);
+            info!("Task retry successful: {}", task_id);
             let complete = task.status.is_terminal();
             let response = TaskOperationResponse {
                 task_id: task.id.clone(),
@@ -690,7 +705,7 @@ pub async fn retry_task(
             ApiResponse::success(response).into_response()
         }
         Err(e) => {
-            error!("任务重试失败: task_id={}, error={}", task_id, e);
+            error!("Task retry failed: task_id={}, error={}", task_id, e);
             ApiResponse::from_app_error::<TaskOperationResponse>(e).into_response()
         }
     }
@@ -707,15 +722,15 @@ pub async fn retry_task(
     tag = "任务管理"
 )]
 pub async fn get_task_stats(State(state): State<AppState>) -> impl axum::response::IntoResponse {
-    info!("获取任务统计请求");
+    info!("Get task statistics request");
 
     match state.task_service.get_task_stats().await {
         Ok(stats) => {
-            info!("获取任务统计成功");
+            info!("Obtaining task statistics successfully");
             ApiResponse::success(TaskStatsResponse { stats }).into_response()
         }
         Err(e) => {
-            error!("获取任务统计失败: {}", e);
+            error!("Failed to obtain task statistics: {}", e);
             ApiResponse::from_app_error::<TaskStatsResponse>(e).into_response()
         }
     }
@@ -734,15 +749,18 @@ pub async fn get_task_stats(State(state): State<AppState>) -> impl axum::respons
 pub async fn cleanup_expired_tasks(
     State(state): State<AppState>,
 ) -> impl axum::response::IntoResponse {
-    info!("清理过期任务请求");
+    info!("Clean up expired task requests");
 
     match state.task_service.cleanup_expired_tasks().await {
         Ok(count) => {
-            info!("清理过期任务完成，删除了 {} 个任务", count);
+            info!(
+                "Cleaning up expired tasks has been completed and {} tasks have been deleted.",
+                count
+            );
             ApiResponse::message(format!("清理过期任务完成，删除了 {count} 个任务")).into_response()
         }
         Err(e) => {
-            error!("清理过期任务失败: {}", e);
+            error!("Failed to clean up expired tasks: {}", e);
             ApiResponse::from_app_error::<String>(e).into_response()
         }
     }
@@ -766,7 +784,7 @@ pub async fn get_task_progress(
     State(state): State<AppState>,
     Path(task_id): Path<String>,
 ) -> impl axum::response::IntoResponse {
-    info!("获取任务进度请求: {}", task_id);
+    info!("Get task progress request: {}", task_id);
 
     // 验证任务ID
     if let Err(e) = RequestValidator::validate_task_id(&task_id) {
@@ -777,7 +795,7 @@ pub async fn get_task_progress(
     // 由于 get_task_progress 方法不存在，我们暂时返回任务信息
     match state.task_service.get_task(&task_id).await {
         Ok(Some(task)) => {
-            info!("获取任务进度成功: {}", task_id);
+            info!("Successfully obtained task progress: {}", task_id);
             let mut progress = HashMap::new();
             progress.insert("task_id".to_string(), serde_json::Value::String(task.id));
             progress.insert(
@@ -799,7 +817,10 @@ pub async fn get_task_progress(
         ))
         .into_response(),
         Err(e) => {
-            error!("获取任务进度失败: task_id={}, error={}", task_id, e);
+            error!(
+                "Failed to obtain task progress: task_id={}, error={}",
+                task_id, e
+            );
             ApiResponse::from_app_error::<HashMap<String, serde_json::Value>>(e).into_response()
         }
     }
@@ -1033,7 +1054,7 @@ pub async fn get_task_result(
     State(state): State<AppState>,
     Path(task_id): Path<String>,
 ) -> impl axum::response::IntoResponse {
-    info!("获取任务结果概览请求: {}", task_id);
+    info!("Request to get an overview of task results: {}", task_id);
 
     // 验证任务ID
     if let Err(e) = RequestValidator::validate_task_id(&task_id) {
@@ -1044,14 +1065,17 @@ pub async fn get_task_result(
     let task = match state.task_service.get_task(&task_id).await {
         Ok(Some(task)) => task,
         Ok(None) => {
-            warn!("任务不存在: {}", task_id);
+            warn!("Task does not exist: {}", task_id);
             return ApiResponse::not_found::<TaskResultSummaryResponse>(&format!(
                 "任务不存在: {task_id}"
             ))
             .into_response();
         }
         Err(e) => {
-            error!("获取任务详情失败: task_id={}, error={}", task_id, e);
+            error!(
+                "Failed to obtain task details: task_id={}, error={}",
+                task_id, e
+            );
             return ApiResponse::from_app_error::<TaskResultSummaryResponse>(e).into_response();
         }
     };
@@ -1098,6 +1122,9 @@ pub async fn get_task_result(
         processing_stats,
     };
 
-    info!("获取任务结果概览成功: {}", task_id);
+    info!(
+        "Successfully obtained overview of task results: {}",
+        task_id
+    );
     ApiResponse::success(response).into_response()
 }

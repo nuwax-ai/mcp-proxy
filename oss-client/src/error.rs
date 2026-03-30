@@ -69,7 +69,9 @@ impl OssError {
 
     /// 创建不支持的文件类型错误
     pub fn unsupported_file_type<T: Into<String>>(msg: T) -> Self {
-        Self::UnsupportedFileType(t!("errors.oss.unsupported_file_type", detail = msg.into()).to_string())
+        Self::UnsupportedFileType(
+            t!("errors.oss.unsupported_file_type", detail = msg.into()).to_string(),
+        )
     }
 
     /// 创建超时错误

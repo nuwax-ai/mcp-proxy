@@ -388,7 +388,11 @@ impl ProductionLogger {
         for entry in entries {
             for collector in &self.collectors {
                 if let Err(e) = collector.collect(&entry) {
-                    error!("日志收集器 {} 处理失败: {}", collector.name(), e);
+                    error!(
+                        "Log collector {} processing failed: {}",
+                        collector.name(),
+                        e
+                    );
                 }
             }
         }
@@ -396,7 +400,11 @@ impl ProductionLogger {
         // 刷新所有收集器
         for collector in &self.collectors {
             if let Err(e) = collector.flush() {
-                error!("日志收集器 {} 刷新失败: {}", collector.name(), e);
+                error!(
+                    "Log collector {} failed to refresh: {}",
+                    collector.name(),
+                    e
+                );
             }
         }
 
@@ -447,7 +455,7 @@ impl ProductionLogger {
 
                 if should_flush {
                     if let Err(e) = logger.flush_buffer().await {
-                        error!("定时刷新日志缓冲区失败: {}", e);
+                        error!("Failed to refresh the log buffer regularly: {}", e);
                     }
                 }
             }

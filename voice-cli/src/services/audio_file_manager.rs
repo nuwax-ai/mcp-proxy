@@ -88,7 +88,7 @@ impl AudioFileManager {
             .map(|s| s.to_string())
             .unwrap_or_else(|| "unknown".to_string());
         info!(
-            "[Task {}] 开始接收音频文件流: {}, 目标临时文件名: {}",
+            "[Task {}] Start receiving audio file stream: {}, target temporary file name: {}",
             task_id, original_filename, temp_file_name
         );
 
@@ -99,7 +99,7 @@ impl AudioFileManager {
             if !parent.exists() {
                 tokio::fs::create_dir_all(parent).await.map_err(|e| {
                     error!(
-                        "[Task {}] 无法创建存储目录 '{}': {}",
+                        "[Task {}] Unable to create storage directory '{}': {}",
                         task_id,
                         parent.display(),
                         e
@@ -116,7 +116,7 @@ impl AudioFileManager {
         // 创建文件
         let file = tokio::fs::File::create(&file_path).await.map_err(|e| {
             error!(
-                "[Task {}] 无法创建音频文件 '{}': {}",
+                "[Task {}] Unable to create audio file '{}': {}",
                 task_id,
                 file_path.display(),
                 e
@@ -137,7 +137,7 @@ impl AudioFileManager {
             .await
             .map_err(|e| {
                 error!(
-                    "[Task {}] 流式复制音频文件数据失败 ({} -> {}): {}",
+                    "[Task {}] Failed to stream audio file data ({} -> {}): {}",
                     task_id,
                     original_filename,
                     file_path.display(),
@@ -154,7 +154,7 @@ impl AudioFileManager {
         // 确保所有数据都写入磁盘
         writer.flush().await.map_err(|e| {
             error!(
-                "[Task {}] 无法刷新数据到文件 '{}': {}",
+                "[Task {}] Unable to refresh data to file '{}': {}",
                 task_id,
                 file_path.display(),
                 e
@@ -167,7 +167,7 @@ impl AudioFileManager {
         })?;
 
         info!(
-            "[Task {}] 成功接收并保存音频文件: {} ({} 字节) -> {}",
+            "[Task {}] Successfully received and saved audio file: {} ({} bytes) -> {}",
             task_id,
             original_filename,
             total_bytes,

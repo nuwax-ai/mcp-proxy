@@ -22,7 +22,7 @@ impl AppState {
         let model_service = Arc::new(ModelService::new((*config).clone()));
 
         // 初始化无锁 Apalis 管理器
-        info!("初始化无锁 Apalis 任务管理器");
+        info!("Initializing the Lock-Free Apalis Task Manager");
         let (manager, storage) =
             LockFreeApalisManager::new(config.task_management.clone(), model_service.clone())
                 .await?;
@@ -44,8 +44,8 @@ impl AppState {
 
     /// 优雅关闭
     pub async fn shutdown(self) {
-        info!("关闭应用状态");
+        info!("Close application state");
         // Apalis 管理器会在 Drop 时自动清理
-        info!("应用状态关闭完成");
+        info!("Application status closed completed");
     }
 }

@@ -24,7 +24,7 @@ where
         app
     };
 
-    info!("最大文件大小限制: {}MB", max_file_size / 1024 / 1024);
+    info!("Maximum file size limit: {}MB", max_file_size / 1024 / 1024);
 
     app.layer(
         ServiceBuilder::new()

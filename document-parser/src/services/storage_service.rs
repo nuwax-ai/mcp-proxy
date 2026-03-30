@@ -222,7 +222,7 @@ impl StorageService {
                 // 更新统计信息
                 self.update_query_stats(start_time.elapsed()).await;
 
-                log::debug!("任务已保存: {}", task.id);
+                log::debug!("Task saved: {}", task.id);
                 Ok(())
             }
             Err(e) => {
@@ -353,7 +353,7 @@ impl StorageService {
                     self.invalidate_cache_for_task(task_id).await?;
 
                     self.update_query_stats(start_time.elapsed()).await;
-                    log::info!("任务已删除: {task_id}");
+                    log::info!("Task deleted: {task_id}");
                     Ok(true)
                 }
                 Err(e) => {
@@ -405,14 +405,14 @@ impl StorageService {
                     }
                 }
                 Err(e) => {
-                    log::error!("批量保存失败: {e}");
+                    log::error!("Batch save failed: {e}");
                     return Err(e);
                 }
             }
         }
 
         self.update_query_stats(start_time.elapsed()).await;
-        log::info!("批量保存完成: {saved_count} 个任务");
+        log::info!("Batch saving completed: {saved_count} tasks");
         Ok(saved_count)
     }
 
@@ -623,7 +623,7 @@ impl StorageService {
 
     /// 清理过期数据
     pub async fn cleanup_expired_data(&self) -> Result<usize, AppError> {
-        log::info!("开始清理过期数据");
+        log::info!("Start cleaning expired data");
 
         let mut cleaned_count = 0;
         let now = SystemTime::now();
@@ -660,7 +660,7 @@ impl StorageService {
                         }
                     }
                     Err(e) => {
-                        log::error!("批量删除过期任务失败: {e}");
+                        log::error!("Failed to delete expired tasks in batches: {e}");
                         return Err(e);
                     }
                 }
@@ -679,7 +679,7 @@ impl StorageService {
         // 压缩数据库
         self.compact_database().await?;
 
-        log::info!("清理完成，删除了 {cleaned_count} 条记录");
+        log::info!("Cleanup completed, {cleaned_count} records deleted");
         Ok(cleaned_count)
     }
 
@@ -730,7 +730,7 @@ impl StorageService {
 
     /// 压缩数据库
     async fn compact_database(&self) -> Result<(), AppError> {
-        log::info!("开始压缩数据库");
+        log::info!("Start compressing the database");
 
         // 刷新所有树
         self.tasks_tree
@@ -754,7 +754,7 @@ impl StorageService {
             .flush()
             .map_err(|e| AppError::Database(format!("刷新数据库失败: {e}")))?;
 
-        log::info!("数据库压缩完成");
+        log::info!("Database compression completed");
         Ok(())
     }
 
@@ -771,13 +771,13 @@ impl StorageService {
                 tokio::select! {
                     _ = cleanup_interval.tick() => {
                         if let Err(e) = storage_service.cleanup_expired_data().await {
-                            log::error!("定期清理失败: {e}");
+                            log::error!("Periodic cleanup failed: {e}");
                         }
                     }
 
                     _ = sync_interval.tick() => {
                         if let Err(e) = storage_service.sync_to_disk().await {
-                            log::error!("定期同步失败: {e}");
+                            log::error!("Periodic synchronization failed: {e}");
                         }
                     }
                 }
@@ -824,7 +824,7 @@ impl StorageService {
 
     /// 备份数据
     pub async fn backup_to_path(&self, backup_path: &str) -> Result<(), AppError> {
-        log::info!("开始备份数据到: {backup_path}");
+        log::info!("Start backing up data to: {backup_path}");
 
         // 创建备份目录
         std::fs::create_dir_all(backup_path)
@@ -855,13 +855,13 @@ impl StorageService {
         std::fs::write(&backup_file, backup_data)
             .map_err(|e| AppError::File(format!("写入备份文件失败: {e}")))?;
 
-        log::info!("备份完成: {} ({} 个任务)", backup_file, tasks.len());
+        log::info!("Backup completed: {} ({} tasks)", backup_file, tasks.len());
         Ok(())
     }
 
     /// 从备份恢复数据
     pub async fn restore_from_backup(&self, backup_file: &str) -> Result<usize, AppError> {
-        log::info!("从备份恢复数据: {backup_file}");
+        log::info!("Restore data from backup: {backup_file}");
 
         let backup_data = std::fs::read_to_string(backup_file)
             .map_err(|e| AppError::File(format!("读取备份文件失败: {e}")))?;
@@ -876,7 +876,7 @@ impl StorageService {
             restored_count += 1;
         }
 
-        log::info!("恢复完成: {restored_count} 个任务");
+        log::info!("Recovery completed: {restored_count} tasks");
         Ok(restored_count)
     }
 

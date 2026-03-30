@@ -9,7 +9,7 @@ use tokio::time::{Duration, interval};
 /// 这个函数会创建一个tokio定时任务，每隔指定的时间间隔执行一次`schedule_check_mcp_live`函数
 /// 用于检查和清理不再需要的MCP服务资源
 pub async fn start_schedule_task() {
-    info!("启动MCP服务状态检查定时任务");
+    info!("Start the MCP service status check scheduled task");
 
     // 创建一个tokio定时器，每20秒执行一次
     let mut interval = interval(Duration::from_secs(20));
@@ -25,7 +25,9 @@ pub async fn start_schedule_task() {
 
             // 检查是否有任务正在执行
             if is_running.load(Ordering::SeqCst) {
-                warn!("上一次MCP服务状态检查任务尚未完成，跳过本次执行");
+                warn!(
+                    "The last MCP service status check task has not been completed and this execution will be skipped."
+                );
                 continue;
             }
 
@@ -33,7 +35,7 @@ pub async fn start_schedule_task() {
             is_running.store(true, Ordering::SeqCst);
 
             // 执行MCP服务状态检查
-            debug!("执行MCP服务状态定期检查...");
+            debug!("Perform periodic checks on MCP service status...");
 
             // 在一个新的任务中执行检查，这样可以捕获任何异常
             let is_running_clone = is_running.clone();
@@ -46,10 +48,10 @@ pub async fn start_schedule_task() {
                 .await
                 {
                     Ok(_) => {
-                        debug!("MCP服务状态检查完成");
+                        debug!("MCP service status check completed");
                     }
                     Err(_) => {
-                        warn!("MCP服务状态检查任务超时");
+                        warn!("MCP service status check task timed out");
                     }
                 }
 
@@ -59,5 +61,5 @@ pub async fn start_schedule_task() {
         }
     });
 
-    info!("MCP服务状态检查定时任务已启动");
+    info!("MCP service status check scheduled task has been started");
 }

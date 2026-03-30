@@ -493,7 +493,7 @@ impl EnhancedLoggingSystem {
             service_version = %config.service_version,
             environment = %config.environment,
             log_level = %config.level,
-            "日志系统初始化完成"
+            "Logging system initialized"
         );
 
         Ok(Self {
@@ -611,7 +611,7 @@ impl StructuredLogger {
         // 输出到所有输出器
         for output in &self.outputs {
             if let Err(e) = output.write_log(&entry).await {
-                eprintln!("日志输出错误: {e}");
+                eprintln!("Log output error: {e}");
             }
         }
     }
@@ -620,7 +620,7 @@ impl StructuredLogger {
     pub async fn flush(&self) {
         for output in &self.outputs {
             if let Err(e) = output.flush().await {
-                eprintln!("日志刷新错误: {e}");
+                eprintln!("Log refresh error: {e}");
             }
         }
     }

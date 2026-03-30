@@ -65,7 +65,7 @@ pub async fn health_check(
     State(_state): State<Arc<AppState>>,
     Query(_query): Query<HealthCheckQuery>,
 ) -> Result<Response, AppError> {
-    info!("健康检查请求");
+    info!("Health check request");
 
     // 简化的健康检查实现
     let simple_status = SimpleHealthStatus {
@@ -95,7 +95,7 @@ pub struct SimpleHealthStatus {
 /// 就绪检查端点（Kubernetes readiness probe）
 #[instrument(skip(_state))]
 pub async fn readiness_check(State(_state): State<Arc<AppState>>) -> Result<Response, AppError> {
-    info!("就绪检查请求");
+    info!("Readiness check request");
     Ok((StatusCode::OK, "Ready").into_response())
 }
 
@@ -112,7 +112,7 @@ pub async fn metrics(
     State(_state): State<Arc<AppState>>,
     Query(query): Query<MetricsQuery>,
 ) -> Result<Response, AppError> {
-    info!("指标请求");
+    info!("Indicator request");
 
     let format = query.format.as_deref().unwrap_or("prometheus");
 
@@ -147,7 +147,7 @@ pub async fn metrics(
 /// 系统信息端点
 #[instrument(skip(_state))]
 pub async fn system_info(State(_state): State<Arc<AppState>>) -> Result<Response, AppError> {
-    info!("系统信息请求");
+    info!("System information request");
 
     // 获取内存信息
     let (memory_total_mb, memory_used_mb) = get_memory_info().await;
@@ -178,7 +178,7 @@ pub async fn system_info(State(_state): State<Arc<AppState>>) -> Result<Response
 /// 配置信息端点
 #[instrument(skip(state))]
 pub async fn config_info(State(state): State<Arc<AppState>>) -> Result<Response, AppError> {
-    info!("配置信息请求");
+    info!("Configuration information request");
 
     // 创建安全的配置摘要（隐藏敏感信息）
     let config_summary = create_config_summary(&state.config);

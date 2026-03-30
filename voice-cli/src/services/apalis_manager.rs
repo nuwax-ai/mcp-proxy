@@ -200,36 +200,36 @@ impl LockFreeApalisManager {
         _model_service: Arc<ModelService>,
     ) -> Result<(Self, SqliteStorage<TranscriptionTask>), VoiceCliError> {
         let database_url = format!("sqlite://{}", config.sqlite_db_path);
-        info!("初始化 ApalisManager，数据库: {}", database_url);
+        info!("Initialize ApalisManager, database: {}", database_url);
 
         // 确保数据库目录存在
         let db_path = std::path::Path::new(&config.sqlite_db_path);
         info!(
-            "数据库路径: {:?} (当前工作目录: {:?})",
+            "Database path: {:?} (Current working directory: {:?})",
             db_path,
             std::env::current_dir()
         );
         if let Some(parent_dir) = db_path.parent() {
             info!(
-                "父目录: {:?}, 是否存在: {}",
+                "Parent directory: {:?}, exists: {}",
                 parent_dir,
                 parent_dir.exists()
             );
             if !parent_dir.exists() {
-                info!("创建目录: {:?}", parent_dir);
+                info!("Create directory: {:?}", parent_dir);
                 std::fs::create_dir_all(parent_dir)
                     .map_err(|e| VoiceCliError::Storage(format!("创建数据库目录失败: {}", e)))?;
-                info!("目录创建成功: {:?}", parent_dir);
+                info!("Directory created successfully: {:?}", parent_dir);
             }
         }
 
         // 确保数据库文件存在
         if !db_path.exists() {
-            info!("创建数据库文件: {:?}", db_path);
+            info!("Create database file: {:?}", db_path);
             // 创建空文件
             std::fs::File::create(db_path)
                 .map_err(|e| VoiceCliError::Storage(format!("创建数据库文件失败: {}", e)))?;
-            info!("数据库文件创建成功: {:?}", db_path);
+            info!("Database file created successfully: {:?}", db_path);
         } else {
             // 检查文件权限
             let metadata = std::fs::metadata(db_path)
@@ -242,7 +242,7 @@ impl LockFreeApalisManager {
                 )));
             }
 
-            info!("数据库文件已存在且可写: {:?}", db_path);
+            info!("The database file exists and is writable: {:?}", db_path);
         }
 
         // 创建数据库连接池
@@ -269,7 +269,7 @@ impl LockFreeApalisManager {
         // 初始化自定义表
         manager.init_custom_tables().await?;
 
-        info!("ApalisManager 初始化完成");
+        info!("ApalisManager initialization completed");
         Ok((manager, storage))
     }
 
@@ -339,7 +339,7 @@ impl LockFreeApalisManager {
 
         // 创建普通 worker，内部使用步骤化逻辑
         info!(
-            "创建 Apalis worker...max_concurrent_tasks={},retry_attempts={}",
+            "Creating Apalis worker...max_concurrent_tasks={},retry_attempts={}",
             self.config.max_concurrent_tasks, self.config.retry_attempts
         );
         let worker = WorkerBuilder::new("transcription-pipeline")
@@ -353,14 +353,14 @@ impl LockFreeApalisManager {
         // 启动监控器 - 使用更简单的方法
         let monitor = Monitor::new().register(worker);
 
-        info!("启动 Apalis 监控器...");
+        info!("Starting the Apalis monitor...");
 
         // 在后台运行监控器
         let monitor_handle = tokio::spawn(async move {
-            info!("Apalis 监控器开始运行，等待任务...");
+            info!("Apalis monitor starts running, waiting for tasks...");
             match monitor.run().await {
-                Ok(()) => info!("Apalis 监控器正常完成"),
-                Err(e) => warn!("Apalis 监控器错误: {}", e),
+                Ok(()) => info!("Apalis monitor completes normally"),
+                Err(e) => warn!("Apalis monitor error: {}", e),
             }
         });
 
@@ -368,14 +368,14 @@ impl LockFreeApalisManager {
 
         *self.monitor_handle.lock().await = Some(monitor_handle);
 
-        info!("Apalis 监控器启动完成");
+        info!("Apalis monitor startup completed");
 
         // 启动定时清理任务调度器
         if let Err(e) = self.start_cleanup_scheduler().await {
-            warn!("启动清理调度器失败: {}", e);
+            warn!("Failed to start cleanup scheduler: {}", e);
         }
 
-        info!("Apalis worker 启动成功");
+        info!("Apalis worker started successfully");
         Ok(())
     }
 
@@ -388,7 +388,7 @@ impl LockFreeApalisManager {
         model: Option<String>,
         response_format: Option<String>,
     ) -> Result<String, VoiceCliError> {
-        info!("submit_task: 开始创建任务...");
+        info!("submit_task: Start creating task...");
         let task = AsyncTranscriptionTask::new(
             self.generate_task_id(),
             audio_file_path.clone(),
@@ -397,39 +397,39 @@ impl LockFreeApalisManager {
             response_format.clone(),
         );
 
-        info!("submit_task: 任务创建完成: {}", task.task_id);
+        info!("submit_task: Task creation completed: {}", task.task_id);
         let apalis_task: TranscriptionTask = task.clone().into();
 
-        info!("submit_task: 开始推送任务到队列...");
-        info!("submit_task: 任务数据: {:?}", apalis_task);
+        info!("submit_task: Start pushing tasks to the queue...");
+        info!("submit_task: task data: {:?}", apalis_task);
 
         // Use the storage directly without cloning
-        info!("submit_task: 准备调用 storage.push()...");
+        info!("submit_task: Prepare to call storage.push()...");
         let push_result = tokio::time::timeout(
             std::time::Duration::from_secs(10),
             storage.push(apalis_task.clone()),
         )
         .await;
-        info!("submit_task: storage.push() 调用完成");
+        info!("submit_task: storage.push() call completed");
 
         match push_result {
             Ok(Ok(_)) => {
-                info!("submit_task: 任务推送成功");
+                info!("submit_task: Task pushed successfully");
             }
             Ok(Err(e)) => {
-                info!("submit_task: 任务推送失败: {}", e);
+                info!("submit_task: Task push failed: {}", e);
                 return Err(VoiceCliError::Storage(format!("提交任务失败: {}", e)));
             }
             Err(_) => {
-                info!("submit_task: 任务推送超时");
+                info!("submit_task: task push timeout");
                 return Err(VoiceCliError::Storage("推送任务到队列超时".to_string()));
             }
         };
 
-        info!("任务已推送到 Apalis 存储: {:?}", apalis_task.task_id);
+        info!("Task pushed to Apalis storage: {:?}", apalis_task.task_id);
 
         // 初始状态
-        info!("submit_task: 保存初始任务状态...");
+        info!("submit_task: Save the initial task status...");
         let initial_status = TaskStatus::Pending {
             queued_at: Utc::now(),
         };
@@ -447,7 +447,7 @@ impl LockFreeApalisManager {
         )
         .await?;
 
-        info!("任务提交成功: {}", task.task_id);
+        info!("Task submitted successfully: {}", task.task_id);
         Ok(task.task_id)
     }
 
@@ -460,7 +460,7 @@ impl LockFreeApalisManager {
         model: Option<String>,
         response_format: Option<String>,
     ) -> Result<String, VoiceCliError> {
-        info!("submit_task_for_url: 开始创建URL任务...");
+        info!("submit_task_for_url: Start creating URL task...");
 
         // 生成任务ID
         let task_id = self.generate_task_id();
@@ -477,7 +477,10 @@ impl LockFreeApalisManager {
             response_format.clone(),
         );
 
-        info!("submit_task_for_url: 任务创建完成: {}", task.task_id);
+        info!(
+            "submit_task_for_url: Task creation completed: {}",
+            task.task_id
+        );
 
         // 转换为Apalis任务，设置URL任务类型
         let apalis_task = TranscriptionTask {
@@ -491,8 +494,8 @@ impl LockFreeApalisManager {
             url: Some(url),
         };
 
-        info!("submit_task_for_url: 开始推送URL任务到队列...");
-        info!("submit_task_for_url: 任务数据: {:?}", apalis_task);
+        info!("submit_task_for_url: Start pushing the URL task to the queue...");
+        info!("submit_task_for_url: task data: {:?}", apalis_task);
 
         // 推送任务到队列
         let push_result = tokio::time::timeout(
@@ -500,26 +503,29 @@ impl LockFreeApalisManager {
             storage.push(apalis_task.clone()),
         )
         .await;
-        info!("submit_task_for_url: storage.push() 调用完成");
+        info!("submit_task_for_url: storage.push() call completed");
 
         match push_result {
             Ok(Ok(_)) => {
-                info!("submit_task_for_url: 任务推送成功");
+                info!("submit_task_for_url: Task pushed successfully");
             }
             Ok(Err(e)) => {
-                info!("submit_task_for_url: 任务推送失败: {}", e);
+                info!("submit_task_for_url: Task push failed: {}", e);
                 return Err(VoiceCliError::Storage(format!("提交URL任务失败: {}", e)));
             }
             Err(_) => {
-                info!("submit_task_for_url: 任务推送超时");
+                info!("submit_task_for_url: task push timeout");
                 return Err(VoiceCliError::Storage("推送URL任务到队列超时".to_string()));
             }
         };
 
-        info!("URL任务已推送到 Apalis 存储: {:?}", apalis_task.task_id);
+        info!(
+            "URL task has been pushed to Apalis storage: {:?}",
+            apalis_task.task_id
+        );
 
         // 初始状态
-        info!("submit_task_for_url: 保存初始任务状态...");
+        info!("submit_task_for_url: Save initial task status...");
         let initial_status = TaskStatus::Pending {
             queued_at: Utc::now(),
         };
@@ -537,7 +543,7 @@ impl LockFreeApalisManager {
         )
         .await?;
 
-        info!("URL任务提交成功: {}", task.task_id);
+        info!("URL task submitted successfully: {}", task.task_id);
         Ok(task.task_id)
     }
 
@@ -707,7 +713,7 @@ impl LockFreeApalisManager {
 
                 self.save_task_status(task_id, &cancelled_status).await?;
 
-                info!("任务已取消: {}", task_id);
+                info!("Task canceled: {}", task_id);
                 Ok(true)
             }
             _ => Ok(false),
@@ -759,37 +765,52 @@ impl LockFreeApalisManager {
 
                             match result {
                                 Ok(new_task_id) => {
-                                    info!("任务已重新提交: {} -> {}", task_id, new_task_id);
+                                    info!(
+                                        "The task has been resubmitted: {} -> {}",
+                                        task_id, new_task_id
+                                    );
                                     Ok(true)
                                 }
                                 Err(e) => {
-                                    warn!("重新提交任务失败: {} - {}", task_id, e);
+                                    warn!("Failed to resubmit task: {} - {}", task_id, e);
                                     Ok(false)
                                 }
                             }
                         } else {
-                            warn!("任务音频文件不存在，无法重试: {}", task_id);
+                            warn!(
+                                "The task audio file does not exist and cannot be retried: {}",
+                                task_id
+                            );
                             Ok(false)
                         }
                     } else {
-                        warn!("任务文件路径不存在，无法重试: {}", task_id);
+                        warn!(
+                            "The task file path does not exist and cannot be retried: {}",
+                            task_id
+                        );
                         Ok(false)
                     }
                 } else {
-                    warn!("任务数据不存在，无法重试: {}", task_id);
+                    warn!(
+                        "Task data does not exist and cannot be retried: {}",
+                        task_id
+                    );
                     Ok(false)
                 }
             }
             Some(TaskStatus::Pending { .. }) | Some(TaskStatus::Processing { .. }) => {
-                warn!("任务正在处理中，无法重试: {}", task_id);
+                warn!(
+                    "The task is being processed and cannot be retried: {}",
+                    task_id
+                );
                 Ok(false)
             }
             Some(TaskStatus::Completed { .. }) => {
-                warn!("任务已完成，无法重试: {}", task_id);
+                warn!("Task completed and cannot be retried: {}", task_id);
                 Ok(false)
             }
             None => {
-                warn!("任务不存在，无法重试: {}", task_id);
+                warn!("The task does not exist and cannot be retried: {}", task_id);
                 Ok(false)
             }
         }
@@ -809,7 +830,7 @@ impl LockFreeApalisManager {
 
         if status_result.rows_affected() > 0 {
             deleted = true;
-            info!("成功删除任务 {} 的状态记录", task_id);
+            info!("Successfully deleted the status record of task {}", task_id);
         }
 
         // 删除任务结果
@@ -821,13 +842,13 @@ impl LockFreeApalisManager {
 
         if result_result.rows_affected() > 0 {
             deleted = true;
-            info!("成功删除任务 {} 的结果记录", task_id);
+            info!("Successfully deleted the result record of task {}", task_id);
         }
 
         info!(
-            "任务删除操作: {} -> {}",
+            "Task deletion operation: {} -> {}",
             task_id,
-            if deleted { "成功" } else { "任务不存在" }
+            if deleted { "success" } else { "task not found" }
         );
         Ok(deleted)
     }
@@ -909,7 +930,7 @@ impl LockFreeApalisManager {
         };
 
         info!(
-            "任务统计: 总共 {} 个任务, 完成 {} 个, 失败 {} 个",
+            "Task statistics: Total {} tasks, {} completed, {} failed",
             total_tasks, completed_tasks, failed_tasks
         );
 
@@ -920,7 +941,7 @@ impl LockFreeApalisManager {
     pub async fn cleanup_expired_tasks(&self) -> Result<usize, VoiceCliError> {
         let retention_minutes = self.config.task_retention_minutes;
         if retention_minutes == 0 {
-            info!("任务保留分钟数为0，跳过清理");
+            info!("The task retention minutes is 0 and cleanup is skipped");
             return Ok(0);
         }
 
@@ -928,7 +949,7 @@ impl LockFreeApalisManager {
         let cutoff_timestamp = cutoff_time.timestamp();
 
         info!(
-            "开始清理过期任务，保留分钟数: {}，截止时间: {}",
+            "Start cleaning up expired tasks, retention minutes: {}, deadline: {}",
             retention_minutes, cutoff_time
         );
 
@@ -946,7 +967,7 @@ impl LockFreeApalisManager {
         }
 
         info!(
-            "清理完成: 总共 {} 个过期任务，成功清理 {} 个",
+            "Cleanup completed: {} expired tasks in total, {} were successfully cleaned",
             expired_tasks.len(),
             cleaned_count
         );
@@ -959,7 +980,10 @@ impl LockFreeApalisManager {
         cutoff_timestamp: i64,
     ) -> Result<Vec<String>, VoiceCliError> {
         // 添加调试日志
-        info!("查询过期任务，截止时间戳: {}", cutoff_timestamp);
+        info!(
+            "Query expired tasks, deadline timestamp: {}",
+            cutoff_timestamp
+        );
 
         let rows = sqlx::query("SELECT task_id, updated_at FROM task_info WHERE updated_at < ?")
             .bind(cutoff_timestamp)
@@ -967,13 +991,13 @@ impl LockFreeApalisManager {
             .await
             .map_err(|e| VoiceCliError::Storage(format!("查询过期任务失败: {}", e)))?;
 
-        info!("找到 {} 个过期任务记录", rows.len());
+        info!("Found {} expired task records", rows.len());
 
         let mut task_ids = Vec::new();
         for row in rows {
             if let Ok(task_id) = row.try_get::<String, _>("task_id") {
                 if let Ok(updated_at) = row.try_get::<i64, _>("updated_at") {
-                    info!("过期任务: {} (updated_at: {})", task_id, updated_at);
+                    info!("Expired tasks: {} (updated_at: {})", task_id, updated_at);
                 }
                 task_ids.push(task_id);
             }
@@ -984,17 +1008,21 @@ impl LockFreeApalisManager {
 
     /// 删除任务及其相关文件
     async fn delete_task_with_files(&self, task_id: &str) -> Result<bool, VoiceCliError> {
-        info!("开始删除任务及其文件: {}", task_id);
+        info!("Start deleting the task and its files: {}", task_id);
 
         // 首先获取任务的文件路径信息
         if let Some(audio_file_path) = self.get_task_audio_file_path(task_id).await? {
-            info!("找到任务音频文件: {:?}", audio_file_path);
+            info!("Found task audio file: {:?}", audio_file_path);
 
             // 删除音频文件
             if let Err(e) = tokio::fs::remove_file(&audio_file_path).await {
-                warn!("删除音频文件失败: {} - {}", audio_file_path.display(), e);
+                warn!(
+                    "Failed to delete audio files: {} - {}",
+                    audio_file_path.display(),
+                    e
+                );
             } else {
-                info!("成功删除音频文件: {:?}", audio_file_path);
+                info!("Audio file deleted successfully: {:?}", audio_file_path);
             }
 
             // 尝试删除文件所在目录（如果为空）
@@ -1002,12 +1030,12 @@ impl LockFreeApalisManager {
                 let _ = tokio::fs::remove_dir(parent_dir).await;
             }
         } else {
-            info!("未找到任务音频文件: {}", task_id);
+            info!("Mission audio file not found: {}", task_id);
         }
 
         // 删除数据库中的任务数据
         let result = self.delete_task(task_id).await;
-        info!("删除任务数据库记录结果: {:?}", result);
+        info!("Delete task database record result: {:?}", result);
         result
     }
 
@@ -1031,22 +1059,27 @@ impl LockFreeApalisManager {
             if let Some(file_path_str) = file_path {
                 let path = PathBuf::from(file_path_str);
                 if path.exists() {
-                    info!("找到任务 {} 的音频文件: {:?}", task_id, path);
+                    info!("Found audio file for task {}: {:?}", task_id, path);
                     return Ok(Some(path));
                 } else {
-                    info!("任务 {} 的文件路径存在但文件不存在: {:?}", task_id, path);
+                    info!(
+                        "The file path for task {} exists but the file does not exist: {:?}",
+                        task_id, path
+                    );
                 }
             }
         }
 
-        info!("未找到任务 {} 的音频文件路径", task_id);
+        info!("Audio file path not found for task {}", task_id);
         Ok(None)
     }
 
     /// 启动定时清理任务
     pub async fn start_cleanup_scheduler(&self) -> Result<(), VoiceCliError> {
         if self.config.task_retention_minutes == 0 {
-            info!("任务保留分钟数为0，不启动清理调度器");
+            info!(
+                "The number of task retention minutes is 0 and the cleanup scheduler is not started."
+            );
             return Ok(());
         }
 
@@ -1065,18 +1098,21 @@ impl LockFreeApalisManager {
                 match manager.cleanup_expired_tasks().await {
                     Ok(cleaned_count) => {
                         if cleaned_count > 0 {
-                            info!("定时清理完成: 清理了 {} 个过期任务", cleaned_count);
+                            info!(
+                                "Scheduled cleanup completed: {} expired tasks cleaned up",
+                                cleaned_count
+                            );
                         }
                     }
                     Err(e) => {
-                        warn!("定时清理任务失败: {}", e);
+                        warn!("Scheduled cleanup task failed: {}", e);
                     }
                 }
             }
         });
 
         info!(
-            "任务清理调度器启动成功，保留分钟数: {} 分钟",
+            "The task cleanup scheduler is started successfully, and the number of reserved minutes is: {} minutes",
             self.config.task_retention_minutes
         );
         Ok(())
@@ -1090,7 +1126,7 @@ impl LockFreeApalisManager {
     ) -> Result<(), VoiceCliError> {
         self.save_task_result(task_id, &result).await?;
 
-        debug!("保存结果成功: {}", task_id);
+        debug!("Successfully saved result: {}", task_id);
         Ok(())
     }
 
@@ -1101,7 +1137,7 @@ impl LockFreeApalisManager {
             handle.abort();
         }
 
-        info!("LockFreeApalisManager 已关闭");
+        info!("LockFreeApalisManager is closed");
         Ok(())
     }
 
@@ -1202,7 +1238,7 @@ async fn audio_preprocessing_step(
     task: TranscriptionTask,
     ctx: Data<StepContext>,
 ) -> Result<AudioProcessedTask, Error> {
-    info!("步骤 1 - 音频预处理: {}", task.task_id);
+    info!("Step 1 - Audio Preprocessing: {}", task.task_id);
 
     // 更新状态为处理中
     ctx.save_task_status(
@@ -1217,7 +1253,10 @@ async fn audio_preprocessing_step(
 
     let audio_file_path = if task.task_type == TaskType::UrlDownload {
         // URL下载任务：下载音频文件
-        info!("下载URL音频文件: {} - URL: {:?}", task.task_id, task.url);
+        info!(
+            "Download URL audio file: {} - URL: {:?}",
+            task.task_id, task.url
+        );
 
         if let Some(url) = task.url {
             let downloaded_path =
@@ -1262,7 +1301,7 @@ async fn audio_preprocessing_step(
     } else {
         // 文件上传任务：直接使用现有文件路径
         info!(
-            "处理文件上传任务: {} - 文件: {:?}",
+            "Process file upload task: {} - File: {:?}",
             task.task_id, task.audio_file_path
         );
 
@@ -1297,7 +1336,7 @@ async fn audio_preprocessing_step(
         created_at: task.created_at,
     };
 
-    info!("音频预处理完成: {}", task.task_id);
+    info!("Audio preprocessing completed: {}", task.task_id);
     Ok(processed_task)
 }
 
@@ -1306,7 +1345,7 @@ async fn transcription_step(
     task: AudioProcessedTask,
     ctx: Data<StepContext>,
 ) -> Result<TranscriptionCompletedTask, Error> {
-    info!("步骤 2 - Whisper 转录: {}", task.task_id);
+    info!("Step 2 - Whisper Transcription: {}", task.task_id);
 
     // 更新状态为转录中
     ctx.save_task_status(
@@ -1323,7 +1362,7 @@ async fn transcription_step(
     let metadata = match MetadataExtractor::extract_metadata(&task.processed_audio_path).await {
         Ok(meta) => {
             info!(
-                "[Task {}] 成功提取音视频元数据: {}",
+                "[Task {}] Successfully extracted audio and video metadata: {}",
                 task.task_id,
                 MetadataExtractor::get_format_description(&meta)
             );
@@ -1348,7 +1387,7 @@ async fn transcription_step(
             })
         }
         Err(e) => {
-            warn!("[Task {}] 提取元数据失败: {}", task.task_id, e);
+            warn!("[Task {}] Failed to extract metadata: {}", task.task_id, e);
             None
         }
     };
@@ -1425,7 +1464,7 @@ async fn transcription_step(
     };
 
     info!(
-        "Whisper 转录完成: {} ({} 字符)",
+        "Whisper transcription completed: {} ({} characters)",
         task.task_id,
         completed_task.transcription_result.text.len()
     );
@@ -1460,7 +1499,7 @@ async fn result_formatting_step(
     task: TranscriptionCompletedTask,
     ctx: Data<StepContext>,
 ) -> Result<(), Error> {
-    info!("步骤 3 - 结果格式化和存储: {}", task.task_id);
+    info!("Step 3 - Result Formatting and Storage: {}", task.task_id);
 
     // 保存结果到SQLite存储（包含元数据）
     ctx.save_task_result(&task.task_id, &task.transcription_result, &task.metadata)
@@ -1494,7 +1533,7 @@ async fn result_formatting_step(
     .await?;
 
     info!(
-        "转录任务完成: {} (处理时间: {}s)",
+        "Transcription task completed: {} (processing time: {}s)",
         task.task_id,
         duration.as_secs()
     );
@@ -1506,14 +1545,17 @@ pub async fn transcription_pipeline_worker(
     task: TranscriptionTask,
     ctx: Data<StepContext>,
 ) -> Result<(), Error> {
-    info!("开始处理转录流水线: {}", task.task_id);
+    info!(
+        "Start processing the transcription pipeline: {}",
+        task.task_id
+    );
 
     // 步骤 1: 音频预处理
     let audio_processed_task = match audio_preprocessing_step(task.clone(), ctx.clone()).await {
         Ok(task) => task,
         Err(e) => {
             let error_msg = format!("音频预处理失败: {}", e);
-            warn!("步骤 1 失败: {} - {}", task.task_id, error_msg);
+            warn!("Step 1 failed: {} - {}", task.task_id, error_msg);
 
             // 更新任务状态为失败
             if let Err(save_err) = ctx
@@ -1532,7 +1574,10 @@ pub async fn transcription_pipeline_worker(
                 )
                 .await
             {
-                warn!("保存失败状态失败: {} - {}", task.task_id, save_err);
+                warn!(
+                    "Failed to save failed status: {} - {}",
+                    task.task_id, save_err
+                );
             }
 
             return Err(e);
@@ -1545,7 +1590,7 @@ pub async fn transcription_pipeline_worker(
             Ok(task) => task,
             Err(e) => {
                 let error_msg = format!("Whisper转录失败: {}", e);
-                warn!("步骤 2 失败: {} - {}", task.task_id, error_msg);
+                warn!("Step 2 failed: {} - {}", task.task_id, error_msg);
 
                 // 更新任务状态为失败
                 if let Err(save_err) = ctx
@@ -1564,7 +1609,10 @@ pub async fn transcription_pipeline_worker(
                     )
                     .await
                 {
-                    warn!("保存失败状态失败: {} - {}", task.task_id, save_err);
+                    warn!(
+                        "Failed to save failed status: {} - {}",
+                        task.task_id, save_err
+                    );
                 }
 
                 return Err(e);
@@ -1574,7 +1622,7 @@ pub async fn transcription_pipeline_worker(
     // 步骤 3: 结果格式化和存储
     if let Err(e) = result_formatting_step(transcription_completed_task, ctx.clone()).await {
         let error_msg = format!("结果格式化失败: {}", e);
-        warn!("步骤 3 失败: {} - {}", task.task_id, error_msg);
+        warn!("Step 3 failed: {} - {}", task.task_id, error_msg);
 
         // 更新任务状态为失败
         if let Err(save_err) = ctx
@@ -1592,13 +1640,16 @@ pub async fn transcription_pipeline_worker(
             )
             .await
         {
-            warn!("保存失败状态失败: {} - {}", task.task_id, save_err);
+            warn!(
+                "Failed to save failed status: {} - {}",
+                task.task_id, save_err
+            );
         }
 
         return Err(e);
     }
 
-    info!("转录流水线完成: {}", task.task_id);
+    info!("Transcription pipeline completed: {}", task.task_id);
     Ok(())
 }
 
@@ -1608,7 +1659,10 @@ async fn download_audio_from_url(
     task_id: &str,
     storage_dir: &std::path::Path,
 ) -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync>> {
-    info!("[Task {}] 开始从URL下载音频文件: {}", task_id, url);
+    info!(
+        "[Task {}] Start downloading audio files from URL: {}",
+        task_id, url
+    );
 
     // 创建HTTP客户端
     let client = reqwest::Client::new();
@@ -1637,7 +1691,7 @@ async fn download_audio_from_url(
     // 检查是否为支持的媒体格式
     if !is_supported_media_format(content_type) {
         warn!(
-            "[Task {}] 可能不支持的媒体格式 [{}], 扩展名 [{}], 后续处理可能会失败",
+            "[Task {}] Possibly unsupported media format [{}], extension [{}], subsequent processing may fail",
             task_id, content_type, extension
         );
     }
@@ -1676,7 +1730,7 @@ async fn download_audio_from_url(
         .map_err(|e| format!("刷新文件失败: {} - {}", file_path.display(), e))?;
 
     info!(
-        "[Task {}] 下载完成: {} 字节 -> {}",
+        "[Task {}] Download completed: {} bytes -> {}",
         task_id,
         total_bytes,
         file_path.display()
@@ -1690,7 +1744,10 @@ async fn detect_and_rename_audio_file(
     file_path: &PathBuf,
     task_id: &str,
 ) -> Result<PathBuf, Box<dyn std::error::Error + Send + Sync>> {
-    info!("[Task {}] 检测音频文件格式: {:?}", task_id, file_path);
+    info!(
+        "[Task {}] Detect audio file format: {:?}",
+        task_id, file_path
+    );
 
     // 使用 AudioFormatDetector 检测文件真实格式
     let format_result = AudioFormatDetector::detect_format_from_path(file_path)
@@ -1706,7 +1763,10 @@ async fn detect_and_rename_audio_file(
             return Err(format!("无法检测文件格式且文件无扩展名: {:?}", file_path).into());
         }
     };
-    info!("[Task {}] 检测到文件格式: {}", task_id, detected_extension);
+    info!(
+        "[Task {}] File format detected: {}",
+        task_id, detected_extension
+    );
 
     // 获取当前文件扩展名
     let current_extension = file_path
@@ -1718,7 +1778,7 @@ async fn detect_and_rename_audio_file(
     // 如果扩展名不匹配，重命名文件
     if current_extension != detected_extension {
         info!(
-            "[Task {}] 文件扩展名不匹配: 当前 {} -> 检测 {}",
+            "[Task {}] File extension mismatch: current {} -> detecting {}",
             task_id, current_extension, detected_extension
         );
 
@@ -1742,7 +1802,7 @@ async fn detect_and_rename_audio_file(
             })?;
 
         info!(
-            "[Task {}] 文件已重命名: {} -> {}",
+            "[Task {}] The file has been renamed: {} -> {}",
             task_id,
             file_path.display(),
             new_file_path.display()
@@ -1750,7 +1810,10 @@ async fn detect_and_rename_audio_file(
 
         Ok(new_file_path)
     } else {
-        info!("[Task {}] 文件扩展名正确: {}", task_id, current_extension);
+        info!(
+            "[Task {}] The file extension is correct: {}",
+            task_id, current_extension
+        );
         Ok(file_path.clone())
     }
 }
@@ -1771,7 +1834,10 @@ async fn update_task_file_path_in_db(
         .await
         .map_err(|e| format!("更新任务文件路径失败: {}", e))?;
 
-    info!("[Task {}] 数据库文件路径已更新: {}", task_id, file_path_str);
+    info!(
+        "[Task {}] The database file path has been updated: {}",
+        task_id, file_path_str
+    );
     Ok(())
 }
 

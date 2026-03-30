@@ -33,7 +33,7 @@ impl TaskService {
         let task_id = Uuid::new_v7(Timestamp::now(NoContext)).to_string();
 
         info!(
-            "创建新任务: {} ({:?} -> {:?})",
+            "Create new task: {} ({:?} -> {:?})",
             task_id, source_type, format
         );
 
@@ -56,7 +56,7 @@ impl TaskService {
 
     /// 获取任务
     pub async fn get_task(&self, task_id: &str) -> Result<Option<DocumentTask>, AppError> {
-        debug!("查询任务: {}", task_id);
+        debug!("Query task: {}", task_id);
 
         match self.tasks_tree.get(task_id) {
             Ok(Some(data)) => {
@@ -82,7 +82,7 @@ impl TaskService {
             .flush()
             .map_err(|e| AppError::Database(format!("刷新数据库失败: {e}")))?;
 
-        debug!("任务已保存: {}", task.id);
+        debug!("Task saved: {}", task.id);
         Ok(())
     }
 
@@ -94,7 +94,7 @@ impl TaskService {
         original_filename: Option<String>,
         document_format: DocumentFormat,
     ) -> Result<(), AppError> {
-        debug!("更新任务基本信息: {}", task_id);
+        debug!("Update basic task information: {}", task_id);
 
         let mut task = self
             .get_task(task_id)
@@ -130,7 +130,7 @@ impl TaskService {
         task_id: &str,
         status: TaskStatus,
     ) -> Result<(), AppError> {
-        info!("更新任务状态: {} -> {:?}", task_id, status);
+        info!("Update task status: {} -> {:?}", task_id, status);
 
         let mut task = self
             .get_task(task_id)
@@ -149,7 +149,7 @@ impl TaskService {
         task_id: &str,
         stage: ProcessingStage,
     ) -> Result<(), AppError> {
-        info!("更新任务阶段: {} -> {:?}", task_id, stage);
+        info!("Update task stage: {} -> {:?}", task_id, stage);
 
         let mut task = self
             .get_task(task_id)
@@ -164,7 +164,7 @@ impl TaskService {
 
     /// 更新任务进度
     pub async fn update_task_progress(&self, task_id: &str, progress: u32) -> Result<(), AppError> {
-        debug!("更新任务进度: {} -> {}%", task_id, progress);
+        debug!("Update task progress: {} -> {}%", task_id, progress);
 
         let mut task = self
             .get_task(task_id)
@@ -183,7 +183,7 @@ impl TaskService {
         task_id: &str,
         error_message: String,
     ) -> Result<(), AppError> {
-        error!("任务错误: {} -> {}", task_id, error_message);
+        error!("Task error: {} -> {}", task_id, error_message);
 
         let mut task = self
             .get_task(task_id)
@@ -202,7 +202,7 @@ impl TaskService {
         task_id: &str,
         engine: ParserEngine,
     ) -> Result<(), AppError> {
-        info!("设置任务解析引擎: {} -> {:?}", task_id, engine);
+        info!("Set task parsing engine: {} -> {:?}", task_id, engine);
 
         let mut task = self
             .get_task(task_id)
@@ -223,7 +223,7 @@ impl TaskService {
         mime_type: Option<String>,
     ) -> Result<(), AppError> {
         debug!(
-            "设置任务文件信息: {} (大小: {:?}, 类型: {:?})",
+            "Set task file information: {} (size: {:?}, type: {:?})",
             task_id, file_size, mime_type
         );
 
@@ -256,7 +256,7 @@ impl TaskService {
         original_filename: Option<String>,
     ) -> Result<(), AppError> {
         debug!(
-            "更新任务来源信息: task_id={}, path={:?}, url={:?}, filename={:?}",
+            "Update task source information: task_id={}, path={:?}, url={:?}, filename={:?}",
             task_id, source_path, source_url, original_filename
         );
 
@@ -318,11 +318,11 @@ impl TaskService {
                         count += 1;
                     }
                     Err(e) => {
-                        warn!("反序列化任务失败: {}", e);
+                        warn!("Deserialization task failed: {}", e);
                     }
                 },
                 Err(e) => {
-                    warn!("读取任务数据失败: {}", e);
+                    warn!("Failed to read task data: {}", e);
                 }
             }
         }
@@ -339,7 +339,7 @@ impl TaskService {
         task_id: &str,
         reason: Option<String>,
     ) -> Result<DocumentTask, AppError> {
-        info!("取消任务: {} (原因: {:?})", task_id, reason);
+        info!("Cancel task: {} (reason: {:?})", task_id, reason);
 
         let mut task = self
             .get_task(task_id)
@@ -361,7 +361,7 @@ impl TaskService {
 
     /// 删除任务
     pub async fn delete_task(&self, task_id: &str) -> Result<bool, AppError> {
-        info!("删除任务: {}", task_id);
+        info!("Delete task: {}", task_id);
 
         // 获取任务信息以便清理相关文件
         let task = self.get_task(task_id).await?;
@@ -386,7 +386,7 @@ impl TaskService {
 
     /// 重试任务
     pub async fn retry_task(&self, task_id: &str) -> Result<DocumentTask, AppError> {
-        info!("重试任务: {}", task_id);
+        info!("Retry task: {}", task_id);
 
         let mut task = self
             .get_task(task_id)
@@ -416,14 +416,14 @@ impl TaskService {
                             }
                         }
                         Err(e) => {
-                            warn!("反序列化任务失败: {}", e);
+                            warn!("Deserialization task failed: {}", e);
                             // 损坏的数据也删除
                             to_remove.push(key);
                         }
                     }
                 }
                 Err(e) => {
-                    warn!("读取任务数据失败: {}", e);
+                    warn!("Failed to read task data: {}", e);
                 }
             }
         }
@@ -441,7 +441,7 @@ impl TaskService {
             }
 
             if let Err(e) = self.tasks_tree.remove(&key) {
-                warn!("删除过期任务失败: {}", e);
+                warn!("Failed to delete expired tasks: {}", e);
             } else {
                 cleaned_count += 1;
             }
@@ -452,7 +452,7 @@ impl TaskService {
                 .flush()
                 .map_err(|e| AppError::Database(format!("刷新数据库失败: {e}")))?;
 
-            info!("清理了 {} 个过期任务", cleaned_count);
+            info!("Cleaned up {} expired tasks", cleaned_count);
         }
 
         Ok(cleaned_count)
@@ -466,11 +466,14 @@ impl TaskService {
             if source_path.contains(&task.id) {
                 if let Err(e) = tokio::fs::remove_file(source_path).await {
                     warn!(
-                        "清理任务 {} 的临时文件失败: {} - {}",
+                        "Cleanup task {}'s temporary files failed: {} - {}",
                         task.id, source_path, e
                     );
                 } else {
-                    info!("已清理任务 {} 的临时文件: {}", task.id, source_path);
+                    info!(
+                        "Cleaned temporary files of task {}: {}",
+                        task.id, source_path
+                    );
                 }
             }
         }
@@ -481,14 +484,14 @@ impl TaskService {
         if task_work_dir.exists() {
             if let Err(e) = tokio::fs::remove_dir_all(&task_work_dir).await {
                 warn!(
-                    "清理任务 {} 的工作目录失败: {} - {}",
+                    "Cleanup task {}'s working directory failed: {} - {}",
                     task.id,
                     task_work_dir.display(),
                     e
                 );
             } else {
                 info!(
-                    "已清理任务 {} 的工作目录: {}",
+                    "Cleaned working directory of task {}: {}",
                     task.id,
                     task_work_dir.display()
                 );
@@ -554,12 +557,12 @@ impl TaskService {
                             }
                         }
                         Err(e) => {
-                            warn!("反序列化任务失败: {}", e);
+                            warn!("Deserialization task failed: {}", e);
                         }
                     }
                 }
                 Err(e) => {
-                    warn!("读取任务数据失败: {}", e);
+                    warn!("Failed to read task data: {}", e);
                 }
             }
         }

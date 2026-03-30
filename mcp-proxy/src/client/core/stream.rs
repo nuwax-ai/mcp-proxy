@@ -11,7 +11,6 @@ use crate::client::support::{
     ConvertArgs, classify_error, print_diagnostic_report, summarize_error, truncate_str,
 };
 use crate::proxy::{McpClientConfig, StreamClientConnection, StreamProxyHandler, ToolFilter};
-use crate::t;
 
 use mcp_streamable_proxy::{ServiceExt, stdio as stream_stdio};
 
@@ -35,26 +34,24 @@ pub async fn run_stream_mode(
     quiet: bool,
 ) -> Result<()> {
     tracing::info!("========================================");
-    tracing::info!("{}", t!("cli.stream.mode_starting"));
-    tracing::info!("{}", t!("cli.convert.target_url", url = config.url));
+    tracing::info!("Starting Stream mode");
+    tracing::info!("Target URL: {}", config.url);
     tracing::info!(
-        "{}",
-        t!("cli.convert.ping_config",
-            interval = args.ping_interval,
-            timeout = args.ping_timeout
-        )
+        "Ping config: interval={}s, timeout={}s",
+        args.ping_interval,
+        args.ping_timeout
     );
     tracing::info!("========================================");
 
     if !quiet {
-        eprintln!("🔗 正在连接到后端服务 (Stream)...");
+        eprintln!("🔗 Connecting to backend service (Stream)...");
     }
 
     // 1. 使用高层 API 连接
     let connect_timeout = Duration::from_secs(30);
     tracing::info!(
-        "{}",
-        t!("cli.convert.connecting_backend", timeout = connect_timeout.as_secs())
+        "Connecting to backend (timeout: {}s)",
+        connect_timeout.as_secs()
     );
     let connect_start = std::time::Instant::now();
 
@@ -64,41 +61,50 @@ pub async fn run_stream_mode(
     )
     .await
     .map_err(|_| {
-        tracing::error!("{}", t!("cli.stream.connect_timeout", seconds = connect_timeout.as_secs()));
-        anyhow::anyhow!("Backend connection timeout ({}s)", connect_timeout.as_secs())
+        tracing::error!(
+            "Backend connection timeout ({}s)",
+            connect_timeout.as_secs()
+        );
+        anyhow::anyhow!(
+            "Backend connection timeout ({}s)",
+            connect_timeout.as_secs()
+        )
     })?
     .map_err(|e| {
-        tracing::error!("{}", t!("cli.stream.connect_failed", error = e.to_string()));
+        tracing::error!("Backend connection failed: {}", e);
         anyhow::anyhow!("Backend connection failed: {}", e)
     })?;
 
     let connect_duration = connect_start.elapsed();
-    tracing::info!("{}", t!("cli.stream.connect_success", duration = format!("{:?}", connect_duration)));
+    tracing::info!(
+        "Backend connected successfully (duration: {:?})",
+        connect_duration
+    );
 
     if !quiet {
-        eprintln!("✅ 后端连接成功");
+        eprintln!("✅ Backend connected successfully");
         // 打印工具列表
         print_stream_tools(&conn, quiet).await;
         if args.ping_interval > 0 {
             eprintln!(
-                "💓 心跳检测: 每 {}s ping 一次（超时 {}s）",
+                "💓 Health ping: every {}s (timeout {}s)",
                 args.ping_interval, args.ping_timeout
             );
         }
     }
 
     // 2. 创建 handler（消耗 conn）
-    tracing::debug!("创建 ProxyHandler...");
+    tracing::debug!("Creating ProxyHandler...");
     let handler = Arc::new(conn.into_handler("cli".to_string(), tool_filter.clone()));
-    tracing::debug!("ProxyHandler 创建完成");
+    tracing::debug!("ProxyHandler created");
 
     // 3. 启动 stdio server（使用 stream_stdio，即 rmcp 0.12 的 stdio）
-    tracing::info!("{}", t!("cli.stream.stdio_starting"));
+    tracing::info!("Starting stdio server...");
     let server = (*handler).clone().serve(stream_stdio()).await?;
-    tracing::info!("{}", t!("cli.stream.stdio_started"));
+    tracing::info!("Stdio server started");
 
     if !quiet {
-        eprintln!("💡 stdio server 已启动，开始代理转换...");
+        eprintln!("💡 Stdio server started, proxying traffic...");
     }
 
     // 4. 启动 watchdog 任务
@@ -111,21 +117,21 @@ pub async fn run_stream_mode(
         verbose,
         quiet,
     ));
-    tracing::debug!("Watchdog 任务已启动");
+    tracing::debug!("Watchdog task started");
 
     // 5. 等待 stdio server 退出
-    tracing::info!("{}", t!("cli.stream.waiting_events"));
+    tracing::info!("Waiting for stdio/watchdog events...");
     tokio::select! {
         result = server.waiting() => {
             tracing::info!("========================================");
-            tracing::info!("{}", t!("cli.stream.stdio_exit_eof"));
+            tracing::info!("Stdio server exited (EOF)");
             tracing::info!("========================================");
             watchdog_handle.abort();
             result?;
         }
         watchdog_result = &mut watchdog_handle => {
             tracing::info!("========================================");
-            tracing::info!("{}", t!("cli.stream.watchdog_exit"));
+            tracing::info!("Watchdog task exited");
             tracing::info!("========================================");
             if let Err(e) = watchdog_result
                 && !e.is_cancelled()
@@ -135,7 +141,7 @@ pub async fn run_stream_mode(
         }
     }
 
-    tracing::info!("{}", t!("cli.stream.normal_exit"));
+    tracing::info!("Stream mode exited normally");
     Ok(())
 }
 
@@ -147,18 +153,18 @@ async fn print_stream_tools(conn: &StreamClientConnection, quiet: bool) {
     match conn.list_tools().await {
         Ok(tools) => {
             if tools.is_empty() {
-                eprintln!("⚠️  工具列表为空 (tools/list 返回 0 个工具)");
+                eprintln!("⚠️  Tool list is empty (tools/list returned 0 tools)");
             } else {
-                eprintln!("🔧 可用工具 ({} 个):", tools.len());
+                eprintln!("🔧 Available tools ({}):", tools.len());
                 for tool in &tools {
-                    let desc = tool.description.as_deref().unwrap_or("无描述");
+                    let desc = tool.description.as_deref().unwrap_or("no description");
                     let desc_short = truncate_str(desc, 50);
                     eprintln!("   - {} : {}", tool.name, desc_short);
                 }
             }
         }
         Err(e) => {
-            eprintln!("⚠️  获取工具列表失败: {}", e);
+            eprintln!("⚠️  Failed to list tools: {}", e);
         }
     }
 }
@@ -176,6 +182,9 @@ async fn run_stream_watchdog(
     let mut attempt = 0u32;
     let mut backoff_secs = 1u64;
     const MAX_BACKOFF_SECS: u64 = 30;
+    const EVENT_DISCONNECTED: &str = "EVENT_DISCONNECTED";
+    const EVENT_RECONNECTED: &str = "EVENT_RECONNECTED";
+    const EVENT_RETRY_BACKOFF: &str = "EVENT_RETRY_BACKOFF";
     let initial_connection_start = std::time::Instant::now();
 
     // 首先监控现有连接的健康状态
@@ -188,7 +197,10 @@ async fn run_stream_watchdog(
     let alive_duration = initial_connection_start.elapsed();
 
     if !quiet {
-        eprintln!("⚠️  连接断开: {}", disconnect_reason);
+        eprintln!(
+            "⚠️ [{}] Connection disconnected: {}",
+            EVENT_DISCONNECTED, disconnect_reason
+        );
     }
 
     // 生成诊断报告（首次断开）
@@ -206,7 +218,7 @@ async fn run_stream_watchdog(
         attempt += 1;
 
         if !quiet {
-            eprintln!("🔗 正在重新连接 (第{}次尝试)...", attempt);
+            eprintln!("🔗 Reconnecting (attempt #{})...", attempt);
         }
 
         // 尝试建立连接
@@ -220,7 +232,10 @@ async fn run_stream_watchdog(
                 backoff_secs = 1;
 
                 if !quiet {
-                    eprintln!("✅ 重连成功，恢复代理服务");
+                    eprintln!(
+                        "✅ [{}] Reconnected, proxy service resumed",
+                        EVENT_RECONNECTED
+                    );
                 }
 
                 // 监控连接健康
@@ -238,7 +253,10 @@ async fn run_stream_watchdog(
                 let reconnect_alive_duration = reconnect_start.elapsed();
 
                 if !quiet {
-                    eprintln!("⚠️  连接断开: {}", disconnect_reason);
+                    eprintln!(
+                        "⚠️ [{}] Connection disconnected: {}",
+                        EVENT_DISCONNECTED, disconnect_reason
+                    );
                 }
 
                 // 生成诊断报告（重连后断开）
@@ -256,16 +274,19 @@ async fn run_stream_watchdog(
 
                 if max_retries > 0 && attempt >= max_retries {
                     if !quiet {
-                        eprintln!("❌ 连接失败，已达最大重试次数 ({})", max_retries);
-                        eprintln!("   错误类型: {}", error_type);
-                        eprintln!("   错误详情: {}", e);
+                        eprintln!(
+                            "❌ Connection failed, max retries reached ({})",
+                            max_retries
+                        );
+                        eprintln!("   Error type: {}", error_type);
+                        eprintln!("   Error detail: {}", e);
                     }
                     // 生成最终诊断报告
                     print_diagnostic_report(
                         "Streamable HTTP",
                         &config.url,
                         0,
-                        "连接失败，达到最大重试次数",
+                        "Connection failed: max retries reached",
                         Some(&error_type),
                         args.logging.diagnostic,
                     );
@@ -275,7 +296,8 @@ async fn run_stream_watchdog(
                 if !quiet {
                     if max_retries == 0 {
                         eprintln!(
-                            "⚠️  连接失败 [{}]: {}，{}秒后重连 (第{}次)...",
+                            "⚠️ [{}] Connection failed [{}]: {}; retrying in {}s (attempt #{})...",
+                            EVENT_RETRY_BACKOFF,
                             error_type,
                             summarize_error(&e),
                             backoff_secs,
@@ -283,7 +305,8 @@ async fn run_stream_watchdog(
                         );
                     } else {
                         eprintln!(
-                            "⚠️  连接失败 [{}]: {}，{}秒后重连 ({}/{})...",
+                            "⚠️ [{}] Connection failed [{}]: {}; retrying in {}s ({}/{})...",
+                            EVENT_RETRY_BACKOFF,
                             error_type,
                             summarize_error(&e),
                             backoff_secs,
@@ -294,7 +317,7 @@ async fn run_stream_watchdog(
                 }
 
                 if verbose && !quiet {
-                    eprintln!("   完整错误: {}", e);
+                    eprintln!("   Full error: {}", e);
                 }
             }
         }

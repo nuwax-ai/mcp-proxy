@@ -264,13 +264,13 @@ pub fn replace_oss_domain(url: &str) -> String {
     //把固定的公网 bucket 替换为自定义域名
     const OLD_DOMAIN: &str = "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com";
     const NEW_DOMAIN: &str = "https://statics-ali.nuwax.com";
-    debug!("替换OSS域名: {}", url);
+    debug!("Replace OSS domain name: {}", url);
     let new_url = if url.starts_with(OLD_DOMAIN) {
         url.replacen(OLD_DOMAIN, NEW_DOMAIN, 1)
     } else {
         url.to_string()
     };
-    debug!("替换后的OSS域名: {}", new_url);
+    debug!("Replaced OSS domain name: {}", new_url);
     new_url
 }
 

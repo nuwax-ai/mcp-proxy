@@ -110,10 +110,10 @@ mod section_id_tests {
             "相同标题应该有不同的ID"
         );
 
-        println!("TOC项目数量: {}", toc_items.len());
+        println!("Number of TOC items: {}", toc_items.len());
         for item in &toc_items {
             println!(
-                "ID: {}, 标题: {}, 级别: {}",
+                "ID: {}, Title: {}, Level: {}",
                 item.id, item.title, item.level
             );
         }
@@ -161,10 +161,13 @@ mod section_id_tests {
             );
         }
 
-        println!("结构化文档创建成功，章节数量: {}", structured_doc.toc.len());
+        println!(
+            "Structured document created successfully, number of chapters: {}",
+            structured_doc.toc.len()
+        );
         for section in &structured_doc.toc {
             println!(
-                "章节ID: {}, 标题: {}, 级别: {}",
+                "Chapter ID: {}, Title: {}, Level: {}",
                 section.id, section.title, section.level
             );
         }
@@ -180,7 +183,7 @@ mod section_id_tests {
 
         // 检查文件是否存在
         if !Path::new(test_file_path).exists() {
-            println!("测试文件不存在，跳过测试: {test_file_path}");
+            println!("Test file does not exist, skip test: {test_file_path}");
             return;
         }
 
@@ -188,7 +191,7 @@ mod section_id_tests {
         let markdown_content = match fs::read_to_string(test_file_path).await {
             Ok(content) => content,
             Err(e) => {
-                println!("无法读取测试文件: {e}");
+                println!("Unable to read test file: {e}");
                 return;
             }
         };
@@ -220,15 +223,15 @@ mod section_id_tests {
 
         // 如果有重复ID，打印详细信息
         if !duplicate_ids.is_empty() {
-            println!("发现重复的章节ID:");
+            println!("Duplicate chapter ID found:");
             for duplicate_id in &duplicate_ids {
                 let items_with_same_id: Vec<_> = toc_items
                     .iter()
                     .filter(|item| item.id == *duplicate_id)
                     .collect();
-                println!("重复ID '{duplicate_id}' 出现在以下章节中:");
+                println!("Duplicate ID '{duplicate_id}' appears in the following chapters:");
                 for item in items_with_same_id {
-                    println!("  - 标题: '{}', 级别: {}", item.title, item.level);
+                    println!("- Title: '{}', Level: {}", item.title, item.level);
                 }
             }
         }
@@ -257,11 +260,14 @@ mod section_id_tests {
 
         let structured_doc = structured_doc_result.unwrap();
 
-        println!("成功解析真实Markdown文件:");
-        println!("- 文件路径: {test_file_path}");
-        println!("- TOC项目数量: {}", toc_items.len());
-        println!("- 结构化章节数量: {}", structured_doc.toc.len());
-        println!("- 文档标题: {}", structured_doc.document_title);
+        println!("Successfully parsed real Markdown files:");
+        println!("- File path: {test_file_path}");
+        println!("- Number of TOC items: {}", toc_items.len());
+        println!(
+            "- Number of structured chapters: {}",
+            structured_doc.toc.len()
+        );
+        println!("- Document title: {}", structured_doc.document_title);
 
         // 验证章节内容不为空（这是之前修复的问题）
         let empty_content_sections: Vec<_> = structured_doc
@@ -271,17 +277,17 @@ mod section_id_tests {
             .collect();
 
         if !empty_content_sections.is_empty() {
-            println!("发现内容为空的章节:");
+            println!("Found a chapter with empty content:");
             for section in empty_content_sections {
-                println!("  - ID: {}, 标题: {}", section.id, section.title);
+                println!("- ID: {}, Title: {}", section.id, section.title);
             }
         }
 
         // 打印前几个章节的信息用于调试
-        println!("前5个章节信息:");
+        println!("Information about the first 5 chapters:");
         for (i, section) in structured_doc.toc.iter().take(5).enumerate() {
             println!(
-                "  {}. ID: {}, 标题: {}, 内容长度: {}",
+                "{}. ID: {}, Title: {}, Content Length: {}",
                 i + 1,
                 section.id,
                 section.title,
@@ -343,7 +349,7 @@ mod section_id_tests {
             );
         }
 
-        println!("生成的唯一ID:");
+        println!("Generated unique ID:");
         for (i, id) in generated_ids.iter().enumerate() {
             println!("  {}. {}", i + 1, id);
         }
@@ -406,6 +412,6 @@ mod section_id_tests {
         // 验证只有一个章节被添加
         assert_eq!(structured_doc.toc.len(), 1, "应该只有一个章节");
 
-        println!("重复ID检测测试通过");
+        println!("Duplicate ID detection test passed");
     }
 }

@@ -45,7 +45,7 @@ impl TtsTaskManager {
         database_url: &str,
         max_concurrent_tasks: usize,
     ) -> Result<Self, VoiceCliError> {
-        info!("初始化TTS任务管理器 - 数据库: {}", database_url);
+        info!("Initialize TTS Task Manager - Database: {}", database_url);
 
         // 创建SQLite存储
         let pool = sqlx::sqlite::SqlitePoolOptions::new()
@@ -99,7 +99,7 @@ impl TtsTaskManager {
         .await
         .map_err(|e| VoiceCliError::Storage(format!("创建TTS任务表失败: {}", e)))?;
 
-        info!("TTS任务表创建成功");
+        info!("TTS task list created successfully");
         Ok(())
     }
 
@@ -151,7 +151,7 @@ impl TtsTaskManager {
         .await
         .map_err(|e| VoiceCliError::Storage(format!("保存TTS任务失败: {}", e)))?;
 
-        info!("TTS任务已提交 - ID: {}", task_id);
+        info!("TTS task has been submitted - ID: {}", task_id);
         Ok(task_id)
     }
 
@@ -295,7 +295,7 @@ impl TtsTaskManager {
     /// 启动任务处理器
     pub async fn start_worker(&self) -> Result<(), VoiceCliError> {
         info!(
-            "启动TTS任务处理器，最大并发任务数: {}",
+            "Start the TTS task processor, the maximum number of concurrent tasks: {}",
             self.max_concurrent_tasks
         );
 

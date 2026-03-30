@@ -57,7 +57,7 @@ impl TaskProcessor for DocumentTaskProcessor {
                     .or(task.source_path.clone())
                     .ok_or_else(|| AppError::Task("URL 任务缺少下载地址".to_string()))?;
 
-                info!("开始解析URL任务: {url}");
+                info!("Start parsing URL task: {url}");
                 let _ = self
                     .document_service
                     .parse_document_from_url(&task.id, &url)

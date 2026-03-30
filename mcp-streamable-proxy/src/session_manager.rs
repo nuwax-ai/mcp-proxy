@@ -59,7 +59,7 @@ pub struct ProxyAwareSessionManager {
 impl ProxyAwareSessionManager {
     pub fn new(handler: Arc<ProxyHandler>) -> Self {
         info!(
-            "[Session管理器] 创建 ProxyAwareSessionManager - MCP ID: {}",
+            "[Session Manager] Create ProxyAwareSessionManager - MCP ID: {}",
             handler.mcp_id()
         );
         Self {
@@ -74,7 +74,7 @@ impl ProxyAwareSessionManager {
             let current_version = self.handler.get_backend_version();
             if meta.backend_version != current_version {
                 warn!(
-                    "[Session版本不匹配] session_id={}, 创建时版本={}, 当前版本={}, MCP ID: {}",
+                    "[Session version mismatch] session_id={}, creation version={}, current version={}, MCP ID: {}",
                     session_id,
                     meta.backend_version,
                     current_version,
@@ -104,7 +104,7 @@ impl SessionManager for ProxyAwareSessionManager {
         );
 
         info!(
-            "[Session创建] session_id={}, backend_version={}, MCP ID: {}",
+            "[SessionCreated] session_id={}, backend_version={}, MCP ID: {}",
             session_id,
             version,
             self.handler.mcp_id()
@@ -120,7 +120,7 @@ impl SessionManager for ProxyAwareSessionManager {
     ) -> Result<ServerJsonRpcMessage, Self::Error> {
         if !self.handler.is_backend_available() {
             warn!(
-                "[Session初始化失败] session_id={}, 原因: 后端不可用, MCP ID: {}",
+                "[Session initialization failed] session_id={}, reason: backend is unavailable, MCP ID: {}",
                 id,
                 self.handler.mcp_id()
             );
@@ -129,7 +129,7 @@ impl SessionManager for ProxyAwareSessionManager {
 
         if !self.check_backend_version(id) {
             warn!(
-                "[Session初始化失败] session_id={}, 原因: 版本不匹配, MCP ID: {}",
+                "[Session initialization failed] session_id={}, reason: version mismatch, MCP ID: {}",
                 id,
                 self.handler.mcp_id()
             );
@@ -137,7 +137,7 @@ impl SessionManager for ProxyAwareSessionManager {
         }
 
         debug!(
-            "[Session初始化] session_id={}, MCP ID: {}",
+            "[Session initialization] session_id={}, MCP ID: {}",
             id,
             self.handler.mcp_id()
         );
@@ -153,7 +153,7 @@ impl SessionManager for ProxyAwareSessionManager {
 
     async fn close_session(&self, id: &SessionId) -> Result<(), Self::Error> {
         info!(
-            "[Session关闭] session_id={}, MCP ID: {}",
+            "[SessionClosed] session_id={}, MCP ID: {}",
             id,
             self.handler.mcp_id()
         );
@@ -168,7 +168,7 @@ impl SessionManager for ProxyAwareSessionManager {
     ) -> Result<impl Stream<Item = ServerSseMessage> + Send + 'static, Self::Error> {
         if !self.handler.is_backend_available() {
             warn!(
-                "[Stream创建失败] session_id={}, 原因: 后端不可用, MCP ID: {}",
+                "[Stream creation failed] session_id={}, reason: backend is unavailable, MCP ID: {}",
                 id,
                 self.handler.mcp_id()
             );
@@ -177,7 +177,7 @@ impl SessionManager for ProxyAwareSessionManager {
 
         if !self.check_backend_version(id) {
             warn!(
-                "[Stream创建失败] session_id={}, 原因: 版本不匹配, MCP ID: {}",
+                "[Stream creation failed] session_id={}, reason: version mismatch, MCP ID: {}",
                 id,
                 self.handler.mcp_id()
             );
@@ -185,7 +185,7 @@ impl SessionManager for ProxyAwareSessionManager {
         }
 
         debug!(
-            "[Stream创建] session_id={}, MCP ID: {}",
+            "[Stream creation] session_id={}, MCP ID: {}",
             id,
             self.handler.mcp_id()
         );
@@ -199,7 +199,7 @@ impl SessionManager for ProxyAwareSessionManager {
     ) -> Result<(), Self::Error> {
         if !self.handler.is_backend_available() {
             warn!(
-                "[消息拒绝] session_id={}, 原因: 后端不可用, MCP ID: {}",
+                "[Message rejected] session_id={}, reason: backend unavailable, MCP ID: {}",
                 id,
                 self.handler.mcp_id()
             );
@@ -208,7 +208,7 @@ impl SessionManager for ProxyAwareSessionManager {
 
         if !self.check_backend_version(id) {
             warn!(
-                "[消息拒绝] session_id={}, 原因: 版本不匹配, MCP ID: {}",
+                "[Message rejected] session_id={}, reason: version mismatch, MCP ID: {}",
                 id,
                 self.handler.mcp_id()
             );
@@ -235,7 +235,7 @@ impl SessionManager for ProxyAwareSessionManager {
             let current_version = self.handler.get_backend_version();
             if meta.backend_version != current_version {
                 warn!(
-                    "[Session恢复失败] session_id={}, 原因: 后端版本变化 ({} -> {}), MCP ID: {}",
+                    "[Session recovery failed] session_id={}, reason: backend version change ({} -> {}), MCP ID: {}",
                     id,
                     meta.backend_version,
                     current_version,
@@ -253,7 +253,7 @@ impl SessionManager for ProxyAwareSessionManager {
 
         if !self.handler.is_backend_available() {
             warn!(
-                "[Session恢复失败] session_id={}, 原因: 后端不可用, MCP ID: {}",
+                "[Session recovery failed] session_id={}, reason: backend is unavailable, MCP ID: {}",
                 id,
                 self.handler.mcp_id()
             );
@@ -261,7 +261,7 @@ impl SessionManager for ProxyAwareSessionManager {
         }
 
         debug!(
-            "[Session恢复] session_id={}, last_event_id={}, MCP ID: {}",
+            "[SessionResumed] session_id={}, last_event_id={}, MCP ID: {}",
             id,
             last_event_id,
             self.handler.mcp_id()

@@ -268,7 +268,7 @@ impl ImageProcessor {
             }
         }
 
-        debug!("提取到的图片路径: {:?}", image_paths);
+        debug!("Extracted image path: {:?}", image_paths);
 
         image_paths
     }
