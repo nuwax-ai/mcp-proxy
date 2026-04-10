@@ -71,7 +71,7 @@ impl ServerHandler for ProxyHandler {
         let inner = inner_guard.as_ref().ok_or_else(|| {
             error!("Backend connection is not available (reconnecting)");
             ErrorData::internal_error(
-                "Backend connection is not availabletemp/rust-sdk, reconnecting...".to_string(),
+                "Backend connection is not available, reconnecting...".to_string(),
                 None,
             )
         })?;
@@ -79,6 +79,8 @@ impl ServerHandler for ProxyHandler {
         // 检查后端连接是否已关闭
         if inner.peer.is_transport_closed() {
             error!("Backend transport is closed");
+            // transport 已关闭，立即标记后端不可用，触发 watchdog 重连
+            self.swap_backend(None);
             return Err(ErrorData::internal_error(
                 "Backend connection closed, please retry".to_string(),
                 None,
@@ -128,6 +130,11 @@ impl ServerHandler for ProxyHandler {
                             }
                             Err(err) => {
                                 error!("Error listing tools: {:?}", err);
+                                // 传输层错误时立即标记后端不可用，触发 watchdog 重连
+                                if is_transport_error(&err, inner.peer.is_transport_closed()) {
+                                    warn!("[list_tools] Transport error detected, marking backend unavailable - MCP ID: {}", self.mcp_id);
+                                    self.swap_backend(None);
+                                }
                                 Err(ErrorData::internal_error(
                                     format!("Error listing tools: {err}"),
                                     None,
@@ -211,6 +218,8 @@ impl ServerHandler for ProxyHandler {
                 "[call_tool:{}] Backend transport is closed - MCP ID: {}",
                 request_id, self.mcp_id
             );
+            // transport 已关闭，立即标记后端不可用，触发 watchdog 重连
+            self.swap_backend(None);
             return Ok(CallToolResult::error(vec![Content::text(
                 "Backend connection closed, please retry",
             )]));
@@ -299,6 +308,15 @@ impl ServerHandler for ProxyHandler {
                             err,
                             self.mcp_id
                         );
+                        // 传输层错误时立即标记后端不可用，触发 watchdog 重连
+                        // 避免 sessionId 失效后持续报错直到下次 ping 才检测到
+                        if is_transport_error(&err, inner.peer.is_transport_closed()) {
+                            warn!(
+                                "[call_tool:{}] Transport error detected, marking backend unavailable - MCP ID: {}",
+                                request_id, self.mcp_id
+                            );
+                            self.swap_backend(None);
+                        }
                         // Return an error result instead of propagating the error
                         Ok(CallToolResult::error(vec![Content::text(format!(
                             "Error: {err}"
@@ -345,6 +363,8 @@ impl ServerHandler for ProxyHandler {
         // 检查后端连接是否已关闭
         if inner.peer.is_transport_closed() {
             error!("Backend transport is closed");
+            // transport 已关闭，立即标记后端不可用，触发 watchdog 重连
+            self.swap_backend(None);
             return Err(ErrorData::internal_error(
                 "Backend connection closed, please retry".to_string(),
                 None,
@@ -370,6 +390,10 @@ impl ServerHandler for ProxyHandler {
                             }
                             Err(err) => {
                                 error!("Error listing resources: {:?}", err);
+                                if is_transport_error(&err, inner.peer.is_transport_closed()) {
+                                    warn!("[list_resources] Transport error detected, marking backend unavailable - MCP ID: {}", self.mcp_id);
+                                    self.swap_backend(None);
+                                }
                                 Err(ErrorData::internal_error(
                                     format!("Error listing resources: {err}"),
                                     None,
@@ -412,6 +436,8 @@ impl ServerHandler for ProxyHandler {
         // 检查后端连接是否已关闭
         if inner.peer.is_transport_closed() {
             error!("Backend transport is closed");
+            // transport 已关闭，立即标记后端不可用，触发 watchdog 重连
+            self.swap_backend(None);
             return Err(ErrorData::internal_error(
                 "Backend connection closed, please retry".to_string(),
                 None,
@@ -436,6 +462,10 @@ impl ServerHandler for ProxyHandler {
                             }
                             Err(err) => {
                                 error!("Error reading resource: {:?}", err);
+                                if is_transport_error(&err, inner.peer.is_transport_closed()) {
+                                    warn!("[read_resource] Transport error detected, marking backend unavailable - MCP ID: {}", self.mcp_id);
+                                    self.swap_backend(None);
+                                }
                                 Err(ErrorData::internal_error(
                                     format!("Error reading resource: {err}"),
                                     None,
@@ -478,6 +508,8 @@ impl ServerHandler for ProxyHandler {
         // 检查后端连接是否已关闭
         if inner.peer.is_transport_closed() {
             error!("Backend transport is closed");
+            // transport 已关闭，立即标记后端不可用，触发 watchdog 重连
+            self.swap_backend(None);
             return Err(ErrorData::internal_error(
                 "Backend connection closed, please retry".to_string(),
                 None,
@@ -496,6 +528,10 @@ impl ServerHandler for ProxyHandler {
                             }
                             Err(err) => {
                                 error!("Error listing resource templates: {:?}", err);
+                                if is_transport_error(&err, inner.peer.is_transport_closed()) {
+                                    warn!("[list_resource_templates] Transport error detected, marking backend unavailable - MCP ID: {}", self.mcp_id);
+                                    self.swap_backend(None);
+                                }
                                 Err(ErrorData::internal_error(
                                     format!("Error listing resource templates: {err}"),
                                     None,
@@ -538,6 +574,8 @@ impl ServerHandler for ProxyHandler {
         // 检查后端连接是否已关闭
         if inner.peer.is_transport_closed() {
             error!("Backend transport is closed");
+            // transport 已关闭，立即标记后端不可用，触发 watchdog 重连
+            self.swap_backend(None);
             return Err(ErrorData::internal_error(
                 "Backend connection closed, please retry".to_string(),
                 None,
@@ -556,6 +594,10 @@ impl ServerHandler for ProxyHandler {
                             }
                             Err(err) => {
                                 error!("Error listing prompts: {:?}", err);
+                                if is_transport_error(&err, inner.peer.is_transport_closed()) {
+                                    warn!("[list_prompts] Transport error detected, marking backend unavailable - MCP ID: {}", self.mcp_id);
+                                    self.swap_backend(None);
+                                }
                                 Err(ErrorData::internal_error(
                                     format!("Error listing prompts: {err}"),
                                     None,
@@ -598,6 +640,8 @@ impl ServerHandler for ProxyHandler {
         // 检查后端连接是否已关闭
         if inner.peer.is_transport_closed() {
             error!("Backend transport is closed");
+            // transport 已关闭，立即标记后端不可用，触发 watchdog 重连
+            self.swap_backend(None);
             return Err(ErrorData::internal_error(
                 "Backend connection closed, please retry".to_string(),
                 None,
@@ -616,6 +660,10 @@ impl ServerHandler for ProxyHandler {
                             }
                             Err(err) => {
                                 error!("Error getting prompt: {:?}", err);
+                                if is_transport_error(&err, inner.peer.is_transport_closed()) {
+                                    warn!("[get_prompt] Transport error detected, marking backend unavailable - MCP ID: {}", self.mcp_id);
+                                    self.swap_backend(None);
+                                }
                                 Err(ErrorData::internal_error(
                                     format!("Error getting prompt: {err}"),
                                     None,
@@ -659,6 +707,8 @@ impl ServerHandler for ProxyHandler {
         // 检查后端连接是否已关闭
         if inner.peer.is_transport_closed() {
             error!("Backend transport is closed");
+            // transport 已关闭，立即标记后端不可用，触发 watchdog 重连
+            self.swap_backend(None);
             return Err(ErrorData::internal_error(
                 "Backend connection closed, please retry".to_string(),
                 None,
@@ -674,6 +724,10 @@ impl ServerHandler for ProxyHandler {
                     }
                     Err(err) => {
                         error!("Error completing: {:?}", err);
+                        if is_transport_error(&err, inner.peer.is_transport_closed()) {
+                            warn!("[complete] Transport error detected, marking backend unavailable - MCP ID: {}", self.mcp_id);
+                            self.swap_backend(None);
+                        }
                         Err(ErrorData::internal_error(
                             format!("Error completing: {err}"),
                             None,
@@ -709,6 +763,8 @@ impl ServerHandler for ProxyHandler {
         // 检查后端连接是否已关闭
         if inner.peer.is_transport_closed() {
             error!("Backend transport is closed, cannot forward progress notification");
+            // transport 已关闭，立即标记后端不可用，触发 watchdog 重连
+            self.swap_backend(None);
             return;
         }
 
@@ -718,6 +774,10 @@ impl ServerHandler for ProxyHandler {
             }
             Err(err) => {
                 error!("Error notifying progress: {:?}", err);
+                if is_transport_error(&err, inner.peer.is_transport_closed()) {
+                    warn!("[on_progress] Transport error detected, marking backend unavailable - MCP ID: {}", self.mcp_id);
+                    self.swap_backend(None);
+                }
             }
         }
     }
@@ -742,6 +802,8 @@ impl ServerHandler for ProxyHandler {
         // 检查后端连接是否已关闭
         if inner.peer.is_transport_closed() {
             error!("Backend transport is closed, cannot forward cancelled notification");
+            // transport 已关闭，立即标记后端不可用，触发 watchdog 重连
+            self.swap_backend(None);
             return;
         }
 
@@ -751,8 +813,32 @@ impl ServerHandler for ProxyHandler {
             }
             Err(err) => {
                 error!("Error notifying cancelled: {:?}", err);
+                if is_transport_error(&err, inner.peer.is_transport_closed()) {
+                    warn!("[on_cancelled] Transport error detected, marking backend unavailable - MCP ID: {}", self.mcp_id);
+                    self.swap_backend(None);
+                }
             }
         }
+    }
+}
+
+/// 判断错误是否属于传输层错误，需要立即标记后端不可用
+///
+/// 基于 rmcp ServiceError 类型匹配检测传输层错误
+///
+/// 优先使用类型匹配和 ErrorCode 匹配，不依赖字符串关键字：
+/// - `ServiceError::TransportSend(_)` — 传输层发送失败（覆盖 connection reset、broken pipe、HTTP 404 等）
+/// - `ServiceError::TransportClosed` — 传输通道已关闭
+/// - `ServiceError::McpError(ErrorData)` 中 code == RESOURCE_NOT_FOUND — 资源未找到（如 sessionId 过期）
+/// - is_transport_closed 兜底 — Peer 通道已关闭但 ServiceError 尚未捕获的情况
+fn is_transport_error(err: &rmcp::ServiceError, is_transport_closed: bool) -> bool {
+    match err {
+        rmcp::ServiceError::TransportSend(_) | rmcp::ServiceError::TransportClosed => true,
+        rmcp::ServiceError::McpError(err_data) => {
+            // RESOURCE_NOT_FOUND (-32002): 上游 SSE 服务 sessionId 过期等场景
+            err_data.code == rmcp::model::ErrorCode::RESOURCE_NOT_FOUND || is_transport_closed
+        }
+        _ => is_transport_closed,
     }
 }
 
@@ -1005,3 +1091,236 @@ impl ProxyHandler {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mcp_common::ToolFilter;
+    use rmcp::model::{Implementation, ServerCapabilities};
+
+    /// 创建测试用的默认 ServerInfo
+    fn test_server_info() -> ServerInfo {
+        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+            .with_server_info(Implementation::new("test-server", "0.1.0"))
+    }
+
+    // ========== is_transport_error 测试 ==========
+
+    #[test]
+    fn test_is_transport_error_transport_send() {
+        // TransportSend 包含所有传输层发送错误（connection reset、broken pipe、404 等）
+        let dyn_err = rmcp::transport::DynamicTransportError {
+            transport_name: std::borrow::Cow::Borrowed("test"),
+            transport_type_id: std::any::TypeId::of::<()>(),
+            error: Box::new(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "broken pipe")),
+        };
+        let transport_err = rmcp::ServiceError::TransportSend(dyn_err);
+        assert!(is_transport_error(&transport_err, false));
+    }
+
+    #[test]
+    fn test_is_transport_error_transport_closed() {
+        let closed_err = rmcp::ServiceError::TransportClosed;
+        assert!(is_transport_error(&closed_err, false));
+    }
+
+    #[test]
+    fn test_is_transport_error_mcp_error_resource_not_found() {
+        // McpError 中 code == RESOURCE_NOT_FOUND（sessionId 过期时上游返回）
+        let mcp_err = rmcp::ServiceError::McpError(rmcp::ErrorData::resource_not_found(
+            "sessionId expired".to_string(),
+            None,
+        ));
+        assert!(is_transport_error(&mcp_err, false));
+    }
+
+    #[test]
+    fn test_is_transport_error_mcp_error_internal_error() {
+        // 普通 McpError（如 INTERNAL_ERROR）不应触发
+        let mcp_err = rmcp::ServiceError::McpError(rmcp::ErrorData::internal_error(
+            "Internal server error".to_string(),
+            None,
+        ));
+        assert!(!is_transport_error(&mcp_err, false));
+    }
+
+    #[test]
+    fn test_is_transport_error_with_is_transport_closed() {
+        // is_transport_closed=true 时，即使是非传输错误也触发（兜底机制）
+        let mcp_err = rmcp::ServiceError::McpError(rmcp::ErrorData::internal_error(
+            "some random error".to_string(),
+            None,
+        ));
+        assert!(is_transport_error(&mcp_err, true));
+    }
+
+    #[test]
+    fn test_is_transport_error_non_transport_error() {
+        // 非传输层错误不应触发
+        let cancelled_err = rmcp::ServiceError::Cancelled { reason: Some("user cancelled".to_string()) };
+        assert!(!is_transport_error(&cancelled_err, false));
+
+        let timeout_err = rmcp::ServiceError::Timeout { timeout: std::time::Duration::from_secs(30) };
+        assert!(!is_transport_error(&timeout_err, false));
+    }
+
+    // ========== ProxyHandler 生命周期测试 ==========
+
+    #[test]
+    fn test_new_disconnected_handler_is_not_available() {
+        let handler = ProxyHandler::new_disconnected(
+            "test-mcp".to_string(),
+            ToolFilter::default(),
+            test_server_info(),
+        );
+        assert!(!handler.is_backend_available());
+        assert!(handler.is_terminated());
+        assert_eq!(handler.mcp_id(), "test-mcp");
+        // 断开状态版本号为 0
+        assert_eq!(handler.get_backend_version(), 0);
+    }
+
+    #[test]
+    fn test_swap_backend_none_increments_version() {
+        let handler = ProxyHandler::new_disconnected(
+            "test-mcp".to_string(),
+            ToolFilter::default(),
+            test_server_info(),
+        );
+        assert_eq!(handler.get_backend_version(), 0);
+
+        // swap_backend(None) 应递增版本号
+        handler.swap_backend(None);
+        assert_eq!(handler.get_backend_version(), 1);
+
+        // 再次 swap_backend(None) 继续递增
+        handler.swap_backend(None);
+        assert_eq!(handler.get_backend_version(), 2);
+    }
+
+    #[test]
+    fn test_get_info_returns_cached_info() {
+        let info = test_server_info();
+        let handler = ProxyHandler::new_disconnected(
+            "test-mcp".to_string(),
+            ToolFilter::default(),
+            info.clone(),
+        );
+        let returned_info = handler.get_info();
+        assert_eq!(
+            returned_info.server_info.name,
+            info.server_info.name
+        );
+    }
+
+    // ========== 工具过滤测试 ==========
+
+    #[test]
+    fn test_tool_filter_whitelist() {
+        let filter = ToolFilter::allow(vec!["echo".to_string(), "increment".to_string()]);
+        assert!(filter.is_enabled());
+        assert!(filter.is_allowed("echo"));
+        assert!(filter.is_allowed("increment"));
+        assert!(!filter.is_allowed("dangerous_tool"));
+    }
+
+    #[test]
+    fn test_tool_filter_blacklist() {
+        let filter = ToolFilter::deny(vec!["dangerous_tool".to_string()]);
+        assert!(filter.is_enabled());
+        assert!(filter.is_allowed("echo"));
+        assert!(!filter.is_allowed("dangerous_tool"));
+    }
+
+    #[test]
+    fn test_tool_filter_default_allows_all() {
+        let filter = ToolFilter::default();
+        assert!(!filter.is_enabled());
+        assert!(filter.is_allowed("any_tool"));
+        assert!(filter.is_allowed("another_tool"));
+    }
+
+    // ========== Streamable HTTP 集成测试：通过 stdio 连接 test_mcp_server ==========
+
+    #[tokio::test]
+    async fn test_proxy_handler_with_stdio_backend() {
+        use rmcp::{ServiceExt, model::ClientInfo};
+
+        // 1. 启动 test_mcp_server 作为 stdio 子进程
+        // rmcp-soddygo 1.1.1: TokioChildProcess::new() 返回 io::Result（同步）
+        let mut cmd = tokio::process::Command::new("cargo");
+        cmd.args([
+            "run",
+            "--example",
+            "test_mcp_server",
+            "-p",
+            "mcp-sse-proxy",
+            "-q",
+        ])
+        .stderr(std::process::Stdio::null());
+        let transport = match rmcp::transport::child_process::TokioChildProcess::new(cmd) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("Skipping integration test: cannot start test_mcp_server: {e}");
+                return;
+            }
+        };
+
+        // 2. 创建 MCP 客户端连接
+        // rmcp-soddygo 1.1.1: ClientInfo::new() 需要 (ClientCapabilities, Implementation) 两个参数
+        let client_info = ClientInfo::new(
+            rmcp::model::ClientCapabilities::builder().enable_roots().build(),
+            Implementation::new("test-client", "0.1.0"),
+        );
+
+        let running = match client_info.serve(transport).await {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("Skipping integration test: client handshake failed: {e}");
+                return;
+            }
+        };
+
+        // 3. 创建 ProxyHandler
+        let handler = ProxyHandler::with_tool_filter(
+            running,
+            "integration-test".to_string(),
+            ToolFilter::default(),
+        );
+
+        // 4. 验证后端可用
+        assert!(handler.is_backend_available(), "backend should be available after connection");
+        assert!(!handler.is_terminated(), "handler should not be terminated after connection");
+        assert_eq!(handler.get_backend_version(), 1);
+
+        // 5. 通过 Peer 直接调用 list_tools
+        {
+            let inner_guard = handler.peer.load();
+            let inner = inner_guard.as_ref().expect("backend should exist");
+            let result = inner.peer.list_tools(None).await;
+            assert!(result.is_ok(), "list_tools via peer should succeed");
+            let tools = &result.unwrap().tools;
+            assert_eq!(tools.len(), 4, "test_mcp_server should have 4 tools");
+        }
+
+        // 6. 通过 Peer 直接调用 call_tool (echo)
+        {
+            let inner_guard = handler.peer.load();
+            let inner = inner_guard.as_ref().expect("backend should exist");
+            let mut args = serde_json::Map::new();
+            args.insert("message".to_string(), serde_json::json!("hello"));
+            let result = inner.peer.call_tool(
+                CallToolRequestParams::new("echo").with_arguments(args)
+            ).await;
+            assert!(result.is_ok(), "call_tool echo should succeed");
+        }
+
+        // 7. swap_backend(None) 使后端不可用，版本号递增
+        let version_before = handler.get_backend_version();
+        handler.swap_backend(None);
+        assert!(!handler.is_backend_available(), "backend should be unavailable after swap_backend(None)");
+        assert!(handler.is_terminated(), "handler should be terminated after swap_backend(None)");
+        assert!(handler.get_backend_version() > version_before);
+    }
+}
+
