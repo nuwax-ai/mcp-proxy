@@ -1,6 +1,6 @@
 [package]
 name = "mcp-sse-proxy"
-version = "0.1.22"
+version = "0.1.23"
 edition = "2024"
 authors = ["nuwax-ai"]
 description = "SSE (Server-Sent Events) proxy implementation for MCP protocol using rmcp 0.10"
@@ -11,7 +11,7 @@ categories = ["web-programming", "network-programming"]
 
 [dependencies]
 # 共享类型和工具
-mcp-common = { version = "0.1.22", path = "../mcp-common" }
+mcp-common = { version = "0.1.23", path = "../mcp-common" }
 
 # MCP protocol implementation - using 0.10 for SSE support (removed in 0.12)
 # Note: rmcp 0.10 uses workspace dependencies, so we only specify transport features
