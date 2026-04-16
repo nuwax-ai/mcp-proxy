@@ -1047,21 +1047,55 @@ impl ServerHandler for BackendSessionHandler {
         request: Option<PaginatedRequestParam>,
         context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
+        let start = std::time::Instant::now();
+        info!(
+            "[BackendSessionHandler] list_tools request - MCP ID: {}",
+            self.mcp_id
+        );
+
         let params = serde_json::to_value(request).unwrap_or(serde_json::Value::Null);
         let backend = self.backend.clone();
 
         tokio::select! {
             result = backend.call_peer_method("tools/list", params) => {
+                let elapsed = start.elapsed();
                 match result {
                     Ok(value) => {
                         let result: ListToolsResult = serde_json::from_value(value)
-                            .map_err(|e| ErrorData::internal_error(format!("deserialize error: {}", e), None))?;
+                            .map_err(|e| {
+                                error!(
+                                    "[BackendSessionHandler] list_tools deserialize error \
+                                     - MCP ID: {}, error: {}, time: {}ms",
+                                    self.mcp_id, e, elapsed.as_millis()
+                                );
+                                ErrorData::internal_error(format!("deserialize error: {}", e), None)
+                            })?;
+                        info!(
+                            "[BackendSessionHandler] list_tools success \
+                             - MCP ID: {}, tools: {}, time: {}ms",
+                            self.mcp_id, result.tools.len(), elapsed.as_millis()
+                        );
+                        debug!(
+                            "[BackendSessionHandler] list_tools tool names: {:?}",
+                            result.tools.iter().map(|t| &t.name).collect::<Vec<_>>()
+                        );
                         Ok(result)
                     }
-                    Err(e) => Err(ErrorData::internal_error(e, None)),
+                    Err(e) => {
+                        error!(
+                            "[BackendSessionHandler] list_tools backend error \
+                             - MCP ID: {}, error: {}, time: {}ms",
+                            self.mcp_id, e, elapsed.as_millis()
+                        );
+                        Err(ErrorData::internal_error(e, None))
+                    }
                 }
             }
             _ = context.ct.cancelled() => {
+                warn!(
+                    "[BackendSessionHandler] list_tools cancelled - MCP ID: {}",
+                    self.mcp_id
+                );
                 Err(ErrorData::internal_error("Request cancelled".to_string(), None))
             }
         }
@@ -1072,22 +1106,60 @@ impl ServerHandler for BackendSessionHandler {
         request: CallToolRequestParam,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
+        let start = std::time::Instant::now();
+        info!(
+            "[BackendSessionHandler] call_tool request - MCP ID: {}, tool: {}, args: {:?}",
+            self.mcp_id, request.name, request.arguments
+        );
+
         let params = serde_json::to_value(&request)
             .map_err(|e| ErrorData::internal_error(format!("serialize error: {}", e), None))?;
         let backend = self.backend.clone();
 
         tokio::select! {
             result = backend.call_peer_method("tools/call", params) => {
+                let elapsed = start.elapsed();
                 match result {
                     Ok(value) => {
                         let result: CallToolResult = serde_json::from_value(value)
-                            .map_err(|e| ErrorData::internal_error(format!("deserialize error: {}", e), None))?;
+                            .map_err(|e| {
+                                error!(
+                                    "[BackendSessionHandler] call_tool deserialize error \
+                                     - MCP ID: {}, tool: {}, error: {}, time: {}ms",
+                                    self.mcp_id, request.name, e, elapsed.as_millis()
+                                );
+                                ErrorData::internal_error(format!("deserialize error: {}", e), None)
+                            })?;
+                        let is_error = result.is_error.unwrap_or(false);
+                        info!(
+                            "[BackendSessionHandler] call_tool response \
+                             - MCP ID: {}, tool: {}, is_error: {}, time: {}ms",
+                            self.mcp_id, request.name, is_error, elapsed.as_millis()
+                        );
+                        if is_error {
+                            debug!(
+                                "[BackendSessionHandler] call_tool error content: {:?}",
+                                result.content
+                            );
+                        }
                         Ok(result)
                     }
-                    Err(e) => Err(ErrorData::internal_error(e, None)),
+                    Err(e) => {
+                        error!(
+                            "[BackendSessionHandler] call_tool backend error \
+                             - MCP ID: {}, tool: {}, error: {}, time: {}ms",
+                            self.mcp_id, request.name, e, elapsed.as_millis()
+                        );
+                        Err(ErrorData::internal_error(e, None))
+                    }
                 }
             }
             _ = context.ct.cancelled() => {
+                warn!(
+                    "[BackendSessionHandler] call_tool cancelled \
+                     - MCP ID: {}, tool: {}",
+                    self.mcp_id, request.name
+                );
                 Err(ErrorData::internal_error("Request cancelled".to_string(), None))
             }
         }
