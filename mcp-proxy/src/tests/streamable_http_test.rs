@@ -323,9 +323,9 @@ async fn test_remote_mcp_proxy_e2e() {
     println!("--- Step 1: POST /mcp/sse/check_status (触发部署) ---");
 
     let check_status_body = serde_json::json!({
-        "mcp_id": "e2e-test-001",
-        "mcp_json_config": mcp_json_config,
-        "mcp_type": "OneShot"
+        "mcpId": "e2e-test-001",
+        "mcpJsonConfig": mcp_json_config,
+        "mcpType": "OneShot"
     });
 
     let resp = client
@@ -354,7 +354,7 @@ async fn test_remote_mcp_proxy_e2e() {
 
         let resp = client
             .get(format!(
-                "{}/mcp/sse/check_is_status/{}",
+                "{}/mcp/check/status/{}",
                 proxy_url, mcp_id
             ))
             .send()
