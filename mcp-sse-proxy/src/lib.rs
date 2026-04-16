@@ -43,7 +43,7 @@ pub use detector::{is_sse, is_sse_with_headers};
 // Re-export main types
 pub use mcp_common::McpServiceConfig;
 pub use server::{run_sse_server, run_sse_server_from_config};
-pub use sse_handler::{SseHandler, ToolFilter};
+pub use sse_handler::{BackendSessionHandler, SseHandler, SseServerHandler, ToolFilter};
 
 // Re-export server builder API
 pub use server_builder::{BackendConfig, SseServerBuilder, SseServerBuilderConfig};

@@ -71,7 +71,7 @@ impl ServerHandler for ProxyHandler {
         let inner = inner_guard.as_ref().ok_or_else(|| {
             error!("Backend connection is not available (reconnecting)");
             ErrorData::internal_error(
-                "Backend connection is not availabletemp/rust-sdk, reconnecting...".to_string(),
+                "Backend connection is not available, reconnecting...".to_string(),
                 None,
             )
         })?;
@@ -971,6 +971,14 @@ impl ProxyHandler {
         &self.mcp_id
     }
 
+    /// 获取后端 ServerInfo 的 JSON 表示
+    ///
+    /// 用于跨 rmcp 版本桥接：将 rmcp 1.4.0 的 ServerInfo 序列化为 JSON，
+    /// 供 rmcp 0.10 侧反序列化使用。
+    pub fn get_server_info_json(&self) -> serde_json::Value {
+        serde_json::to_value(&self.cached_info).unwrap_or_default()
+    }
+
     /// 获取当前后端版本号
     ///
     /// 版本号用于跟踪后端连接变化：
@@ -980,6 +988,90 @@ impl ProxyHandler {
     /// **用途**：配合 ProxyAwareSessionManager 实现 session 版本控制
     pub fn get_backend_version(&self) -> u64 {
         self.backend_version.load(Ordering::SeqCst)
+    }
+
+    /// 直接调用后端 peer 的方法（用于 BackendSession trait 实现）
+    ///
+    /// 这是一个低级接口，直接操作 peer 而不经过 ServerHandler 的封装
+    pub async fn call_peer_method(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        use rmcp::model::PaginatedRequestParams;
+
+        let inner_guard = self.peer.load();
+        let inner = inner_guard.as_ref().ok_or_else(|| {
+            "Backend connection is not available (reconnecting)".to_string()
+        })?;
+
+        if inner.peer.is_transport_closed() {
+            return Err("Backend transport is closed".to_string());
+        }
+
+        match method {
+            "tools/list" => {
+                let request: Option<PaginatedRequestParams> = serde_json::from_value(params).ok();
+                let result = inner.peer.list_tools(request).await
+                    .map_err(|e| format!("list_tools error: {:?}", e))?;
+                serde_json::to_value(result)
+                    .map_err(|e| format!("serialize error: {}", e))
+            }
+            "tools/call" => {
+                let request: rmcp::model::CallToolRequestParams = serde_json::from_value(params)
+                    .map_err(|e| format!("Invalid params for tools/call: {}", e))?;
+                let result = inner.peer.call_tool(request).await
+                    .map_err(|e| format!("call_tool error: {:?}", e))?;
+                serde_json::to_value(result)
+                    .map_err(|e| format!("serialize error: {}", e))
+            }
+            "resources/list" => {
+                let request: Option<PaginatedRequestParams> = serde_json::from_value(params).ok();
+                let result = inner.peer.list_resources(request).await
+                    .map_err(|e| format!("list_resources error: {:?}", e))?;
+                serde_json::to_value(result)
+                    .map_err(|e| format!("serialize error: {}", e))
+            }
+            "resources/read" => {
+                let request: rmcp::model::ReadResourceRequestParams = serde_json::from_value(params)
+                    .map_err(|e| format!("Invalid params for resources/read: {}", e))?;
+                let result = inner.peer.read_resource(request).await
+                    .map_err(|e| format!("read_resource error: {:?}", e))?;
+                serde_json::to_value(result)
+                    .map_err(|e| format!("serialize error: {}", e))
+            }
+            "prompts/list" => {
+                let request: Option<PaginatedRequestParams> = serde_json::from_value(params).ok();
+                let result = inner.peer.list_prompts(request).await
+                    .map_err(|e| format!("list_prompts error: {:?}", e))?;
+                serde_json::to_value(result)
+                    .map_err(|e| format!("serialize error: {}", e))
+            }
+            "prompts/get" => {
+                let request: rmcp::model::GetPromptRequestParams = serde_json::from_value(params)
+                    .map_err(|e| format!("Invalid params for prompts/get: {}", e))?;
+                let result = inner.peer.get_prompt(request).await
+                    .map_err(|e| format!("get_prompt error: {:?}", e))?;
+                serde_json::to_value(result)
+                    .map_err(|e| format!("serialize error: {}", e))
+            }
+            "resources/templates/list" => {
+                let request: Option<PaginatedRequestParams> = serde_json::from_value(params).ok();
+                let result = inner.peer.list_resource_templates(request).await
+                    .map_err(|e| format!("list_resource_templates error: {:?}", e))?;
+                serde_json::to_value(result)
+                    .map_err(|e| format!("serialize error: {}", e))
+            }
+            "completion/complete" => {
+                let request: rmcp::model::CompleteRequestParams = serde_json::from_value(params)
+                    .map_err(|e| format!("Invalid params for completion/complete: {}", e))?;
+                let result = inner.peer.complete(request).await
+                    .map_err(|e| format!("complete error: {:?}", e))?;
+                serde_json::to_value(result)
+                    .map_err(|e| format!("serialize error: {}", e))
+            }
+            _ => Err(format!("Unsupported method: {}", method)),
+        }
     }
 
     /// Update backend from a StreamClientConnection
@@ -1003,5 +1095,42 @@ impl ProxyHandler {
                 self.swap_backend(None);
             }
         }
+    }
+}
+
+impl mcp_common::BackendBridge for ProxyHandler {
+    fn mcp_id(&self) -> &str {
+        self.mcp_id()
+    }
+
+    fn get_server_info_json(&self) -> serde_json::Value {
+        self.get_server_info_json()
+    }
+
+    fn is_backend_available(&self) -> bool {
+        self.is_backend_available()
+    }
+
+    fn is_mcp_server_ready(
+        &self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>> {
+        Box::pin(self.is_mcp_server_ready())
+    }
+
+    fn is_terminated_async(
+        &self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>> {
+        Box::pin(self.is_terminated_async())
+    }
+
+    fn call_peer_method(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<serde_json::Value, String>> + Send + '_>,
+    > {
+        let method = method.to_string();
+        Box::pin(async move { ProxyHandler::call_peer_method(self, &method, params).await })
     }
 }

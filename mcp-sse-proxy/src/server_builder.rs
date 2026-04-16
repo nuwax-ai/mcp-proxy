@@ -4,6 +4,7 @@
 //! It encapsulates all rmcp-specific types and provides a simple interface for mcp-proxy.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -26,13 +27,13 @@ use rmcp::{
         SseClientTransport, TokioChildProcess,
         sse_client::SseClientConfig,
         sse_server::{SseServer, SseServerConfig},
-        streamable_http_client::{
-            StreamableHttpClientTransport, StreamableHttpClientTransportConfig,
-        },
     },
 };
 
-use crate::{SseHandler, ToolFilter};
+use crate::{
+    sse_handler::{BackendSessionHandler, SseServerHandler},
+    SseHandler, ToolFilter,
+};
 
 /// Performance warning threshold for stdio (child process) backend connections
 const STDIO_SLOW_THRESHOLD_SECS: u64 = 30;
@@ -43,7 +44,7 @@ const HTTP_SLOW_THRESHOLD_SECS: u64 = 10;
 /// Backend configuration for the MCP server
 ///
 /// Defines how the proxy connects to the upstream MCP service.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum BackendConfig {
     /// Connect to a local command via stdio
     Stdio {
@@ -61,14 +62,32 @@ pub enum BackendConfig {
         /// Custom HTTP headers (including Authorization)
         headers: Option<HashMap<String, String>>,
     },
-    /// Connect to a remote URL using Streamable HTTP protocol
-    /// (for protocol conversion: Stream backend -> SSE frontend)
-    StreamUrl {
-        /// URL of the MCP Streamable HTTP service
-        url: String,
-        /// Custom HTTP headers (including Authorization)
-        headers: Option<HashMap<String, String>>,
-    },
+    /// Use a pre-connected backend via BackendBridge trait
+    ///
+    /// The caller is responsible for establishing the backend connection and
+    /// passing it as an `Arc<dyn BackendBridge>`. This enables protocol conversion
+    /// (e.g., Streamable HTTP backend → SSE frontend) without this module
+    /// depending on the specific backend implementation.
+    BackendBridge(Arc<dyn mcp_common::BackendBridge>),
+}
+
+impl std::fmt::Debug for BackendConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BackendConfig::Stdio { command, args, .. } => f
+                .debug_struct("Stdio")
+                .field("command", command)
+                .field("args", args)
+                .finish(),
+            BackendConfig::SseUrl { url, .. } => {
+                f.debug_struct("SseUrl").field("url", url).finish()
+            }
+            BackendConfig::BackendBridge(bridge) => f
+                .debug_struct("BackendBridge")
+                .field("mcp_id", &bridge.mcp_id())
+                .finish(),
+        }
+    }
 }
 
 /// Configuration for the SSE server
@@ -218,12 +237,12 @@ impl SseServerBuilder {
         self
     }
 
-    /// Build the server and return an axum Router, CancellationToken, and SseHandler
+    /// Build the server and return an axum Router, CancellationToken, and handler
     ///
     /// The router can be merged with other axum routers or served directly.
     /// The CancellationToken can be used to gracefully shut down the service.
-    /// The SseHandler can be used for status checks and management.
-    pub async fn build(self) -> Result<(axum::Router, CancellationToken, SseHandler)> {
+    /// The handler is a unified type that can be either SseHandler or BackendSessionHandler.
+    pub async fn build(self) -> Result<(axum::Router, CancellationToken, SseServerHandler)> {
         let mcp_id = self
             .server_config
             .mcp_id
@@ -250,8 +269,22 @@ impl SseServerBuilder {
             BackendConfig::SseUrl { url, headers } => {
                 self.connect_sse_url(url, headers, &client_info).await?
             }
-            BackendConfig::StreamUrl { url, headers } => {
-                self.connect_stream_url(url, headers, &client_info).await?
+            BackendConfig::BackendBridge(bridge) => {
+                let handler = BackendSessionHandler::new(bridge.clone(), mcp_id.clone());
+                let (router, ct, handler_for_return) =
+                    self.create_server_with_backend_session(handler).await?;
+
+                info!(
+                    "[SseServerBuilder] Server created with backend bridge \
+                     - mcp_id: {}, sse_path: {}, post_path: {}",
+                    mcp_id, self.server_config.sse_path, self.server_config.post_path
+                );
+
+                return Ok((
+                    router,
+                    ct,
+                    SseServerHandler::BackendSession(handler_for_return),
+                ));
             }
         };
 
@@ -273,7 +306,7 @@ impl SseServerBuilder {
             mcp_id, self.server_config.sse_path, self.server_config.post_path
         );
 
-        Ok((router, ct, handler_for_return))
+        Ok((router, ct, SseServerHandler::Sse(handler_for_return)))
     }
 
     /// Connect to a stdio backend (child process)
@@ -450,85 +483,6 @@ impl SseServerBuilder {
         Ok(client)
     }
 
-    /// Connect to a Streamable HTTP URL backend
-    async fn connect_stream_url(
-        &self,
-        url: &str,
-        headers: &Option<HashMap<String, String>>,
-        client_info: &ClientInfo,
-    ) -> Result<rmcp::service::RunningService<rmcp::RoleClient, ClientInfo>> {
-        use std::time::Instant;
-
-        let start_time = Instant::now();
-        let mcp_id = self
-            .server_config
-            .mcp_id
-            .clone()
-            .unwrap_or_else(|| "unknown".into());
-
-        info!(
-            "[SseServerBuilder] Connecting to Streamable HTTP URL backend - MCP ID: {}, URL: {}",
-            mcp_id, url
-        );
-
-        // Build HTTP client with custom headers (excluding Authorization)
-        let mut req_headers = reqwest::header::HeaderMap::new();
-        let mut auth_header: Option<String> = None;
-
-        if let Some(config_headers) = headers {
-            for (key, value) in config_headers {
-                // Authorization header is handled separately by rmcp
-                if key.eq_ignore_ascii_case("Authorization") {
-                    auth_header = Some(value.strip_prefix("Bearer ").unwrap_or(value).to_string());
-                    continue;
-                }
-
-                req_headers.insert(
-                    reqwest::header::HeaderName::try_from(key)
-                        .map_err(|e| anyhow::anyhow!("Invalid header name '{}': {}", key, e))?,
-                    value.parse().map_err(|e| {
-                        anyhow::anyhow!("Invalid header value for '{}': {}", key, e)
-                    })?,
-                );
-            }
-        }
-
-        let http_client = reqwest::Client::builder()
-            .default_headers(req_headers)
-            .build()
-            .map_err(|e| anyhow::anyhow!("Failed to create HTTP client: {}", e))?;
-
-        // Create transport configuration
-        let config = StreamableHttpClientTransportConfig {
-            uri: url.to_string().into(),
-            auth_header,
-            ..Default::default()
-        };
-
-        // IMPORTANT: For Streamable HTTP backend, we must use LATEST protocol version,
-        // not the V_2024_11_05 used by SSE frontend. The backend (e.g., GuruMCP) may only
-        // support newer protocol versions and would fail with V_2024_11_05.
-        let mut backend_client_info = client_info.clone();
-        backend_client_info.protocol_version = ProtocolVersion::default();
-
-        let serve_start = Instant::now();
-        let transport = StreamableHttpClientTransport::with_client(http_client, config);
-        let client = backend_client_info.serve(transport).await?;
-        let serve_duration = serve_start.elapsed();
-        let total_duration = start_time.elapsed();
-
-        log_connection_timing(
-            &mcp_id,
-            "Streamable HTTP",
-            total_duration,
-            &[("serve", serve_duration)],
-            HTTP_SLOW_THRESHOLD_SECS,
-            "建议: 检查网络连接和后端服务状态",
-        );
-
-        Ok(client)
-    }
-
     /// Create the SSE server
     fn create_server(&self, sse_handler: SseHandler) -> Result<(axum::Router, CancellationToken)> {
         // SSE server uses bind address 0.0.0.0:0 since we're returning a router
@@ -554,6 +508,34 @@ impl SseServerBuilder {
         };
 
         Ok((router, ct))
+    }
+
+    /// Create SSE server with BackendSessionHandler (for StreamUrl backend)
+    async fn create_server_with_backend_session(
+        &self,
+        handler: BackendSessionHandler,
+    ) -> Result<(axum::Router, CancellationToken, BackendSessionHandler)> {
+        let config = SseServerConfig {
+            bind: "0.0.0.0:0".parse()?,
+            sse_path: self.server_config.sse_path.clone(),
+            post_path: self.server_config.post_path.clone(),
+            ct: CancellationToken::new(),
+            sse_keep_alive: Some(std::time::Duration::from_secs(
+                self.server_config.keep_alive_secs,
+            )),
+        };
+
+        let (sse_server, router) = SseServer::new(config);
+
+        // Clone handler before passing to closure since we need to return it
+        let handler_for_return = handler.clone();
+        let ct = if self.server_config.stateful {
+            sse_server.with_service(move || handler.clone())
+        } else {
+            sse_server.with_service_directly(move || handler.clone())
+        };
+
+        Ok((router, ct, handler_for_return))
     }
 }
 

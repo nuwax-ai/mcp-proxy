@@ -146,7 +146,14 @@ pub async fn integrate_server_with_axum(
             };
 
             // Build backend config for SSE
-            let backend_config = build_sse_backend_config(&mcp_config, backend_protocol)?;
+            let backend_config = if matches!(backend_protocol, McpProtocol::Stream) {
+                // Streamable HTTP backend: connect via mcp-streamable-proxy (rmcp 1.4.0),
+                // then pass as BackendBridge to decouple mcp-sse-proxy from mcp-streamable-proxy
+                let bridge = connect_stream_backend(&mcp_config, &mcp_id).await?;
+                SseBackendConfig::BackendBridge(bridge)
+            } else {
+                build_sse_backend_config(&mcp_config, backend_protocol)?
+            };
 
             debug!(
                 "Creating SSE server, sse_path={}, post_path={}",
@@ -278,6 +285,51 @@ pub async fn integrate_server_with_axum(
     Ok((router, ct))
 }
 
+/// Connect to a Streamable HTTP backend and return a BackendBridge
+///
+/// This lives in mcp-proxy (not mcp-sse-proxy) because it uses mcp-streamable-proxy types.
+/// The returned `Arc<dyn BackendBridge>` is protocol-agnostic, allowing mcp-sse-proxy
+/// to use it without depending on mcp-streamable-proxy.
+async fn connect_stream_backend(
+    mcp_config: &McpServerConfig,
+    mcp_id: &str,
+) -> Result<std::sync::Arc<dyn mcp_common::BackendBridge>> {
+    use crate::proxy::{StreamClientConnection, StreamProxyHandler};
+
+    let url_config = match mcp_config {
+        McpServerConfig::Url(url_config) => url_config,
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Stream backend requires URL-based config"
+            ))
+        }
+    };
+
+    let url = url_config.get_url();
+    info!(
+        "Connecting to Streamable HTTP backend (SSE frontend) \
+         - MCP ID: {}, URL: {}",
+        mcp_id, url
+    );
+
+    let mut config = mcp_common::McpClientConfig::new(url.to_string());
+    if let Some(ref headers) = url_config.headers {
+        for (k, v) in headers {
+            config = config.with_header(k, v);
+        }
+    }
+    // auth_token 合并到 Authorization header（与 build_sse_backend_config 逻辑一致）
+    if let Some(ref auth_token) = url_config.auth_token {
+        config = config.with_header("Authorization", auth_token);
+    }
+
+    let conn = StreamClientConnection::connect(config).await?;
+    let proxy_handler =
+        StreamProxyHandler::with_mcp_id(conn.into_running_service(), mcp_id.to_string());
+
+    Ok(std::sync::Arc::new(proxy_handler))
+}
+
 /// Build SSE backend configuration from MCP server config
 fn build_sse_backend_config(
     mcp_config: &McpServerConfig,
@@ -303,16 +355,10 @@ fn build_sse_backend_config(
                     headers: url_config.headers.clone(),
                 })
             }
-            McpProtocol::Stream => {
-                info!(
-                    "Connecting to Streamable HTTP backend (SSE frontend): {}",
-                    url_config.get_url()
-                );
-                Ok(SseBackendConfig::StreamUrl {
-                    url: url_config.get_url().to_string(),
-                    headers: url_config.headers.clone(),
-                })
-            }
+            McpProtocol::Stream => Err(anyhow::anyhow!(
+                "Stream backend should be handled via connect_stream_backend(), \
+                 not build_sse_backend_config()"
+            ))
         },
     }
 }

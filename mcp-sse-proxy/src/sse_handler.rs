@@ -66,7 +66,7 @@ impl ServerHandler for SseHandler {
         let inner = inner_guard.as_ref().ok_or_else(|| {
             error!("Backend connection is not available (reconnecting)");
             ErrorData::internal_error(
-                "Backend connection is not availabletemp/rust-sdk, reconnecting...".to_string(),
+                "Backend connection is not available, reconnecting...".to_string(),
                 None,
             )
         })?;
@@ -957,6 +957,488 @@ impl SseHandler {
             None => {
                 self.swap_backend(None);
             }
+        }
+    }
+}
+
+/// A handler that bridges an external backend to the SSE server
+///
+/// Uses the `BackendBridge` trait (defined in `mcp-common`) to communicate with
+/// any backend implementation (e.g., rmcp 1.4.0's ProxyHandler) without directly
+/// depending on the concrete type.
+#[derive(Clone)]
+pub struct BackendSessionHandler {
+    /// Backend connection via protocol-agnostic trait
+    backend: Arc<dyn mcp_common::BackendBridge>,
+    /// MCP ID for logging
+    mcp_id: String,
+    /// Cached server info (bridged from backend's rmcp version via JSON)
+    cached_info: rmcp::model::ServerInfo,
+}
+
+impl std::fmt::Debug for BackendSessionHandler {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BackendSessionHandler")
+            .field("mcp_id", &self.mcp_id)
+            .field("cached_info", &self.cached_info)
+            .finish()
+    }
+}
+
+impl BackendSessionHandler {
+    pub fn new(backend: Arc<dyn mcp_common::BackendBridge>, mcp_id: String) -> Self {
+        // 从后端获取 ServerInfo（JSON 桥接跨 rmcp 版本）
+        // 这确保 SSE 客户端能看到后端实际支持的 capabilities（tools、resources 等）
+        let backend_info_json = backend.get_server_info_json();
+        let cached_info: rmcp::model::ServerInfo =
+            serde_json::from_value(backend_info_json).unwrap_or_else(|e| {
+                warn!(
+                    "[BackendSessionHandler] Failed to deserialize backend ServerInfo: {}, \
+                     using default - MCP ID: {}",
+                    e, mcp_id
+                );
+                rmcp::model::ServerInfo::default()
+            });
+
+        info!(
+            "[BackendSessionHandler] Created with backend capabilities - MCP ID: {}, \
+             tools: {}, resources: {}, prompts: {}",
+            mcp_id,
+            cached_info.capabilities.tools.is_some(),
+            cached_info.capabilities.resources.is_some(),
+            cached_info.capabilities.prompts.is_some(),
+        );
+
+        Self {
+            backend,
+            mcp_id,
+            cached_info,
+        }
+    }
+
+    /// 获取 MCP ID
+    pub fn mcp_id(&self) -> &str {
+        &self.mcp_id
+    }
+
+    /// 检查后端是否可用（快速检查，不发送请求）
+    pub fn is_backend_available(&self) -> bool {
+        self.backend.is_backend_available()
+    }
+
+    /// 检查 mcp 服务是否正常（异步版本，会发送验证请求）
+    pub async fn is_mcp_server_ready(&self) -> bool {
+        self.backend.is_mcp_server_ready().await
+    }
+
+    /// 异步检查后端连接是否已断开（会发送验证请求）
+    pub async fn is_terminated_async(&self) -> bool {
+        self.backend.is_terminated_async().await
+    }
+}
+
+impl ServerHandler for BackendSessionHandler {
+    fn get_info(&self) -> rmcp::model::ServerInfo {
+        self.cached_info.clone()
+    }
+
+    async fn list_tools(
+        &self,
+        request: Option<PaginatedRequestParam>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<ListToolsResult, ErrorData> {
+        let params = serde_json::to_value(request).unwrap_or(serde_json::Value::Null);
+        let backend = self.backend.clone();
+
+        tokio::select! {
+            result = backend.call_peer_method("tools/list", params) => {
+                match result {
+                    Ok(value) => {
+                        let result: ListToolsResult = serde_json::from_value(value)
+                            .map_err(|e| ErrorData::internal_error(format!("deserialize error: {}", e), None))?;
+                        Ok(result)
+                    }
+                    Err(e) => Err(ErrorData::internal_error(e, None)),
+                }
+            }
+            _ = context.ct.cancelled() => {
+                Err(ErrorData::internal_error("Request cancelled".to_string(), None))
+            }
+        }
+    }
+
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParam,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let params = serde_json::to_value(&request)
+            .map_err(|e| ErrorData::internal_error(format!("serialize error: {}", e), None))?;
+        let backend = self.backend.clone();
+
+        tokio::select! {
+            result = backend.call_peer_method("tools/call", params) => {
+                match result {
+                    Ok(value) => {
+                        let result: CallToolResult = serde_json::from_value(value)
+                            .map_err(|e| ErrorData::internal_error(format!("deserialize error: {}", e), None))?;
+                        Ok(result)
+                    }
+                    Err(e) => Err(ErrorData::internal_error(e, None)),
+                }
+            }
+            _ = context.ct.cancelled() => {
+                Err(ErrorData::internal_error("Request cancelled".to_string(), None))
+            }
+        }
+    }
+
+    async fn list_resources(
+        &self,
+        request: Option<PaginatedRequestParam>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::ListResourcesResult, ErrorData> {
+        let params = serde_json::to_value(request).unwrap_or(serde_json::Value::Null);
+        let backend = self.backend.clone();
+
+        tokio::select! {
+            result = backend.call_peer_method("resources/list", params) => {
+                match result {
+                    Ok(value) => {
+                        let result: rmcp::model::ListResourcesResult = serde_json::from_value(value)
+                            .map_err(|e| ErrorData::internal_error(format!("deserialize error: {}", e), None))?;
+                        Ok(result)
+                    }
+                    Err(e) => Err(ErrorData::internal_error(e, None)),
+                }
+            }
+            _ = context.ct.cancelled() => {
+                Err(ErrorData::internal_error("Request cancelled".to_string(), None))
+            }
+        }
+    }
+
+    async fn read_resource(
+        &self,
+        request: rmcp::model::ReadResourceRequestParam,
+        context: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::ReadResourceResult, ErrorData> {
+        let params = serde_json::to_value(&request)
+            .map_err(|e| ErrorData::internal_error(format!("serialize error: {}", e), None))?;
+
+        tokio::select! {
+            result = self.backend.call_peer_method("resources/read", params) => {
+                match result {
+                    Ok(value) => {
+                        let result: rmcp::model::ReadResourceResult = serde_json::from_value(value)
+                            .map_err(|e| ErrorData::internal_error(format!("deserialize error: {}", e), None))?;
+                        Ok(result)
+                    }
+                    Err(e) => Err(ErrorData::internal_error(e, None)),
+                }
+            }
+            _ = context.ct.cancelled() => {
+                Err(ErrorData::internal_error("Request cancelled".to_string(), None))
+            }
+        }
+    }
+
+    async fn list_resource_templates(
+        &self,
+        request: Option<PaginatedRequestParam>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::ListResourceTemplatesResult, ErrorData> {
+        let params = serde_json::to_value(request).unwrap_or(serde_json::Value::Null);
+        let backend = self.backend.clone();
+
+        tokio::select! {
+            result = backend.call_peer_method("resources/templates/list", params) => {
+                match result {
+                    Ok(value) => {
+                        serde_json::from_value(value)
+                            .map_err(|e| ErrorData::internal_error(format!("deserialize error: {}", e), None))
+                    }
+                    Err(e) => Err(ErrorData::internal_error(e, None)),
+                }
+            }
+            _ = context.ct.cancelled() => {
+                Err(ErrorData::internal_error("Request cancelled".to_string(), None))
+            }
+        }
+    }
+
+    async fn list_prompts(
+        &self,
+        request: Option<PaginatedRequestParam>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::ListPromptsResult, ErrorData> {
+        let params = serde_json::to_value(request).unwrap_or(serde_json::Value::Null);
+        let backend = self.backend.clone();
+
+        tokio::select! {
+            result = backend.call_peer_method("prompts/list", params) => {
+                match result {
+                    Ok(value) => {
+                        serde_json::from_value(value)
+                            .map_err(|e| ErrorData::internal_error(format!("deserialize error: {}", e), None))
+                    }
+                    Err(e) => Err(ErrorData::internal_error(e, None)),
+                }
+            }
+            _ = context.ct.cancelled() => {
+                Err(ErrorData::internal_error("Request cancelled".to_string(), None))
+            }
+        }
+    }
+
+    async fn get_prompt(
+        &self,
+        request: rmcp::model::GetPromptRequestParam,
+        context: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::GetPromptResult, ErrorData> {
+        let params = serde_json::to_value(&request)
+            .map_err(|e| ErrorData::internal_error(format!("serialize error: {}", e), None))?;
+        let backend = self.backend.clone();
+
+        tokio::select! {
+            result = backend.call_peer_method("prompts/get", params) => {
+                match result {
+                    Ok(value) => {
+                        serde_json::from_value(value)
+                            .map_err(|e| ErrorData::internal_error(format!("deserialize error: {}", e), None))
+                    }
+                    Err(e) => Err(ErrorData::internal_error(e, None)),
+                }
+            }
+            _ = context.ct.cancelled() => {
+                Err(ErrorData::internal_error("Request cancelled".to_string(), None))
+            }
+        }
+    }
+
+    async fn complete(
+        &self,
+        request: rmcp::model::CompleteRequestParam,
+        context: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::CompleteResult, ErrorData> {
+        let params = serde_json::to_value(&request)
+            .map_err(|e| ErrorData::internal_error(format!("serialize error: {}", e), None))?;
+        let backend = self.backend.clone();
+
+        tokio::select! {
+            result = backend.call_peer_method("completion/complete", params) => {
+                match result {
+                    Ok(value) => {
+                        serde_json::from_value(value)
+                            .map_err(|e| ErrorData::internal_error(format!("deserialize error: {}", e), None))
+                    }
+                    Err(e) => Err(ErrorData::internal_error(e, None)),
+                }
+            }
+            _ = context.ct.cancelled() => {
+                Err(ErrorData::internal_error("Request cancelled".to_string(), None))
+            }
+        }
+    }
+
+    async fn on_progress(
+        &self,
+        _notification: rmcp::model::ProgressNotificationParam,
+        _context: NotificationContext<RoleServer>,
+    ) {
+        // TODO: Notification forwarding requires extending BackendBridge trait
+        // with a send_notification() method. For now, notifications are logged
+        // but not forwarded to the Streamable HTTP backend.
+        debug!(
+            "[BackendSessionHandler] Received progress notification (not forwarded) \
+             - MCP ID: {}",
+            self.mcp_id
+        );
+    }
+
+    async fn on_cancelled(
+        &self,
+        _notification: rmcp::model::CancelledNotificationParam,
+        _context: NotificationContext<RoleServer>,
+    ) {
+        // TODO: Same as on_progress — requires BackendBridge extension to forward
+        warn!(
+            "[BackendSessionHandler] Received cancelled notification (not forwarded) \
+             - MCP ID: {}",
+            self.mcp_id
+        );
+    }
+}
+
+/// Unified handler enum for SSE server
+///
+/// This enum wraps either `SseHandler` (for Stdio/SSE URL backends) or
+/// `BackendSessionHandler` (for Streamable HTTP backends), providing a
+/// common type that implements `ServerHandler` trait.
+///
+/// Both handler types have the same underlying functionality but use different
+/// MCP client implementations:
+/// - `SseHandler` uses rmcp 0.10 `Peer<RoleClient>` directly
+/// - `BackendSessionHandler` delegates to `ProxyHandler` from mcp-streamable-proxy (rmcp 1.4.0)
+#[derive(Clone, Debug)]
+pub enum SseServerHandler {
+    /// Standard SSE handler for Stdio/SSE URL backends
+    Sse(SseHandler),
+    /// Backend session handler for Streamable HTTP backends
+    BackendSession(BackendSessionHandler),
+}
+
+impl ServerHandler for SseServerHandler {
+    fn get_info(&self) -> ServerInfo {
+        match self {
+            SseServerHandler::Sse(h) => h.get_info(),
+            SseServerHandler::BackendSession(h) => h.get_info(),
+        }
+    }
+
+    async fn list_tools(
+        &self,
+        request: Option<PaginatedRequestParam>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<ListToolsResult, ErrorData> {
+        match self {
+            SseServerHandler::Sse(h) => h.list_tools(request, context).await,
+            SseServerHandler::BackendSession(h) => h.list_tools(request, context).await,
+        }
+    }
+
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParam,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        match self {
+            SseServerHandler::Sse(h) => h.call_tool(request, context).await,
+            SseServerHandler::BackendSession(h) => h.call_tool(request, context).await,
+        }
+    }
+
+    async fn list_resources(
+        &self,
+        request: Option<PaginatedRequestParam>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::ListResourcesResult, ErrorData> {
+        match self {
+            SseServerHandler::Sse(h) => h.list_resources(request, context).await,
+            SseServerHandler::BackendSession(h) => h.list_resources(request, context).await,
+        }
+    }
+
+    async fn read_resource(
+        &self,
+        request: rmcp::model::ReadResourceRequestParam,
+        context: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::ReadResourceResult, ErrorData> {
+        match self {
+            SseServerHandler::Sse(h) => h.read_resource(request, context).await,
+            SseServerHandler::BackendSession(h) => h.read_resource(request, context).await,
+        }
+    }
+
+    async fn list_resource_templates(
+        &self,
+        request: Option<PaginatedRequestParam>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::ListResourceTemplatesResult, ErrorData> {
+        match self {
+            SseServerHandler::Sse(h) => h.list_resource_templates(request, context).await,
+            SseServerHandler::BackendSession(h) => {
+                h.list_resource_templates(request, context).await
+            }
+        }
+    }
+
+    async fn list_prompts(
+        &self,
+        request: Option<PaginatedRequestParam>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::ListPromptsResult, ErrorData> {
+        match self {
+            SseServerHandler::Sse(h) => h.list_prompts(request, context).await,
+            SseServerHandler::BackendSession(h) => h.list_prompts(request, context).await,
+        }
+    }
+
+    async fn get_prompt(
+        &self,
+        request: rmcp::model::GetPromptRequestParam,
+        context: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::GetPromptResult, ErrorData> {
+        match self {
+            SseServerHandler::Sse(h) => h.get_prompt(request, context).await,
+            SseServerHandler::BackendSession(h) => h.get_prompt(request, context).await,
+        }
+    }
+
+    async fn complete(
+        &self,
+        request: rmcp::model::CompleteRequestParam,
+        context: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::CompleteResult, ErrorData> {
+        match self {
+            SseServerHandler::Sse(h) => h.complete(request, context).await,
+            SseServerHandler::BackendSession(h) => h.complete(request, context).await,
+        }
+    }
+
+    async fn on_progress(
+        &self,
+        notification: rmcp::model::ProgressNotificationParam,
+        context: NotificationContext<RoleServer>,
+    ) {
+        match self {
+            SseServerHandler::Sse(h) => h.on_progress(notification, context).await,
+            SseServerHandler::BackendSession(h) => h.on_progress(notification, context).await,
+        }
+    }
+
+    async fn on_cancelled(
+        &self,
+        notification: rmcp::model::CancelledNotificationParam,
+        context: NotificationContext<RoleServer>,
+    ) {
+        match self {
+            SseServerHandler::Sse(h) => h.on_cancelled(notification, context).await,
+            SseServerHandler::BackendSession(h) => h.on_cancelled(notification, context).await,
+        }
+    }
+}
+
+impl SseServerHandler {
+    /// 获取 MCP ID
+    pub fn mcp_id(&self) -> &str {
+        match self {
+            SseServerHandler::Sse(h) => h.mcp_id(),
+            SseServerHandler::BackendSession(h) => h.mcp_id(),
+        }
+    }
+
+    /// 检查后端是否可用（快速检查，不发送请求）
+    pub fn is_backend_available(&self) -> bool {
+        match self {
+            SseServerHandler::Sse(h) => h.is_backend_available(),
+            SseServerHandler::BackendSession(h) => h.is_backend_available(),
+        }
+    }
+
+    /// 检查 mcp 服务是否正常（异步版本，会发送验证请求）
+    pub async fn is_mcp_server_ready(&self) -> bool {
+        match self {
+            SseServerHandler::Sse(h) => h.is_mcp_server_ready().await,
+            SseServerHandler::BackendSession(h) => h.is_mcp_server_ready().await,
+        }
+    }
+
+    /// 异步检查后端连接是否已断开（会发送验证请求）
+    pub async fn is_terminated_async(&self) -> bool {
+        match self {
+            SseServerHandler::Sse(h) => h.is_terminated_async().await,
+            SseServerHandler::BackendSession(h) => h.is_terminated_async().await,
         }
     }
 }

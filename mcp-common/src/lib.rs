@@ -31,6 +31,7 @@ extern crate rust_i18n;
 // 初始化翻译文件，使用 crate 内置 locales（支持独立发布）
 i18n!("locales", fallback = "en");
 
+pub mod backend_bridge;
 pub mod client_config;
 pub mod config;
 pub mod diagnostic;
@@ -43,6 +44,7 @@ pub mod tool_filter;
 pub mod telemetry;
 
 // Re-export main types
+pub use backend_bridge::BackendBridge;
 pub use client_config::McpClientConfig;
 pub use config::McpServiceConfig;
 pub use process_compat::check_windows_command;
