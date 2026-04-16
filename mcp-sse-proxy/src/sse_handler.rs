@@ -990,7 +990,7 @@ impl BackendSessionHandler {
         // 从后端获取 ServerInfo（JSON 桥接跨 rmcp 版本）
         // 这确保 SSE 客户端能看到后端实际支持的 capabilities（tools、resources 等）
         let backend_info_json = backend.get_server_info_json();
-        let cached_info: rmcp::model::ServerInfo =
+        let mut cached_info: rmcp::model::ServerInfo =
             serde_json::from_value(backend_info_json).unwrap_or_else(|e| {
                 warn!(
                     "[BackendSessionHandler] Failed to deserialize backend ServerInfo: {}, \
@@ -999,6 +999,17 @@ impl BackendSessionHandler {
                 );
                 rmcp::model::ServerInfo::default()
             });
+
+        // 关键：强制覆盖 protocol_version 为 SSE 客户端支持的版本
+        // 因为前端是 SSE 协议（rmcp 0.10），后端可能返回更新的版本（如 2025-06-18）
+        // Java SSE SDK 等客户端只支持旧版本，若透传新版本会导致握手失败
+        let backend_version = cached_info.protocol_version.clone();
+        cached_info.protocol_version = rmcp::model::ProtocolVersion::V_2024_11_05;
+        info!(
+            "[BackendSessionHandler] Override protocol_version: backend={:?} → SSE={:?} \
+             - MCP ID: {}",
+            backend_version, cached_info.protocol_version, mcp_id
+        );
 
         info!(
             "[BackendSessionHandler] Created with backend capabilities - MCP ID: {}, \
