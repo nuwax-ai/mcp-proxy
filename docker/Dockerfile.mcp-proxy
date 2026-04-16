@@ -5,7 +5,7 @@
 # ==============================================================================
 # 第一阶段：构建阶段
 # ==============================================================================
-FROM rust:1.90 AS builder
+FROM rust:1.92 AS builder
 
 # 设置环境变量避免交互式提示
 ENV DEBIAN_FRONTEND=noninteractive
@@ -58,7 +58,7 @@ RUN cargo build --release --bin mcp-proxy
 # ==============================================================================
 # 第二阶段：运行阶段
 # ==============================================================================
-FROM rust:1.90 AS runtime
+FROM rust:1.92 AS runtime
 
 # 设置环境变量
 ENV DEBIAN_FRONTEND=noninteractive
@@ -66,7 +66,7 @@ ENV TZ=Asia/Shanghai
 ENV PATH="/root/.deno/bin:/root/.cargo/bin:/root/.local/bin:${PATH}"
 ENV UV_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
 
-# 安装基础依赖（与线上环境保持一致）
+# 安装基础依赖
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-venv \
@@ -79,29 +79,30 @@ RUN apt-get update && apt-get install -y \
     telnet \
     wget \
     ffmpeg \
-    ca-certificates \
-    libssl3 \
     && rm -rf /var/lib/apt/lists/* \
     && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime \
     && echo $TZ > /etc/timezone
 
-# 安装 Node.js 22.x（与线上环境保持一致）
+# 安装 Node.js
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y nodejs \
-    && npm install -g npm@latest
+    && apt-get install -y nodejs
 
-# ==============================================================================
+
 # 安装 Deno
-# ==============================================================================
 RUN curl -fsSL https://deno.land/install.sh | sh
 
-# ==============================================================================
+
+# 添加uv到PATH
+ENV PATH="/root/.local/bin:${PATH}"
+
 # 安装 uv
-# ==============================================================================
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    /root/.local/bin/uv --version
 
 # 创建虚拟环境
 RUN uv venv
+# 设置 uv 镜像加速地址
+ENV UV_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
 
 # ==============================================================================
 # 应用配置
