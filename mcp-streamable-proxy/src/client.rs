@@ -127,11 +127,8 @@ impl StreamClientConnection {
             Duration::from_secs(60), // 最大间隔 60 秒
         );
 
-        let transport_config = StreamableHttpClientTransportConfig {
-            uri: config.url.clone().into(),
-            retry_config: Arc::new(retry_policy),
-            ..Default::default()
-        };
+        let mut transport_config = StreamableHttpClientTransportConfig::with_uri(config.url.clone());
+        transport_config.retry_config = Arc::new(retry_policy);
 
         let transport = StreamableHttpClientTransport::with_client(http_client, transport_config);
 

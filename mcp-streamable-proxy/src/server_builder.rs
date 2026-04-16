@@ -295,11 +295,8 @@ impl StreamServerBuilder {
             .map_err(|e| anyhow::anyhow!("Failed to create HTTP client: {}", e))?;
 
         // Create transport configuration
-        let config = StreamableHttpClientTransportConfig {
-            uri: url.to_string().into(),
-            auth_header,
-            ..Default::default()
-        };
+        let mut config = StreamableHttpClientTransportConfig::with_uri(url.to_string());
+        config.auth_header = auth_header;
 
         let transport = StreamableHttpClientTransport::with_client(http_client, config);
         let client = client_info.clone().serve(transport).await?;
@@ -321,13 +318,12 @@ impl StreamServerBuilder {
             let session_manager = ProxyAwareSessionManager::new(handler.clone());
             let handler_for_service = handler.clone();
 
+            let mut server_config = StreamableHttpServerConfig::default();
+            server_config.stateful_mode = true;
             let service = StreamableHttpService::new(
                 move || Ok((*handler_for_service).clone()),
                 session_manager.into(),
-                StreamableHttpServerConfig {
-                    stateful_mode: true,
-                    ..Default::default()
-                },
+                server_config,
             );
 
             let router = axum::Router::new().fallback_service(service);
@@ -338,13 +334,11 @@ impl StreamServerBuilder {
 
             let handler_for_service = handler.clone();
 
+            let server_config = StreamableHttpServerConfig::default(); // stateless mode
             let service = StreamableHttpService::new(
                 move || Ok((*handler_for_service).clone()),
                 LocalSessionManager::default().into(),
-                StreamableHttpServerConfig {
-                    stateful_mode: false,
-                    ..Default::default()
-                },
+                server_config,
             );
 
             let router = axum::Router::new().fallback_service(service);

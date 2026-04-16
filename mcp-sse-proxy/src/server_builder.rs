@@ -505,9 +505,15 @@ impl SseServerBuilder {
             ..Default::default()
         };
 
+        // IMPORTANT: For Streamable HTTP backend, we must use LATEST protocol version,
+        // not the V_2024_11_05 used by SSE frontend. The backend (e.g., GuruMCP) may only
+        // support newer protocol versions and would fail with V_2024_11_05.
+        let mut backend_client_info = client_info.clone();
+        backend_client_info.protocol_version = ProtocolVersion::default();
+
         let serve_start = Instant::now();
         let transport = StreamableHttpClientTransport::with_client(http_client, config);
-        let client = client_info.clone().serve(transport).await?;
+        let client = backend_client_info.serve(transport).await?;
         let serve_duration = serve_start.elapsed();
         let total_duration = start_time.elapsed();
 

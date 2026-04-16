@@ -10,3 +10,7 @@ pub mod coze_mcp_test;
 // Protocol detection tests - SSE vs Streamable HTTP
 #[cfg(test)]
 pub mod protocol_detection_test;
+
+// Streamable HTTP configuration parsing and protocol detection tests
+#[cfg(test)]
+pub mod streamable_http_test;

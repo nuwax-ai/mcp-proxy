@@ -231,13 +231,12 @@ pub async fn run_stream_server(
     // 创建 Streamable HTTP 服务
     // service factory 每次请求都会调用，返回 handler 的克隆
     let handler_for_service = handler.clone();
+    let mut server_config = StreamableHttpServerConfig::default();
+    server_config.stateful_mode = true; // 关键：启用有状态模式
     let service = StreamableHttpService::new(
         move || Ok((*handler_for_service).clone()),
         session_manager.into(), // 转换为 Arc<dyn SessionManager>
-        StreamableHttpServerConfig {
-            stateful_mode: true, // 关键：启用有状态模式
-            ..Default::default()
-        },
+        server_config,
     );
 
     // Streamable HTTP 直接在根路径提供服务
