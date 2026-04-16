@@ -124,7 +124,7 @@ pub async fn handle_embed(
         None, // 使用模型默认的 max_length
     )
     .map_err(|e| {
-        tracing::error!("模型初始化失败: {}", e);
+        tracing::error!("Model initialization failed: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
@@ -142,7 +142,7 @@ pub async fn handle_embed(
     let embeddings = model_guard
         .embed(req.texts.clone(), Some(batch_size))
         .map_err(|e| {
-            tracing::error!("嵌入计算失败: {}", e);
+            tracing::error!("Embedding calculation failed: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {

@@ -118,9 +118,9 @@ impl SseClientConnection {
     /// * `Err` - Connection failed
     pub async fn connect(config: McpClientConfig) -> Result<Self> {
         let start = Instant::now();
-        info!("🔗 开始建立 SSE 连接: {}", config.url);
+        info!("🔗 Start establishing SSE connection: {}", config.url);
 
-        debug!("构建 HTTP 客户端配置...");
+        debug!("Building the HTTP client configuration...");
         let http_client = build_http_client(&config)?;
 
         // 配置指数退避重试策略，最大间隔 1 分钟，不限制重试次数
@@ -136,16 +136,19 @@ impl SseClientConnection {
             ..Default::default()
         };
 
-        debug!("启动 SSE 传输层...");
+        debug!("Starting the SSE transport layer...");
         let transport: SseClientTransport<reqwest::Client> =
             SseClientTransport::start_with_client(http_client, sse_config)
                 .await
                 .context("Failed to start SSE transport")?;
 
         let transport_elapsed = start.elapsed();
-        debug!("SSE 传输层启动完成，耗时: {:?}", transport_elapsed);
+        debug!(
+            "SSE transport layer startup completed, time taken: {:?}",
+            transport_elapsed
+        );
 
-        debug!("初始化 MCP 客户端握手...");
+        debug!("Initializing MCP client handshake...");
         let client_info = create_default_client_info();
         let running = client_info
             .serve(transport)
@@ -160,12 +163,12 @@ impl SseClientConnection {
             let transport_closed = running.deref().is_transport_closed();
             let peer_info = running.peer_info();
             info!(
-                "✅ SSE 连接建立成功 - 总耗时: {:?}, transport_closed: {}, peer_info: {:?}",
+                "✅ SSE connection established successfully - total time taken: {:?}, transport_closed: {}, peer_info: {:?}",
                 total_elapsed, transport_closed, peer_info
             );
             if let Some(info) = peer_info {
                 info!(
-                    "   服务器信息: name={}, version={}, capabilities={:?}",
+                    "Server information: name={}, version={}, capabilities={:?}",
                     info.server_info.name, info.server_info.version, info.capabilities
                 );
             }

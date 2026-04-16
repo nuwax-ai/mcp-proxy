@@ -106,16 +106,14 @@ impl TranscriptionEngine {
             }),
         )
         .await
-        .map_err(|_| VoiceCliError::TranscriptionTimeout(timeout_secs))?
+        .map_err(|_| VoiceCliError::transcription_timeout(timeout_secs))?
         .map_err(|e| {
             if e.is_panic() {
-                VoiceCliError::TranscriptionFailed("Whisper transcription panicked".to_string())
+                VoiceCliError::transcription_failed("Whisper transcription panicked")
             } else if e.is_cancelled() {
-                VoiceCliError::TranscriptionFailed(
-                    "Whisper transcription was cancelled".to_string(),
-                )
+                VoiceCliError::transcription_failed("Whisper transcription was cancelled")
             } else {
-                VoiceCliError::TranscriptionFailed(format!(
+                VoiceCliError::transcription_failed(format!(
                     "Whisper transcription join error: {}",
                     e
                 ))

@@ -106,11 +106,11 @@ impl ServerHandler for ProxyHandler {
 
                                 // 记录工具列表结果，这些结果会通过 SSE 推送给客户端
                                 info!(
-                                    "[list_tools] 工具列表结果 - MCP ID: {}, 工具数量: {}{}",
+                                    "[list_tools] Tool list results - MCP ID: {}, number of tools: {}{}",
                                     self.mcp_id,
                                     filtered_tools.len(),
                                     if self.tool_filter.is_enabled() {
-                                        " (已过滤)"
+                                        " (filtered)"
                                     } else {
                                         ""
                                     }
@@ -136,7 +136,7 @@ impl ServerHandler for ProxyHandler {
                         }
                     }
                     _ = context.ct.cancelled() => {
-                        info!("[list_tools] 请求被取消 - MCP ID: {}", self.mcp_id);
+                        info!("[list_tools] Request canceled - MCP ID: {}", self.mcp_id);
                         Err(ErrorData::internal_error(
                             "Request cancelled".to_string(),
                             None,
@@ -167,14 +167,14 @@ impl ServerHandler for ProxyHandler {
         let start = Instant::now();
 
         info!(
-            "[call_tool:{}] 开始 - 工具: {}, MCP ID: {}",
+            "[call_tool:{}] Start - Tool: {}, MCP ID: {}",
             request_id, request.name, self.mcp_id
         );
 
         // 首先检查工具是否被过滤
         if !self.tool_filter.is_allowed(&request.name) {
             info!(
-                "[call_tool:{}] 工具被过滤 - MCP ID: {}, 工具: {}",
+                "[call_tool:{}] Tool is filtered - MCP ID: {}, Tool: {}",
                 request_id, self.mcp_id, request.name
             );
             return Ok(CallToolResult::error(vec![Content::text(format!(
@@ -189,14 +189,14 @@ impl ServerHandler for ProxyHandler {
             Some(inner) => {
                 let transport_closed = inner.peer.is_transport_closed();
                 info!(
-                    "[call_tool:{}] 后端连接存在 - transport_closed: {}",
+                    "[call_tool:{}] Backend connection exists - transport_closed: {}",
                     request_id, transport_closed
                 );
                 inner
             }
             None => {
                 error!(
-                    "[call_tool:{}] 后端连接不可用 (正在重连) - MCP ID: {}",
+                    "[call_tool:{}] Backend connection unavailable (reconnecting) - MCP ID: {}",
                     request_id, self.mcp_id
                 );
                 return Ok(CallToolResult::error(vec![Content::text(
@@ -208,7 +208,7 @@ impl ServerHandler for ProxyHandler {
         // 检查后端连接是否已关闭
         if inner.peer.is_transport_closed() {
             error!(
-                "[call_tool:{}] 后端 transport 已关闭 - MCP ID: {}",
+                "[call_tool:{}] Backend transport is closed - MCP ID: {}",
                 request_id, self.mcp_id
             );
             return Ok(CallToolResult::error(vec![Content::text(
@@ -221,7 +221,7 @@ impl ServerHandler for ProxyHandler {
             Some(_) => {
                 // 记录发送请求到后端的时间点
                 info!(
-                    "[call_tool:{}] 发送请求到后端... - 工具: {}, 已耗时: {}ms",
+                    "[call_tool:{}] Send request to backend... - Tool: {}, Elapsed time: {}ms",
                     request_id,
                     request.name,
                     start.elapsed().as_millis()
@@ -249,7 +249,7 @@ impl ServerHandler for ProxyHandler {
                         _ = context.ct.cancelled() => {
                             let elapsed = start.elapsed();
                             warn!(
-                                "[call_tool:{}] 请求被取消 - 工具: {}, 耗时: {}ms, MCP ID: {}",
+                                "[call_tool:{}] Request canceled - Tool: {}, Time taken: {}ms, MCP ID: {}",
                                 request_id, request.name, elapsed.as_millis(), self.mcp_id
                             );
                             return Ok(CallToolResult::error(vec![Content::text(
@@ -261,8 +261,7 @@ impl ServerHandler for ProxyHandler {
                             let elapsed = start.elapsed();
                             let transport_closed = inner.peer.is_transport_closed();
                             info!(
-                                "[call_tool:{}] 等待后端响应中... - 工具: {}, 已等待: {}ms, \
-                                transport_closed: {}, MCP ID: {}",
+                                "[call_tool:{}] Waiting for backend response... - Tool: {}, Waiting: {}ms, \\ transport_closed: {}, MCP ID: {}",
                                 request_id, request.name, elapsed.as_millis(),
                                 transport_closed, self.mcp_id
                             );
@@ -276,7 +275,7 @@ impl ServerHandler for ProxyHandler {
                         // 记录工具调用结果
                         let is_error = call_result.is_error.unwrap_or(false);
                         info!(
-                            "[call_tool:{}] 收到响应 - 工具: {}, 耗时: {}ms, is_error: {}, MCP ID: {}",
+                            "[call_tool:{}] Response received - tool: {}, time taken: {}ms, is_error: {}, MCP ID: {}",
                             request_id,
                             request.name,
                             elapsed.as_millis(),
@@ -285,7 +284,7 @@ impl ServerHandler for ProxyHandler {
                         );
                         if is_error {
                             debug!(
-                                "[call_tool:{}] 错误响应内容: {:?}",
+                                "[call_tool:{}] Error response content: {:?}",
                                 request_id, call_result.content
                             );
                         }
@@ -293,7 +292,7 @@ impl ServerHandler for ProxyHandler {
                     }
                     Err(err) => {
                         error!(
-                            "[call_tool:{}] 后端返回错误 - 工具: {}, 耗时: {}ms, 错误: {:?}, MCP ID: {}",
+                            "[call_tool:{}] Backend returns error - Tool: {}, Time: {}ms, Error: {:?}, MCP ID: {}",
                             request_id,
                             request.name,
                             elapsed.as_millis(),
@@ -309,7 +308,7 @@ impl ServerHandler for ProxyHandler {
             }
             None => {
                 error!(
-                    "[call_tool:{}] 服务器不支持 tools capability - MCP ID: {}",
+                    "[call_tool:{}] The server does not support tools capability - MCP ID: {}",
                     request_id, self.mcp_id
                 );
                 Ok(CallToolResult::error(vec![Content::text(
@@ -320,7 +319,7 @@ impl ServerHandler for ProxyHandler {
 
         let total_elapsed = start.elapsed();
         info!(
-            "[call_tool:{}] 完成 - 工具: {}, 总耗时: {}ms",
+            "[call_tool:{}] Completed - Tool: {}, total time taken: {}ms",
             request_id,
             request.name,
             total_elapsed.as_millis()
@@ -361,7 +360,7 @@ impl ServerHandler for ProxyHandler {
                             Ok(result) => {
                                 // 记录资源列表结果，这些结果会通过 SSE 推送给客户端
                                 info!(
-                                    "[list_resources] 资源列表结果 - MCP ID: {}, 资源数量: {}",
+                                    "[list_resources] Resource list results - MCP ID: {}, resource quantity: {}",
                                     self.mcp_id,
                                     result.resources.len()
                                 );
@@ -379,7 +378,7 @@ impl ServerHandler for ProxyHandler {
                         }
                     }
                     _ = context.ct.cancelled() => {
-                        info!("[list_resources] 请求被取消 - MCP ID: {}", self.mcp_id);
+                        info!("[list_resources] Request canceled - MCP ID: {}", self.mcp_id);
                         Err(ErrorData::internal_error(
                             "Request cancelled".to_string(),
                             None,
@@ -428,7 +427,7 @@ impl ServerHandler for ProxyHandler {
                             Ok(result) => {
                                 // 记录资源读取结果，这些结果会通过 SSE 推送给客户端
                                 info!(
-                                    "[read_resource] 资源读取结果 - MCP ID: {}, URI: {}",
+                                    "[read_resource] Resource read result - MCP ID: {}, URI: {}",
                                     self.mcp_id, request.uri
                                 );
 
@@ -445,7 +444,7 @@ impl ServerHandler for ProxyHandler {
                         }
                     }
                     _ = context.ct.cancelled() => {
-                        info!("[read_resource] 请求被取消 - MCP ID: {}, URI: {}", self.mcp_id, request.uri);
+                        info!("[read_resource] Request canceled - MCP ID: {}, URI: {}", self.mcp_id, request.uri);
                         Err(ErrorData::internal_error(
                             "Request cancelled".to_string(),
                             None,
@@ -505,7 +504,7 @@ impl ServerHandler for ProxyHandler {
                         }
                     }
                     _ = context.ct.cancelled() => {
-                        info!("[list_resource_templates] 请求被取消 - MCP ID: {}", self.mcp_id);
+                        info!("[list_resource_templates] request canceled - MCP ID: {}", self.mcp_id);
                         Err(ErrorData::internal_error(
                             "Request cancelled".to_string(),
                             None,
@@ -565,7 +564,7 @@ impl ServerHandler for ProxyHandler {
                         }
                     }
                     _ = context.ct.cancelled() => {
-                        info!("[list_prompts] 请求被取消 - MCP ID: {}", self.mcp_id);
+                        info!("[list_prompts] Request canceled - MCP ID: {}", self.mcp_id);
                         Err(ErrorData::internal_error(
                             "Request cancelled".to_string(),
                             None,
@@ -625,7 +624,7 @@ impl ServerHandler for ProxyHandler {
                         }
                     }
                     _ = context.ct.cancelled() => {
-                        info!("[get_prompt] 请求被取消 - MCP ID: {}, prompt: {:?}", self.mcp_id, request.name);
+                        info!("[get_prompt] Request canceled - MCP ID: {}, prompt: {:?}", self.mcp_id, request.name);
                         Err(ErrorData::internal_error(
                             "Request cancelled".to_string(),
                             None,
@@ -683,7 +682,7 @@ impl ServerHandler for ProxyHandler {
                 }
             }
             _ = context.ct.cancelled() => {
-                info!("[complete] 请求被取消 - MCP ID: {}", self.mcp_id);
+                info!("[complete] Request canceled - MCP ID: {}", self.mcp_id);
                 Err(ErrorData::internal_error(
                     "Request cancelled".to_string(),
                     None,
@@ -766,7 +765,10 @@ impl ProxyHandler {
 
     /// 创建一个默认的 ServerInfo（用于断开状态）
     fn default_server_info(mcp_id: &str) -> ServerInfo {
-        warn!("[ProxyHandler] 创建默认 ServerInfo - MCP ID: {}", mcp_id);
+        warn!(
+            "[ProxyHandler] Create default ServerInfo - MCP ID: {}",
+            mcp_id
+        );
         ServerInfo::new(rmcp::model::ServerCapabilities::default())
             .with_server_info(Implementation::new("MCP Proxy", "0.1.0"))
     }
@@ -797,19 +799,22 @@ impl ProxyHandler {
         tool_filter: ToolFilter,
         default_info: ServerInfo,
     ) -> Self {
-        info!("[ProxyHandler] 创建断开状态的 handler - MCP ID: {}", mcp_id);
+        info!(
+            "[ProxyHandler] Create a disconnected handler - MCP ID: {}",
+            mcp_id
+        );
 
         // 记录过滤器配置
         if tool_filter.is_enabled() {
             if let Some(ref allow_list) = tool_filter.allow_tools {
                 info!(
-                    "[ProxyHandler] 工具白名单已启用 - MCP ID: {}, 允许的工具: {:?}",
+                    "[ProxyHandler] Tool whitelist enabled - MCP ID: {}, allowed tools: {:?}",
                     mcp_id, allow_list
                 );
             }
             if let Some(ref deny_list) = tool_filter.deny_tools {
                 info!(
-                    "[ProxyHandler] 工具黑名单已启用 - MCP ID: {}, 排除的工具: {:?}",
+                    "[ProxyHandler] Tool blacklist enabled - MCP ID: {}, excluded tools: {:?}",
                     mcp_id, deny_list
                 );
             }
@@ -850,13 +855,13 @@ impl ProxyHandler {
         if tool_filter.is_enabled() {
             if let Some(ref allow_list) = tool_filter.allow_tools {
                 info!(
-                    "[ProxyHandler] 工具白名单已启用 - MCP ID: {}, 允许的工具: {:?}",
+                    "[ProxyHandler] Tool whitelist enabled - MCP ID: {}, allowed tools: {:?}",
                     mcp_id, allow_list
                 );
             }
             if let Some(ref deny_list) = tool_filter.deny_tools {
                 info!(
-                    "[ProxyHandler] 工具黑名单已启用 - MCP ID: {}, 排除的工具: {:?}",
+                    "[ProxyHandler] Tool blacklist enabled - MCP ID: {}, excluded tools: {:?}",
                     mcp_id, deny_list
                 );
             }
@@ -893,18 +898,24 @@ impl ProxyHandler {
                     _running: Arc::new(client),
                 };
                 self.peer.store(Some(Arc::new(inner)));
-                info!("[ProxyHandler] 后端连接已更新 - MCP ID: {}", self.mcp_id);
+                info!(
+                    "[ProxyHandler] Backend connection updated - MCP ID: {}",
+                    self.mcp_id
+                );
             }
             None => {
                 self.peer.store(None);
-                info!("[ProxyHandler] 后端连接已断开 - MCP ID: {}", self.mcp_id);
+                info!(
+                    "[ProxyHandler] Backend connection disconnected - MCP ID: {}",
+                    self.mcp_id
+                );
             }
         }
 
         // 关键：递增版本号，使所有旧 session 失效
         let new_version = self.backend_version.fetch_add(1, Ordering::SeqCst) + 1;
         info!(
-            "[ProxyHandler] 后端版本更新: {} - MCP ID: {}",
+            "[ProxyHandler] Backend version update: {} - MCP ID: {}",
             new_version, self.mcp_id
         );
     }
@@ -945,11 +956,11 @@ impl ProxyHandler {
         // 通过发送轻量级请求来验证连接
         match inner.peer.list_tools(None).await {
             Ok(_) => {
-                debug!("后端连接状态检查: 正常");
+                debug!("Backend connection status check: OK");
                 false
             }
             Err(e) => {
-                info!("后端连接状态检查: 已断开，原因: {e}");
+                info!("Backend connection status check: Disconnected, reason: {e}");
                 true
             }
         }

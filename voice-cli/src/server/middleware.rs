@@ -169,6 +169,8 @@ pub async fn request_logging_middleware(request: Request, next: Next) -> Respons
 
 /// 检查是否为Multipart请求
 fn is_multipart_request(method: &Method, uri: &Uri, headers: &HeaderMap) -> bool {
+    let _ = method;
+    let _ = uri;
     // 检查Content-Type是否包含multipart
     if let Some(content_type) = headers.get("content-type") {
         if let Ok(content_type_str) = content_type.to_str() {
@@ -256,6 +258,7 @@ async fn extract_body_params(request: Request) -> (Value, Request) {
 }
 
 /// 检查是否为文件上传请求（保留原有逻辑以兼容）
+#[allow(dead_code)]
 fn is_file_upload_request(method: &Method, uri: &Uri, headers: &HeaderMap) -> bool {
     // 检查是否为POST方法
     if method != Method::POST {

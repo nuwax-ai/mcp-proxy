@@ -154,12 +154,12 @@ impl DualEngineParser {
     pub async fn health_check(&self) -> Result<(), AppError> {
         // 检查MinerU解析器
         if let Err(e) = self.mineru_parser.health_check().await {
-            log::warn!("MinerU解析器健康检查失败: {e}");
+            log::warn!("MinerU resolver health check failed: {e}");
         }
 
         // 检查MarkItDown解析器
         if let Err(e) = self.markitdown_parser.health_check().await {
-            log::warn!("MarkItDown解析器健康检查失败: {e}");
+            log::warn!("MarkItDown parser health check failed: {e}");
         }
 
         Ok(())

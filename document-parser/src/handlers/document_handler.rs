@@ -17,7 +17,6 @@ use std::collections::HashMap;
 use std::path::Path;
 use tokio::fs::File;
 use tokio::io::{AsyncWriteExt, BufWriter};
-use tokio_stream::StreamExt;
 use tracing::{error, info, warn};
 use utoipa::ToSchema;
 
@@ -193,11 +192,11 @@ pub async fn upload_document(
     Query(params): Query<UploadDocumentRequest>,
     mut multipart: Multipart,
 ) -> impl axum::response::IntoResponse {
-    info!("文档上传请求开始: {:?}", params);
+    info!("Document upload request starts: {:?}", params);
 
     // 1. 验证请求参数
     if let Err(e) = validate_upload_request(&params) {
-        error!("上传请求参数验证失败: {}", e);
+        error!("Upload request parameter verification failed: {}", e);
         return ApiResponse::from_app_error::<UploadResponse>(e).into_response();
     }
 
@@ -217,7 +216,7 @@ pub async fn upload_document(
     {
         Ok(task) => task,
         Err(e) => {
-            error!("任务创建失败: {}", e);
+            error!("Task creation failed: {}", e);
             return ApiResponse::from_app_error::<UploadResponse>(e).into_response();
         }
     };
@@ -240,11 +239,11 @@ pub async fn upload_document(
     let (file_path, original_filename, file_size, detected_format) = match upload_result {
         Ok(Ok(result)) => result,
         Ok(Err(e)) => {
-            error!("文件上传处理失败: {}", e);
+            error!("File upload processing failed: {}", e);
             return ApiResponse::from_app_error::<UploadResponse>(e).into_response();
         }
         Err(_) => {
-            error!("文件上传超时");
+            error!("File upload timeout");
             return ApiResponse::error_with_status::<UploadResponse>(
                 "UPLOAD_TIMEOUT".to_string(),
                 "文件上传超时".to_string(),
@@ -259,17 +258,17 @@ pub async fn upload_document(
 
     // 5. 验证格式兼容性
     if let Err(e) = RequestValidator::validate_document_format(&document_format) {
-        error!("文档格式验证失败: {}", e);
+        error!("Document format verification failed: {}", e);
         let _ = cleanup_temp_file(&file_path).await;
         return ApiResponse::from_app_error::<UploadResponse>(e).into_response();
     }
 
     // 6. 验证TOC配置
-    let (enable_toc, max_toc_depth) =
+    let (_enable_toc, _max_toc_depth) =
         match RequestValidator::validate_toc_config(params.enable_toc, params.max_toc_depth) {
             Ok(config) => config,
             Err(e) => {
-                error!("TOC配置验证失败: {}", e);
+                error!("TOC configuration verification failed: {}", e);
                 let _ = cleanup_temp_file(&file_path).await;
                 return ApiResponse::from_app_error::<UploadResponse>(e).into_response();
             }
@@ -289,7 +288,7 @@ pub async fn upload_document(
         )
         .await
     {
-        error!("更新任务信息失败: {}", e);
+        error!("Failed to update task information: {}", e);
         let _ = cleanup_temp_file(&file_path).await;
         return ApiResponse::from_app_error::<UploadResponse>(e).into_response();
     }
@@ -301,7 +300,7 @@ pub async fn upload_document(
             .set_task_bucket_dir(&task_id, Some(dir.clone()))
             .await
         {
-            warn!("保存 bucket_dir 失败: {}", e);
+            warn!("Failed to save bucket_dir: {}", e);
         }
     }
 
@@ -312,20 +311,23 @@ pub async fn upload_document(
         .set_task_file_info(&task_id, Some(file_size), Some(mime_type))
         .await
     {
-        error!("更新任务文件信息失败: {}", e);
+        error!("Failed to update task file information: {}", e);
         let _ = cleanup_temp_file(&file_path).await;
         return ApiResponse::from_app_error::<UploadResponse>(e).into_response();
     }
 
     // 10. 入队由 worker 池处理
     if let Err(e) = state.task_queue.enqueue_task(task_id.clone(), 1).await {
-        error!("入队任务失败: {}", e);
+        error!("Failed to join the team: {}", e);
         let _ = cleanup_temp_file(&file_path).await;
         return ApiResponse::from_app_error::<UploadResponse>(e).into_response();
     }
 
     let sanitized_filename = FileNameSanitizer::sanitize(&original_filename).unwrap_or_else(|_| {
-        warn!("文件名清理失败，使用原始文件名: {}", original_filename);
+        warn!(
+            "Filename sanitization failed, original filename used: {}",
+            original_filename
+        );
         original_filename.clone()
     });
 
@@ -342,11 +344,15 @@ pub async fn upload_document(
         },
     };
 
-    info!("文档上传完成，解析任务已在后台启动: task_id={}", task_id);
+    info!(
+        "The document upload is completed and the parsing task has been started in the background: task_id={}",
+        task_id
+    );
     ApiResponse::success_with_status(response, StatusCode::ACCEPTED).into_response()
 }
 
 /// 处理multipart文件上传
+#[allow(dead_code)]
 async fn process_multipart_upload_streaming(
     multipart: &mut Multipart,
     config: &UploadConfig,
@@ -398,7 +404,7 @@ async fn process_multipart_upload_streaming_with_task_id(
             )?;
 
             info!(
-                "开始处理上传文件: {} (清理后: {})",
+                "Start processing the uploaded file: {} (after cleaning: {})",
                 filename, sanitized_filename
             );
 
@@ -482,7 +488,7 @@ async fn stream_write_file_with_validation(
         if total_size >= next_progress_report {
             let progress = (total_size * 100) / max_size;
             info!(
-                "文件上传进度: {}% ({} / {} 字节)",
+                "File upload progress: {}% ({} / {} bytes)",
                 progress, total_size, max_size
             );
             next_progress_report += progress_interval;
@@ -511,7 +517,7 @@ async fn stream_write_file_with_validation(
         detect_document_format_enhanced(file_path, first_chunk.as_deref(), expected_extension)?;
 
     info!(
-        "文件上传完成: {} 字节, {} 个块, 格式: {:?}",
+        "File upload completed: {} bytes, {} blocks, format: {:?}",
         total_size, chunk_count, detected_format
     );
 
@@ -583,7 +589,7 @@ fn detect_document_format_enhanced(
     // 3. 验证格式一致性
     if !formats_compatible(&extension_format, &content_format) {
         warn!(
-            "文件扩展名与内容格式不匹配: {:?} vs {:?}",
+            "File extension and content format mismatch: {:?} vs {:?}",
             extension_format, content_format
         );
 
@@ -756,11 +762,12 @@ fn detect_text_format(data: &[u8]) -> Result<DocumentFormat, AppError> {
 /// 清理临时文件
 async fn cleanup_temp_file(file_path: &str) {
     if let Err(e) = tokio::fs::remove_file(file_path).await {
-        warn!("清理临时文件失败: {} - {}", file_path, e);
+        warn!("Failed to clean up temporary files: {} - {}", file_path, e);
     }
 }
 
 /// 检查URL下载是否支持该格式
+#[allow(dead_code)]
 fn is_format_supported_for_url(format: &DocumentFormat) -> bool {
     matches!(
         format,
@@ -773,6 +780,7 @@ fn is_format_supported_for_url(format: &DocumentFormat) -> bool {
 }
 
 /// 检查OSS是否支持该格式
+#[allow(dead_code)]
 fn is_format_supported_for_oss(format: &DocumentFormat) -> bool {
     matches!(
         format,
@@ -807,11 +815,11 @@ pub async fn download_document_from_url(
     State(state): State<AppState>,
     Json(request): Json<DownloadDocumentRequest>,
 ) -> impl axum::response::IntoResponse {
-    info!("URL文档下载请求开始: {:?}", request);
+    info!("URL document download request starts: {:?}", request);
 
     // 验证URL格式（但不改变编码状态）
     if let Err(e) = RequestValidator::validate_url_format(&request.url) {
-        error!("URL验证失败: {}", e);
+        error!("URL verification failed: {}", e);
         return ApiResponse::from_app_error::<DocumentParseResponse>(e).into_response();
     }
 
@@ -819,7 +827,7 @@ pub async fn download_document_from_url(
     let original_url = &request.url;
 
     // 验证TOC配置
-    let (enable_toc, max_toc_depth) =
+    let (_enable_toc, _max_toc_depth) =
         match RequestValidator::validate_toc_config(request.enable_toc, request.max_toc_depth) {
             Ok(config) => config,
             Err(e) => {
@@ -840,7 +848,7 @@ pub async fn download_document_from_url(
     {
         Ok(task) => task,
         Err(e) => {
-            error!("创建任务失败: {}", e);
+            error!("Failed to create task: {}", e);
             return ApiResponse::from_app_error::<DocumentParseResponse>(e).into_response();
         }
     };
@@ -852,17 +860,17 @@ pub async fn download_document_from_url(
             .set_task_bucket_dir(&task.id, Some(dir.clone()))
             .await
         {
-            warn!("保存 bucket_dir 失败: {}", e);
+            warn!("Failed to save bucket_dir: {}", e);
         }
     }
 
     // 入队由 worker 池处理
     if let Err(e) = state.task_queue.enqueue_task(task.id.clone(), 1).await {
-        error!("URL任务入队失败: {}", e);
+        error!("URL task enqueue failed: {}", e);
         return ApiResponse::from_app_error::<DocumentParseResponse>(e).into_response();
     }
 
-    info!("URL文档下载任务已启动: {}", task.id);
+    info!("URL document download task has been started: {}", task.id);
 
     let response = DocumentParseResponse {
         task_id: task.id,
@@ -887,7 +895,7 @@ pub async fn generate_structured_document(
     State(state): State<AppState>,
     Json(request): Json<GenerateStructuredDocumentRequest>,
 ) -> impl axum::response::IntoResponse {
-    info!("生成结构化文档请求开始");
+    info!("Generate structured document request starts");
 
     // 验证Markdown内容
     if let Err(e) = RequestValidator::validate_markdown_content(&request.markdown_content) {
@@ -895,7 +903,7 @@ pub async fn generate_structured_document(
     }
 
     // 验证TOC配置
-    let (enable_toc, max_toc_depth) =
+    let (_enable_toc, _max_toc_depth) =
         match RequestValidator::validate_toc_config(request.enable_toc, request.max_toc_depth) {
             Ok(config) => config,
             Err(e) => {
@@ -913,14 +921,14 @@ pub async fn generate_structured_document(
         .await
     {
         Ok(document) => {
-            info!("结构化文档生成成功");
+            info!("Structured document generated successfully");
 
             let response = StructuredDocumentResponse { document };
 
             ApiResponse::success(response).into_response()
         }
         Err(e) => {
-            error!("结构化文档生成失败: {}", e);
+            error!("Structured document generation failed: {}", e);
             ApiResponse::from_app_error::<StructuredDocumentResponse>(e.into()).into_response()
         }
     }
@@ -1006,7 +1014,7 @@ pub async fn check_parser_health(State(state): State<AppState>) -> impl IntoResp
     match state.document_service.check_parser_health().await {
         Ok(health_status) => ApiResponse::success(health_status).into_response(),
         Err(e) => {
-            error!("检查解析器健康状态失败: {}", e);
+            error!("Failed to check parser health status: {}", e);
             ApiResponse::from_app_error::<HashMap<String, bool>>(e.into()).into_response()
         }
     }
@@ -1069,6 +1077,7 @@ fn validate_upload_request(params: &UploadDocumentRequest) -> Result<(), AppErro
 }
 
 /// 从URL检测文档格式
+#[allow(dead_code)]
 fn detect_format_from_url(url: &str) -> Option<DocumentFormat> {
     // 从URL路径中提取文件扩展名
     let path = url.split('?').next().unwrap_or(url); // 移除查询参数

@@ -33,7 +33,7 @@ pub async fn check_mcp_is_status_handler(
             )),
         }
     } else {
-        warn!("mcp_id: {mcp_id} 不存在");
+        warn!("mcp_id: {mcp_id} does not exist");
         Ok(HttpResult::success(
             CheckMcpStatusResponseParams::new(
                 false,

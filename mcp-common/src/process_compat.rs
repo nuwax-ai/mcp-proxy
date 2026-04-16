@@ -64,23 +64,25 @@ pub fn check_windows_command(command: &str) {
     match cmd_ext.as_deref() {
         Some("cmd" | "bat") => {
             warn!(
-                "[MCP] Windows 检测到 .cmd/.bat 命令: {} - 可能会弹 CMD 窗口！",
+                "[MCP] Windows detected .cmd/.bat command: {} - CMD window may pop up!",
                 command
             );
-            warn!("[MCP] 建议改用 node.exe 直接运行 JS 文件，或在配置中使用完整路径");
+            warn!(
+                "[MCP] It is recommended to use node.exe to run the JS file directly, or use the full path in the configuration"
+            );
         }
         None => {
             // 无扩展名，检查是否是 npx 命令
             if command.contains("npx") {
                 warn!(
-                    "[MCP] Windows 检测到 npx 命令: {} - 可能会弹 CMD 窗口！",
+                    "[MCP] Windows detects npx command: {} - CMD window may pop up!",
                     command
                 );
-                warn!("[MCP] 建议改用 node.exe 直接运行 JS 文件");
+                warn!("[MCP] It is recommended to use node.exe to run JS files directly");
             }
         }
         _ => {
-            info!("[MCP] Windows 检测到命令格式: {}", command);
+            info!("[MCP] Windows detected command format: {}", command);
         }
     }
 }
@@ -148,7 +150,7 @@ pub fn resolve_windows_command(command: &str) -> String {
             let full_path = Path::new(dir).join(format!("{}{}", command, ext));
             if full_path.exists() {
                 tracing::debug!(
-                    "[MCP] Windows 命令解析: {} -> {}",
+                    "[MCP] Windows command analysis: {} -> {}",
                     command,
                     full_path.display()
                 );
@@ -203,7 +205,7 @@ pub fn ensure_runtime_path(path: &str) -> String {
             let result = merged.join(sep);
             if result != path {
                 tracing::info!(
-                    "[ProcessCompat] 前置应用内置运行时到 PATH: {}",
+                    "[ProcessCompat] Front-end application built-in runtime to PATH: {}",
                     runtime_path
                 );
             }
@@ -338,17 +340,17 @@ where
             match reader.read_line(&mut line).await {
                 Ok(0) => {
                     // EOF - stderr 已关闭
-                    tracing::debug!("[子进程 stderr][{}] 读取结束 (EOF)", service_name);
+                    tracing::debug!("[Subprocess stderr][{}] End of read (EOF)", service_name);
                     break;
                 }
                 Ok(_) => {
                     let trimmed = line.trim();
                     if !trimmed.is_empty() {
-                        tracing::warn!("[子进程 stderr][{}] {}", service_name, trimmed);
+                        tracing::warn!("[child process stderr][{}] {}", service_name, trimmed);
                     }
                 }
                 Err(e) => {
-                    tracing::debug!("[子进程 stderr][{}] 读取错误: {}", service_name, e);
+                    tracing::debug!("[Subprocess stderr][{}] Read error: {}", service_name, e);
                     break;
                 }
             }

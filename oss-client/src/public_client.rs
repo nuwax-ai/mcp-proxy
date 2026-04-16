@@ -60,7 +60,7 @@ impl PublicOssClient {
     /// );
     /// let client = PublicOssClient::new(config)?;
     /// let url = client.generate_public_download_url("documents/manual.pdf")?;
-    /// println!("公开下载URL: {}", url);
+    /// println!("Public download URL: {}", url);
     /// # Ok::<(), oss_client::OssError>(())
     /// ```
     pub fn generate_public_download_url(&self, object_key: &str) -> Result<String> {
@@ -70,7 +70,7 @@ impl PublicOssClient {
         // 使用公有bucket生成公开URL
         let url = format!("{}/{}", self.get_base_url(), prefixed_key);
         let url = utils::replace_oss_domain(&url);
-        info!("生成公有bucket公开下载URL: {}", url);
+        info!("Generate public bucket public download URL: {}", url);
         Ok(url)
     }
 
@@ -96,7 +96,7 @@ impl PublicOssClient {
     /// );
     /// let client = PublicOssClient::new(config)?;
     /// let url = client.generate_public_access_url("images/logo.png")?;
-    /// println!("公开访问URL: {}", url);
+    /// println!("Public access URL: {}", url);
     /// # Ok::<(), oss_client::OssError>(())
     /// ```
     pub fn generate_public_access_url(&self, object_key: &str) -> Result<String> {
@@ -106,7 +106,7 @@ impl PublicOssClient {
         // 使用公有bucket生成公开URL
         let url = format!("{}/{}", self.get_base_url(), prefixed_key);
         let url = utils::replace_oss_domain(&url);
-        info!("生成公有bucket公开访问URL: {}", url);
+        info!("Generate public bucket public access URL: {}", url);
         Ok(url)
     }
 
@@ -150,7 +150,10 @@ impl PublicOssClient {
             url_map.insert(key.to_string(), url);
         }
 
-        info!("批量生成公有bucket公开URL，共{}个", object_keys.len());
+        info!(
+            "Generate public bucket public URLs in batches, totaling {}",
+            object_keys.len()
+        );
         Ok(url_map)
     }
 
@@ -225,13 +228,13 @@ impl PublicOssClient {
             }
 
             info!(
-                "获取公有bucket文件元信息: {} -> {}个字段",
+                "Get public bucket file meta information: {} -> {} fields",
                 prefixed_key,
                 metadata.len()
             );
             Ok(Some(metadata))
         } else {
-            info!("公有bucket文件不存在: {}", prefixed_key);
+            info!("The public bucket file does not exist: {}", prefixed_key);
             Ok(None)
         }
     }
@@ -377,12 +380,13 @@ impl OssClientTrait for PublicOssClient {
         let prefixed_key = self.config.get_prefixed_key(object_key);
 
         // 创建临时文件
-        let temp_file = tempfile::NamedTempFile::new().map_err(OssError::Io)?;
+        let temp_file =
+            tempfile::NamedTempFile::new().map_err(|e| OssError::io_error(e.to_string()))?;
 
         // 写入内容到临时文件
         tokio::fs::write(temp_file.path(), content)
             .await
-            .map_err(OssError::Io)?;
+            .map_err(|e| OssError::io_error(e.to_string()))?;
 
         // 创建OSS客户端（使用公有bucket）
         let oss_client = OSS::new(
@@ -456,7 +460,7 @@ impl OssClientTrait for PublicOssClient {
         match oss_client.get_object_metadata(&prefixed_key, builder).await {
             Ok(_) => Ok(true),
             Err(e) => {
-                warn!("检查文件存在性失败: {}", e);
+                warn!("File existence check failed: {}", e);
                 Ok(false)
             }
         }

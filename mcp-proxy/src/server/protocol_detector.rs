@@ -39,16 +39,19 @@ pub async fn detect_mcp_protocol_with_headers(
     url: &str,
     headers: Option<&HashMap<String, String>>,
 ) -> Result<McpProtocol> {
-    info!("开始自动检测 MCP 服务协议: {}", url);
+    info!(
+        "Start automatically detecting MCP service protocol: {}",
+        url
+    );
 
     // Try SSE first
     if is_sse_with_headers(url, headers).await {
-        info!("检测到 SSE 协议: {}", url);
+        info!("SSE protocol detected: {}", url);
         return Ok(McpProtocol::Sse);
     }
 
     // Default to Streamable HTTP (modern MCP standard)
-    info!("默认使用 Streamable HTTP 协议: {}", url);
+    info!("Default uses Streamable HTTP protocol: {}", url);
     Ok(McpProtocol::Stream)
 }
 

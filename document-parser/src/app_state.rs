@@ -66,7 +66,10 @@ impl AppState {
             match oss_client::PrivateOssClient::new(private_oss_config) {
                 Ok(client) => Some(Arc::new(client)),
                 Err(e) => {
-                    tracing::warn!("初始化私有OSS客户端失败，将跳过私有客户端: {}", e);
+                    tracing::warn!(
+                        "Failed to initialize private OSS client, private client will be skipped: {}",
+                        e
+                    );
                     None
                 }
             };
@@ -74,11 +77,16 @@ impl AppState {
         // 初始化解析器 - 优先使用自动检测虚拟环境，回退到配置
         let dual_parser = match DualEngineParser::with_auto_venv_detection() {
             Ok(parser) => {
-                tracing::info!("使用自动检测的虚拟环境初始化解析器");
+                tracing::info!(
+                    "Initialize the parser using an automatically detected virtual environment"
+                );
                 parser
             }
             Err(e) => {
-                tracing::warn!("自动检测虚拟环境失败，回退到配置: {}", e);
+                tracing::warn!(
+                    "Automatic detection of virtual environment failed and fell back to configuration: {}",
+                    e
+                );
                 DualEngineParser::with_timeout(
                     &config.mineru,
                     &config.markitdown,
@@ -215,7 +223,7 @@ impl AppState {
                     }
                 }
                 Err(e) => {
-                    log::warn!("读取任务数据时出错: {e}");
+                    log::warn!("Error reading task data: {e}");
                 }
             }
         }
@@ -228,13 +236,13 @@ impl AppState {
             }
 
             if let Err(e) = tasks_tree.remove(key) {
-                log::warn!("删除过期任务时出错: {e}");
+                log::warn!("Error deleting expired tasks: {e}");
             } else {
                 cleaned_count += 1;
             }
         }
 
-        log::info!("清理了 {cleaned_count} 条过期数据");
+        log::info!("Cleaned up {cleaned_count} expired data");
         Ok(cleaned_count)
     }
 
@@ -246,13 +254,17 @@ impl AppState {
             if source_path.contains(&task.id) {
                 if let Err(e) = tokio::fs::remove_file(source_path).await {
                     log::warn!(
-                        "清理任务 {} 的临时文件失败: {} - {}",
+                        "Cleanup task {}'s temporary files failed: {} - {}",
                         task.id,
                         source_path,
                         e
                     );
                 } else {
-                    log::info!("已清理任务 {} 的临时文件: {}", task.id, source_path);
+                    log::info!(
+                        "Cleaned temporary files of task {}: {}",
+                        task.id,
+                        source_path
+                    );
                 }
             }
         }
@@ -265,14 +277,14 @@ impl AppState {
         if task_work_dir.exists() {
             if let Err(e) = tokio::fs::remove_dir_all(&task_work_dir).await {
                 log::warn!(
-                    "清理任务 {} 的工作目录失败: {} - {}",
+                    "Cleanup task {}'s working directory failed: {} - {}",
                     task.id,
                     task_work_dir.display(),
                     e
                 );
             } else {
                 log::info!(
-                    "已清理任务 {} 的工作目录: {}",
+                    "Cleaned working directory of task {}: {}",
                     task.id,
                     task_work_dir.display()
                 );
@@ -287,14 +299,14 @@ impl AppState {
                     if filename.starts_with(&format!("task_{}_", task.id)) {
                         if let Err(e) = tokio::fs::remove_file(entry.path()).await {
                             log::warn!(
-                                "清理任务 {} 的临时文件失败: {} - {}",
+                                "Cleanup task {}'s temporary files failed: {} - {}",
                                 task.id,
                                 entry.path().display(),
                                 e
                             );
                         } else {
                             log::info!(
-                                "已清理任务 {} 的临时文件: {}",
+                                "Cleaned temporary files of task {}: {}",
                                 task.id,
                                 entry.path().display()
                             );

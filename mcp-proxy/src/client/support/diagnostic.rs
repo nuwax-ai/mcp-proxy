@@ -3,64 +3,64 @@
 //! 提供错误分类、诊断报告生成等功能
 
 /// 错误分类
-pub fn classify_error(e: &anyhow::Error) -> &'static str {
+pub fn classify_error(e: &anyhow::Error) -> String {
     let err_str = e.to_string().to_lowercase();
 
     // 特殊识别 30 秒超时（可能是服务器限制）
     if (err_str.contains("30") || err_str.contains("thirty"))
         && (err_str.contains("timeout") || err_str.contains("second") || err_str.contains("秒"))
     {
-        "30秒超时（可能是服务器限制）"
+        "30-second timeout".to_string()
     }
     // 识别 503 服务不可用
     else if err_str.contains("503") || err_str.contains("service unavailable") {
-        "服务不可用(503)"
+        "503 Service Unavailable".to_string()
     }
     // 识别其他 HTTP 5xx 错误
     else if err_str.contains("500") || err_str.contains("internal server error") {
-        "服务器内部错误(500)"
+        "500 Internal Server Error".to_string()
     } else if err_str.contains("502") || err_str.contains("bad gateway") {
-        "网关错误(502)"
+        "502 Bad Gateway".to_string()
     } else if err_str.contains("504") || err_str.contains("gateway timeout") {
-        "网关超时(504)"
+        "504 Gateway Timeout".to_string()
     }
     // 识别 HTTP 4xx 错误
     else if err_str.contains("401") || err_str.contains("unauthorized") {
-        "未授权(401)"
+        "401 Unauthorized".to_string()
     } else if err_str.contains("403") || err_str.contains("forbidden") {
-        "禁止访问(403)"
+        "403 Forbidden".to_string()
     } else if err_str.contains("404") || err_str.contains("not found") {
-        "资源未找到(404)"
+        "404 Not Found".to_string()
     } else if err_str.contains("408") || err_str.contains("request timeout") {
-        "请求超时(408)"
+        "408 Request Timeout".to_string()
     }
     // 通用超时
     else if err_str.contains("timeout") || err_str.contains("timed out") {
-        "超时"
+        "Timeout".to_string()
     }
     // 连接相关错误
     else if err_str.contains("connection refused") {
-        "连接被拒绝"
+        "Connection Refused".to_string()
     } else if err_str.contains("connection reset") {
-        "连接被重置"
+        "Connection Reset".to_string()
     } else if err_str.contains("eof") || err_str.contains("closed") || err_str.contains("shutdown")
     {
-        "连接关闭"
+        "Connection Closed".to_string()
     }
     // 网络相关错误
     else if err_str.contains("dns") || err_str.contains("resolve") {
-        "DNS解析失败"
+        "DNS Resolution Failed".to_string()
     } else if err_str.contains("certificate") || err_str.contains("ssl") || err_str.contains("tls")
     {
-        "SSL/TLS错误"
+        "SSL/TLS Error".to_string()
     } else if err_str.contains("sending request") || err_str.contains("network") {
-        "网络错误"
+        "Network Error".to_string()
     }
     // 会话相关
     else if err_str.contains("session") {
-        "会话错误"
+        "Session Error".to_string()
     } else {
-        "未知错误"
+        "Unknown Error".to_string()
     }
 }
 
@@ -90,8 +90,8 @@ pub fn print_diagnostic_report(
         return;
     }
 
-    eprintln!("\n========== 诊断报告 ==========");
-    eprintln!("连接协议: {}", protocol);
+    eprintln!("\n=== Connection Diagnostic Report ===");
+    eprintln!("Protocol: {protocol}");
 
     // 隐藏 URL 中的敏感信息（如 token/ak/key/secret 参数）
     let masked_url = if url.contains("?") {
@@ -129,47 +129,46 @@ pub fn print_diagnostic_report(
         url.to_string()
     };
 
-    eprintln!("服务 URL: {}", masked_url);
-    eprintln!("连接存活时长: {} 秒", alive_duration_secs);
-    eprintln!("断开原因: {}", disconnect_reason);
+    eprintln!("Service URL: {masked_url}");
+    eprintln!("Connection duration: {}s", alive_duration_secs);
+    eprintln!("Disconnect reason: {disconnect_reason}");
 
     if let Some(err_type) = error_type {
-        eprintln!("错误类型: {}", err_type);
+        eprintln!("Error type: {err_type}");
     }
 
     // 分析可能的原因
-    eprintln!("\n可能原因分析:");
+    eprintln!("\nPossible causes:");
     if (28..=32).contains(&alive_duration_secs) {
-        eprintln!("  ⚠️  连接在约 30 秒时断开，极有可能是:");
-        eprintln!("     1. 服务器端设置了 30 秒超时限制");
-        eprintln!("     2. 负载均衡器（如 Nginx/ALB）的默认超时");
-        eprintln!("     3. 云服务商的网关超时限制");
+        eprintln!("  Connection dropped around 30 seconds:");
+        eprintln!("     1. The backend may enforce a fixed session timeout");
+        eprintln!("     2. A load balancer or gateway may be closing idle connections");
+        eprintln!("     3. Keepalive/ping settings may be too weak for this environment");
     } else if alive_duration_secs < 10 {
-        eprintln!("  ⚠️  连接很快断开（{}秒），可能是:", alive_duration_secs);
-        eprintln!("     1. 认证失败或 token 无效");
-        eprintln!("     2. 服务器拒绝连接");
-        eprintln!("     3. 网络不稳定");
+        eprintln!("  Quick disconnect ({}s):", alive_duration_secs);
+        eprintln!("     1. Service may be unavailable or misconfigured");
+        eprintln!("     2. Authentication/headers may be invalid");
+        eprintln!("     3. URL/path may point to a non-MCP endpoint");
     } else if alive_duration_secs >= 60 {
-        eprintln!(
-            "  ✅ 连接保持了较长时间（{}秒），可能是:",
-            alive_duration_secs
-        );
-        eprintln!("     1. 工具调用执行时间过长");
-        eprintln!("     2. 网络波动导致断开");
+        eprintln!("  Long-lived connection ({}s):", alive_duration_secs);
+        eprintln!("     1. Disconnect may be caused by transient network instability");
+        eprintln!("     2. Backend restarts or rolling deployments may interrupt sessions");
     }
 
-    if error_type == Some("30秒超时（可能是服务器限制）") || error_type == Some("服务不可用(503)")
-    {
-        eprintln!("\n建议:");
-        eprintln!("  1. 联系服务提供商增加超时限制");
-        eprintln!("  2. 使用 --request-timeout 参数设置客户端超时");
-        eprintln!("  3. 考虑使用异步处理模式（webhook 回调）");
-        eprintln!("  4. 尝试增加 ping 间隔: --ping-interval 120");
-    } else if disconnect_reason.contains("Ping 检测超时") {
-        eprintln!("\n建议:");
-        eprintln!("  1. 增加 ping 超时时间: --ping-timeout 30");
-        eprintln!("  2. 增加 ping 间隔: --ping-interval 60");
-        eprintln!("  3. 或禁用 ping: --ping-interval 0");
+    let timeout_30s = "30-second timeout";
+    let service_unavailable = "503 Service Unavailable";
+
+    if error_type == Some(timeout_30s) || error_type == Some(service_unavailable) {
+        eprintln!("\nSuggestions:");
+        eprintln!("  1. Increase backend/read timeout settings");
+        eprintln!("  2. Increase client ping timeout if the backend is slow");
+        eprintln!("  3. Consider async/task-based invocation patterns");
+        eprintln!("  4. Increase ping interval to {}s to reduce pressure", 120);
+    } else if disconnect_reason.contains("Ping") || disconnect_reason.contains("ping") {
+        eprintln!("\nSuggestions:");
+        eprintln!("  1. Increase ping timeout to {}s", 30);
+        eprintln!("  2. Increase ping interval to {}s", 60);
+        eprintln!("  3. Disable ping if the backend does not support stable probes");
     }
 
     eprintln!("==============================\n");
@@ -182,13 +181,19 @@ mod tests {
 
     #[test]
     fn test_classify_error() {
-        assert_eq!(classify_error(&anyhow!("connection timeout")), "超时");
-        assert_eq!(classify_error(&anyhow!("connection refused")), "连接被拒绝");
+        assert_eq!(classify_error(&anyhow!("connection timeout")), "Timeout");
+        assert_eq!(
+            classify_error(&anyhow!("connection refused")),
+            "Connection Refused"
+        );
         assert_eq!(
             classify_error(&anyhow!("503 Service Unavailable")),
-            "服务不可用(503)"
+            "503 Service Unavailable"
         );
-        assert_eq!(classify_error(&anyhow!("401 Unauthorized")), "未授权(401)");
+        assert_eq!(
+            classify_error(&anyhow!("401 Unauthorized")),
+            "401 Unauthorized"
+        );
     }
 
     #[test]

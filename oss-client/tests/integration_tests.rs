@@ -244,22 +244,22 @@ async fn test_actual_oss_operations() -> oss_client::Result<()> {
     let client = match create_private_client_from_env() {
         Ok(client) => client,
         Err(_) => {
-            println!("跳过实际OSS操作测试：未设置环境变量");
+            println!("Skip actual OSS operation test: environment variables not set");
             return Ok(());
         }
     };
 
-    println!("运行实际OSS操作测试...");
+    println!("Run actual OSS operation test...");
 
     // 测试文件存在性检查（对一个不存在的文件）
     let test_key = format!("test/non-existent-{}.txt", chrono::Utc::now().timestamp());
     match client.file_exists(&test_key).await {
         Ok(exists) => {
             assert!(!exists, "不存在的文件应该返回false");
-            println!("✓ 文件存在性检查测试通过");
+            println!("✓ File existence check test passed");
         }
         Err(e) => {
-            println!("文件存在性检查失败: {e}");
+            println!("File existence check failed: {e}");
         }
     }
 
@@ -275,26 +275,26 @@ async fn test_actual_oss_operations() -> oss_client::Result<()> {
         .await
     {
         Ok(url) => {
-            println!("✓ 文件上传成功: {url}");
+            println!("✓ File uploaded successfully: {url}");
 
             // 测试文件存在性
             match client.file_exists(&test_key).await {
                 Ok(exists) => {
                     assert!(exists, "上传的文件应该存在");
-                    println!("✓ 上传后文件存在性检查通过");
+                    println!("✓ The file existence check passes after uploading");
                 }
-                Err(e) => println!("文件存在性检查失败: {e}"),
+                Err(e) => println!("File existence check failed: {e}"),
             }
 
             // 清理测试文件
             match client.delete_file(&test_key).await {
-                Ok(_) => println!("✓ 测试文件清理成功"),
-                Err(e) => println!("测试文件清理失败: {e}"),
+                Ok(_) => println!("✓ Test file cleanup successful"),
+                Err(e) => println!("Test file cleanup failed: {e}"),
             }
         }
         Err(e) => {
-            println!("文件上传失败: {e}");
-            println!("这可能是由于OSS凭证无效或权限不足导致的");
+            println!("File upload failed: {e}");
+            println!("This may be caused by invalid OSS credentials or insufficient permissions");
         }
     }
 

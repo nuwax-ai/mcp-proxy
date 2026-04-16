@@ -38,7 +38,7 @@ pub async fn monitor_connection_health<H: HealthChecker>(
 ) -> String {
     let connection_start = std::time::Instant::now();
     if !quiet {
-        tracing::info!("💓 开始监控 {} 连接健康状态", protocol_name);
+        tracing::info!("[{}] Connection health monitoring started", protocol_name);
     }
 
     // 健康检查日志间隔：与 ping 间隔一致，但至少 30 秒
@@ -61,9 +61,13 @@ pub async fn monitor_connection_health<H: HealthChecker>(
                     if !handler.is_backend_available() {
                         let alive_duration = connection_start.elapsed();
                         let disconnect_reason =
-                            format!("[{}] 后端连接已关闭（存活时长: {}s）", protocol_name, alive_duration.as_secs());
+                            format!(
+                                "[{}] Backend connection closed (alive: {}s)",
+                                protocol_name,
+                                alive_duration.as_secs()
+                            );
                         if !quiet {
-                            tracing::error!("❌ {}", disconnect_reason);
+                            tracing::error!("{}", disconnect_reason);
                         }
                         return disconnect_reason;
                     }
@@ -73,10 +77,10 @@ pub async fn monitor_connection_health<H: HealthChecker>(
                     let alive_duration = connection_start.elapsed();
                     let backend_available = handler.is_backend_available();
                     tracing::info!(
-                        "💓 [{}][健康检查] 连接状态: {} (仅检查连接通道, 未调用 list_tools), 检查 #{}, 已存活: {}s",
+                        "[{}] Health check #{} status={}, alive={}s",
                         protocol_name,
-                        if backend_available { "正常" } else { "异常" },
                         check_count,
+                        if backend_available { "ok" } else { "error" },
                         alive_duration.as_secs()
                     );
                 }
@@ -98,12 +102,12 @@ pub async fn monitor_connection_health<H: HealthChecker>(
 
         if !handler.is_backend_available() {
             let disconnect_reason = format!(
-                "[{}] 后端连接已关闭（存活时长: {}s）",
+                "[{}] Backend connection closed (alive: {}s)",
                 protocol_name,
                 alive_duration.as_secs()
             );
             if !quiet {
-                tracing::error!("❌ {}", disconnect_reason);
+                tracing::error!("{}", disconnect_reason);
             }
             return disconnect_reason;
         }
@@ -117,12 +121,12 @@ pub async fn monitor_connection_health<H: HealthChecker>(
         match check_result {
             Ok(true) => {
                 let disconnect_reason = format!(
-                    "[{}] Ping 检测失败（服务错误），存活时长: {}s",
+                    "[{}] Ping check failed (service error), alive: {}s",
                     protocol_name,
                     alive_duration.as_secs()
                 );
                 if !quiet {
-                    tracing::error!("❌ {}", disconnect_reason);
+                    tracing::error!("{}", disconnect_reason);
                 }
                 return disconnect_reason;
             }
@@ -131,7 +135,7 @@ pub async fn monitor_connection_health<H: HealthChecker>(
                 let since_last_log = last_health_log.elapsed().as_secs();
                 if first_ping || since_last_log >= health_log_interval_secs {
                     tracing::info!(
-                        "💓 [{}][健康检查] 后端服务正常 (list_tools 验证通过), Ping #{}, 已存活: {}s",
+                        "[{}] Ping check #{} passed, alive={}s",
                         protocol_name,
                         ping_count,
                         alive_duration.as_secs()
@@ -140,7 +144,7 @@ pub async fn monitor_connection_health<H: HealthChecker>(
                     first_ping = false;
                 } else {
                     tracing::debug!(
-                        "[{}] ✅ list_tools 验证通过, Ping #{}, 已存活: {}s",
+                        "[{}] list_tools ping #{} passed, alive={}s",
                         protocol_name,
                         ping_count,
                         alive_duration.as_secs()
@@ -149,13 +153,13 @@ pub async fn monitor_connection_health<H: HealthChecker>(
             }
             Err(_) => {
                 let disconnect_reason = format!(
-                    "[{}] Ping 检测超时（{}s），存活时长: {}s",
+                    "[{}] Ping check timeout ({}s), alive: {}s",
                     protocol_name,
                     ping_timeout,
                     alive_duration.as_secs()
                 );
                 if !quiet {
-                    tracing::error!("❌ {}", disconnect_reason);
+                    tracing::error!("{}", disconnect_reason);
                 }
                 return disconnect_reason;
             }

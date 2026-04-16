@@ -94,75 +94,36 @@ where
 impl<T> From<VoiceCliError> for HttpResult<T> {
     fn from(error: VoiceCliError) -> Self {
         match error {
-            VoiceCliError::Config(msg) => {
-                Self::system_error(format!("Configuration error: {}", msg))
-            }
-            VoiceCliError::FileTooLarge { size, max } => Self::unsupported_format(format!(
-                "File size {} exceeds maximum {} bytes",
-                size, max
-            )),
+            VoiceCliError::Config(msg) => Self::system_error(msg),
+            VoiceCliError::FileTooLarge(msg) => Self::unsupported_format(msg),
             VoiceCliError::UnsupportedFormat(msg) => Self::unsupported_format(msg),
-            VoiceCliError::ModelNotFound(msg) => {
-                Self::task_not_found(format!("Model not found: {}", msg))
-            }
-            VoiceCliError::InvalidModelName(msg) => {
-                Self::unsupported_format(format!("Invalid model name: {}", msg))
-            }
-            VoiceCliError::TranscriptionFailed(msg) => {
-                Self::processing_failed(format!("Transcription failed: {}", msg))
-            }
-            VoiceCliError::TranscriptionTimeout(timeout) => {
-                Self::processing_failed(format!("Transcription timeout after {} seconds", timeout))
-            }
-            VoiceCliError::WorkerPoolError(msg) => {
-                Self::processing_failed(format!("Worker pool error: {}", msg))
-            }
-            VoiceCliError::AudioProcessing(msg) => {
-                Self::unsupported_format(format!("Audio processing error: {}", msg))
-            }
-            VoiceCliError::AudioConversionFailed(msg) => {
-                Self::unsupported_format(format!("Audio conversion failed: {}", msg))
-            }
-            VoiceCliError::AudioProbeError(msg) => {
-                Self::unsupported_format(format!("Audio probe error: {}", msg))
-            }
-            VoiceCliError::MultipartError(msg) => {
-                Self::unsupported_format(format!("Multipart form error: {}", msg))
-            }
-            VoiceCliError::MissingField(field) => {
-                Self::unsupported_format(format!("Missing required field: {}", field))
-            }
-            VoiceCliError::TempFileError(msg) => {
-                Self::system_error(format!("Temporary file error: {}", msg))
-            }
-            VoiceCliError::FileIo(err) => Self::system_error(format!("File I/O error: {}", err)),
-            VoiceCliError::Http(err) => Self::system_error(format!("HTTP request error: {}", err)),
-            VoiceCliError::Serialization(err) => {
-                Self::system_error(format!("Serialization error: {}", err))
-            }
-            VoiceCliError::Json(err) => Self::system_error(format!("JSON error: {}", err)),
-            VoiceCliError::Transcription(msg) => {
-                Self::processing_failed(format!("Transcription error: {}", msg))
-            }
-            VoiceCliError::Model(msg) => Self::system_error(format!("Model error: {}", msg)),
-            VoiceCliError::Daemon(msg) => Self::system_error(format!("Daemon error: {}", msg)),
-            VoiceCliError::ConfigRs(err) => {
-                Self::system_error(format!("Configuration error: {}", err))
-            }
-            VoiceCliError::Storage(msg) => Self::system_error(format!("Storage error: {}", msg)),
-            VoiceCliError::TaskManagementDisabled => {
-                Self::system_error("Task management is disabled".to_string())
-            }
+            VoiceCliError::ModelNotFound(msg) => Self::task_not_found(msg),
+            VoiceCliError::InvalidModelName(msg) => Self::unsupported_format(msg),
+            VoiceCliError::TranscriptionFailed(msg) => Self::processing_failed(msg),
+            VoiceCliError::TranscriptionTimeout(msg) => Self::processing_failed(msg),
+            VoiceCliError::WorkerPoolError(msg) => Self::processing_failed(msg),
+            VoiceCliError::AudioProcessing(msg) => Self::unsupported_format(msg),
+            VoiceCliError::AudioConversionFailed(msg) => Self::unsupported_format(msg),
+            VoiceCliError::AudioProbeError(msg) => Self::unsupported_format(msg),
+            VoiceCliError::MultipartError(msg) => Self::unsupported_format(msg),
+            VoiceCliError::MissingField(msg) => Self::unsupported_format(msg),
+            VoiceCliError::TempFileError(msg) => Self::system_error(msg),
+            VoiceCliError::FileIo(msg) => Self::system_error(msg),
+            VoiceCliError::Http(msg) => Self::system_error(msg),
+            VoiceCliError::Serialization(msg) => Self::system_error(msg),
+            VoiceCliError::Json(msg) => Self::system_error(msg),
+            VoiceCliError::Transcription(msg) => Self::processing_failed(msg),
+            VoiceCliError::Model(msg) => Self::system_error(msg),
+            VoiceCliError::Daemon(msg) => Self::system_error(msg),
+            VoiceCliError::ConfigRs(msg) => Self::system_error(msg),
+            VoiceCliError::Storage(msg) => Self::system_error(msg),
+            VoiceCliError::TaskManagementDisabled(msg) => Self::system_error(msg),
             VoiceCliError::NotFound(msg) => Self::task_not_found(msg),
-            VoiceCliError::Network(msg) => Self::system_error(format!("Network error: {}", msg)),
-            VoiceCliError::Initialization(msg) => {
-                Self::system_error(format!("Initialization error: {}", msg))
-            }
-            VoiceCliError::TtsError(msg) => Self::processing_failed(format!("TTS error: {}", msg)),
-            VoiceCliError::InvalidInput(msg) => {
-                Self::unsupported_format(format!("Invalid input: {}", msg))
-            }
-            VoiceCliError::Io(msg) => Self::system_error(format!("I/O error: {}", msg)),
+            VoiceCliError::Network(msg) => Self::system_error(msg),
+            VoiceCliError::Initialization(msg) => Self::system_error(msg),
+            VoiceCliError::TtsError(msg) => Self::processing_failed(msg),
+            VoiceCliError::InvalidInput(msg) => Self::unsupported_format(msg),
+            VoiceCliError::Io(msg) => Self::system_error(msg),
         }
     }
 }

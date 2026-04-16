@@ -936,12 +936,12 @@ impl EnvironmentManager {
 
         for candidate in python_candidates {
             if Self::is_executable_in_path(&candidate).await {
-                debug!("找到系统Python: {}", candidate);
+                debug!("Found system Python: {}", candidate);
                 return Some(candidate);
             }
         }
 
-        debug!("未找到系统Python可执行文件");
+        debug!("System Python executable not found");
         None
     }
 
@@ -966,24 +966,30 @@ impl EnvironmentManager {
             Ok(Ok(output)) if output.status.success() => {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 if stdout.contains("VENV_TEST_SUCCESS") {
-                    debug!("虚拟环境激活测试成功: {}", python_exe.display());
+                    debug!(
+                        "Virtual environment activation test successful: {}",
+                        python_exe.display()
+                    );
                     Ok(true)
                 } else {
-                    debug!("虚拟环境激活测试失败: 输出不正确");
+                    debug!("Virtual environment activation test failed: Incorrect output");
                     Ok(false)
                 }
             }
             Ok(Ok(output)) => {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                debug!("虚拟环境激活测试失败: {}", stderr);
+                debug!("Virtual environment activation test failed: {}", stderr);
                 Ok(false)
             }
             Ok(Err(e)) => {
-                debug!("虚拟环境激活测试执行失败: {}", e);
+                debug!(
+                    "Virtual environment activation test execution failed: {}",
+                    e
+                );
                 Ok(false)
             }
             Err(_) => {
-                debug!("虚拟环境激活测试超时");
+                debug!("Virtual environment activation test timed out");
                 Ok(false)
             }
         }
@@ -1124,7 +1130,7 @@ impl EnvironmentManager {
         // 检查缓存
         if let Some(cached_status) = self.get_cached_status().await {
             if !cached_status.is_cache_expired(self.cache_ttl) {
-                debug!("使用缓存的环境状态");
+                debug!("Using cached environment state");
                 return Ok(cached_status);
             }
         }
@@ -1132,7 +1138,7 @@ impl EnvironmentManager {
         let start_time = std::time::SystemTime::now();
         let mut status = EnvironmentStatus::default();
 
-        info!("开始环境检查");
+        info!("Start environment check");
 
         // 并行检查各个环境组件
         let (python_result, uv_result, cuda_result) = tokio::join!(
@@ -1149,7 +1155,10 @@ impl EnvironmentManager {
                 status.python_path = Some(python_info.path.clone());
                 status.virtual_env_active = python_info.virtual_env_active;
                 status.virtual_env_path = python_info.virtual_env_path.clone();
-                info!("Python环境检查通过: {:?}", status.python_version);
+                info!(
+                    "Python environment check passed: {:?}",
+                    status.python_version
+                );
 
                 // 增强虚拟环境状态验证
                 self.validate_virtual_environment_status(&mut status, &python_info);
@@ -1163,7 +1172,7 @@ impl EnvironmentManager {
                     auto_fixable: false,
                 };
                 status.issues.push(issue);
-                error!("Python环境检查失败: {}", e);
+                error!("Python environment check failed: {}", e);
             }
         }
 
@@ -1172,7 +1181,7 @@ impl EnvironmentManager {
             Ok(uv_info) => {
                 status.uv_available = true;
                 status.uv_version = Some(uv_info.version);
-                info!("uv工具检查通过: {:?}", status.uv_version);
+                info!("UV tool inspection passed: {:?}", status.uv_version);
             }
             Err(e) => {
                 let issue = EnvironmentIssue {
@@ -1183,7 +1192,7 @@ impl EnvironmentManager {
                     auto_fixable: true,
                 };
                 status.issues.push(issue);
-                warn!("uv工具检查失败: {}", e);
+                warn!("uv tool check failed: {}", e);
             }
         }
 
@@ -1194,7 +1203,7 @@ impl EnvironmentManager {
                 status.cuda_version = cuda_info.version;
                 status.cuda_devices = cuda_info.devices;
                 if status.cuda_available {
-                    info!("CUDA环境检查通过: {:?}", status.cuda_version);
+                    info!("CUDA environment check passed: {:?}", status.cuda_version);
                 } else {
                     let warning = EnvironmentWarning {
                         component: "CUDA".to_string(),
@@ -1202,7 +1211,7 @@ impl EnvironmentManager {
                         impact: "PDF处理性能可能较慢".to_string(),
                     };
                     status.warnings.push(warning);
-                    info!("CUDA环境不可用");
+                    info!("CUDA environment is not available");
                 }
             }
             Err(e) => {
@@ -1212,7 +1221,7 @@ impl EnvironmentManager {
                     impact: "将使用CPU进行PDF处理".to_string(),
                 };
                 status.warnings.push(warning);
-                warn!("CUDA环境检查失败: {}", e);
+                warn!("CUDA environment check failed: {}", e);
             }
         }
 
@@ -1227,7 +1236,10 @@ impl EnvironmentManager {
                 Ok(mineru_info) => {
                     status.mineru_available = true;
                     status.mineru_version = Some(mineru_info.version);
-                    info!("MinerU环境检查通过: {:?}", status.mineru_version);
+                    info!(
+                        "MinerU environment check passed: {:?}",
+                        status.mineru_version
+                    );
                 }
                 Err(e) => {
                     let issue = EnvironmentIssue {
@@ -1238,7 +1250,7 @@ impl EnvironmentManager {
                         auto_fixable: true,
                     };
                     status.issues.push(issue);
-                    warn!("MinerU环境检查失败: {}", e);
+                    warn!("MinerU environment check failed: {}", e);
                 }
             }
 
@@ -1246,7 +1258,10 @@ impl EnvironmentManager {
                 Ok(markitdown_info) => {
                     status.markitdown_available = true;
                     status.markitdown_version = Some(markitdown_info.version);
-                    info!("MarkItDown环境检查通过: {:?}", status.markitdown_version);
+                    info!(
+                        "MarkItDown environment check passed: {:?}",
+                        status.markitdown_version
+                    );
                 }
                 Err(e) => {
                     let issue = EnvironmentIssue {
@@ -1257,7 +1272,7 @@ impl EnvironmentManager {
                         auto_fixable: true,
                     };
                     status.issues.push(issue);
-                    warn!("MarkItDown环境检查失败: {}", e);
+                    warn!("MarkItDown environment check failed: {}", e);
                 }
             }
         } else {
@@ -1288,7 +1303,7 @@ impl EnvironmentManager {
         self.update_cache(status.clone()).await;
 
         info!(
-            "环境检查完成，状态: ready={}, 健康评分: {}/100, 耗时: {:?}",
+            "Environmental check completed, status: ready={}, health score: {}/100, time taken: {:?}",
             status.is_ready(),
             status.health_score(),
             status.check_duration
@@ -1790,7 +1805,7 @@ impl EnvironmentManager {
     pub async fn verify_dependency_compatibility(
         &self,
     ) -> Result<DependencyVerificationResult, AppError> {
-        debug!("开始依赖版本兼容性验证");
+        debug!("Start relying on version compatibility verification");
 
         let (mineru_result, markitdown_result) = tokio::join!(
             self.verify_mineru_dependency(),
@@ -2100,7 +2115,7 @@ impl EnvironmentManager {
             match operation().await {
                 Ok(result) => {
                     if attempt > 1 {
-                        info!("{} 在第{}次尝试后成功", operation_name, attempt);
+                        info!("{} succeeded after {} attempt", operation_name, attempt);
                     }
                     return Ok(result);
                 }
@@ -2109,7 +2124,7 @@ impl EnvironmentManager {
 
                     if attempt < self.retry_config.max_attempts {
                         warn!(
-                            "{} 第{}次尝试失败，{}秒后重试",
+                            "{} The {} attempt failed, try again in {} seconds",
                             operation_name,
                             attempt,
                             delay.as_secs_f32()
@@ -2154,7 +2169,7 @@ impl EnvironmentManager {
         }
 
         error!(
-            "{} 在{}次尝试后仍然失败",
+            "{} Still failed after {} attempts",
             operation_name, self.retry_config.max_attempts
         );
         Err(last_error.unwrap_or_else(|| AppError::Environment(format!("{operation_name} 失败"))))
@@ -2163,14 +2178,16 @@ impl EnvironmentManager {
     /// 检查Python环境
     #[instrument(skip(self))]
     async fn check_python_environment(&self) -> Result<PythonInfo, AppError> {
-        debug!("检查Python环境: {}", self.python_path);
+        debug!("Check Python environment: {}", self.python_path);
 
         // 首先检查配置的Python路径是否存在
         let python_executable = if Path::new(&self.python_path).exists() {
             self.python_path.clone()
         } else {
             // 如果虚拟环境Python不存在，尝试使用系统Python
-            debug!("虚拟环境Python路径不存在，尝试查找系统Python");
+            debug!(
+                "The virtual environment Python path does not exist, try to find the system Python"
+            );
             self.find_system_python().await.unwrap_or_else(|| {
                 // 如果找不到系统Python，使用平台默认值
                 if cfg!(windows) {
@@ -2238,9 +2255,9 @@ impl EnvironmentManager {
             None
         };
 
-        debug!("Python环境检查通过: {}", version);
+        debug!("Python environment check passed: {}", version);
         if virtual_env_active {
-            debug!("检测到虚拟环境: {:?}", virtual_env_path);
+            debug!("Virtual environment detected: {:?}", virtual_env_path);
         }
 
         Ok(PythonInfo {
@@ -2272,7 +2289,7 @@ impl EnvironmentManager {
 
     /// 检查uv工具
     async fn check_uv_environment(&self) -> Result<UvInfo, AppError> {
-        debug!("检查uv工具");
+        debug!("Check uv tools");
 
         let uv_cmd = Command::new("uv").arg("--version").output();
 
@@ -2289,14 +2306,14 @@ impl EnvironmentManager {
         let version_output = String::from_utf8_lossy(&output.stdout);
         let version = version_output.trim().to_string();
 
-        debug!("uv工具检查通过: {}", version);
+        debug!("UV tool inspection passed: {}", version);
 
         Ok(UvInfo { version })
     }
 
     /// 检查CUDA环境
     pub async fn check_cuda_environment(&self) -> Result<CudaInfo, AppError> {
-        debug!("检查CUDA环境");
+        debug!("Check CUDA environment");
 
         let nvidia_cmd = Command::new("nvidia-smi")
             .arg("--query-gpu=index,name,memory.total,memory.free,compute_cap")
@@ -2306,7 +2323,7 @@ impl EnvironmentManager {
         let output = match timeout(Duration::from_secs(10), nvidia_cmd).await {
             Ok(Ok(output)) if output.status.success() => output,
             Ok(Ok(_)) => {
-                debug!("nvidia-smi执行失败，CUDA不可用");
+                debug!("nvidia-smi execution failed, CUDA is not available");
                 return Ok(CudaInfo {
                     available: false,
                     version: None,
@@ -2314,7 +2331,7 @@ impl EnvironmentManager {
                 });
             }
             Ok(Err(_)) | Err(_) => {
-                debug!("CUDA环境不可用");
+                debug!("CUDA environment is not available");
                 return Ok(CudaInfo {
                     available: false,
                     version: None,
@@ -2337,7 +2354,7 @@ impl EnvironmentManager {
         let version = self.get_cuda_version().await;
 
         debug!(
-            "CUDA环境检查完成: available={}, devices={}",
+            "CUDA environment check completed: available={}, devices={}",
             !devices.is_empty(),
             devices.len()
         );
@@ -2388,7 +2405,7 @@ impl EnvironmentManager {
 
     /// 检查MinerU环境
     async fn check_mineru_environment(&self) -> Result<PackageInfo, AppError> {
-        debug!("检查MinerU环境");
+        debug!("Check MinerU environment");
 
         // 使用当前目录的虚拟环境中的mineru命令路径
         let current_dir = std::env::current_dir()
@@ -2449,7 +2466,10 @@ impl EnvironmentManager {
             Ok(output) => {
                 // 版本命令失败，但帮助命令成功，说明mineru可用但版本获取有问题
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                warn!("MinerU版本获取失败，但命令可用: {}", stderr);
+                warn!(
+                    "MinerU version acquisition failed, but the command is available: {}",
+                    stderr
+                );
                 "available".to_string()
             }
             Err(e) => {
@@ -2461,14 +2481,14 @@ impl EnvironmentManager {
 
         // MinerU命令验证已通过，无需额外的模块导入测试
 
-        debug!("MinerU环境检查通过，版本: {}", version);
+        debug!("MinerU environment check passed, version: {}", version);
 
         Ok(PackageInfo { version })
     }
 
     /// 检查MarkItDown环境
     async fn check_markitdown_environment(&self) -> Result<PackageInfo, AppError> {
-        debug!("检查MarkItDown环境");
+        debug!("Check MarkItDown environment");
 
         // 优先使用虚拟环境中的Python
         let current_dir = std::env::current_dir()
@@ -2524,7 +2544,7 @@ impl EnvironmentManager {
             version_str.trim().to_string()
         } else {
             // 如果版本获取失败但导入成功，使用默认版本
-            warn!("MarkItDown版本获取失败，但模块可用");
+            warn!("MarkItDown version acquisition failed, but the module is available");
             "available".to_string()
         };
 
@@ -2545,24 +2565,24 @@ print('MarkItDown功能验证成功')
         let func_result = timeout(Duration::from_secs(15), functionality_test_cmd).await;
         match func_result {
             Ok(Ok(output)) if output.status.success() => {
-                debug!("MarkItDown功能验证成功");
+                debug!("MarkItDown function verification successful");
             }
             Ok(Ok(output)) => {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                warn!("MarkItDown功能验证失败: {}", stderr);
+                warn!("MarkItDown function verification failed: {}", stderr);
                 return Err(AppError::Environment(format!(
                     "MarkItDown功能验证失败: {stderr}. 请重新安装MarkItDown"
                 )));
             }
             Ok(Err(e)) => {
-                warn!("MarkItDown功能测试执行失败: {}", e);
+                warn!("MarkItDown functional test execution failed: {}", e);
             }
             Err(_) => {
-                warn!("MarkItDown功能测试超时");
+                warn!("MarkItDown function test timeout");
             }
         }
 
-        debug!("MarkItDown环境检查通过: {}", version);
+        debug!("MarkItDown environment check passed: {}", version);
 
         Ok(PackageInfo { version })
     }
@@ -2570,7 +2590,7 @@ print('MarkItDown功能验证成功')
     /// Python环境设置
     #[instrument(skip(self))]
     pub async fn setup_python_environment(&self) -> Result<(), AppError> {
-        info!("开始Python环境设置");
+        info!("Start Python environment setup");
 
         // 发送开始进度
         self.send_progress("环境设置", InstallStage::Preparing, 0.0, "准备环境设置")
@@ -2588,13 +2608,13 @@ print('MarkItDown功能验证成功')
                 compatibility,
             } => {
                 if compatibility.is_compatible {
-                    info!("uv工具已可用且兼容: {}", version);
+                    info!("uv tool is available and compatible: {}", version);
                     if let Some(recommendation) = compatibility.recommendation {
-                        info!("uv升级建议: {}", recommendation);
+                        info!("UV upgrade suggestion: {}", recommendation);
                     }
                 } else {
                     warn!(
-                        "uv版本不兼容，重新安装: {}",
+                        "The uv version is incompatible, reinstall: {}",
                         compatibility.recommendation.unwrap_or_default()
                     );
                     self.send_progress(
@@ -2608,7 +2628,7 @@ print('MarkItDown功能验证成功')
                 }
             }
             UvAvailabilityStatus::IncompatibleVersion { version, issue } => {
-                warn!("uv版本不兼容: {} - {}", version, issue);
+                warn!("UV version is not compatible: {} - {}", version, issue);
                 self.send_progress(
                     "环境设置",
                     InstallStage::Installing,
@@ -2619,13 +2639,13 @@ print('MarkItDown功能验证成功')
                 self.install_uv_with_progress().await?;
             }
             UvAvailabilityStatus::ExecutionFailed { error } => {
-                warn!("uv执行失败，重新安装: {}", error);
+                warn!("UV execution failed, reinstall: {}", error);
                 self.send_progress("环境设置", InstallStage::Installing, 20.0, "重新安装uv工具")
                     .await;
                 self.install_uv_with_progress().await?;
             }
             UvAvailabilityStatus::NotInstalled { error: _ } => {
-                info!("uv工具未安装，开始安装");
+                info!("The uv tool is not installed, start the installation");
                 self.send_progress("环境设置", InstallStage::Installing, 20.0, "安装uv工具")
                     .await;
                 self.install_uv_with_progress().await?;
@@ -2655,9 +2675,11 @@ print('MarkItDown功能验证成功')
                 if is_valid {
                     self.send_progress("环境设置", InstallStage::Completed, 100.0, "环境设置完成")
                         .await;
-                    info!("Python环境设置完成");
+                    info!("Python environment setup completed");
                 } else {
-                    warn!("环境验证未完全通过，但安装过程已完成");
+                    warn!(
+                        "Environment verification did not fully pass, but the installation process was completed"
+                    );
                     self.send_progress(
                         "环境设置",
                         InstallStage::Completed,
@@ -2668,7 +2690,10 @@ print('MarkItDown功能验证成功')
                 }
             }
             Err(e) => {
-                warn!("环境验证过程出现问题: {}", e);
+                warn!(
+                    "There was a problem with the environment verification process: {}",
+                    e
+                );
                 self.send_progress(
                     "环境设置",
                     InstallStage::Completed,
@@ -2688,7 +2713,7 @@ print('MarkItDown功能验证成功')
     /// 安装依赖包
     #[instrument(skip(self))]
     pub async fn install_dependencies(&self) -> Result<(), AppError> {
-        info!("开始安装Python依赖");
+        info!("Start installing Python dependencies");
 
         // 并行安装MinerU和MarkItDown
         let (mineru_result, markitdown_result) = tokio::join!(
@@ -2699,14 +2724,14 @@ print('MarkItDown功能验证成功')
         mineru_result?;
         markitdown_result?;
 
-        info!("Python依赖安装完成");
+        info!("Python dependency installation completed");
         Ok(())
     }
 
     /// 验证所有引擎
     #[instrument(skip(self))]
     pub async fn validate_engines(&self) -> Result<bool, AppError> {
-        info!("验证解析引擎");
+        info!("Verify parsing engine");
 
         // 清除缓存以确保获取最新状态
         self.clear_cache().await;
@@ -2720,7 +2745,7 @@ print('MarkItDown功能验证成功')
         if !is_valid {
             let critical_issues = status.get_critical_issues();
             for issue in critical_issues {
-                error!("关键问题: {} - {}", issue.component, issue.message);
+                error!("Key questions: {} - {}", issue.component, issue.message);
             }
         }
 
@@ -2757,14 +2782,14 @@ print('MarkItDown功能验证成功')
         if !Path::new(&self.base_dir).exists() {
             std::fs::create_dir_all(&self.base_dir)
                 .map_err(|e| AppError::File(format!("创建基础目录失败: {e}")))?;
-            info!("创建基础目录: {}", self.base_dir);
+            info!("Create base directory: {}", self.base_dir);
         }
         Ok(())
     }
 
     /// 检查uv是否可用（增强版本，带详细错误报告）
     pub async fn is_uv_available(&self) -> Result<UvAvailabilityStatus, AppError> {
-        debug!("检查uv工具可用性");
+        debug!("Check uv tool availability");
 
         let uv_cmd = Command::new("uv").arg("--version").output();
 
@@ -2780,14 +2805,14 @@ print('MarkItDown功能验证成功')
                 // 检查版本兼容性
                 match self.check_uv_version_compatibility(&version) {
                     Ok(compatibility) => {
-                        debug!("uv工具可用: {}", version);
+                        debug!("uv tool available: {}", version);
                         Ok(UvAvailabilityStatus::Available {
                             version,
                             compatibility,
                         })
                     }
                     Err(e) => {
-                        warn!("uv版本不兼容: {}", e);
+                        warn!("Incompatible uv version: {}", e);
                         Ok(UvAvailabilityStatus::IncompatibleVersion {
                             version,
                             issue: e.to_string(),
@@ -2802,12 +2827,15 @@ print('MarkItDown功能验证成功')
                 } else {
                     format!("uv命令执行失败: {stderr}")
                 };
-                debug!("uv命令执行失败: {}", error_msg);
+                debug!("uv command execution failed: {}", error_msg);
                 Ok(UvAvailabilityStatus::ExecutionFailed { error: error_msg })
             }
             Err(e) => {
                 let error_msg = format!("无法执行uv命令: {e}");
-                debug!("uv命令不存在或无法执行: {}", error_msg);
+                debug!(
+                    "The uv command does not exist or cannot be executed: {}",
+                    error_msg
+                );
                 Ok(UvAvailabilityStatus::NotInstalled { error: error_msg })
             }
         }
@@ -2882,14 +2910,14 @@ print('MarkItDown功能验证成功')
 
     /// 安装uv工具（增强版本，带进度跟踪和多种安装方法）
     pub async fn install_uv_with_progress(&self) -> Result<(), AppError> {
-        info!("开始安装uv工具");
+        info!("Start installing uv tools");
 
         self.send_progress("uv", InstallStage::Preparing, 0.0, "准备安装uv工具")
             .await;
 
         // 确定最佳安装方法
         let installation_method = self.determine_best_uv_installation_method().await;
-        info!("选择安装方法: {:?}", installation_method);
+        info!("Select installation method: {:?}", installation_method);
 
         // 尝试安装
         let install_result = match installation_method {
@@ -2922,7 +2950,7 @@ print('MarkItDown功能验证成功')
                                 &format!("uv安装完成: {version}"),
                             )
                             .await;
-                            info!("uv安装成功: {}", version);
+                            info!("UV installation successful: {}", version);
                             Ok(())
                         } else {
                             let error_msg = format!(
@@ -2985,7 +3013,7 @@ print('MarkItDown功能验证成功')
                 .await;
 
                 // 如果主要方法失败，尝试备用方法
-                warn!("主要安装方法失败，尝试备用方法");
+                warn!("Primary installation method failed, try alternate method");
                 self.try_fallback_uv_installation().await
             }
         }
@@ -3066,7 +3094,7 @@ print('MarkItDown功能验证成功')
             return Err(AppError::Environment(format!("curl安装uv失败: {stderr}")));
         }
 
-        info!("使用curl脚本安装uv成功");
+        info!("Successfully installed uv using curl script");
         Ok(())
     }
 
@@ -3107,7 +3135,7 @@ print('MarkItDown功能验证成功')
             )));
         }
 
-        info!("使用PowerShell脚本安装uv成功");
+        info!("Successfully installed uv using PowerShell script");
         Ok(())
     }
 
@@ -3128,7 +3156,7 @@ print('MarkItDown功能验证成功')
             return Err(AppError::Environment(format!("pip安装uv失败: {stderr}")));
         }
 
-        info!("使用pip安装uv成功");
+        info!("Successfully installed uv using pip");
         Ok(())
     }
 
@@ -3162,18 +3190,18 @@ print('MarkItDown功能验证成功')
 
                 match timeout(Duration::from_secs(300), install_cmd).await {
                     Ok(Ok(output)) if output.status.success() => {
-                        info!("使用{}安装uv成功", manager);
+                        info!("Use {} to install uv successfully", manager);
                         return Ok(());
                     }
                     Ok(Ok(output)) => {
                         let stderr = String::from_utf8_lossy(&output.stderr);
-                        warn!("{}安装uv失败: {}", manager, stderr);
+                        warn!("{} failed to install uv: {}", manager, stderr);
                     }
                     Ok(Err(e)) => {
-                        warn!("{}命令执行失败: {}", manager, e);
+                        warn!("{} command execution failed: {}", manager, e);
                     }
                     Err(_) => {
-                        warn!("{}安装uv超时", manager);
+                        warn!("{} installation uv timeout", manager);
                     }
                 }
             }
@@ -3196,7 +3224,7 @@ print('MarkItDown功能验证成功')
 
     /// 尝试备用UV安装方法
     async fn try_fallback_uv_installation(&self) -> Result<(), AppError> {
-        warn!("尝试备用uv安装方法");
+        warn!("Try alternative uv installation methods");
 
         // 备用方法列表
         let fallback_methods = vec![
@@ -3206,7 +3234,7 @@ print('MarkItDown功能验证成功')
         ];
 
         for method in fallback_methods {
-            info!("尝试备用安装方法: {:?}", method);
+            info!("Try alternative installation method: {:?}", method);
 
             let result = match method {
                 UvInstallationMethod::PipInstall => self.install_uv_with_pip().await,
@@ -3235,7 +3263,7 @@ print('MarkItDown功能验证成功')
                                     &format!("uv备用安装成功: {version}"),
                                 )
                                 .await;
-                                info!("uv备用安装成功: {}", version);
+                                info!("UV backup installation successful: {}", version);
                                 return Ok(());
                             }
                         }
@@ -3243,7 +3271,7 @@ print('MarkItDown功能验证成功')
                     }
                 }
                 Err(e) => {
-                    warn!("备用安装方法失败: {}", e);
+                    warn!("Alternate installation method failed: {}", e);
                     continue;
                 }
             }
@@ -3351,7 +3379,10 @@ print('MarkItDown功能验证成功')
             return Ok(());
         }
 
-        info!("尝试清理损坏的虚拟环境: {}", venv_path.display());
+        info!(
+            "Try cleaning the corrupted virtual environment: {}",
+            venv_path.display()
+        );
 
         // 检查是否有权限删除
         if let Err(e) = self
@@ -3367,7 +3398,7 @@ print('MarkItDown功能验证成功')
         // 尝试删除虚拟环境目录
         match std::fs::remove_dir_all(venv_path) {
             Ok(_) => {
-                info!("成功清理损坏的虚拟环境");
+                info!("Successfully cleans corrupted virtual environment");
                 Ok(())
             }
             Err(e) => Err(AppError::permission_error(
@@ -3385,7 +3416,10 @@ print('MarkItDown功能验证成功')
         let current_dir = Path::new(&self.base_dir);
         let venv_path = current_dir.join("venv");
 
-        info!("开始验证当前目录设置: {}", current_dir.display());
+        info!(
+            "Start verifying current directory settings: {}",
+            current_dir.display()
+        );
 
         let mut result = DirectoryValidationResult {
             is_valid: true,
@@ -3511,7 +3545,7 @@ print('MarkItDown功能验证成功')
         self.generate_directory_recommendations(&mut result);
 
         info!(
-            "目录验证完成: valid={}, issues={}, warnings={}",
+            "Directory verification completed: valid={}, issues={}, warnings={}",
             result.is_valid,
             result.issues.len(),
             result.warnings.len()
@@ -3666,12 +3700,15 @@ print('MarkItDown功能验证成功')
             let python_exe = Self::get_venv_python_path(&venv_path);
 
             if python_exe.exists() {
-                info!("Python虚拟环境已存在且完整: {}", venv_path.display());
+                info!(
+                    "The Python virtual environment exists and is complete: {}",
+                    venv_path.display()
+                );
                 self.send_progress("虚拟环境", InstallStage::Completed, 100.0, "虚拟环境已存在")
                     .await;
                 return Ok(());
             } else {
-                warn!("检测到损坏的虚拟环境，尝试清理");
+                warn!("Corrupted virtual environment detected, attempt to clean");
                 self.send_progress(
                     "虚拟环境",
                     InstallStage::Preparing,
@@ -3683,7 +3720,10 @@ print('MarkItDown功能验证成功')
             }
         }
 
-        info!("创建Python虚拟环境: {}", venv_path.display());
+        info!(
+            "Create a Python virtual environment: {}",
+            venv_path.display()
+        );
         self.send_progress(
             "虚拟环境",
             InstallStage::Preparing,
@@ -3733,9 +3773,9 @@ print('MarkItDown功能验证成功')
             let error = self.handle_venv_creation_error(&error_msg, &venv_path);
 
             // 记录详细的错误信息和恢复建议
-            error!("虚拟环境创建失败: {}", error);
+            error!("Virtual environment creation failed: {}", error);
             for suggestion in error.get_path_recovery_suggestions() {
-                error!("恢复建议: {}", suggestion);
+                error!("Recovery suggestion: {}", suggestion);
             }
 
             return Err(error);
@@ -3763,7 +3803,7 @@ print('MarkItDown功能验证成功')
             "虚拟环境创建完成",
         )
         .await;
-        info!("Python虚拟环境创建完成");
+        info!("The Python virtual environment is created");
         Ok(())
     }
 
@@ -3798,7 +3838,9 @@ print('MarkItDown功能验证成功')
         let pip_exe = Self::get_venv_executable_path(venv_path, "pip");
 
         if !pip_exe.exists() {
-            warn!("虚拟环境中pip不存在，但这可能是正常的（使用uv管理包）");
+            warn!(
+                "pip does not exist in the virtual environment, but this may be normal (using uv management package)"
+            );
         }
 
         // 尝试运行Python验证虚拟环境
@@ -3810,11 +3852,14 @@ print('MarkItDown功能验证成功')
         match timeout(Duration::from_secs(10), test_cmd).await {
             Ok(Ok(output)) if output.status.success() => {
                 let prefix = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                debug!("虚拟环境Python前缀: {}", prefix);
+                debug!("Virtual environment Python prefix: {}", prefix);
 
                 // 验证Python前缀是否指向虚拟环境
                 if !prefix.contains("venv") {
-                    warn!("Python前缀可能不指向虚拟环境: {}", prefix);
+                    warn!(
+                        "Python prefix may not point to virtual environment: {}",
+                        prefix
+                    );
                 }
             }
             Ok(Ok(output)) => {
@@ -3843,7 +3888,7 @@ print('MarkItDown功能验证成功')
 
     /// 安装MinerU（带进度跟踪）
     async fn install_mineru_with_progress(&self) -> Result<(), AppError> {
-        info!("安装MinerU");
+        info!("Anso MinerU");
 
         self.send_progress("MinerU", InstallStage::Preparing, 0.0, "准备安装MinerU")
             .await;
@@ -3855,11 +3900,11 @@ print('MarkItDown功能验证成功')
         let cuda_status = self.check_cuda_environment().await;
         let mineru_package = match cuda_status {
             Ok(cuda_info) if cuda_info.available && !cuda_info.devices.is_empty() => {
-                info!("检测到CUDA环境，安装mineru[all]以支持GPU加速");
+                info!("CUDA environment detected, install mineru[all] to support GPU acceleration");
                 "mineru[all]"
             }
             _ => {
-                info!("未检测到CUDA环境，安装mineru[core]（仅CPU版本）");
+                info!("CUDA environment not detected, install mineru[core] (CPU version only)");
                 "mineru[core]"
             }
         };
@@ -3878,7 +3923,7 @@ print('MarkItDown功能验证成功')
 
         // 如果在中国大陆，添加镜像配置
         if is_china {
-            info!("检测到中国大陆环境，使用阿里云镜像源");
+            info!("Mainland China environment detected, using Alibaba Cloud mirror source");
             install_cmd
                 .arg("-i")
                 .arg("https://mirrors.aliyun.com/pypi/simple/")
@@ -3886,7 +3931,7 @@ print('MarkItDown功能验证成功')
                 .arg("mirrors.aliyun.com");
         }
         //install_cmd 命令打印
-        info!("mineru安装命令={:?}", &install_cmd);
+        info!("mineru installation command={:?}", &install_cmd);
 
         let install_cmd = install_cmd.output();
 
@@ -3916,7 +3961,7 @@ print('MarkItDown功能验证成功')
         // 如果在中国大陆，配置模型源
         if is_china {
             if let Err(e) = self.configure_mineru_model_source().await {
-                warn!("配置MinerU模型源失败: {}", e);
+                warn!("Failed to configure MinerU model source: {}", e);
                 // 不阻断安装流程，只记录警告
             }
         }
@@ -3929,7 +3974,7 @@ print('MarkItDown功能验证成功')
             Ok(_) => {
                 self.send_progress("MinerU", InstallStage::Completed, 100.0, "MinerU安装完成")
                     .await;
-                info!("MinerU安装完成");
+                info!("MinerU installation completed");
                 Ok(())
             }
             Err(e) => {
@@ -3947,7 +3992,7 @@ print('MarkItDown功能验证成功')
 
     /// 安装MarkItDown（带进度跟踪）
     async fn install_markitdown_with_progress(&self) -> Result<(), AppError> {
-        info!("安装MarkItDown");
+        info!("InstallMarkItDown");
 
         self.send_progress(
             "MarkItDown",
@@ -3973,7 +4018,7 @@ print('MarkItDown功能验证成功')
 
         // 如果在中国大陆，添加镜像配置
         if is_china {
-            info!("检测到中国大陆环境，使用国内镜像源");
+            info!("Mainland China environment detected, using domestic mirror source");
             install_cmd
                 .arg("-i")
                 .arg("https://mirrors.aliyun.com/pypi/simple/")
@@ -4028,7 +4073,7 @@ print('MarkItDown功能验证成功')
                     "MarkItDown安装完成",
                 )
                 .await;
-                info!("MarkItDown安装完成");
+                info!("MarkItDown installation completed");
                 Ok(())
             }
             Err(e) => {
@@ -4096,7 +4141,7 @@ print('MarkItDown功能验证成功')
 
     /// 配置MinerU模型源为ModelScope（中国大陆）
     async fn configure_mineru_model_source(&self) -> Result<(), AppError> {
-        info!("配置MinerU使用ModelScope模型源");
+        info!("Configure MinerU to use the ModelScope model source");
 
         // 创建配置目录
         let home_dir = std::env::var("HOME")
@@ -4104,7 +4149,7 @@ print('MarkItDown功能验证成功')
         let config_dir = format!("{home_dir}/.mineru");
 
         if let Err(e) = std::fs::create_dir_all(&config_dir) {
-            warn!("创建MinerU配置目录失败: {}", e);
+            warn!("Failed to create MinerU configuration directory: {}", e);
         }
 
         // 创建配置文件内容
@@ -4120,7 +4165,10 @@ print('MarkItDown功能验证成功')
             )));
         }
 
-        info!("MinerU模型源配置完成: {}", config_file);
+        info!(
+            "MinerU model source configuration completed: {}",
+            config_file
+        );
         Ok(())
     }
 
@@ -4133,15 +4181,21 @@ print('MarkItDown功能验证成功')
         let health_score = status.health_score();
 
         if !is_valid {
-            warn!("环境验证失败，健康评分: {}/100", health_score);
+            warn!(
+                "Environment verification failed, health score: {}/100",
+                health_score
+            );
             for issue in status.get_critical_issues() {
                 error!(
-                    "关键问题 [{}]: {} - {}",
+                    "Key questions [{}]: {} - {}",
                     issue.component, issue.message, issue.suggestion
                 );
             }
         } else {
-            info!("环境验证通过，健康评分: {}/100", health_score);
+            info!(
+                "Environmental verification passed, health score: {}/100",
+                health_score
+            );
         }
 
         Ok(is_valid)
@@ -4154,14 +4208,20 @@ print('MarkItDown功能验证成功')
 
         // 检查虚拟环境是否存在
         if !venv_path.exists() {
-            debug!("虚拟环境不存在: {}", venv_path.display());
+            debug!(
+                "The virtual environment does not exist: {}",
+                venv_path.display()
+            );
             return Ok(());
         }
 
         // 检查虚拟环境是否已经激活
         if let Ok(virtual_env) = std::env::var("VIRTUAL_ENV") {
             if virtual_env == venv_path.to_string_lossy() {
-                debug!("虚拟环境已经激活: {}", virtual_env);
+                debug!(
+                    "The virtual environment has been activated: {}",
+                    virtual_env
+                );
                 return Ok(());
             }
         }
@@ -4170,14 +4230,17 @@ print('MarkItDown功能验证成功')
         let python_exe = Self::get_venv_python_path(&venv_path);
         if !python_exe.exists() {
             debug!(
-                "虚拟环境中的Python可执行文件不存在: {}",
+                "The Python executable file in the virtual environment does not exist: {}",
                 python_exe.display()
             );
             return Ok(());
         }
 
         // 设置环境变量以模拟虚拟环境激活
-        info!("自动激活虚拟环境: {}", venv_path.display());
+        info!(
+            "Automatically activate virtual environment: {}",
+            venv_path.display()
+        );
 
         // 计算虚拟环境bin目录路径
         let venv_bin_path = if cfg!(windows) {
@@ -4204,12 +4267,15 @@ print('MarkItDown功能验证成功')
             std::env::set_var("PYTHONPATH", venv_path.to_string_lossy().to_string());
         }
 
-        info!("虚拟环境已自动激活，Python路径: {}", python_exe.display());
+        info!(
+            "The virtual environment has been automatically activated, Python path: {}",
+            python_exe.display()
+        );
         debug!(
             "VIRTUAL_ENV: {}",
             std::env::var("VIRTUAL_ENV").unwrap_or_default()
         );
-        debug!("PATH前缀: {}", venv_bin_path);
+        debug!("PATH prefix: {}", venv_bin_path);
 
         Ok(())
     }

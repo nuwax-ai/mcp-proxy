@@ -29,7 +29,7 @@ pub struct MemoryOptimizer {
 
 impl MemoryOptimizer {
     /// 创建新的内存优化器
-    pub async fn new(config: &AppConfig) -> Result<Self, AppError> {
+    pub async fn new(_config: &AppConfig) -> Result<Self, AppError> {
         let memory_config = MemoryConfig::default(); // 从配置中获取
 
         let memory_pool = Arc::new(MemoryPool::new(memory_config.pool_size));
@@ -112,9 +112,9 @@ impl MemoryOptimizer {
         self.memory_pool.cleanup().await?;
 
         // 强制垃圾回收（如果可能）
-        #[cfg(feature = "jemalloc")]
+        #[cfg(target_os = "linux")]
         {
-            // 使用jemalloc的内存清理功能
+            // 在 Linux 上尝试将空闲内存归还给系统
             unsafe {
                 libc::malloc_trim(0);
             }
@@ -500,11 +500,11 @@ impl MemoryStats {
         }
     }
 
-    pub fn record_allocation(&self, size: usize) {
+    pub fn record_allocation(&self, _size: usize) {
         // 在实际实现中，这些应该是原子操作
     }
 
-    pub fn record_deallocation(&self, size: usize) {
+    pub fn record_deallocation(&self, _size: usize) {
         // 在实际实现中，这些应该是原子操作
     }
 
@@ -684,8 +684,8 @@ impl CompressionStats {
 
     async fn record_decompression(
         &self,
-        compressed_size: usize,
-        decompressed_size: usize,
+        _compressed_size: usize,
+        _decompressed_size: usize,
         duration: Duration,
     ) {
         self.decompressions.fetch_add(1, Ordering::Relaxed);

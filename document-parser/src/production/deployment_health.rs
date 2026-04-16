@@ -1,6 +1,7 @@
 //! 部署健康检查模块
 //!
 //! 提供应用部署后的健康检查功能，包括启动检查、就绪检查、存活检查等。
+#![allow(dead_code)]
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -268,11 +269,11 @@ impl HealthCheckManager {
     /// 启动健康检查
     pub async fn start_health_checks(&self) -> Result<()> {
         if !self.config.enabled {
-            info!("健康检查未启用");
+            info!("Health checks are not enabled");
             return Ok(());
         }
 
-        info!("启动健康检查");
+        info!("Start health check");
 
         // 启动定期检查任务
         self.start_periodic_checks().await;
@@ -317,7 +318,7 @@ impl HealthCheckManager {
                             }
                         }
                         Err(e) => {
-                            error!("健康检查器 {} 执行失败: {}", checker.name(), e);
+                            error!("Health checker {} failed to execute: {}", checker.name(), e);
                             overall_healthy = false;
 
                             let error_result = HealthCheckResult {
@@ -398,16 +399,20 @@ impl HealthCheckManager {
 
     /// 执行初始检查
     async fn perform_initial_checks(&self) -> Result<()> {
-        info!("执行初始健康检查");
+        info!("Perform initial health check");
 
         for checker in &self.checkers {
             if checker.check_type() == HealthCheckType::Startup {
                 match Self::execute_check_with_retry(checker.as_ref(), &self.config).await {
                     Ok(result) => {
-                        info!("启动检查 {} 结果: {:?}", checker.name(), result.status);
+                        info!(
+                            "Start checking {} Result: {:?}",
+                            checker.name(),
+                            result.status
+                        );
                     }
                     Err(e) => {
-                        error!("启动检查 {} 失败: {}", checker.name(), e);
+                        error!("Startup check {} failed: {}", checker.name(), e);
                         return Err(e);
                     }
                 }
@@ -460,7 +465,7 @@ impl HealthCheckManager {
             match Self::execute_check_with_retry(checker.as_ref(), &self.config).await {
                 Ok(result) => results.push(result),
                 Err(e) => {
-                    error!("手动健康检查 {} 失败: {}", checker.name(), e);
+                    error!("Manual health check {} failed: {}", checker.name(), e);
                     results.push(HealthCheckResult {
                         checker_name: checker.name().to_string(),
                         check_type: checker.check_type(),
@@ -479,7 +484,7 @@ impl HealthCheckManager {
 
     /// 停止健康检查
     pub async fn stop_health_checks(&self) -> Result<()> {
-        info!("停止健康检查");
+        info!("Stop health check");
         // 这里应该实现停止所有后台任务的逻辑
         Ok(())
     }

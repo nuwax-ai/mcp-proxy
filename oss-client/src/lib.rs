@@ -24,10 +24,17 @@
 //!
 //!     // 上传文件
 //!     let url = client.upload_file("local/file.txt", "remote/file.txt").await?;
-//!     println!("文件上传成功: {}", url);
+//!     println!("File uploaded successfully: {}", url);
 //!     Ok(())
 //! }
 //! ```
+
+// 初始化 i18n，使用 crate 内置翻译文件
+#[macro_use]
+extern crate rust_i18n;
+
+// 初始化翻译文件，使用 crate 内置 locales（支持独立发布）
+i18n!("locales", fallback = "en");
 
 pub mod config;
 pub mod error;

@@ -77,7 +77,7 @@ mod format_detector_tests {
         match result {
             Ok(detection_result) => {
                 // 先打印出实际的检测结果，了解实际行为
-                println!("未知扩展名检测结果: {detection_result:?}");
+                println!("Unknown extension detection result: {detection_result:?}");
                 // 由于内容分析检测，未知扩展名被识别为文本文件
                 assert_eq!(detection_result.format, DocumentFormat::Text);
                 assert_eq!(
@@ -120,7 +120,7 @@ mod format_detector_tests {
         let result = detector
             .detect_format(temp_file_path, Some("application/unknown"))
             .unwrap();
-        println!("未知MIME类型检测结果: {result:?}");
+        println!("Unknown MIME type detection result: {result:?}");
         // 由于MIME类型未知且文件没有扩展名，内容分析检测会识别出文本格式
         // 这是正确的行为，因为文件内容是纯文本
         assert_eq!(result.format, DocumentFormat::Text);

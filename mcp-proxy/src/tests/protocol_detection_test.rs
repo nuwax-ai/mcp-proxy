@@ -72,7 +72,10 @@ fn test_zimage_config_type_parsed_as_stream() {
 
             // 2. get_protocol_type() 返回 Some，且 is_streamable
             let protocol_type = url_config.get_protocol_type();
-            assert!(protocol_type.is_some(), "streamableHttp should be recognized");
+            assert!(
+                protocol_type.is_some(),
+                "streamableHttp should be recognized"
+            );
             assert!(protocol_type.as_ref().unwrap().is_streamable());
 
             // 3. 转换为 McpProtocol::Stream
@@ -133,16 +136,16 @@ async fn test_zimage_protocol_detection() {
         _ => panic!("Expected URL config"),
     };
 
-    println!("=== 协议探测测试: {} ===", url);
+    println!("=== Protocol detection test: {} ===", url);
 
     // 1. SSE 探测应返回 false
-    println!("\n--- SSE 探测 ---");
+    println!("\\n--- SSE Probing ---");
     let is_sse = mcp_sse_proxy::is_sse_with_headers(&url, Some(&headers)).await;
     println!("is_sse_with_headers = {}", is_sse);
     assert!(!is_sse, "Streamable HTTP 服务不应被识别为 SSE");
 
     // 2. Streamable HTTP 探测应返回 true
-    println!("\n--- Streamable HTTP 探测 ---");
+    println!("\\n--- Streamable HTTP probe ---");
     let is_stream =
         mcp_streamable_proxy::is_streamable_http_with_headers(&url, Some(&headers)).await;
     println!("is_streamable_http_with_headers = {}", is_stream);
@@ -152,18 +155,14 @@ async fn test_zimage_protocol_detection() {
     );
 
     // 3. 综合探测应返回 Stream
-    println!("\n--- 综合协议探测 ---");
+    println!("\\n--- Comprehensive protocol detection ---");
     let detected = crate::server::detect_mcp_protocol_with_headers(&url, Some(&headers))
         .await
         .unwrap();
     println!("detect_mcp_protocol_with_headers = {:?}", detected);
-    assert_eq!(
-        detected,
-        McpProtocol::Stream,
-        "综合探测应返回 Stream 协议"
-    );
+    assert_eq!(detected, McpProtocol::Stream, "综合探测应返回 Stream 协议");
 
-    println!("\n=== 所有探测结果正确 ===");
+    println!("\\n=== All detection results are correct ===");
 }
 
 // ==================== howtocook SSE 本地解析测试 ====================
@@ -184,10 +183,7 @@ fn test_howtocook_config_type_parsed_as_sse() {
             assert!(!protocol_type.as_ref().unwrap().is_streamable());
 
             // 3. 转换为 McpProtocol::Sse
-            assert_eq!(
-                protocol_type.unwrap().to_mcp_protocol(),
-                McpProtocol::Sse
-            );
+            assert_eq!(protocol_type.unwrap().to_mcp_protocol(), McpProtocol::Sse);
 
             // 4. FromStr 解析也能识别 "sse"
             assert_eq!("sse".parse::<McpProtocol>(), Ok(McpProtocol::Sse));
@@ -224,34 +220,30 @@ async fn test_howtocook_sse_protocol_detection() {
         _ => panic!("Expected URL config"),
     };
 
-    println!("=== SSE 协议探测测试: {} ===", url);
+    println!("=== SSE protocol detection test: {} ===", url);
 
     // 1. SSE 探测应返回 true（该服务是真实 MCP SSE，会发送 event: endpoint）
-    println!("\n--- SSE 探测 ---");
+    println!("\\n--- SSE Probing ---");
     let is_sse = mcp_sse_proxy::is_sse(&url).await;
     println!("is_sse = {}", is_sse);
-    assert!(is_sse, "howtocook SSE 服务应被识别为 SSE（发现 event: endpoint）");
+    assert!(
+        is_sse,
+        "howtocook SSE 服务应被识别为 SSE（发现 event: endpoint）"
+    );
 
     // 2. Streamable HTTP 探测应返回 false（SSE 服务不应被识别为 Streamable HTTP）
-    println!("\n--- Streamable HTTP 探测 ---");
+    println!("\\n--- Streamable HTTP probe ---");
     let is_stream = mcp_streamable_proxy::is_streamable_http(&url).await;
     println!("is_streamable_http = {}", is_stream);
-    assert!(
-        !is_stream,
-        "SSE 服务不应被识别为 Streamable HTTP"
-    );
+    assert!(!is_stream, "SSE 服务不应被识别为 Streamable HTTP");
 
     // 3. 综合探测应返回 Sse
-    println!("\n--- 综合协议探测 ---");
+    println!("\\n--- Comprehensive protocol detection ---");
     let detected = crate::server::detect_mcp_protocol(&url).await.unwrap();
     println!("detect_mcp_protocol = {:?}", detected);
-    assert_eq!(
-        detected,
-        McpProtocol::Sse,
-        "综合探测应返回 Sse 协议"
-    );
+    assert_eq!(detected, McpProtocol::Sse, "综合探测应返回 Sse 协议");
 
-    println!("\n=== SSE 探测结果正确 ===");
+    println!("\\n=== SSE detection result is correct ===");
 }
 
 /// Test: protocol detection without headers should still default to Stream
@@ -262,7 +254,7 @@ async fn test_howtocook_sse_protocol_detection() {
 async fn test_zimage_detection_without_headers() {
     let url = "https://dashscope.aliyuncs.com/api/v1/mcps/zimage/mcp";
 
-    println!("=== 无 header 探测测试: {} ===", url);
+    println!("=== No header detection test: {} ===", url);
 
     // SSE 探测应返回 false
     let is_sse = mcp_sse_proxy::is_sse(url).await;
@@ -272,11 +264,7 @@ async fn test_zimage_detection_without_headers() {
     // 综合探测应兜底为 Stream
     let detected = crate::server::detect_mcp_protocol(url).await.unwrap();
     println!("detect_mcp_protocol = {:?}", detected);
-    assert_eq!(
-        detected,
-        McpProtocol::Stream,
-        "无 header 时应兜底为 Stream"
-    );
+    assert_eq!(detected, McpProtocol::Stream, "无 header 时应兜底为 Stream");
 
-    println!("=== 无 header 探测结果正确 ===");
+    println!("=== No header, the detection result is correct ===");
 }

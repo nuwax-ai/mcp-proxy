@@ -30,18 +30,18 @@ pub struct DynamicRouterService(pub McpProtocol);
 impl DynamicRouterService {
     // 注册动态 handler
     pub fn register_route(path: &str, handler: Router) {
-        debug!("=== 注册路由 ===");
-        debug!("注册路径: {}", path);
+        debug!("=== Register Route ===");
+        debug!("Registration path: {}", path);
         GLOBAL_ROUTES.insert(path.to_string(), handler);
-        debug!("=== 注册路由完成 ===");
+        debug!("=== Route registration completed ===");
     }
 
     // 删除动态 handler
     pub fn delete_route(path: &str) {
-        debug!("=== 删除路由 ===");
-        debug!("删除路径: {}", path);
+        debug!("=== Delete route ===");
+        debug!("Delete path: {}", path);
         GLOBAL_ROUTES.remove(path);
-        debug!("=== 删除路由完成 ===");
+        debug!("=== Route deletion completed ===");
     }
 
     // 获取动态 handler
@@ -110,7 +110,7 @@ pub struct McpProcessGuard {
 
 impl McpProcessGuard {
     pub fn new(mcp_id: String, cancellation_token: CancellationToken) -> Self {
-        debug!("[RAII] 创建进程守护器: mcp_id={}", mcp_id);
+        debug!("[RAII] Create process daemon: mcp_id={}", mcp_id);
         Self {
             mcp_id,
             cancellation_token,
@@ -126,7 +126,7 @@ impl McpProcessGuard {
 impl Drop for McpProcessGuard {
     fn drop(&mut self) {
         info!(
-            "[RAII] 进程守护器被 drop，取消 CancellationToken: mcp_id={}",
+            "[RAII] The process daemon was dropped and canceled CancellationToken: mcp_id={}",
             self.mcp_id
         );
         self.cancellation_token.cancel();
@@ -382,7 +382,7 @@ impl ProxyHandlerManager {
         // RAII: 如果已存在同名服务，insert 会返回旧服务，旧服务被 drop 时自动清理
         if let Some(old_service) = self.services.insert(mcp_id.clone(), service) {
             info!(
-                "[RAII] 覆盖已存在的服务，旧服务将被自动清理: mcp_id={}",
+                "[RAII] Overwrite existing services, old services will be automatically cleaned up: mcp_id={}",
                 mcp_id
             );
             drop(old_service);
@@ -427,7 +427,7 @@ impl ProxyHandlerManager {
         // RAII: 如果已存在同名服务，insert 会返回旧服务，旧服务被 drop 时自动清理
         if let Some(old_service) = self.services.insert(mcp_id.clone(), service) {
             info!(
-                "[RAII] 覆盖已存在的服务，旧服务将被自动清理: mcp_id={}",
+                "[RAII] Overwrite existing services, old services will be automatically cleaned up: mcp_id={}",
                 mcp_id
             );
             // old_service 在此作用域结束时 drop，触发 McpProcessGuard::drop()
@@ -512,7 +512,10 @@ impl ProxyHandlerManager {
                 entry.get_mut().set_handler(proxy_handler);
             }
             dashmap::mapref::entry::Entry::Vacant(_) => {
-                warn!("[RAII] 尝试添加 handler 到不存在的服务: mcp_id={}", mcp_id);
+                warn!(
+                    "[RAII] Trying to add handler to non-existent service: mcp_id={}",
+                    mcp_id
+                );
             }
         }
     }
@@ -532,16 +535,16 @@ impl ProxyHandlerManager {
         GLOBAL_MCP_CONFIG_CACHE
             .insert(mcp_id.to_string(), config)
             .await;
-        info!("MCP 配置已注册到缓存: {}", mcp_id);
+        info!("MCP configuration registered in cache: {}", mcp_id);
     }
 
     /// 从缓存获取 MCP 配置
     pub async fn get_mcp_config_from_cache(&self, mcp_id: &str) -> Option<McpConfig> {
         if let Some(config) = GLOBAL_MCP_CONFIG_CACHE.get(mcp_id).await {
-            debug!("从缓存获取 MCP 配置: {}", mcp_id);
+            debug!("Get MCP configuration from cache: {}", mcp_id);
             Some(config)
         } else {
-            debug!("缓存中未找到 MCP 配置: {}", mcp_id);
+            debug!("MCP configuration not found in cache: {}", mcp_id);
             None
         }
     }
@@ -549,7 +552,7 @@ impl ProxyHandlerManager {
     /// 从缓存删除 MCP 配置
     pub async fn unregister_mcp_config(&self, mcp_id: &str) {
         GLOBAL_MCP_CONFIG_CACHE.invalidate(mcp_id).await;
-        info!("MCP 配置已从缓存删除: {}", mcp_id);
+        info!("MCP configuration removed from cache: {}", mcp_id);
     }
 
     /// 清理资源 (RAII 模式简化版)
@@ -561,7 +564,7 @@ impl ProxyHandlerManager {
     ///
     /// 此方法额外清理路由和缓存
     pub async fn cleanup_resources(&self, mcp_id: &str) -> Result<()> {
-        info!("[RAII] 开始清理资源: mcp_id={}", mcp_id);
+        info!("[RAII] Start cleaning up resources: mcp_id={}", mcp_id);
 
         // 创建路径以构建要删除的路由路径
         let mcp_sse_router_path = McpRouterPath::new(mcp_id.to_string(), McpProtocol::Sse)
@@ -584,11 +587,14 @@ impl ProxyHandlerManager {
         // 这会自动取消 CancellationToken，进而触发子进程退出
         if self.services.remove(mcp_id).is_some() {
             info!(
-                "[RAII] 服务已从 map 移除，McpProcessGuard 将自动取消令牌: mcp_id={}",
+                "[RAII] The service has been removed from the map, McpProcessGuard will automatically cancel the token: mcp_id={}",
                 mcp_id
             );
         } else {
-            debug!("[RAII] 服务不存在，跳过移除: mcp_id={}", mcp_id);
+            debug!(
+                "[RAII] Service does not exist, skip removal: mcp_id={}",
+                mcp_id
+            );
         }
 
         // 清理配置缓存
@@ -597,7 +603,10 @@ impl ProxyHandlerManager {
         // 清理健康状态缓存
         GLOBAL_RESTART_TRACKER.clear_health_status(mcp_id);
 
-        info!("[RAII] MCP 服务资源清理完成: mcp_id={}", mcp_id);
+        info!(
+            "[RAII] MCP service resource cleanup completed: mcp_id={}",
+            mcp_id
+        );
         Ok(())
     }
 
@@ -605,7 +614,7 @@ impl ProxyHandlerManager {
     ///
     /// RAII 模式下，清除 DashMap 会自动释放所有资源
     pub async fn cleanup_all_resources(&self) -> Result<()> {
-        info!("[RAII] 开始清理所有 MCP 服务资源");
+        info!("[RAII] Start cleaning up all MCP service resources");
 
         // 收集所有 mcp_id
         let mcp_ids: Vec<String> = self
@@ -619,12 +628,18 @@ impl ProxyHandlerManager {
         // 逐个清理（包括路由和缓存）
         for mcp_id in mcp_ids {
             if let Err(e) = self.cleanup_resources(&mcp_id).await {
-                error!("[RAII] 清理资源失败: mcp_id={}, error={}", mcp_id, e);
+                error!(
+                    "[RAII] Failed to clean up resources: mcp_id={}, error={}",
+                    mcp_id, e
+                );
                 // 继续清理其他资源
             }
         }
 
-        info!("[RAII] 所有 MCP 服务资源清理完成，共清理 {} 个服务", count);
+        info!(
+            "[RAII] All MCP service resources have been cleaned up, and a total of {} services have been cleaned up.",
+            count
+        );
         Ok(())
     }
 
@@ -634,10 +649,13 @@ impl ProxyHandlerManager {
     /// 不会清理路由和缓存，适用于需要快速移除服务的场景。
     pub fn remove_service(&self, mcp_id: &str) -> bool {
         if self.services.remove(mcp_id).is_some() {
-            info!("[RAII] 服务已移除，进程将自动清理: mcp_id={}", mcp_id);
+            info!(
+                "[RAII] The service has been removed and the process will be automatically cleaned up: mcp_id={}",
+                mcp_id
+            );
             true
         } else {
-            debug!("[RAII] 服务不存在: mcp_id={}", mcp_id);
+            debug!("[RAII] Service does not exist: mcp_id={}", mcp_id);
             false
         }
     }
@@ -666,7 +684,10 @@ impl ProxyHandlerManager {
     /// 与 cleanup_resources 不同，此方法不会清理配置缓存，
     /// 允许后续使用缓存的配置重新启动服务。
     pub async fn cleanup_resources_for_restart(&self, mcp_id: &str) -> Result<()> {
-        info!("[RAII] 开始清理资源用于重启: mcp_id={}", mcp_id);
+        info!(
+            "[RAII] Start cleaning up resources for restart: mcp_id={}",
+            mcp_id
+        );
 
         // 创建路径以构建要删除的路由路径
         let mcp_sse_router_path = McpRouterPath::new(mcp_id.to_string(), McpProtocol::Sse)
@@ -688,11 +709,14 @@ impl ProxyHandlerManager {
         // RAII 核心：从 DashMap 移除会触发 McpProcessGuard::drop()
         if self.services.remove(mcp_id).is_some() {
             info!(
-                "[RAII] 服务已从 map 移除（用于重启），McpProcessGuard 将自动取消令牌: mcp_id={}",
+                "[RAII] The service has been removed from the map (for restart), McpProcessGuard will automatically cancel the token: mcp_id={}",
                 mcp_id
             );
         } else {
-            debug!("[RAII] 服务不存在，跳过移除: mcp_id={}", mcp_id);
+            debug!(
+                "[RAII] Service does not exist, skip removal: mcp_id={}",
+                mcp_id
+            );
         }
 
         // 注意：不清理配置缓存，保留用于重启
@@ -701,7 +725,10 @@ impl ProxyHandlerManager {
         // 清理健康状态缓存
         GLOBAL_RESTART_TRACKER.clear_health_status(mcp_id);
 
-        info!("[RAII] MCP 服务资源清理完成（用于重启）: mcp_id={}", mcp_id);
+        info!(
+            "[RAII] MCP service resource cleanup completed (for restart): mcp_id={}",
+            mcp_id
+        );
         Ok(())
     }
 }
@@ -753,7 +780,7 @@ impl McpConfigCache {
 
     pub async fn insert(&self, mcp_id: String, config: McpConfig) {
         self.cache.insert(mcp_id.clone(), config).await;
-        info!("MCP 配置已缓存: {} (TTL: 24h)", mcp_id);
+        info!("MCP configuration cached: {} (TTL: 24h)", mcp_id);
     }
 
     pub async fn get(&self, mcp_id: &str) -> Option<McpConfig> {
@@ -856,7 +883,7 @@ impl RestartTracker {
             let elapsed = now.duration_since(*last_restart);
             if elapsed < min_restart_interval {
                 warn!(
-                    "服务 {} 在冷却期内，距离上次重启仅 {} 秒，跳过重启",
+                    "Service {} is in the cooldown period and is only {} seconds since its last restart. Restart is skipped.",
                     mcp_id,
                     elapsed.as_secs()
                 );
@@ -873,7 +900,10 @@ impl RestartTracker {
     /// 配合 `can_restart()` 使用，避免在服务启动失败时插入时间戳。
     pub fn record_restart(&self, mcp_id: &str) {
         self.last_restart.insert(mcp_id.to_string(), Instant::now());
-        info!("服务启动成功，记录重启时间: {}", mcp_id);
+        info!(
+            "The service started successfully and the restart time was recorded: {}",
+            mcp_id
+        );
     }
 
     /// 清除重启时间戳
@@ -883,7 +913,7 @@ impl RestartTracker {
     #[allow(dead_code)]
     pub fn clear_restart(&self, mcp_id: &str) {
         self.last_restart.remove(mcp_id);
-        info!("已清除服务 {} 的重启时间戳", mcp_id);
+        info!("Restart timestamp cleared for service {}", mcp_id);
     }
 
     /// 尝试获取服务启动锁
@@ -916,7 +946,7 @@ impl RestartTracker {
             Ok(guard) => Some(guard),
             Err(_) => {
                 // 锁被占用，服务正在启动中
-                debug!("服务 {} 正在启动中，跳过本次启动", mcp_id);
+                debug!("Service {} is starting, skip this startup", mcp_id);
                 None
             }
         }
@@ -929,7 +959,7 @@ impl RestartTracker {
     #[allow(dead_code)]
     pub fn cleanup_startup_lock(&self, mcp_id: &str) {
         self.startup_locks.remove(mcp_id);
-        debug!("已清理服务 {} 的启动锁", mcp_id);
+        debug!("Cleaned startup lock for service {}", mcp_id);
     }
 }
 

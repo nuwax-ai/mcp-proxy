@@ -58,7 +58,7 @@ where
             let mcp_id = mcp_router_path.mcp_id.clone();
 
             // ===== 更新最后访问时间 =====
-            debug!("更新最后访问时间,请求访问MCP ID: {}", mcp_id);
+            debug!("Update last access time, request access MCP ID: {}", mcp_id);
             get_proxy_manager().update_last_accessed(&mcp_id);
         }
 

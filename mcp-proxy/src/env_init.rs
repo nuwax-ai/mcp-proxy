@@ -30,15 +30,15 @@ fn init_mirror(yml: &MirrorYamlConfig) {
     }
 
     if config.is_empty() {
-        eprintln!("  - 未配置镜像源（npm/PyPI），将使用默认源");
+        eprintln!("  - Mirror: not configured");
         return;
     }
 
     if let Some(ref npm) = config.npm_registry {
-        eprintln!("  - npm 镜像: {}", npm);
+        eprintln!("  - npm registry: {npm}");
     }
     if let Some(ref pypi) = config.pypi_index_url {
-        eprintln!("  - PyPI 镜像: {}", pypi);
+        eprintln!("  - PyPI index: {pypi}");
     }
     config.apply_to_process_env();
 }

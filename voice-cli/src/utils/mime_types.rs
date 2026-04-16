@@ -1,5 +1,4 @@
 use std::path::Path;
-use tracing::warn;
 use url::Url;
 
 /// MIME 类型到文件扩展名的映射

@@ -68,7 +68,7 @@ pub async fn handle_list_models(
 
     // 列出可用模型
     let models = list_available_models(&state.config.fastembed.cache_dir).map_err(|e| {
-        tracing::error!("列出可用模型失败: {}", e);
+        tracing::error!("Failed to list available models: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {

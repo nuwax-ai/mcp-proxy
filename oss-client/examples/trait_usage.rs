@@ -7,7 +7,7 @@ use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("=== OSS客户端统一接口使用示例 ===\n");
+    println!("=== Example of using the OSS client unified interface ===\\n");
 
     // 创建配置
     let config = OssConfig::new(
@@ -23,13 +23,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let private_client = PrivateOssClient::new(config.clone())?;
     let public_client = PublicOssClient::new(config.clone())?;
 
-    println!("1. 通过统一接口使用私有bucket客户端:");
+    println!("1. Use private bucket client through unified interface:");
     demonstrate_client_usage(&private_client, "私有bucket").await?;
 
-    println!("\n2. 通过统一接口使用公有bucket客户端:");
+    println!("\\n2. Use the public bucket client through the unified interface:");
     demonstrate_client_usage(&public_client, "公有bucket").await?;
 
-    println!("\n3. 多态使用示例:");
+    println!("\\n3. Examples of polymorphic usage:");
     demonstrate_polymorphic_usage(&private_client, &public_client).await?;
 
     Ok(())
@@ -40,26 +40,26 @@ async fn demonstrate_client_usage(
     client: &dyn OssClientTrait,
     client_type: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    println!("  客户端类型: {client_type}");
-    println!("  配置信息: {:?}", client.get_config());
-    println!("  基础URL: {}", client.get_base_url());
+    println!("Client type: {client_type}");
+    println!("Configuration information: {:?}", client.get_config());
+    println!("Base URL: {}", client.get_base_url());
 
     // 生成上传签名URL
     let expires_in = Duration::from_secs(3600); // 1小时
     match client.generate_upload_url("documents/test.pdf", expires_in, Some("application/pdf")) {
-        Ok(url) => println!("  上传签名URL: {url}"),
-        Err(e) => println!("  生成上传签名URL失败: {e}"),
+        Ok(url) => println!("Upload signature URL: {url}"),
+        Err(e) => println!("Failed to generate upload signature URL: {e}"),
     }
 
     // 生成下载签名URL
     match client.generate_download_url("documents/test.pdf", Some(expires_in)) {
-        Ok(url) => println!("  下载签名URL: {url}"),
-        Err(e) => println!("  生成下载签名URL失败: {e}"),
+        Ok(url) => println!("Download signature URL: {url}"),
+        Err(e) => println!("Failed to generate download signature URL: {e}"),
     }
 
     // 生成唯一对象键
     let object_key = client.generate_object_key("documents", Some("manual.pdf"));
-    println!("  生成的对象键: {object_key}");
+    println!("Generated object key: {object_key}");
 
     Ok(())
 }
@@ -69,23 +69,23 @@ async fn demonstrate_polymorphic_usage(
     private_client: &dyn OssClientTrait,
     public_client: &dyn OssClientTrait,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    println!("  多态使用 - 可以统一处理不同类型的客户端");
+    println!("Polymorphic use - can handle different types of clients uniformly");
 
     // 创建一个客户端列表
     let clients: Vec<&dyn OssClientTrait> = vec![private_client, public_client];
 
     for (i, client) in clients.iter().enumerate() {
-        println!("  客户端 {}: {}", i + 1, client.get_base_url());
+        println!("Client {}: {}", i + 1, client.get_base_url());
 
         // 所有客户端都实现了相同的接口
         let object_key = client.generate_object_key("test", Some("file.txt"));
-        println!("    生成的对象键: {object_key}");
+        println!("Generated object key: {object_key}");
 
         // 测试连接（需要实际的OSS权限）
-        println!("    测试连接...");
+        println!("Test connection...");
         match client.test_connection().await {
-            Ok(_) => println!("    ✅ 连接成功"),
-            Err(e) => println!("    ❌ 连接失败: {e}"),
+            Ok(_) => println!("✅Connected successfully"),
+            Err(e) => println!("❌ Connection failed: {e}"),
         }
     }
 
@@ -98,11 +98,11 @@ async fn upload_file_generic(
     local_path: &str,
     object_key: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    println!("  使用通用接口上传文件: {local_path} -> {object_key}");
+    println!("Use the common interface to upload files: {local_path} -> {object_key}");
 
     // 通过 trait 接口调用上传方法
     let url = client.upload_file(local_path, object_key).await?;
-    println!("  上传成功，文件URL: {url}");
+    println!("Upload successful, file URL: {url}");
 
     Ok(url)
 }
@@ -112,11 +112,11 @@ async fn delete_file_generic(
     client: &dyn OssClientTrait,
     object_key: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    println!("  使用通用接口删除文件: {object_key}");
+    println!("Delete files using common interface: {object_key}");
 
     // 通过 trait 接口调用删除方法
     client.delete_file(object_key).await?;
-    println!("  删除成功");
+    println!("Delete successfully");
 
     Ok(())
 }

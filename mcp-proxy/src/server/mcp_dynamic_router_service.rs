@@ -36,9 +36,9 @@ impl Service<Request<Body>> for DynamicRouterService {
         let headers = req.headers().clone();
 
         // DEBUG: 详细路径解析日志
-        debug!("=== 路径解析开始 ===");
-        debug!("原始请求路径: {}", path);
-        debug!("路径包含的通配符参数: {:?}", req.extensions());
+        debug!("=== Path analysis begins ===");
+        debug!("Original request path: {}", path);
+        debug!("Path contains wildcard parameters: {:?}", req.extensions());
 
         // 提取 trace_id
         let trace_id = extract_trace_id();
@@ -65,7 +65,7 @@ impl Service<Request<Body>> for DynamicRouterService {
             );
         }
 
-        debug!("请求路径: {path}");
+        debug!("Request path: {path}");
 
         // 解析路由路径
         let mcp_router_path = McpRouterPath::from_url(&path);
@@ -78,22 +78,22 @@ impl Service<Request<Body>> for DynamicRouterService {
                 span.record("mcp.id", &mcp_id);
                 span.record("mcp.base_path", &base_path);
 
-                debug!("=== 路径解析结果 ===");
-                debug!("解析出的mcp_id: {}", mcp_id);
-                debug!("解析出的base_path: {}", base_path);
-                debug!("请求路径: {} vs base_path: {}", path, base_path);
-                debug!("=== 路径解析结束 ===");
+                debug!("=== Path analysis results ===");
+                debug!("Parsed mcp_id: {}", mcp_id);
+                debug!("Parsed base_path: {}", base_path);
+                debug!("Request path: {} vs base_path: {}", path, base_path);
+                debug!("=== Path analysis ends ===");
 
                 Box::pin(async move {
                     let _guard = span.enter();
 
                     // 先尝试查找已注册的路由
-                    debug!("=== 路由查找过程 ===");
-                    debug!("查找base_path: '{}'", base_path);
+                    debug!("===Route lookup process ===");
+                    debug!("Find base_path: '{}'", base_path);
 
                     if let Some(router_entry) = DynamicRouterService::get_route(&base_path) {
                         debug!(
-                            "✅ 找到已注册的路由: base_path={}, path={}",
+                            "✅ Find the registered route: base_path={}, path={}",
                             base_path, path
                         );
 
@@ -111,7 +111,7 @@ impl Service<Request<Body>> for DynamicRouterService {
                                 match &service_status.check_mcp_status_response_status {
                                     CheckMcpStatusResponseStatus::Pending => {
                                         debug!(
-                                            "[MCP状态检查] mcp_id={} 状态为 Pending，服务正在初始化中，返回 503",
+                                            "[MCP status check] mcp_id={} The status is Pending, the service is being initialized, and 503 is returned.",
                                             router_path.mcp_id
                                         );
                                         let message = format!(
@@ -126,7 +126,7 @@ impl Service<Request<Body>> for DynamicRouterService {
                                         // Error 状态：只清理，不重启
                                         // 避免有问题的 MCP 服务无限重启循环
                                         warn!(
-                                            "[MCP状态检查] mcp_id={} 状态为 Error: {}，清理资源并返回错误",
+                                            "[MCP status check] mcp_id={} status is Error: {}, clean up resources and return error",
                                             router_path.mcp_id, err
                                         );
                                         // 清理资源
@@ -135,7 +135,7 @@ impl Service<Request<Body>> for DynamicRouterService {
                                             .await
                                         {
                                             error!(
-                                                "[MCP状态检查] mcp_id={} 清理资源失败: {}",
+                                                "[MCP status check] mcp_id={} Failed to clean up resources: {}",
                                                 router_path.mcp_id, e
                                             );
                                         }
@@ -150,7 +150,7 @@ impl Service<Request<Body>> for DynamicRouterService {
                                     }
                                     CheckMcpStatusResponseStatus::Ready => {
                                         debug!(
-                                            "[MCP状态检查] mcp_id={} 状态为 Ready，继续检查后端健康状态",
+                                            "[MCP status check] mcp_id={} status is Ready, continue to check the backend health status",
                                             router_path.mcp_id
                                         );
                                     }
@@ -165,7 +165,7 @@ impl Service<Request<Body>> for DynamicRouterService {
                             if startup_guard.is_none() {
                                 // 锁被占用，服务正在启动中，返回 503
                                 debug!(
-                                    "[启动锁检查] mcp_id={} 启动锁被占用，服务正在启动中，返回 503",
+                                    "[Startup lock check] mcp_id={} The startup lock is occupied, the service is starting, and 503 is returned.",
                                     router_path.mcp_id
                                 );
                                 span.record("mcp.startup_in_progress", true);
@@ -180,7 +180,7 @@ impl Service<Request<Body>> for DynamicRouterService {
                             // 获取到锁，现在可以安全地检查健康状态
                             let _startup_guard = startup_guard.unwrap();
                             debug!(
-                                "[启动锁检查] mcp_id={} 成功获取启动锁，开始健康检查",
+                                "[Start lock check] mcp_id={} Successfully obtained the startup lock and started health check",
                                 router_path.mcp_id
                             );
 
@@ -192,20 +192,20 @@ impl Service<Request<Body>> for DynamicRouterService {
                                     .get_cached_health_status(&router_path.mcp_id)
                                 {
                                     debug!(
-                                        "[健康检查] mcp_id={} 使用缓存状态: is_healthy={}",
+                                        "[Health Check] mcp_id={} Use cache status: is_healthy={}",
                                         router_path.mcp_id, cached
                                     );
                                     cached
                                 } else {
                                     debug!(
-                                        "[健康检查] mcp_id={} 缓存未命中，开始实际健康检查...",
+                                        "[Health Check] mcp_id={} Cache miss, start actual health check...",
                                         router_path.mcp_id
                                     );
                                     let status = handler.is_mcp_server_ready().await;
                                     GLOBAL_RESTART_TRACKER
                                         .update_health_status(&router_path.mcp_id, status);
                                     debug!(
-                                        "[健康检查] mcp_id={} 实际健康检查结果: is_healthy={}",
+                                        "[Health Check] mcp_id={} Actual health check result: is_healthy={}",
                                         router_path.mcp_id, status
                                     );
                                     status
@@ -213,12 +213,12 @@ impl Service<Request<Body>> for DynamicRouterService {
 
                                 if is_healthy {
                                     debug!(
-                                        "[健康检查] mcp_id={} 后端服务正常，释放锁并使用路由",
+                                        "[Health Check] mcp_id={} The backend service is normal, release the lock and use routing",
                                         router_path.mcp_id
                                     );
                                     // 释放锁，使用路由
                                     drop(_startup_guard);
-                                    debug!("=== 路由查找结束(成功) ===");
+                                    debug!("=== Route search ended (successful) ===");
                                     return handle_request_with_router(req, router_entry, &path)
                                         .await;
                                 }
@@ -230,18 +230,21 @@ impl Service<Request<Body>> for DynamicRouterService {
 
                                 // 清理资源
                                 warn!(
-                                    "[健康检查] mcp_id={} 后端服务不健康，清理资源",
+                                    "[Health check] mcp_id={} The backend service is unhealthy, clean up resources.",
                                     router_path.mcp_id
                                 );
                                 if let Err(e) =
                                     proxy_manager.cleanup_resources(&router_path.mcp_id).await
                                 {
                                     error!(
-                                        "[清理资源] mcp_id={} 清理资源失败: error={}",
+                                        "[Clean up resources] mcp_id={} Failed to clean up resources: error={}",
                                         router_path.mcp_id, e
                                     );
                                 } else {
-                                    debug!("[清理资源] mcp_id={} 清理资源成功", router_path.mcp_id);
+                                    debug!(
+                                        "[Clean up resources] mcp_id={} Clean up resources successfully",
+                                        router_path.mcp_id
+                                    );
                                 }
 
                                 // OneShot 类型：只清理，不重启
@@ -249,7 +252,7 @@ impl Service<Request<Body>> for DynamicRouterService {
                                 // 用户需要通过 check_status 接口显式启动新的 OneShot 服务
                                 if matches!(mcp_type, Some(McpType::OneShot)) {
                                     debug!(
-                                        "[健康检查] mcp_id={} 是 OneShot 类型，不自动重启，返回服务已结束",
+                                        "[Health Check] mcp_id={} is a OneShot type, does not automatically restart, and returns that the service has ended",
                                         router_path.mcp_id
                                     );
                                     let message = format!(
@@ -263,7 +266,7 @@ impl Service<Request<Body>> for DynamicRouterService {
 
                                 // Persistent 类型：清理后重启
                                 info!(
-                                    "[重启流程] mcp_id={} 是 Persistent 类型，开始重启服务",
+                                    "[Restart process] mcp_id={} is Persistent type, start to restart the service",
                                     router_path.mcp_id
                                 );
 
@@ -274,7 +277,7 @@ impl Service<Request<Body>> for DynamicRouterService {
                                     && mcp_config.mcp_json_config.is_some()
                                 {
                                     info!(
-                                        "[重启流程] mcp_id={} 使用请求 header 配置重启服务",
+                                        "[Restart process] mcp_id={} Use the request header to configure the restart service",
                                         mcp_config.mcp_id
                                     );
                                     proxy_manager
@@ -289,7 +292,7 @@ impl Service<Request<Body>> for DynamicRouterService {
                                     .await
                                 {
                                     info!(
-                                        "[重启流程] mcp_id={} 使用缓存配置重启服务",
+                                        "[Restart process] mcp_id={} Restart the service using cache configuration",
                                         router_path.mcp_id
                                     );
                                     return start_mcp_and_handle_request(req, mcp_config).await;
@@ -297,7 +300,7 @@ impl Service<Request<Body>> for DynamicRouterService {
 
                                 // 无法获取配置
                                 warn!(
-                                    "[重启流程] mcp_id={} 无法获取配置，无法重启服务",
+                                    "[Restart Process] mcp_id={} Unable to obtain the configuration and unable to restart the service",
                                     router_path.mcp_id
                                 );
                                 let message =
@@ -314,7 +317,7 @@ impl Service<Request<Body>> for DynamicRouterService {
 
                                 if matches!(mcp_type, Some(McpType::OneShot)) {
                                     debug!(
-                                        "[服务检查] mcp_id={} 是 OneShot 类型且 handler 不存在，不自动重启",
+                                        "[Service Check] mcp_id={} is OneShot type and the handler does not exist, so it will not restart automatically.",
                                         router_path.mcp_id
                                     );
                                     // 清理残留状态
@@ -322,7 +325,7 @@ impl Service<Request<Body>> for DynamicRouterService {
                                         proxy_manager.cleanup_resources(&router_path.mcp_id).await
                                     {
                                         error!(
-                                            "[清理资源] mcp_id={} 清理资源失败: {}",
+                                            "[Clean up resources] mcp_id={} Failed to clean up resources: {}",
                                             router_path.mcp_id, e
                                         );
                                     }
@@ -337,29 +340,31 @@ impl Service<Request<Body>> for DynamicRouterService {
 
                                 // Persistent 类型：继续进入启动流程
                                 warn!(
-                                    "路由存在但 handler 不存在，进入重启流程: base_path={}",
+                                    "The route exists but the handler does not exist. Enter the restart process: base_path={}",
                                     base_path
                                 );
                             }
                         } else {
                             // 无法解析路由路径，直接使用路由
-                            debug!("=== 路由查找结束(成功) ===");
+                            debug!("=== Route search ended (successful) ===");
                             return handle_request_with_router(req, router_entry, &path).await;
                         }
                     } else {
                         debug!(
-                            "❌ 未找到已注册的路由: base_path='{}', path='{}'",
+                            "❌ No registered route found: base_path='{}', path='{}'",
                             base_path, path
                         );
 
                         // 显示所有已注册的路由
                         let all_routes = DynamicRouterService::get_all_routes();
-                        debug!("当前已注册的路由: {:?}", all_routes);
-                        debug!("=== 路由查找结束(失败) ===");
+                        debug!("Currently registered route: {:?}", all_routes);
+                        debug!("=== Route search ended (failed) ===");
                     }
 
                     // 未找到路由，尝试启动服务
-                    warn!("未找到匹配的路径,尝试启动服务:base_path={base_path},path={path}");
+                    warn!(
+                        "No matching path found, try to start the service: base_path={base_path}, path={path}"
+                    );
                     span.record("error.route_not_found", true);
 
                     // ===== 提前解析 mcp_id 用于配置获取 =====
@@ -374,7 +379,10 @@ impl Service<Request<Body>> for DynamicRouterService {
                     {
                         // 检查重启限制（防止无限循环）
                         if !GLOBAL_RESTART_TRACKER.can_restart(&mcp_config.mcp_id) {
-                            warn!("服务 {} 在重启冷却期内，跳过启动", mcp_config.mcp_id);
+                            warn!(
+                                "Service {} skips startup during restart cooldown period",
+                                mcp_config.mcp_id
+                            );
                             span.record("error.restart_in_cooldown", true);
                             let message =
                                 format!("服务 {} 在重启冷却期内，请稍后再试", mcp_config.mcp_id);
@@ -390,7 +398,10 @@ impl Service<Request<Body>> for DynamicRouterService {
                         {
                             Some(guard) => guard,
                             None => {
-                                warn!("服务 {} 正在启动中，跳过本次启动", mcp_config.mcp_id);
+                                warn!(
+                                    "Service {} is starting, skip this startup",
+                                    mcp_config.mcp_id
+                                );
                                 span.record("error.startup_in_progress", true);
                                 let message =
                                     format!("服务 {} 正在启动中，请稍后再试", mcp_config.mcp_id);
@@ -401,7 +412,10 @@ impl Service<Request<Body>> for DynamicRouterService {
                             }
                         };
 
-                        info!("使用请求 header 配置启动服务: {}", mcp_config.mcp_id);
+                        info!(
+                            "Use request header configuration to start the service: {}",
+                            mcp_config.mcp_id
+                        );
                         // 同时更新缓存
                         proxy_manager
                             .register_mcp_config(&mcp_config.mcp_id, mcp_config.clone())
@@ -423,7 +437,7 @@ impl Service<Request<Body>> for DynamicRouterService {
                         // 避免已回收的 OneShot 服务被意外重启
                         if matches!(mcp_config.mcp_type, McpType::OneShot) {
                             info!(
-                                "[启动检查] mcp_id={} 是 OneShot 类型，不从缓存自动启动，需要用户显式请求",
+                                "[Startup check] mcp_id={} is a OneShot type, does not automatically start from the cache, and requires an explicit request from the user",
                                 mcp_id_for_cache
                             );
                             let message = format!(
@@ -437,7 +451,10 @@ impl Service<Request<Body>> for DynamicRouterService {
 
                         // 检查重启限制（防止无限循环）
                         if !GLOBAL_RESTART_TRACKER.can_restart(mcp_id_for_cache) {
-                            warn!("服务 {} 在重启冷却期内，跳过启动", mcp_id_for_cache);
+                            warn!(
+                                "Service {} skips startup during restart cooldown period",
+                                mcp_id_for_cache
+                            );
                             span.record("error.restart_in_cooldown", true);
                             let message =
                                 format!("服务 {} 在重启冷却期内，请稍后再试", mcp_id_for_cache);
@@ -453,7 +470,10 @@ impl Service<Request<Body>> for DynamicRouterService {
                         {
                             Some(guard) => guard,
                             None => {
-                                warn!("服务 {} 正在启动中，跳过本次启动", mcp_id_for_cache);
+                                warn!(
+                                    "Service {} is starting, skip this startup",
+                                    mcp_id_for_cache
+                                );
                                 span.record("error.startup_in_progress", true);
                                 let message =
                                     format!("服务 {} 正在启动中，请稍后再试", mcp_id_for_cache);
@@ -464,13 +484,18 @@ impl Service<Request<Body>> for DynamicRouterService {
                             }
                         };
 
-                        info!("使用缓存配置启动服务: {}", mcp_id_for_cache);
+                        info!(
+                            "Start the service using cached configuration: {}",
+                            mcp_id_for_cache
+                        );
                         // _startup_guard 会在作用域结束时自动释放
                         return start_mcp_and_handle_request(req, mcp_config).await;
                     }
 
                     // 优先级 3: 无法获取配置，返回错误
-                    warn!("未找到匹配的路径,且未获取到配置,无法启动MCP服务: {path}");
+                    warn!(
+                        "No matching path was found, and the configuration was not obtained, so the MCP service could not be started: {path}"
+                    );
                     span.record("error.mcp_config_missing", true);
 
                     let message =
@@ -482,7 +507,7 @@ impl Service<Request<Body>> for DynamicRouterService {
                 })
             }
             None => {
-                warn!("请求路径解析失败: {path}");
+                warn!("Request path resolution failed: {path}");
                 span.record("error.path_parse_failed", true);
 
                 let message = format!("请求路径解析失败: {path}");
@@ -510,7 +535,10 @@ async fn handle_request_with_router(
     let method = req.method().clone();
     let uri = req.uri().clone();
 
-    info!("[handle_request_with_router]处理请求: {} {}", method, path);
+    info!(
+        "[handle_request_with_router] Handle request: {} {}",
+        method, path
+    );
 
     // 记录请求头中的关键信息
     if let Some(content_type) = req.headers().get("content-type")
@@ -566,7 +594,7 @@ async fn handle_request_with_router(
 
             // 记录响应头信息
             debug!(
-                "[handle_request_with_router]响应状态: {}, 响应头: {response:?}",
+                "[handle_request_with_router]Response status: {}, response header: {response:?}",
                 status
             );
 
@@ -576,7 +604,7 @@ async fn handle_request_with_router(
         Err(error) => {
             span.record("error.router_service_error", true);
             span.record("error.message", format!("{:?}", error));
-            error!("[handle_request_with_router]错误: {error:?}");
+            error!("[handle_request_with_router] error: {error:?}");
             Ok(axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response())
         }
     }
@@ -589,7 +617,7 @@ async fn start_mcp_and_handle_request(
 ) -> Result<Response, Infallible> {
     let request_path = req.uri().path().to_string();
     let trace_id = extract_trace_id();
-    debug!("请求路径: {request_path}");
+    debug!("Request path: {request_path}");
 
     // 使用 debug_span 减少日志量，移除 #[tracing::instrument] 避免 span 嵌套
     let span = tracing::debug_span!(
@@ -613,7 +641,7 @@ async fn start_mcp_and_handle_request(
         span.record("mcp.startup.failed", true);
         span.record("error.mcp_startup_failed", true);
         span.record("error.message", format!("{:?}", ret));
-        warn!("MCP服务启动失败: {ret:?}");
+        warn!("MCP service startup failed: {ret:?}");
         Ok(axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response())
     }
 }

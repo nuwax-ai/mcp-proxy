@@ -296,7 +296,7 @@ impl MarkItDownParser {
         let tasks = self.active_tasks.lock().await;
         if let Some(token) = tasks.get(task_id) {
             token.cancel().await;
-            info!("已取消MarkItDown解析任务: {}", task_id);
+            info!("MarkItDown parsing task canceled: {}", task_id);
             Ok(())
         } else {
             Err(AppError::MarkItDown(format!("任务不存在: {task_id}")))
@@ -392,7 +392,7 @@ impl MarkItDownParser {
             .map_err(|e| AppError::File(format!("创建工作目录失败: {e}")))?;
 
         info!(
-            "使用MarkItDown解析文档: {} (格式: {:?}) -> {}",
+            "Use MarkItDown to parse the document: {} (Format: {:?}) -> {}",
             file_path,
             format,
             work_dir.display()
@@ -429,7 +429,7 @@ impl MarkItDownParser {
             return Err(e.clone());
         }
 
-        let (markdown_content, temp_files) = conversion_result.unwrap();
+        let (markdown_content, _temp_files) = conversion_result.unwrap();
 
         if cancellation_token.is_cancelled().await {
             // 解析已取消，清理工作目录
@@ -477,7 +477,7 @@ impl MarkItDownParser {
         });
 
         info!(
-            "MarkItDown解析完成，耗时: {:?}，字数: {}",
+            "MarkItDown parsing completed, time taken: {:?}, number of words: {}",
             processing_time, word_count
         );
 
@@ -526,7 +526,7 @@ impl MarkItDownParser {
         &self,
         file_path: &str,
         work_dir: &Path,
-        format: &DocumentFormat,
+        _format: &DocumentFormat,
         progress_callback: &F,
         cancellation_token: &CancellationToken,
         start_time: Instant,
@@ -559,7 +559,7 @@ impl MarkItDownParser {
             .stderr(Stdio::piped())
             .kill_on_drop(true);
 
-        debug!("执行MarkItDown命令: {:?}", cmd);
+        debug!("Execute MarkItDown command: {:?}", cmd);
 
         let mut child = cmd
             .spawn()
@@ -795,15 +795,20 @@ impl MarkItDownParser {
     /// 清理工作目录
     async fn cleanup_work_dir(&self, work_dir: &Path) {
         if let Err(e) = fs::remove_dir_all(work_dir).await {
-            warn!("清理工作目录失败: {} - {}", work_dir.display(), e);
+            warn!(
+                "Failed to clean working directory: {} - {}",
+                work_dir.display(),
+                e
+            );
         } else {
-            debug!("已清理工作目录: {}", work_dir.display());
+            debug!("Cleaned working directory: {}", work_dir.display());
         }
     }
 
     /// 收集图片文件
+    #[allow(dead_code)]
     async fn collect_images(&self, work_dir: &Path) -> Result<Vec<String>, AppError> {
-        debug!("收集图片文件: {}", work_dir.display());
+        debug!("Collect picture files: {}", work_dir.display());
 
         let mut images = Vec::new();
 
@@ -818,11 +823,12 @@ impl MarkItDownParser {
         images.sort();
         images.dedup();
 
-        info!("收集到 {} 个图片文件", images.len());
+        info!("{} picture files collected", images.len());
         Ok(images)
     }
 
     /// 从指定目录收集图片
+    #[allow(dead_code)]
     fn collect_images_from_dir<'a>(
         &'a self,
         dir: &'a Path,
@@ -862,7 +868,7 @@ impl MarkItDownParser {
                             if let Ok(metadata) = fs::metadata(&path).await {
                                 if metadata.len() > 0 {
                                     images.push(path.to_string_lossy().to_string());
-                                    debug!("找到图片文件: {}", path.display());
+                                    debug!("Image file found: {}", path.display());
                                 }
                             }
                         }
@@ -1052,7 +1058,10 @@ impl MarkItDownParser {
 
         if version_output.status.success() {
             let version_str = String::from_utf8_lossy(&version_output.stdout);
-            info!("MarkItDown环境验证通过: {}", version_str.trim());
+            info!(
+                "MarkItDown environment verification passed: {}",
+                version_str.trim()
+            );
         }
 
         Ok(())

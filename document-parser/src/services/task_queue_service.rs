@@ -144,10 +144,10 @@ pub struct TaskQueueService {
 /// 任务执行上下文
 #[derive(Debug, Clone)]
 struct TaskExecutionContext {
-    task_id: String,
+    _task_id: String,
     started_at: Instant,
-    worker_id: usize,
-    retry_count: u32,
+    _worker_id: usize,
+    _retry_count: u32,
 }
 
 impl TaskQueueService {
@@ -187,7 +187,7 @@ impl TaskQueueService {
         P: TaskProcessor + 'static,
     {
         info!(
-            "启动任务队列服务，最大并发: {}, 队列大小: {}",
+            "Start the task queue service, maximum concurrency: {}, queue size: {}",
             self.config.max_concurrent_tasks, self.config.max_queue_size
         );
 
@@ -209,7 +209,7 @@ impl TaskQueueService {
 
     /// 从数据库恢复待执行和进行中的任务 - 统一重置状态，让 worker 执行时重新设置
     async fn restore_pending_tasks(&self) -> Result<(), AppError> {
-        info!("开始恢复数据库中的待执行和进行中的任务...");
+        info!("Start restoring pending and ongoing tasks in the database...");
 
         let stats = self.task_service.get_task_stats().await?;
 
@@ -219,8 +219,14 @@ impl TaskQueueService {
             .chain(stats.processing_ids.iter())
             .collect::<Vec<_>>();
 
-        info!("需要恢复的任务数量: {}", all_need_process_tasks.len());
-        info!("需要恢复的任务: {:?}", all_need_process_tasks);
+        info!(
+            "Number of tasks to be restored: {}",
+            all_need_process_tasks.len()
+        );
+        info!(
+            "Tasks that need to be restored: {:?}",
+            all_need_process_tasks
+        );
 
         // 将所有进行中任务统一改为 pending 状态，然后重新入队
         // 这样 worker 真正执行时会重新设置为 processing 状态
@@ -231,27 +237,30 @@ impl TaskQueueService {
                 .update_task_status(task_id, TaskStatus::new_pending())
                 .await
             {
-                warn!("重新标记进行中任务状态失败 {}: {}", task_id, e);
+                warn!("Failed to re-mark ongoing task status {}: {}", task_id, e);
             } else {
                 // 重新入队
                 if let Err(e) = self.enqueue_task(task_id.clone(), 1).await {
-                    warn!("重新入队任务失败 {}: {}", task_id, e);
+                    warn!("Requeue task failed {}: {}", task_id, e);
                 } else {
-                    info!("已将进行中任务重新标记为待执行并入队: {}", task_id);
+                    info!(
+                        "The ongoing task has been remarked as pending and added to the queue: {}",
+                        task_id
+                    );
                 }
             }
         }
         // 恢复所有待执行任务
         for task_id in all_need_process_tasks.clone() {
             if let Err(e) = self.enqueue_task(task_id.clone(), 1).await {
-                warn!("恢复待执行任务失败 {}: {}", task_id, e);
+                warn!("Failed to restore pending tasks {}: {}", task_id, e);
             } else {
-                debug!("已恢复待执行任务: {}", task_id);
+                debug!("Restored pending tasks: {}", task_id);
             }
         }
 
         info!(
-            "任务恢复完成，共恢复 {} 个任务。所有任务状态已重置为 pending，worker 执行时会重新设置为 processing",
+            "Task recovery is completed, with a total of {} tasks recovered. The status of all tasks has been reset to pending, and will be reset to processing when the worker executes",
             all_need_process_tasks.len()
         );
         Ok(())
@@ -280,7 +289,7 @@ impl TaskQueueService {
         }
 
         info!(
-            "已启动 {} 个 worker 协程，采用 SPMC 模式直接消费任务",
+            "{} worker coroutines have been started, using SPMC mode to directly consume tasks",
             self.config.max_concurrent_tasks
         );
         Ok(())
@@ -304,14 +313,17 @@ impl TaskQueueService {
         let mut shutdown_rx = self.shutdown_receiver.clone();
 
         tokio::spawn(async move {
-            debug!("简化 Worker {} 已启动，直接从 channel 消费任务", worker_id);
+            debug!(
+                "Simplified Worker {} has been started and consumes tasks directly from the channel",
+                worker_id
+            );
 
             loop {
                 tokio::select! {
                     // 检查关闭信号
                     _ = shutdown_rx.changed() => {
                         if *shutdown_rx.borrow() {
-                            info!("Worker {} 收到关闭信号", worker_id);
+                            info!("Worker {} received a shutdown signal", worker_id);
                             break;
                         }
                     }
@@ -326,14 +338,14 @@ impl TaskQueueService {
                                 let task_id = queue_item.task_id.clone();
                                 let start_time = Instant::now();
 
-                                debug!("Worker {} 开始处理任务: {}", worker_id, task_id);
+                                debug!("Worker {} starts processing task: {}", worker_id, task_id);
 
                                 // 更新任务状态为处理中
                                 if let Err(e) = task_service.update_task_status(
                                     &task_id,
                                     TaskStatus::new_processing(ProcessingStage::FormatDetection)
                                 ).await {
-                                    error!("Worker {} 更新任务状态失败: {}", worker_id, e);
+                                    error!("Worker {} failed to update task status: {}", worker_id, e);
                                 }
                                 // 出队计数减一
                                 queued_count.fetch_sub(1, Ordering::Relaxed);
@@ -344,10 +356,10 @@ impl TaskQueueService {
                                     tasks.insert(
                                         task_id.clone(),
                                         TaskExecutionContext {
-                                            task_id: task_id.clone(),
+                                            _task_id: task_id.clone(),
                                             started_at: start_time,
-                                            worker_id,
-                                            retry_count: queue_item.retry_count,
+                                            _worker_id: worker_id,
+                                            _retry_count: queue_item.retry_count,
                                         },
                                     );
                                 }
@@ -369,10 +381,10 @@ impl TaskQueueService {
                                             &task_id,
                                             TaskStatus::new_completed(processing_time)
                                         ).await {
-                                            error!("Worker {} 更新任务完成状态失败: {}", worker_id, e);
+                                            error!("Worker {} failed to update task completion status: {}", worker_id, e);
                                         }
 
-                                        info!("Worker {} 完成任务: {} (耗时: {:?})",
+                                        info!("Worker {} completed the task: {} (time taken: {:?})",
                                                   worker_id, task_id, processing_time);
                                         // 从 processing 列表移除
                                         {
@@ -384,10 +396,10 @@ impl TaskQueueService {
                                         failed_count.fetch_add(1, Ordering::Relaxed);
 
                                         if let Err(err) = task_service.set_task_error(&task_id, e.to_string()).await {
-                                            error!("Worker {} 设置任务错误失败: {}", worker_id, err);
+                                            error!("Worker {} failed to set task error: {}", worker_id, err);
                                         }
 
-                                        error!("Worker {} 任务失败: {} - {}", worker_id, task_id, e);
+                                        error!("Worker {} task failed: {} - {}", worker_id, task_id, e);
                                         // 从 processing 列表移除
                                         {
                                             let mut tasks = processing_tasks.write().await;
@@ -398,10 +410,10 @@ impl TaskQueueService {
                                         failed_count.fetch_add(1, Ordering::Relaxed);
 
                                         if let Err(e) = task_service.set_task_error(&task_id, "任务处理超时".to_string()).await {
-                                            error!("Worker {} 设置任务超时错误失败: {}", worker_id, e);
+                                            error!("Worker {} failed to set task timeout error: {}", worker_id, e);
                                         }
 
-                                        error!("Worker {} 任务超时: {} (超时时间: {:?})",worker_id, task_id, config.task_timeout);
+                                        error!("Worker {} task timeout: {} (timeout time: {:?})",worker_id, task_id, config.task_timeout);
                                         // 从 processing 列表移除
                                         {
                                             let mut tasks = processing_tasks.write().await;
@@ -412,7 +424,7 @@ impl TaskQueueService {
                             }
                             None => {
                                 // Channel 已关闭
-                                info!("Worker {} 检测到 channel 已关闭，停止工作", worker_id);
+                                info!("Worker {} detected that the channel was closed and stopped working", worker_id);
                                 break;
                             }
                         }
@@ -420,7 +432,7 @@ impl TaskQueueService {
                 }
             }
 
-            debug!("Worker {} 已停止", worker_id);
+            debug!("Worker {} has stopped", worker_id);
         });
     }
 
@@ -569,7 +581,7 @@ impl TaskQueueService {
                             for (task_id, context) in tasks.iter() {
                                 let elapsed = now.duration_since(context.started_at);
                                 if elapsed > config.task_timeout * 2 {
-                                    warn!("检测到可能卡住的任务: {} (运行时间: {:?})", task_id, elapsed);
+                                    warn!("Possibly stuck task detected: {} (running time: {:?})", task_id, elapsed);
                                     unhealthy_tasks += 1;
                                 }
                             }
@@ -580,7 +592,7 @@ impl TaskQueueService {
                         is_healthy.store(if healthy { 1 } else { 0 }, Ordering::Relaxed);
 
                         if !healthy {
-                            warn!("队列服务健康检查失败: {} 个任务可能卡住", unhealthy_tasks);
+                            warn!("Queue service health check failed: {} tasks may be stuck", unhealthy_tasks);
                         }
                     }
                 }
@@ -601,12 +613,18 @@ impl TaskQueueService {
         match task_sender.try_send(item) {
             Ok(()) => {
                 self.queued_count.fetch_add(1, Ordering::Relaxed);
-                debug!("任务已加入队列: {} (优先级: {})", task_id, priority);
+                debug!(
+                    "Task has been added to the queue: {} (Priority: {})",
+                    task_id, priority
+                );
                 Ok(())
             }
             Err(mpsc::error::TrySendError::Full(_)) => {
                 self.overflow_events.fetch_add(1, Ordering::Relaxed);
-                warn!("队列已满，触发背压控制: {}", task_id);
+                warn!(
+                    "The queue is full, triggering back pressure control: {}",
+                    task_id
+                );
                 Err(AppError::Queue("队列已满，请稍后重试".to_string()))
             }
             Err(mpsc::error::TrySendError::Closed(_)) => {
@@ -644,11 +662,11 @@ impl TaskQueueService {
 
     /// 优雅关闭
     pub async fn shutdown(&self) -> Result<(), AppError> {
-        info!("开始关闭任务队列服务...");
+        info!("Starting to shut down the task queue service...");
 
         // 发送关闭信号
         if let Err(e) = self.shutdown_sender.send(true) {
-            error!("发送关闭信号失败: {}", e);
+            error!("Failed to send shutdown signal: {}", e);
         }
 
         // 等待所有正在处理的任务完成
@@ -664,12 +682,12 @@ impl TaskQueueService {
                 break;
             }
 
-            info!("等待 {} 个任务完成...", processing_count);
+            info!("Waiting for {} tasks to complete...", processing_count);
             sleep(Duration::from_secs(1)).await;
             wait_count += 1;
         }
 
-        info!("任务队列服务已关闭");
+        info!("Task queue service is down");
         Ok(())
     }
 }
@@ -713,7 +731,7 @@ mod tests {
             }
 
             self.processed_count.fetch_add(1, Ordering::SeqCst);
-            info!("处理任务: {}", task_id);
+            info!("Processing task: {}", task_id);
             Ok(())
         }
     }

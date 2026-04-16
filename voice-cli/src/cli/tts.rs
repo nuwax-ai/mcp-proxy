@@ -42,7 +42,7 @@ pub enum TtsAction {
 }
 
 /// Initialize TTS environment
-pub async fn handle_tts_init(force: bool) -> anyhow::Result<()> {
+pub async fn handle_tts_init(_force: bool) -> anyhow::Result<()> {
     println!("🎤 Initializing TTS environment...");
 
     // Reuse the server init logic for Python environment

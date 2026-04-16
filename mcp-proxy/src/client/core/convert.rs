@@ -22,15 +22,15 @@ pub async fn run_url_mode_with_retry(
     verbose: bool,
     quiet: bool,
 ) -> Result<()> {
-    tracing::info!("开始 URL 模式处理");
-    tracing::info!("目标 URL: {}", url);
-    tracing::debug!("Headers 数量: {}", merged_headers.len());
+    tracing::info!("Starting protocol conversion");
+    tracing::info!("Target URL: {url}");
+    tracing::debug!("Header count: {}", merged_headers.len());
     tracing::debug!(
-        "Ping 间隔: {}s, Ping 超时: {}s",
+        "Ping interval: {}s, ping timeout: {}s",
         args.ping_interval,
         args.ping_timeout
     );
-    tracing::debug!("重试次数: {} (0=无限)", args.retries);
+    tracing::debug!("Retry count: {} (0 = unlimited)", args.retries);
 
     if !quiet && merged_headers.is_empty() {
         eprintln!("🚀 MCP-Stdio-Proxy: {} → stdio", url);
@@ -39,10 +39,10 @@ pub async fn run_url_mode_with_retry(
     // 显示过滤器配置
     if !quiet {
         if let Some(ref allow_tools) = args.allow_tools {
-            eprintln!("🔧 工具白名单: {:?}", allow_tools);
+            tracing::info!("Tool allowlist: {:?}", allow_tools);
         }
         if let Some(ref deny_tools) = args.deny_tools {
-            eprintln!("🔧 工具黑名单: {:?}", deny_tools);
+            tracing::info!("Tool denylist: {:?}", deny_tools);
         }
     }
 
@@ -56,48 +56,51 @@ pub async fn run_url_mode_with_retry(
                 crate::client::protocol::McpProtocol::Stream
             }
         };
-        tracing::info!("使用命令行指定协议: {}", protocol_name(&detected));
+        tracing::info!(
+            "Using protocol from CLI argument: {}",
+            protocol_name(&detected)
+        );
         if !quiet {
-            eprintln!("🔧 使用指定协议: {}", protocol_name(&detected));
+            eprintln!("🔧 Using protocol from CLI: {}", protocol_name(&detected));
         }
         detected
     } else if let Some(proto) = config_protocol {
-        tracing::info!("使用配置文件协议: {}", protocol_name(&proto));
+        tracing::info!("Using protocol from config: {}", protocol_name(&proto));
         if !quiet {
-            eprintln!("🔧 使用配置协议: {}", protocol_name(&proto));
+            eprintln!("🔧 Using protocol from config: {}", protocol_name(&proto));
         }
         proto
     } else {
-        tracing::info!("开始自动检测协议...");
+        tracing::info!("Detecting protocol...");
         if !quiet {
-            eprintln!("🔍 正在检测协议...");
+            eprintln!("🔍 Detecting protocol...");
         }
         let detection_start = std::time::Instant::now();
         let detected = crate::client::protocol::detect_mcp_protocol(url)
             .await
             .map_err(|e| {
-                tracing::error!("协议检测失败: {}", e);
+                tracing::error!("Protocol detection failed: {}", e);
                 e
             })?;
         let detection_duration = detection_start.elapsed();
         tracing::info!(
-            "协议检测完成: {} (耗时: {:?})",
+            "Protocol detection completed: protocol={}, duration={:?}",
             protocol_name(&detected),
             detection_duration
         );
         if !quiet {
-            eprintln!("🔍 检测到 {} 协议", protocol_name(&detected));
+            eprintln!("🔍 Detected protocol: {}", protocol_name(&detected));
         }
         detected
     };
 
     // 构建 McpClientConfig
-    tracing::debug!("构建 MCP 客户端配置...");
+    tracing::debug!("Building MCP client config...");
     let config = build_mcp_config(url, &merged_headers, args.auth.as_ref());
-    tracing::debug!("MCP 客户端配置构建完成");
+    tracing::debug!("MCP client config ready");
 
     // 根据协议类型分支处理
-    tracing::info!("使用 {} 协议模式", protocol_name(&protocol));
+    tracing::info!("Using protocol: {}", protocol_name(&protocol));
     match protocol {
         crate::client::protocol::McpProtocol::Sse => {
             run_sse_mode(config, args.clone(), tool_filter, verbose, quiet).await
@@ -106,8 +109,10 @@ pub async fn run_url_mode_with_retry(
             run_stream_mode(config, args.clone(), tool_filter, verbose, quiet).await
         }
         crate::client::protocol::McpProtocol::Stdio => {
-            tracing::error!("Stdio 协议不支持通过 URL 转换");
-            anyhow::bail!("Stdio 协议不支持通过 URL 转换，请使用 --config 配置本地命令")
+            tracing::error!("Stdio protocol does not support URL conversion");
+            anyhow::bail!(
+                "Stdio protocol does not support URL conversion, please use --config for local commands"
+            )
         }
     }
 }

@@ -6,7 +6,6 @@ use anyhow::Result;
 use moka::future::Cache;
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use std::collections::HashMap;
-use std::io::BufRead;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
@@ -139,7 +138,7 @@ impl MarkdownProcessor {
         // 尝试从缓存获取
         if self.config.enable_cache {
             if let Some(cached_result) = self.get_from_cache(&cache_key).await {
-                debug!("从缓存获取Markdown解析结果");
+                debug!("Get Markdown parsing results from cache");
                 return Ok(cached_result);
             }
         }
@@ -165,7 +164,10 @@ impl MarkdownProcessor {
         }
 
         let processing_time = start_time.elapsed();
-        info!("Markdown解析完成，耗时: {:?}", processing_time);
+        info!(
+            "Markdown parsing completed, time consuming: {:?}",
+            processing_time
+        );
 
         Ok(result)
     }
@@ -179,7 +181,10 @@ impl MarkdownProcessor {
                 let image_paths = ImageProcessor::extract_image_paths(content);
 
                 if !image_paths.is_empty() {
-                    info!("发现 {} 个图片需要处理", image_paths.len());
+                    info!(
+                        "Found {} pictures that need to be processed",
+                        image_paths.len()
+                    );
 
                     // 批量上传图片
                     let upload_results = image_processor.batch_upload_images(image_paths).await?;
@@ -189,9 +194,12 @@ impl MarkdownProcessor {
                     let failed = upload_results.len() - successful;
 
                     if failed > 0 {
-                        warn!("图片上传完成：成功 {} 个，失败 {} 个", successful, failed);
+                        warn!(
+                            "Image upload completed: {} successfully, {} failed",
+                            successful, failed
+                        );
                     } else {
-                        info!("所有图片上传成功：{} 个", successful);
+                        info!("All pictures uploaded successfully: {}", successful);
                     }
 
                     // 替换Markdown中的图片路径
@@ -223,7 +231,7 @@ impl MarkdownProcessor {
         let max_level = toc_items.iter().map(|item| item.level).max().unwrap_or(1);
 
         // 构建结构化文档
-        let structured_doc = self
+        let _structured_doc = self
             .generate_structured_document_optimized(content, &events, &toc_items)
             .await?;
 
@@ -255,8 +263,6 @@ impl MarkdownProcessor {
         let mut current_content = String::new();
 
         let lines: Vec<&str> = content.lines().collect();
-        let total_lines = lines.len();
-
         for (line_num, line) in lines.iter().enumerate() {
             // 检查是否为标题行
             if let Some((level, title)) = self.parse_heading_line(line) {
@@ -343,10 +349,10 @@ impl MarkdownProcessor {
     }
 
     /// 优化版TOC生成
-    #[instrument(skip(self, content, events))]
+    #[instrument(skip(self, _content, events))]
     async fn generate_toc_optimized<'a>(
         &self,
-        content: &'a str,
+        _content: &'a str,
         events: &'a [Event<'a>],
     ) -> Result<Vec<TocItem>, AppError> {
         if !self.config.enable_toc {
@@ -466,6 +472,7 @@ impl MarkdownProcessor {
 
     /// 手动TOC生成（备用方案）
     #[instrument(skip(self, events))]
+    #[allow(dead_code)]
     async fn generate_toc_manual<'a>(
         &self,
         events: &'a [Event<'a>],
@@ -542,6 +549,7 @@ impl MarkdownProcessor {
 
     /// 内容清理和验证
     #[instrument(skip(self, content))]
+    #[allow(dead_code)]
     fn sanitize_content(&self, content: &str) -> Result<String, AppError> {
         if !self.config.enable_content_validation {
             return Ok(content.to_string());
@@ -556,7 +564,10 @@ impl MarkdownProcessor {
 
         // 检查内容长度
         if sanitized.len() < 10 {
-            warn!("文档内容过短: {} 字符", sanitized.len());
+            warn!(
+                "Document content is too short: {} characters",
+                sanitized.len()
+            );
         }
 
         // 移除不可见字符（保留换行符和制表符）
@@ -586,12 +597,12 @@ impl MarkdownProcessor {
     }
 
     /// 生成结构化文档（优化版本）
-    #[instrument(skip(self, content, events, toc_items))]
+    #[instrument(skip(self, _content, events, _toc_items))]
     async fn generate_structured_document_optimized<'a>(
         &self,
-        content: &'a str,
+        _content: &'a str,
         events: &'a [Event<'a>],
-        toc_items: &'a [TocItem],
+        _toc_items: &'a [TocItem],
     ) -> Result<StructuredDocument, AppError> {
         let mut doc = StructuredDocument::new(
             uuid::Uuid::new_v7(uuid::Timestamp::now(uuid::NoContext)).to_string(),
@@ -865,7 +876,6 @@ impl MarkdownProcessor {
 
     /// 清空缓存
     pub async fn clear_cache(&self) {
-        let cache = self.cache.lock().await;
         // moka 缓存没有 clear 方法，我们重新创建一个新的缓存
         *self.cache.lock().await = Cache::builder()
             .max_capacity(self.config.max_cache_entries as u64)
@@ -889,16 +899,17 @@ impl MarkdownProcessor {
     /// 获取章节内容
     pub fn get_section_content(
         &self,
-        doc_structure: &DocumentStructure,
-        section_id: &str,
+        _doc_structure: &DocumentStructure,
+        _section_id: &str,
     ) -> Option<String> {
         // 递归查找章节
         // DocumentStructure.sections 是 HashMap<String, String>，不是 StructuredSection
         // 我们需要从其他地方获取章节信息，暂时返回空结果
-        None.map(|section: &StructuredSection| section.content.clone())
+        None
     }
 
     /// 递归查找章节
+    #[allow(dead_code)]
     fn find_section_recursive<'a>(
         &self,
         sections: &'a HashMap<String, StructuredSection>,
@@ -961,6 +972,7 @@ impl MarkdownProcessor {
     }
 
     /// 递归搜索章节
+    #[allow(dead_code)]
     fn search_sections_recursive(
         &self,
         sections: &[StructuredSection],
@@ -1062,7 +1074,7 @@ impl MarkdownProcessor {
                     results.push((file_path, doc_structure));
                 }
                 Err(e) => {
-                    warn!("处理文档失败 {}: {}", file_path, e);
+                    warn!("Failed to process document {}: {}", file_path, e);
                 }
             }
         }
@@ -1414,9 +1426,13 @@ mod tests {
         for section in &doc.toc {
             // 从sections中获取内容
             if let Some(content) = doc.sections.get(&section.id) {
-                println!("章节: {} - 内容长度: {}", section.title, content.len());
                 println!(
-                    "内容预览: {}",
+                    "Chapter: {} - Content length: {}",
+                    section.title,
+                    content.len()
+                );
+                println!(
+                    "Content preview: {}",
                     if content.chars().count() > 50 {
                         format!("{}...", content.chars().take(50).collect::<String>())
                     } else {
@@ -1434,7 +1450,10 @@ mod tests {
                     );
                 }
             } else {
-                println!("警告: 章节 '{}' 没有对应的内容", section.title);
+                println!(
+                    "Warning: Chapter '{}' has no corresponding content",
+                    section.title
+                );
             }
         }
     }

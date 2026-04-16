@@ -1,6 +1,7 @@
 //! 监控集成模块
 //!
 //! 提供与各种监控系统的集成，包括指标收集、告警、追踪等功能。
+#![allow(dead_code)]
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -394,11 +395,11 @@ impl MonitoringIntegration {
     /// 启动监控
     pub async fn start_monitoring(&self) -> Result<()> {
         if !self.config.enabled {
-            info!("监控未启用");
+            info!("Monitoring is not enabled");
             return Ok(());
         }
 
-        info!("启动监控集成");
+        info!("Start monitoring integration");
 
         // 启动指标收集任务
         self.start_metrics_collection().await;
@@ -432,13 +433,17 @@ impl MonitoringIntegration {
                         Ok(metrics) => {
                             total_metrics += metrics.len();
                             info!(
-                                "收集器 {} 收集了 {} 个指标",
+                                "Collector {} collected {} indicators",
                                 collector.name(),
                                 metrics.len()
                             );
                         }
                         Err(e) => {
-                            error!("收集器 {} 收集指标失败: {}", collector.name(), e);
+                            error!(
+                                "Collector {} failed to collect metrics: {}",
+                                collector.name(),
+                                e
+                            );
                         }
                     }
                 }
@@ -481,16 +486,16 @@ impl MonitoringIntegration {
                         Ok(alerts) => {
                             for alert in alerts {
                                 if let Err(e) = manager.send_alert(&alert) {
-                                    error!("发送告警失败: {}", e);
+                                    error!("Failed to send alarm: {}", e);
                                 } else {
-                                    info!("发送告警: {}", alert.name);
+                                    info!("Send alarm: {}", alert.name);
                                     let mut stats = stats.write().await;
                                     stats.alerts_sent += 1;
                                 }
                             }
                         }
                         Err(e) => {
-                            error!("告警管理器 {} 检查失败: {}", manager.name(), e);
+                            error!("Alarm Manager {} Check failed: {}", manager.name(), e);
                         }
                     }
                 }
@@ -500,13 +505,13 @@ impl MonitoringIntegration {
 
     /// 启动追踪收集
     async fn start_trace_collection(&self) {
-        let collectors = self.trace_collectors.clone();
-        let stats = Arc::clone(&self.stats);
+        let _collectors = self.trace_collectors.clone();
+        let _stats = Arc::clone(&self.stats);
 
         tokio::spawn(async move {
             // 这里应该实现追踪数据的收集逻辑
             // 通常通过 OpenTelemetry 或其他追踪库
-            info!("追踪收集任务已启动");
+            info!("Tracking collection task has been started");
         });
     }
 
@@ -514,7 +519,11 @@ impl MonitoringIntegration {
     pub async fn collect_trace(&self, span: TraceSpan) -> Result<()> {
         for collector in &self.trace_collectors {
             if let Err(e) = collector.collect_trace(&span) {
-                error!("追踪收集器 {} 收集失败: {}", collector.name(), e);
+                error!(
+                    "Trace collector {} collection failed: {}",
+                    collector.name(),
+                    e
+                );
             }
         }
 
@@ -531,7 +540,7 @@ impl MonitoringIntegration {
 
     /// 停止监控
     pub async fn stop_monitoring(&self) -> Result<()> {
-        info!("停止监控集成");
+        info!("Stop monitoring integration");
         // 这里应该实现停止所有后台任务的逻辑
         Ok(())
     }
@@ -642,7 +651,7 @@ impl AlertManager for ThresholdAlertManager {
     fn send_alert(&self, alert: &Alert) -> Result<()> {
         // 这里应该实现实际的告警发送逻辑
         // 例如发送到 Slack、邮件、PagerDuty 等
-        info!("发送告警: {} - {}", alert.name, alert.message);
+        info!("Send alarm: {} - {}", alert.name, alert.message);
         Ok(())
     }
 
@@ -654,7 +663,10 @@ impl AlertManager for ThresholdAlertManager {
 impl TraceCollector for JaegerTraceCollector {
     fn collect_trace(&self, span: &TraceSpan) -> Result<()> {
         // 这里应该实现向 Jaeger 发送追踪数据的逻辑
-        info!("收集追踪: {} - {}", span.trace_id, span.operation_name);
+        info!(
+            "Collection tracking: {} - {}",
+            span.trace_id, span.operation_name
+        );
         Ok(())
     }
 

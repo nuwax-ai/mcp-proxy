@@ -1,6 +1,7 @@
 //! 生产部署功能模块
 //!
 //! 提供生产环境所需的功能，包括优雅关闭、配置验证、生产日志和监控集成
+#![allow(dead_code)]
 
 pub mod config_validation;
 pub mod deployment_health;
@@ -20,7 +21,7 @@ use crate::config::AppConfig;
 use crate::error::AppError;
 
 use config_validation::ConfigValidator;
-use deployment_health::{HealthCheckManager, HealthChecker};
+use deployment_health::HealthCheckManager;
 use graceful_shutdown::GracefulShutdownManager;
 use monitoring_integration::MonitoringIntegration;
 use production_logging::ProductionLogger;

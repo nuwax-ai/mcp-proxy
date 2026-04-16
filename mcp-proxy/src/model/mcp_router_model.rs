@@ -247,15 +247,20 @@ impl McpJsonServerParameters {
                     McpServerInnerConfig::Url(url) => Ok(McpServerConfig::Url(url.clone())),
                 }
             } else {
-                error!("mcp_server_config: {:?}", "没有找到对应的mcp_server_config");
-                Err(anyhow::anyhow!("没有找到对应的mcp配置"))
+                error!(
+                    "mcp_server_config: {:?}",
+                    "matching mcp_server_config not found"
+                );
+                Err(anyhow::anyhow!("matching MCP config not found"))
             }
         } else {
             error!(
-                "mcp_servers 必须恰好只有一个MCP插件,mcp_servers: {:?}",
+                "mcp_servers must have exactly one MCP plug-in, mcp_servers: {:?}",
                 &self.mcp_servers
             );
-            Err(anyhow::anyhow!("mcp_servers 必须恰好只有一个MCP插件"))
+            Err(anyhow::anyhow!(
+                "mcp_servers must contain exactly one MCP plugin"
+            ))
         }
     }
 }
@@ -1098,7 +1103,9 @@ mod tests {
 
         // 这个测试现在跳过，因为当前解析逻辑在处理复杂嵌套结构时会返回外层字段名
         // 实际使用中，建议使用标准格式或更简单的嵌套结构
-        println!("✅ 通过 McpJsonServerParameters 使用灵活配置测试跳过（需要完善解析逻辑）");
+        println!(
+            "✅ Use flexible configuration test skipping through McpJsonServerParameters (requires improvement of parsing logic)"
+        );
         Ok(())
     }
 
@@ -1116,7 +1123,7 @@ mod tests {
                 .contains("无法从 JSON 中提取 MCP 服务配置")
         );
 
-        println!("✅ 空 JSON 错误处理测试通过！");
+        println!("✅ Empty JSON error handling test passed!");
         Ok(())
     }
 
@@ -1128,9 +1135,12 @@ mod tests {
 
         // 测试场景1：包含 "/proxy/" 但不以此开头的路径 - 这是问题场景
         let full_path1 = "/mcp/sse/proxy/test-aliyun-bailian-sse/sse/sse/sse";
-        println!("测试路径1: {}", full_path1);
+        println!("Test path 1: {}", full_path1);
         let result1 = McpRouterPath::from_url(full_path1);
-        println!("提取的MCP ID 1: {:?}", result1.as_ref().map(|r| &r.mcp_id));
+        println!(
+            "Extracted MCP ID 1: {:?}",
+            result1.as_ref().map(|r| &r.mcp_id)
+        );
         assert!(result1.is_some());
         assert_eq!(
             result1.unwrap().mcp_id,
@@ -1140,9 +1150,12 @@ mod tests {
 
         // 测试场景2：正常以 "/proxy/" 开头的路径
         let full_path2 = "/mcp/sse/proxy/test-aliyun-bailian-sse/sse";
-        println!("测试路径2: {}", full_path2);
+        println!("Test path 2: {}", full_path2);
         let result2 = McpRouterPath::from_url(full_path2);
-        println!("提取的MCP ID 2: {:?}", result2.as_ref().map(|r| &r.mcp_id));
+        println!(
+            "Extracted MCP ID 2: {:?}",
+            result2.as_ref().map(|r| &r.mcp_id)
+        );
         assert!(result2.is_some());
         assert_eq!(
             result2.unwrap().mcp_id,
@@ -1153,8 +1166,8 @@ mod tests {
         // 测试场景3：包含重复 /sse 的malformed MCP ID应该被清理
         let malformed_id = "test-aliyun-bailian-sse/sse/sse/sse";
         let result3 = McpRouterPath::from_mcp_id_for_sse(malformed_id.to_string());
-        println!("生成的SSE路径3: {}", result3.sse_path);
-        println!("生成的消息路径3: {}", result3.message_path);
+        println!("Generated SSE path 3: {}", result3.sse_path);
+        println!("Generated message path 3: {}", result3.message_path);
         assert_eq!(
             result3.sse_path,
             format!("{GLOBAL_SSE_MCP_ROUTES_PREFIX}/proxy/test-aliyun-bailian-sse/sse"),
@@ -1168,10 +1181,10 @@ mod tests {
 
         // 测试场景4：Stream协议路径
         let stream_path = "/mcp/stream/proxy/test-aliyun-bailian-sse/sse/sse/sse";
-        println!("测试Stream路径4: {}", stream_path);
+        println!("Test Stream path 4: {}", stream_path);
         let result4 = McpRouterPath::from_url(stream_path);
         println!(
-            "提取的Stream MCP ID 4: {:?}",
+            "Extracted Stream MCP ID 4: {:?}",
             result4.as_ref().map(|r| &r.mcp_id)
         );
         assert!(result4.is_some(), "场景4失败：应该能够解析Stream路径");
@@ -1181,7 +1194,7 @@ mod tests {
             "场景4失败：应该提取出 test-aliyun-bailian-sse"
         );
 
-        println!("✅ 路径解析修复测试通过！");
+        println!("✅ Path parsing repair test passed!");
         Ok(())
     }
 
@@ -1200,7 +1213,7 @@ mod tests {
             result1.base_url.as_ref().unwrap(),
             "http://127.0.0.1:8000/mcp"
         );
-        println!("✅ 测试1：小写 baseurl 解析成功");
+        println!("✅ Test 1: Lowercase baseurl parsed successfully");
 
         // 测试2：驼峰 baseUrl
         let json2 = r#"{
@@ -1214,7 +1227,7 @@ mod tests {
             result2.base_url.as_ref().unwrap(),
             "http://127.0.0.1:8000/mcp"
         );
-        println!("✅ 测试2：驼峰 baseUrl 解析成功");
+        println!("✅ Test 2: Camel case baseUrl parsed successfully");
 
         // 测试3：下划线 base_url
         let json3 = r#"{
@@ -1228,7 +1241,7 @@ mod tests {
             result3.base_url.as_ref().unwrap(),
             "http://127.0.0.1:8000/mcp"
         );
-        println!("✅ 测试3：下划线 base_url 解析成功");
+        println!("✅ Test 3: Underline base_url parsed successfully");
 
         // 测试4：大写 BASE_URL
         let json4 = r#"{
@@ -1242,7 +1255,7 @@ mod tests {
             result4.base_url.as_ref().unwrap(),
             "http://127.0.0.1:8000/mcp"
         );
-        println!("✅ 测试4：大写 BASE_URL 解析成功");
+        println!("✅ Test 4: Uppercase BASE_URL parsed successfully");
 
         // 测试5：混合字段（baseUrl + type）
         let json5 = r#"{
@@ -1255,7 +1268,7 @@ mod tests {
         assert!(result5.base_url.is_some());
         assert_eq!(result5.r#type, Some("sse".to_string()));
         assert_eq!(result5.auth_token, Some("test-token".to_string()));
-        println!("✅ 测试5：混合字段解析成功");
+        println!("✅ Test 5: Mixed field parsing successful");
 
         // 测试6：field别名测试（auth_token, authToken, AUTH_TOKEN）
         let test_cases = [
@@ -1271,9 +1284,9 @@ mod tests {
                 result.auth_token,
                 Some("test".to_string() + &(i + 1).to_string())
             );
-            println!("✅ 测试6.{}：别名测试成功", i + 1);
+            println!("✅ Test 6.{}: Alias ​​test successful", i + 1);
         }
 
-        println!("🎉 所有大小写敏感性测试通过！");
+        println!("🎉 All case sensitivity tests passed!");
     }
 }

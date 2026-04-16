@@ -5,81 +5,88 @@ use thiserror::Error;
 /// OSS操作错误类型
 #[derive(Error, Debug)]
 pub enum OssError {
-    #[error("配置错误: {0}")]
+    #[error("{0}")]
     Config(String),
 
-    #[error("网络错误: {0}")]
+    #[error("{0}")]
     Network(String),
 
-    #[error("文件不存在: {0}")]
+    #[error("{0}")]
     FileNotFound(String),
 
-    #[error("权限不足: {0}")]
+    #[error("{0}")]
     Permission(String),
 
-    #[error("IO错误: {0}")]
-    Io(#[from] std::io::Error),
+    #[error("{0}")]
+    Io(String),
 
-    #[error("OSS SDK错误: {0}")]
+    #[error("{0}")]
     Sdk(String),
 
-    #[error("文件大小超出限制: {0}")]
+    #[error("{0}")]
     FileSizeExceeded(String),
 
-    #[error("不支持的文件类型: {0}")]
+    #[error("{0}")]
     UnsupportedFileType(String),
 
-    #[error("操作超时: {0}")]
+    #[error("{0}")]
     Timeout(String),
 
-    #[error("无效的参数: {0}")]
+    #[error("{0}")]
     InvalidParameter(String),
 }
 
 impl OssError {
     /// 创建配置错误
     pub fn config<T: Into<String>>(msg: T) -> Self {
-        Self::Config(msg.into())
+        Self::Config(t!("errors.oss.config", detail = msg.into()).to_string())
     }
 
     /// 创建网络错误
     pub fn network<T: Into<String>>(msg: T) -> Self {
-        Self::Network(msg.into())
+        Self::Network(t!("errors.oss.network", detail = msg.into()).to_string())
     }
 
     /// 创建文件不存在错误
     pub fn file_not_found<T: Into<String>>(msg: T) -> Self {
-        Self::FileNotFound(msg.into())
+        Self::FileNotFound(t!("errors.oss.file_not_found", path = msg.into()).to_string())
     }
 
     /// 创建权限错误
     pub fn permission<T: Into<String>>(msg: T) -> Self {
-        Self::Permission(msg.into())
+        Self::Permission(t!("errors.oss.permission", detail = msg.into()).to_string())
     }
 
     /// 创建SDK错误
     pub fn sdk<T: Into<String>>(msg: T) -> Self {
-        Self::Sdk(msg.into())
+        Self::Sdk(t!("errors.oss.sdk", detail = msg.into()).to_string())
     }
 
     /// 创建文件大小超出限制错误
     pub fn file_size_exceeded<T: Into<String>>(msg: T) -> Self {
-        Self::FileSizeExceeded(msg.into())
+        Self::FileSizeExceeded(t!("errors.oss.file_size_exceeded", detail = msg.into()).to_string())
     }
 
     /// 创建不支持的文件类型错误
     pub fn unsupported_file_type<T: Into<String>>(msg: T) -> Self {
-        Self::UnsupportedFileType(msg.into())
+        Self::UnsupportedFileType(
+            t!("errors.oss.unsupported_file_type", detail = msg.into()).to_string(),
+        )
     }
 
     /// 创建超时错误
     pub fn timeout<T: Into<String>>(msg: T) -> Self {
-        Self::Timeout(msg.into())
+        Self::Timeout(t!("errors.oss.timeout", detail = msg.into()).to_string())
     }
 
     /// 创建无效参数错误
     pub fn invalid_parameter<T: Into<String>>(msg: T) -> Self {
-        Self::InvalidParameter(msg.into())
+        Self::InvalidParameter(t!("errors.oss.invalid_parameter", detail = msg.into()).to_string())
+    }
+
+    /// 创建IO错误
+    pub fn io_error<T: Into<String>>(msg: T) -> Self {
+        Self::Io(t!("errors.oss.io", detail = msg.into()).to_string())
     }
 
     /// 判断是否为配置错误
@@ -100,6 +107,13 @@ impl OssError {
     /// 判断是否为权限错误
     pub fn is_permission_error(&self) -> bool {
         matches!(self, Self::Permission(_))
+    }
+}
+
+/// 从标准库错误转换
+impl From<std::io::Error> for OssError {
+    fn from(err: std::io::Error) -> Self {
+        Self::io_error(err.to_string())
     }
 }
 

@@ -123,10 +123,11 @@ impl OssClientTrait for PrivateOssClient {
         content_type: Option<&str>,
     ) -> Result<String> {
         let prefixed_key = self.config.get_prefixed_key(object_key);
-        let temp_file = tempfile::NamedTempFile::new().map_err(OssError::Io)?;
+        let temp_file =
+            tempfile::NamedTempFile::new().map_err(|e| OssError::io_error(e.to_string()))?;
         fs::write(temp_file.path(), content)
             .await
-            .map_err(OssError::Io)?;
+            .map_err(|e| OssError::io_error(e.to_string()))?;
 
         let mut builder = RequestBuilder::new();
         if let Some(ct) = content_type {
@@ -170,7 +171,7 @@ impl OssClientTrait for PrivateOssClient {
         {
             Ok(_) => Ok(true),
             Err(e) => {
-                warn!("检查文件存在性失败: {}", e);
+                warn!("File existence check failed: {}", e);
                 Ok(false)
             }
         }

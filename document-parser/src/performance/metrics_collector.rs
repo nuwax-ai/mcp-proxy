@@ -29,7 +29,7 @@ pub struct MetricsCollector {
 
 impl MetricsCollector {
     /// 创建新的指标收集器
-    pub async fn new(config: &AppConfig) -> Result<Self, AppError> {
+    pub async fn new(_config: &AppConfig) -> Result<Self, AppError> {
         let metrics_config = MetricsConfig::default(); // 从配置中获取
 
         let system_metrics = Arc::new(SystemMetrics::new());

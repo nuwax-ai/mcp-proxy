@@ -103,15 +103,15 @@ async fn test_enhanced_logging_system() {
     logging_system.set_correlation_context(correlation).await;
 
     // 生成一些日志
-    tracing::info!("测试信息日志");
-    tracing::warn!(error_code = "E001", "测试警告日志");
-    tracing::error!(component = "test", "测试错误日志");
+    tracing::info!("Test information log");
+    tracing::warn!(error_code = "E001", "Test warning log");
+    tracing::error!(component = "test", "Test error log");
 
     // 创建带有关联上下文的span
     let span = logging_system.create_span("test_operation").await;
     let _enter = span.enter();
 
-    tracing::info!("在span中的日志");
+    tracing::info!("Log in span");
 
     // 等待日志写入
     sleep(Duration::from_millis(100)).await;
@@ -129,12 +129,12 @@ async fn test_enhanced_logging_system() {
         assert!(log_content.contains("test-service"));
 
         println!(
-            "日志内容预览:\n{}",
+            "Log content preview:\\n{}",
             &log_content[..log_content.len().min(500)]
         );
     } else {
         // 如果文件不存在，至少验证日志系统已初始化
-        tracing::info!("日志文件未创建，但日志系统正常工作");
+        tracing::info!("The log file is not created, but the logging system works normally");
     }
 }
 
@@ -196,8 +196,8 @@ async fn test_metrics_registry_and_async_collector() {
     assert!(json_export.contains("test_gauge"));
     assert!(json_export.contains("test_histogram"));
 
-    println!("Prometheus导出:\n{prometheus_export}");
-    println!("JSON导出:\n{json_export}");
+    println!("Prometheus export:\\n{prometheus_export}");
+    println!("JSON export:\\n{json_export}");
 }
 
 #[tokio::test]
@@ -258,7 +258,7 @@ async fn test_performance_monitor_with_async_collection() {
     assert!(metrics_export.contains("tasks_processed_total"));
     assert!(metrics_export.contains("tasks_active"));
 
-    println!("性能监控指标:\n{metrics_export}");
+    println!("Performance monitoring indicators:\\n{metrics_export}");
 }
 
 #[tokio::test]
@@ -343,10 +343,10 @@ async fn test_enhanced_health_check_manager() {
     let health_counter = registry.get_counter("health_checks_total").await;
     if let Some(counter) = health_counter {
         assert!(counter.get() > 0);
-        println!("健康检查执行次数: {}", counter.get());
+        println!("Number of health check executions: {}", counter.get());
     }
 
-    println!("最后健康检查状态: {:?}", last_status.overall_status);
+    println!("Last health check status: {:?}", last_status.overall_status);
 }
 
 #[tokio::test]
@@ -376,7 +376,7 @@ async fn test_health_check_timeout_handling() {
     let component = status.get_component_status("slow_service").unwrap();
     assert!(component.message.contains("timeout"));
 
-    println!("超时检查结果: {component:?}");
+    println!("Timeout check result: {component:?}");
 }
 
 #[tokio::test]
@@ -406,7 +406,7 @@ async fn test_correlation_context_propagation() {
     let span = logging_system.create_span("test_correlation").await;
     let _enter = span.enter();
 
-    tracing::info!("测试关联上下文传播");
+    tracing::info!("Test associated context propagation");
 
     // 验证关联字段
     let fields = context.to_fields();
@@ -415,7 +415,7 @@ async fn test_correlation_context_propagation() {
     assert_eq!(fields.get("request_id"), Some(&request_id));
     assert_eq!(fields.get("trace_id"), Some(&trace_id));
 
-    println!("关联上下文字段: {fields:?}");
+    println!("Associated context field: {fields:?}");
 }
 
 #[tokio::test]
@@ -498,8 +498,8 @@ async fn test_metrics_export_formats() {
         4
     );
 
-    println!("Prometheus导出格式:\n{prometheus_export}");
-    println!("JSON导出格式:\n{json_export}");
+    println!("Prometheus export format:\\n{prometheus_export}");
+    println!("JSON export format:\\n{json_export}");
 }
 
 #[tokio::test]
@@ -552,7 +552,7 @@ async fn test_integrated_monitoring_system() {
     let span = logging_system.create_span("integration_test").await;
     let _enter = span.enter();
 
-    tracing::info!("开始集成测试");
+    tracing::info!("Start integration testing");
 
     // 记录一些指标
     monitor
@@ -566,7 +566,7 @@ async fn test_integrated_monitoring_system() {
     // 等待系统运行
     sleep(Duration::from_millis(300)).await;
 
-    tracing::info!("集成测试运行中");
+    tracing::info!("Integration tests running");
 
     // 检查健康状态
     let health_status = health_manager.check_all().await;
@@ -577,16 +577,16 @@ async fn test_integrated_monitoring_system() {
     assert!(metrics_json.contains("http_requests_total"));
     assert!(metrics_json.contains("tasks_processed_total"));
 
-    tracing::info!("集成测试完成");
+    tracing::info!("Integration testing completed");
 
     // 清理
     monitor.stop_collection();
     health_manager.stop_periodic_checks();
 
-    println!("集成测试请求ID: {request_id}");
-    println!("健康状态: {:?}", health_status.overall_status);
+    println!("Integration test request ID: {request_id}");
+    println!("Health status: {:?}", health_status.overall_status);
     println!(
-        "指标摘要: {} 个指标类型",
+        "Indicator summary: {} indicator types",
         serde_json::from_str::<serde_json::Value>(&metrics_json)
             .unwrap()
             .as_object()

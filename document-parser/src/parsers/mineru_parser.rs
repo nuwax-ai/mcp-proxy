@@ -200,7 +200,7 @@ impl MinerUParser {
         let tasks = self.active_tasks.lock().await;
         if let Some(token) = tasks.get(task_id) {
             token.cancel().await;
-            info!("已取消MinerU解析任务: {}", task_id);
+            info!("MinerU analysis task canceled: {}", task_id);
             Ok(())
         } else {
             Err(AppError::MinerU(format!("任务不存在: {task_id}")))
@@ -259,7 +259,7 @@ impl MinerUParser {
             .map_err(|e| AppError::File(format!("创建输出目录失败: {e}")))?;
 
         info!(
-            "使用MinerU解析PDF文件: {} -> {}",
+            "Use MinerU to parse PDF files: {} -> {}",
             file_path,
             work_dir.display()
         );
@@ -288,20 +288,20 @@ impl MinerUParser {
             .await;
 
         if let Err(e) = &parse_result {
-            error!("MinerU命令执行失败: {}", e);
-            error!("工作目录: {}", work_dir.display());
-            error!("输出目录: {}", output_dir.display());
-            error!("输入文件: {}", file_path);
-            error!("任务ID: {}", task_id);
+            error!("MinerU command execution failed: {}", e);
+            error!("Working directory: {}", work_dir.display());
+            error!("Output directory: {}", output_dir.display());
+            error!("Input file: {}", file_path);
+            error!("Task ID: {}", task_id);
 
             // 检查输入文件状态
             match fs::metadata(file_path).await {
                 Ok(metadata) => {
-                    debug!("输入文件大小: {} 字节", metadata.len());
-                    debug!("输入文件修改时间: {:?}", metadata.modified());
+                    debug!("Input file size: {} bytes", metadata.len());
+                    debug!("Input file modification time: {:?}", metadata.modified());
                 }
                 Err(file_err) => {
-                    error!("无法读取输入文件元数据: {}", file_err);
+                    error!("Unable to read input file metadata: {}", file_err);
                 }
             }
 
@@ -309,28 +309,40 @@ impl MinerUParser {
             if work_dir.exists() {
                 match fs::read_dir(&work_dir).await {
                     Ok(_) => {
-                        debug!("工作目录存在,目录:{}", &work_dir.display());
+                        debug!(
+                            "The working directory exists, directory: {}",
+                            &work_dir.display()
+                        );
                     }
                     Err(dir_err) => {
-                        error!("无法读取工作目录: {}", dir_err);
+                        error!("Unable to read working directory: {}", dir_err);
                     }
                 }
             } else {
-                warn!("工作目录不存在,目录:{}", &work_dir.display());
+                warn!(
+                    "The working directory does not exist, directory: {}",
+                    &work_dir.display()
+                );
             }
 
             // 检查输出目录是否存在以及内容
             if output_dir.exists() {
                 match self.debug_output_directory(&output_dir).await {
                     Ok(debug_info) => {
-                        error!("输出目录调试信息: {}", debug_info);
+                        error!("Output directory debugging information: {}", debug_info);
                     }
                     Err(debug_err) => {
-                        error!("无法获取输出目录调试信息: {}", debug_err);
+                        error!(
+                            "Unable to obtain output directory debugging information: {}",
+                            debug_err
+                        );
                     }
                 }
             } else {
-                error!("输出目录不存在: {}", output_dir.display());
+                error!(
+                    "The output directory does not exist: {}",
+                    output_dir.display()
+                );
             }
 
             self.cleanup_work_dir(&work_dir).await;
@@ -349,8 +361,8 @@ impl MinerUParser {
             message: "处理解析结果".to_string(),
             elapsed_time: start_time.elapsed(),
         });
-        info!("minerU的输出目录: {}", output_dir.display());
-        info!("准备读取minerU的输出,task_id: {}", task_id);
+        info!("The output directory of minerU: {}", output_dir.display());
+        info!("Prepare to read the output of minerU, task_id: {}", task_id);
 
         let markdown_content = self.read_markdown_output(&output_dir).await?;
 
@@ -398,7 +410,7 @@ impl MinerUParser {
         });
 
         info!(
-            "MinerU解析完成，耗时: {:?}，字数: {}",
+            "MinerU analysis is completed, time consumption: {:?}, word count: {}",
             processing_time, word_count
         );
 
@@ -454,14 +466,14 @@ impl MinerUParser {
         F: Fn(ParseProgress) + Send + Sync + 'static,
     {
         debug!(
-            "MinerU 命令执行 - 输入文件: {}, 输出目录: {}",
+            "MinerU command execution - input file: {}, output directory: {}",
             file_path,
             output_dir.display()
         );
 
         // 验证输入文件是否存在
         if !std::path::Path::new(file_path).exists() {
-            error!("MinerU 输入文件不存在: {}", file_path);
+            error!("MinerU input file does not exist: {}", file_path);
             return Err(AppError::MinerU(format!("输入文件不存在: {file_path}")));
         }
 
@@ -471,7 +483,7 @@ impl MinerUParser {
             .map_err(|e| AppError::MinerU(format!("无法获取文件绝对路径: {e}")))?
             .to_string_lossy()
             .to_string();
-        debug!("MinerU 输入文件绝对路径: {}", absolute_file_path);
+        debug!("MinerU input file absolute path: {}", absolute_file_path);
 
         // 自动检测并使用虚拟环境中的 mineru 命令
         let mineru_command = self.get_mineru_command_path()?;
@@ -484,7 +496,7 @@ impl MinerUParser {
         // 添加后端类型参数
         if !self.config.backend.is_empty() && self.config.backend != "pipeline" {
             cmd.arg("-b").arg(&self.config.backend);
-            debug!("MinerU 设置后端类型: {}", self.config.backend);
+            debug!("MinerU sets the backend type: {}", self.config.backend);
         }
 
         // 添加设备参数：当使用pipeline后端且支持CUDA时，自动添加-d cuda参数
@@ -500,29 +512,34 @@ impl MinerUParser {
                     "cuda" // 直接使用"cuda"，不需要调用get_recommended_cuda_device
                 };
                 cmd.arg("-d").arg(device);
-                debug!("MinerU 设置推理设备: {} (全局CUDA状态可用)", device);
+                debug!(
+                    "MinerU sets the inference device: {} (global CUDA status is available)",
+                    device
+                );
             } else if self.config.device != "cpu" {
                 // 即使没有CUDA支持，如果配置中指定了其他设备，也使用配置的设备
                 cmd.arg("-d").arg(&self.config.device);
                 debug!(
-                    "MinerU 设置推理设备: {} (配置指定，CUDA不可用)",
+                    "MinerU sets the inference device: {} (configuration specified, CUDA is not available)",
                     self.config.device
                 );
             } else {
-                debug!("MinerU 使用默认CPU模式 (CUDA不可用且未指定其他设备)");
+                debug!(
+                    "MinerU uses default CPU mode (CUDA is not available and no other devices are specified)"
+                );
             }
 
             // 添加显存限制参数：只要是 pipeline 后端就设置
             if self.config.vram > 0 {
                 cmd.arg("--vram").arg(self.config.vram.to_string());
-                debug!("MinerU 设置显存限制: {}GB", self.config.vram);
+                debug!("MinerU sets the video memory limit: {}GB", self.config.vram);
             }
         }
 
         // 检查是否在中国大陆，如果是则添加模型源参数
         if self.is_china_region().await {
             cmd.arg("--source").arg("modelscope");
-            debug!("MinerU 设置模型源: modelscope");
+            debug!("MinerU sets the model source: modelscope");
         }
 
         // MinerU 会自动检测和使用可用的 GPU，无需手动设置环境变量
@@ -530,7 +547,7 @@ impl MinerUParser {
         // 设置模型源环境变量（如果网络访问有问题）
         if self.is_china_region().await {
             cmd.env("MINERU_MODEL_SOURCE", "modelscope");
-            debug!("MinerU 设置环境变量 MINERU_MODEL_SOURCE: modelscope");
+            debug!("MinerU sets the environment variable MINERU_MODEL_SOURCE: modelscope");
         }
 
         cmd.stdout(Stdio::piped())
@@ -538,19 +555,19 @@ impl MinerUParser {
             .kill_on_drop(true);
 
         info!(
-            "MinerU命令参数: {} -p {} -o {}",
+            "MinerU command parameters: {} -p {} -o {}",
             mineru_command,
             absolute_file_path,
             output_dir.display()
         );
-        info!("执行MinerU命令: {:?}", cmd);
+        info!("Execute MinerU command: {:?}", cmd);
 
         let mut child = cmd.spawn().map_err(|e| {
-            error!("启动MinerU进程失败: {}", e);
+            error!("Failed to start MinerU process: {}", e);
             AppError::MinerU(format!("启动MinerU进程失败: {e}"))
         })?;
 
-        info!("MinerU 进程已启动，PID: {:?}", child.id());
+        info!("MinerU process has been started, PID: {:?}", child.id());
 
         // 监控进程输出
         let stdout = child.stdout.take().unwrap();
@@ -586,12 +603,12 @@ impl MinerUParser {
         };
         let timeout_duration = Duration::from_secs(timeout_seconds as u64);
         info!(
-            "MinerU解析超时设置: {}秒 ({})",
+            "MinerU parsing timeout setting: {} seconds ({})",
             timeout_seconds,
             if self.config.timeout == 0 {
-                "使用统一配置"
+                "using global config"
             } else {
-                "使用MinerU配置"
+                "using MinerU config"
             }
         );
         let process_result = timeout(timeout_duration, async {
@@ -637,7 +654,7 @@ impl MinerUParser {
                         match result {
                             Ok(status) => {
                                 if status.success() {
-                                    info!("MinerU进程成功完成，退出码: {}", status.code().unwrap_or(0));
+                                    info!("The MinerU process completed successfully with exit code: {}", status.code().unwrap_or(0));
                                     return Ok(());
                                 } else {
                                     let exit_code = status.code().unwrap_or(-1);
@@ -679,7 +696,10 @@ impl MinerUParser {
         match process_result {
             Ok(result) => result,
             Err(_) => {
-                error!("MinerU执行超时（{}秒），正在终止进程", timeout_seconds);
+                error!(
+                    "MinerU execution timeout ({} seconds), terminating process",
+                    timeout_seconds
+                );
                 let _ = child.kill().await;
 
                 // 提供更详细的超时信息
@@ -703,9 +723,13 @@ impl MinerUParser {
     /// 清理工作目录
     async fn cleanup_work_dir(&self, work_dir: &Path) {
         if let Err(e) = fs::remove_dir_all(work_dir).await {
-            warn!("清理工作目录失败: {} - {}", work_dir.display(), e);
+            warn!(
+                "Failed to clean working directory: {} - {}",
+                work_dir.display(),
+                e
+            );
         } else {
-            debug!("已清理工作目录: {}", work_dir.display());
+            debug!("Cleaned working directory: {}", work_dir.display());
         }
     }
 
@@ -766,7 +790,7 @@ impl MinerUParser {
 
     /// 读取Markdown输出
     async fn read_markdown_output(&self, output_dir: &Path) -> Result<String, AppError> {
-        debug!("读取Markdown输出: {}", output_dir.display());
+        debug!("Read Markdown output: {}", output_dir.display());
 
         // 递归查找所有markdown文件
         let mut markdown_files = Vec::new();
@@ -775,16 +799,19 @@ impl MinerUParser {
 
         if markdown_files.is_empty() {
             error!(
-                "在输出目录中未找到任何Markdown文件: {}",
+                "No Markdown files found in the output directory: {}",
                 output_dir.display()
             );
             // 提供调试信息
             match self.debug_output_directory(output_dir).await {
                 Ok(debug_info) => {
-                    error!("输出目录调试信息: {}", debug_info);
+                    error!("Output directory debugging information: {}", debug_info);
                 }
                 Err(debug_err) => {
-                    error!("无法获取输出目录调试信息: {}", debug_err);
+                    error!(
+                        "Unable to obtain output directory debugging information: {}",
+                        debug_err
+                    );
                 }
             }
             return Err(AppError::MinerU("未找到Markdown输出文件".to_string()));
@@ -799,7 +826,7 @@ impl MinerUParser {
             .map(|m| m.len())
             .unwrap_or(0);
         debug!(
-            "选择Markdown文件: {} (大小: {} 字节)",
+            "Select Markdown file: {} (Size: {} bytes)",
             selected_file.display(),
             file_size
         );
@@ -815,7 +842,7 @@ impl MinerUParser {
         }
 
         info!(
-            "成功读取Markdown文件: {}，大小: {} 字节",
+            "Successfully read Markdown file: {}, size: {} bytes",
             selected_file.display(),
             content.len()
         );
@@ -858,7 +885,7 @@ impl MinerUParser {
                 if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
                     if ext.to_lowercase() == "md" {
                         markdown_files.push(path.clone());
-                        debug!("找到Markdown文件: {}", path.display());
+                        debug!("Markdown file found: {}", path.display());
                     }
                 }
             } else if path.is_dir() {
@@ -884,11 +911,13 @@ impl MinerUParser {
 
         // 检查mineru命令是否存在
         if mineru_path.exists() {
-            debug!("找到MinerU命令: {}", mineru_path.display());
+            debug!("Found the MinerU command: {}", mineru_path.display());
             Ok(mineru_path.to_string_lossy().to_string())
         } else {
             // 如果虚拟环境中没有mineru命令，尝试使用系统PATH中的mineru
-            debug!("虚拟环境中未找到mineru命令，尝试使用系统PATH中的mineru");
+            debug!(
+                "The mineru command was not found in the virtual environment, try using mineru in the system PATH"
+            );
             Ok("mineru".to_string())
         }
     }
@@ -957,16 +986,16 @@ impl MinerUParser {
         match version_output {
             Ok(output) if output.status.success() => {
                 let version_str = String::from_utf8_lossy(&output.stdout);
-                info!("MinerU版本: {}", version_str.trim());
+                info!("MinerU version book: {}", version_str.trim());
             }
             _ => {
-                info!("无法获取MinerU版本信息，但命令可用");
+                info!("Unable to get MinerU version information, but the command is available");
             }
         }
 
         // MinerU 会自动检测和使用可用的 GPU，无需手动检查
 
-        info!("MinerU环境验证通过");
+        info!("MinerU environment verification passed");
         Ok(())
     }
 
@@ -984,7 +1013,10 @@ impl MinerUParser {
             match environment_manager.check_environment().await {
                 Ok(status) => {
                     if status.mineru_available {
-                        info!("MinerU依赖已就绪，版本: {:?}", status.mineru_version);
+                        info!(
+                            "MinerU dependency is ready, version: {:?}",
+                            status.mineru_version
+                        );
                         return Ok(());
                     } else {
                         let elapsed = start_time.elapsed();
@@ -994,12 +1026,15 @@ impl MinerUParser {
                             ));
                         }
 
-                        info!("等待MinerU依赖安装完成... (已等待: {:?})", elapsed);
+                        info!(
+                            "Waiting for MinerU dependency installation to complete... (Waiting: {:?})",
+                            elapsed
+                        );
                         sleep(check_interval).await;
                     }
                 }
                 Err(e) => {
-                    warn!("检查环境状态失败: {}", e);
+                    warn!("Failed to check environment status: {}", e);
                     sleep(check_interval).await;
                 }
             }
@@ -1029,7 +1064,7 @@ impl DocumentParser for MinerUParser {
         self.parse_with_progress(
             file_path,
             |progress| {
-                info!("MinerU解析进度: {:?}", progress);
+                info!("MinerU parsing progress: {:?}", progress);
             },
             None,
         )

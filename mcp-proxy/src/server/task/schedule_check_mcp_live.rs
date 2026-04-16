@@ -30,7 +30,7 @@ pub async fn schedule_check_mcp_live() {
 
     // 打印当前有多少个 mcp 插件服务在运行
     info!(
-        "当前有 {} 个 mcp 插件服务在运行",
+        "There are currently {} mcp plug-in services running",
         mcp_service_statuses.len()
     );
 
@@ -56,7 +56,9 @@ pub async fn schedule_check_mcp_live() {
             McpType::Persistent => {
                 // 检查持久化服务是否已被取消或子进程已终止
                 if cancellation_token.is_cancelled() {
-                    info!("持久化 MCP 服务 {mcp_id} 已被手动取消，清理资源");
+                    info!(
+                        "The persistent MCP service {mcp_id} has been manually canceled and resources are being cleaned up."
+                    );
                     if let Err(e) = proxy_manager.cleanup_resources(&mcp_id).await {
                         error!("Failed to cleanup resources for {}: {}", mcp_id, e);
                     }
@@ -67,7 +69,9 @@ pub async fn schedule_check_mcp_live() {
                 if let Some(handler) = proxy_manager.get_proxy_handler(&mcp_id)
                     && handler.is_terminated_async().await
                 {
-                    info!("持久化 MCP 服务 {mcp_id} 子进程异常结束，清理资源");
+                    info!(
+                        "The persistent MCP service {mcp_id} child process ended abnormally and cleaned up resources."
+                    );
                     if let Err(e) = proxy_manager.cleanup_resources(&mcp_id).await {
                         error!("Failed to cleanup resources for {}: {}", mcp_id, e);
                     }
@@ -80,7 +84,7 @@ pub async fn schedule_check_mcp_live() {
                 // 空闲超时 → 清理资源
                 if idle_time > ONESHOT_TIMEOUT {
                     info!(
-                        "OneShot 服务 {} 空闲超时（空闲时间: {}秒），清理资源",
+                        "OneShot service {} idle timeout (idle time: {} seconds), clean up resources",
                         mcp_id,
                         idle_time.as_secs()
                     );
@@ -108,12 +112,15 @@ pub async fn schedule_check_mcp_live() {
                     if is_terminated {
                         let failures = proxy_manager.increment_probe_failures(&mcp_id);
                         info!(
-                            "OneShot 服务 {} 健康检查失败 ({}/{})",
+                            "OneShot service {} health check failed ({}/{})",
                             mcp_id, failures, MAX_PROBE_FAILURES
                         );
 
                         if failures >= MAX_PROBE_FAILURES {
-                            info!("OneShot 服务 {} 连续失败 {} 次，触发重启", mcp_id, failures);
+                            info!(
+                                "OneShot service {} failed continuously {} times, triggering a restart",
+                                mcp_id, failures
+                            );
                             restart_mcp_service(&mcp_id, proxy_manager).await;
                         }
                     } else {
@@ -137,7 +144,10 @@ pub async fn schedule_check_mcp_live() {
 async fn restart_mcp_service(mcp_id: &str, proxy_manager: &crate::model::ProxyHandlerManager) {
     // 1. 检查重启冷却期
     if !GLOBAL_RESTART_TRACKER.can_restart(mcp_id) {
-        info!("服务 {} 在重启冷却期内，跳过", mcp_id);
+        info!(
+            "Service {} is skipped during the restart cooling period.",
+            mcp_id
+        );
         return;
     }
 
@@ -149,7 +159,10 @@ async fn restart_mcp_service(mcp_id: &str, proxy_manager: &crate::model::ProxyHa
     };
 
     let Some(mcp_config) = mcp_config else {
-        warn!("服务 {} 无配置，无法重启，清理资源", mcp_id);
+        warn!(
+            "Service {} has no configuration and cannot be restarted. Clean up resources.",
+            mcp_id
+        );
         if let Err(e) = proxy_manager.cleanup_resources(mcp_id).await {
             error!("Failed to cleanup resources for {}: {}", mcp_id, e);
         }
@@ -158,7 +171,7 @@ async fn restart_mcp_service(mcp_id: &str, proxy_manager: &crate::model::ProxyHa
 
     // 3. 清理旧资源（保留配置缓存）
     if let Err(e) = proxy_manager.cleanup_resources_for_restart(mcp_id).await {
-        error!("清理服务 {} 资源失败: {}", mcp_id, e);
+        error!("Cleanup service {} resource failed: {}", mcp_id, e);
         return;
     }
 
@@ -170,10 +183,10 @@ async fn restart_mcp_service(mcp_id: &str, proxy_manager: &crate::model::ProxyHa
             proxy_manager.reset_probe_failures(mcp_id);
             // 记录重启时间
             GLOBAL_RESTART_TRACKER.record_restart(mcp_id);
-            info!("服务 {} 重启成功", mcp_id);
+            info!("Service {} restarted successfully", mcp_id);
         }
         Err(e) => {
-            error!("服务 {} 重启失败: {}", mcp_id, e);
+            error!("Service {} failed to restart: {}", mcp_id, e);
             // 重启失败，设置 Error 状态
             // 注意：此时服务已被清理，无法设置状态，只能记录日志
             // 下次请求到来时会触发重新启动

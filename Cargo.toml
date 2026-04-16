@@ -91,6 +91,9 @@ sled = "0.34"
 # 可执行文件查找
 which = "7.0"
 
+# 国际化支持
+rust-i18n = "3"
+
 # Audio format detection and processing
 symphonia = { version = "0.5", features = ["all"] }
 bincode = "2.0"

@@ -42,7 +42,7 @@ pub async fn run_code_handler(
     let params = match serde_json::to_value(run_code_message_request.json_param.clone()) {
         Ok(v) => v,
         Err(e) => {
-            error!("run_code_handler参数序列化失败: {e:?}");
+            error!("Run_code_handler parameter serialization failed: {e:?}");
             return Err(AppError::from(e));
         }
     };
@@ -58,7 +58,7 @@ pub async fn run_code_handler(
     {
         Ok(result) => result,
         Err(e) => {
-            error!("run_code_handler执行失败: {e:?}");
+            error!("run_code_handler execution failed: {e:?}");
             return Err(AppError::from(e));
         }
     };
@@ -68,13 +68,13 @@ pub async fn run_code_handler(
             .error
             .as_deref()
             .unwrap_or("run_code_handler执行失败但未提供错误信息");
-        error!("run_code_handler执行返回失败: {error_message}");
+        error!("run_code_handler execution returns failure: {error_message}");
     }
 
     let data = match serde_json::to_value(&result) {
         Ok(data) => data,
         Err(e) => {
-            error!("run_code_handler序列化结果失败: {e:?}");
+            error!("run_code_handler serialization result failed: {e:?}");
             return Err(AppError::from(e));
         }
     };

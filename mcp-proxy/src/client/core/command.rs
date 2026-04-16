@@ -34,27 +34,27 @@ pub async fn run_command_mode(
     tool_filter: ToolFilter,
     quiet: bool,
 ) -> Result<()> {
-    tracing::info!("模式: 本地命令模式");
-    tracing::info!("命令: {} {:?}", command, cmd_args);
+    tracing::info!("Running in local command mode");
+    tracing::info!("Command: {} {:?}", command, cmd_args);
     if !env.is_empty() {
-        tracing::debug!("环境变量数量: {}", env.len());
+        tracing::debug!("Env var count: {}", env.len());
     }
 
     if !quiet {
         eprintln!("🚀 MCP-Stdio-Proxy: {} (command) → stdio", name);
-        eprintln!("   命令: {} {:?}", command, cmd_args);
+        eprintln!("   Command: {} {:?}", command, cmd_args);
         if !env.is_empty() {
-            eprintln!("   环境变量: {:?}", env);
+            eprintln!("   Env vars: {:?}", env);
         }
     }
 
     // 显示过滤器配置
     if !quiet && tool_filter.is_enabled() {
-        eprintln!("🔧 工具过滤已启用");
+        eprintln!("🔧 Tool filtering enabled");
     }
 
     // 诊断日志：记录子进程启动信息
-    tracing::debug!("[子进程] {} {:?}", command, cmd_args);
+    tracing::debug!("[child-process] {} {:?}", command, cmd_args);
 
     // 使用 process-wrap 创建子进程命令（跨平台进程清理）
     // process-wrap 会自动处理进程组（Unix）或 Job Object（Windows）
@@ -85,7 +85,7 @@ pub async fn run_command_mode(
 
     // 启动子进程
     // 使用 builder 模式捕获 stderr，便于诊断子 MCP 服务初始化失败
-    tracing::debug!("启动子进程...");
+    tracing::debug!("Starting child process...");
     let (tokio_process, child_stderr) = TokioChildProcess::builder(wrapped_cmd)
         .stderr(Stdio::piped())
         .spawn()?;
@@ -96,7 +96,7 @@ pub async fn run_command_mode(
     }
 
     if !quiet {
-        eprintln!("🔗 启动子进程...");
+        eprintln!("🔗 Starting child process...");
     }
 
     // 创建 ClientInfo（使用 rmcp 0.12 类型）
@@ -106,29 +106,29 @@ pub async fn run_command_mode(
     let running = client_info.serve(tokio_process).await?;
 
     if !quiet {
-        eprintln!("✅ 子进程已启动，开始代理转换...");
+        eprintln!("✅ Child process started, proxying to stdio...");
 
         // 打印工具列表
         match running.list_tools(None).await {
             Ok(tools_result) => {
                 let tools = &tools_result.tools;
                 if tools.is_empty() {
-                    eprintln!("⚠️  工具列表为空 (tools/list 返回 0 个工具)");
+                    eprintln!("⚠️  Tool list is empty (tools/list returned 0 tools)");
                 } else {
-                    eprintln!("🔧 可用工具 ({} 个):", tools.len());
+                    eprintln!("🔧 Available tools ({}):", tools.len());
                     for tool in tools {
-                        let desc = tool.description.as_deref().unwrap_or("无描述");
+                        let desc = tool.description.as_deref().unwrap_or("no description");
                         let desc_short = truncate_str(desc, 50);
                         eprintln!("   - {} : {}", tool.name, desc_short);
                     }
                 }
             }
             Err(e) => {
-                eprintln!("⚠️  获取工具列表失败: {}", e);
+                eprintln!("⚠️  Failed to list tools: {}", e);
             }
         }
 
-        eprintln!("💡 现在可以通过 stdin 发送 JSON-RPC 请求");
+        eprintln!("💡 You can now send JSON-RPC requests through stdin");
     }
 
     // 使用 StreamProxyHandler + stdio 将本地 MCP 服务透明暴露为 stdio
@@ -142,7 +142,7 @@ pub async fn run_command_mode(
             result?;
         }
         _ = tokio::signal::ctrl_c() => {
-            tracing::info!("收到 Ctrl+C 信号，正在关闭...");
+            tracing::info!("Ctrl+C received, shutting down");
             // tokio runtime 会清理资源，包括子进程
         }
     }

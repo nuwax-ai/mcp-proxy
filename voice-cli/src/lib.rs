@@ -1,3 +1,10 @@
+// 初始化 i18n，使用 crate 内置翻译文件
+#[macro_use]
+extern crate rust_i18n;
+
+// 初始化翻译文件，使用 crate 内置 locales（支持独立发布）
+i18n!("locales", fallback = "en");
+
 pub mod cli;
 pub mod config;
 pub mod config_rs_integration;

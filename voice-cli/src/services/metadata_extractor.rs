@@ -62,7 +62,7 @@ pub struct MetadataExtractor;
 impl MetadataExtractor {
     /// 从文件路径提取音视频元数据
     pub async fn extract_metadata(file_path: &Path) -> Result<AudioVideoMetadata, VoiceCliError> {
-        info!("开始提取音视频元数据: {:?}", file_path);
+        info!("Start extracting audio and video metadata: {:?}", file_path);
 
         // 首先获取文件基本信息
         let file_metadata = fs::metadata(file_path)
@@ -78,12 +78,12 @@ impl MetadataExtractor {
 
         // 尝试使用 FFmpeg 提取详细元数据
         if let Ok(ffmpeg_metadata) = Self::extract_with_ffmpeg(file_path).await {
-            info!("FFmpeg 元数据提取成功");
+            info!("FFmpeg metadata extraction successful");
             return Ok(ffmpeg_metadata);
         }
 
         // 如果 FFmpeg 不可用或失败，使用基础方法
-        warn!("FFmpeg 不可用或失败，使用基础元数据提取方法");
+        warn!("FFmpeg is unavailable or failed, use base metadata extraction method");
         Self::extract_basic_metadata(file_path, &file_metadata, &file_extension).await
     }
 
@@ -91,7 +91,7 @@ impl MetadataExtractor {
     async fn extract_with_ffmpeg(file_path: &Path) -> Result<AudioVideoMetadata, VoiceCliError> {
         use ffmpeg_sidecar::command::FfmpegCommand;
 
-        debug!("使用 FFmpeg 提取元数据: {:?}", file_path);
+        debug!("Extract metadata using FFmpeg: {:?}", file_path);
 
         let file_path_buf = file_path.to_path_buf();
 
@@ -228,7 +228,7 @@ impl MetadataExtractor {
             .await
             .map_err(|e| VoiceCliError::Storage(format!("FFmpeg 阻塞任务失败: {}", e)))??;
 
-        info!("FFmpeg 元数据提取完成: {:?}", metadata);
+        info!("FFmpeg metadata extraction completed: {:?}", metadata);
         Ok(metadata)
     }
 
@@ -238,7 +238,7 @@ impl MetadataExtractor {
         file_metadata: &Metadata,
         file_extension: &str,
     ) -> Result<AudioVideoMetadata, VoiceCliError> {
-        debug!("使用基础方法提取元数据: {:?}", file_path);
+        debug!("Extract metadata using basic method: {:?}", file_path);
 
         let mut metadata = AudioVideoMetadata {
             file_size_bytes: file_metadata.len(),
@@ -269,7 +269,7 @@ impl MetadataExtractor {
             metadata.bitrate = (total_bits / metadata.duration_seconds / 1000.0) as u32;
         }
 
-        info!("基础元数据提取完成: {:?}", metadata);
+        info!("Basic metadata extraction completed: {:?}", metadata);
         Ok(metadata)
     }
 
@@ -322,7 +322,7 @@ mod tests {
                 assert_eq!(meta.file_size_bytes, 16); // "dummy audio data" 的长度
             }
             Err(e) => {
-                println!("提取失败: {}", e);
+                println!("Failed to extract: {}", e);
                 // 对于测试环境，FFmpeg 可能不可用，这是可以接受的
             }
         }

@@ -110,28 +110,28 @@ pub async fn start_server(config: AppConfig) -> Result<()> {
     let warmup_config = config.clone();
     tokio::spawn(async move {
         if let Err(e) = warmup_model(warmup_state, warmup_config).await {
-            tracing::warn!("模型预热失败: {}", e);
+            tracing::warn!("Model warm-up failed: {}", e);
         }
     });
 
     let app = create_router(state);
 
-    tracing::info!("FastEmbed 服务启动中...");
-    tracing::info!("监听地址: {}", addr);
+    tracing::info!("FastEmbed service is starting...");
+    tracing::info!("Listening address: {}", addr);
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
 
-    tracing::info!("✅ FastEmbed 服务已启动: http://{}", addr);
-    tracing::info!("健康检查: http://{}/health", addr);
-    tracing::info!("文本嵌入: POST http://{}/api/embeddings", addr);
-    tracing::info!("可用模型: GET http://{}/api/models/available", addr);
+    tracing::info!("✅ FastEmbed service has been started: http://{}", addr);
+    tracing::info!("Health check: http://{}/health", addr);
+    tracing::info!("Text embedding: POST http://{}/api/embeddings", addr);
+    tracing::info!("Available models: GET http://{}/api/models/available", addr);
     tracing::info!("📚 Swagger UI: http://{}/swagger-ui/", addr);
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await?;
 
-    tracing::info!("✅ FastEmbed 服务已优雅关闭");
+    tracing::info!("✅ FastEmbed service has been gracefully closed");
 
     Ok(())
 }
@@ -140,7 +140,7 @@ pub async fn start_server(config: AppConfig) -> Result<()> {
 async fn warmup_model(state: Arc<AppState>, config: AppConfig) -> Result<()> {
     use crate::models::{get_or_init_model, parse_model};
 
-    tracing::info!("开始预热模型: {}", config.fastembed.default_model);
+    tracing::info!("Start preheating model: {}", config.fastembed.default_model);
     let start = Instant::now();
 
     let model = parse_model(&config.fastembed.default_model)?;
@@ -160,7 +160,7 @@ async fn warmup_model(state: Arc<AppState>, config: AppConfig) -> Result<()> {
     // 标记预热完成
     *state.model_cache_ready.lock().unwrap() = true;
 
-    tracing::info!("✅ 模型预热完成，耗时: {:?}", elapsed);
+    tracing::info!("✅ Model preheating completed, time consuming: {:?}", elapsed);
 
     Ok(())
 }
@@ -184,10 +184,10 @@ async fn shutdown_signal() {
 
     tokio::select! {
         _ = ctrl_c => {
-            tracing::info!("收到 Ctrl+C 信号，开始优雅关闭...");
+            tracing::info!("Receive Ctrl+C signal and start graceful shutdown...");
         },
         _ = terminate => {
-            tracing::info!("收到 SIGTERM 信号，开始优雅关闭...");
+            tracing::info!("Receive SIGTERM signal and start graceful shutdown...");
         },
     }
 }

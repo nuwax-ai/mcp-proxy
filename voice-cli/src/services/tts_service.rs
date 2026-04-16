@@ -3,7 +3,7 @@ use crate::models::{TtsAsyncRequest, TtsSyncRequest, TtsTaskResponse};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tempfile::NamedTempFile;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 use uuid::Uuid;
 
 /// TTS服务 - 处理文本到语音转换
@@ -76,10 +76,10 @@ impl TtsService {
             }
         };
 
-        info!("使用 TTS 脚本: {:?}", final_script_path);
+        info!("Use TTS script: {:?}", final_script_path);
 
         info!(
-            "初始化TTS服务 - Python: {:?}, 脚本: {:?}",
+            "Initialize TTS service - Python: {:?}, script: {:?}",
             python_path, final_script_path
         );
 
@@ -134,7 +134,7 @@ impl TtsService {
             .ok_or_else(|| VoiceCliError::Io("临时文件路径无效".to_string()))?;
 
         info!(
-            "开始TTS合成 - 文本长度: {}, 格式: {}",
+            "Start TTS synthesis - text length: {}, format: {}",
             request.text.len(),
             output_format
         );
@@ -169,8 +169,12 @@ impl TtsService {
         if let Some(ref model_path) = self.model_path {
             cmd.env("TTS_MODEL_PATH", model_path.to_string_lossy().as_ref());
         }
+        cmd.env(
+            "TTS_PYTHON_PATH",
+            self.python_path.to_string_lossy().as_ref(),
+        );
 
-        debug!("执行TTS命令: {:?}", cmd);
+        debug!("Execute TTS command: {:?}", cmd);
 
         // 执行命令
         let output = cmd
@@ -180,7 +184,10 @@ impl TtsService {
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             let stdout = String::from_utf8_lossy(&output.stdout);
-            error!("TTS合成失败 - stderr: {}, stdout: {}", stderr, stdout);
+            error!(
+                "TTS synthesis failed - stderr: {}, stdout: {}",
+                stderr, stdout
+            );
             return Err(VoiceCliError::TtsError(format!("TTS合成失败: {}", stderr)));
         }
 
@@ -201,7 +208,7 @@ impl TtsService {
 
         let processing_time = start_time.elapsed();
         info!(
-            "TTS合成完成 - 文件大小: {} bytes, 耗时: {:?}",
+            "TTS synthesis completed - file size: {} bytes, time taken: {:?}",
             file_size, processing_time
         );
 
@@ -227,7 +234,7 @@ impl TtsService {
         let estimated_duration = self.estimate_processing_time(&request.text);
 
         info!(
-            "创建TTS异步任务 - 文本长度: {}, 预估时长: {}s",
+            "Create a TTS asynchronous task - text length: {}, estimated time: {}s",
             request.text.len(),
             estimated_duration
         );
@@ -281,7 +288,7 @@ impl TtsService {
     /// 清理资源
     pub async fn cleanup(&self) -> Result<(), VoiceCliError> {
         // 清理临时文件等
-        info!("TTS服务清理完成");
+        info!("TTS service cleanup completed");
         Ok(())
     }
 }

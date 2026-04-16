@@ -535,7 +535,7 @@ impl AlertNotifier for WebhookAlertNotifier {
 /// 告警历史记录
 #[derive(Debug)]
 struct AlertHistory {
-    rule_id: String,
+    _rule_id: String,
     last_triggered: Option<Instant>,
     consecutive_failures: u32,
     total_triggers: u64,
@@ -544,7 +544,7 @@ struct AlertHistory {
 impl AlertHistory {
     fn new(rule_id: String) -> Self {
         Self {
-            rule_id,
+            _rule_id: rule_id,
             last_triggered: None,
             consecutive_failures: 0,
             total_triggers: 0,
@@ -564,6 +564,7 @@ impl AlertHistory {
         self.total_triggers += 1;
     }
 
+    #[allow(dead_code)]
     fn reset_failures(&mut self) {
         self.consecutive_failures = 0;
     }

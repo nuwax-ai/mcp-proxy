@@ -58,6 +58,9 @@ opentelemetry-semantic-conventions = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 
+# 国际化支持
+rust-i18n = { workspace = true }
+
 # HTTP client for model downloads
 reqwest = { version = "0.12", features = ["json", "stream"] }
 

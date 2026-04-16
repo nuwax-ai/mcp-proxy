@@ -14,9 +14,8 @@ use axum::response::IntoResponse;
 use futures::TryStreamExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 use tokio::io::AsyncWriteExt;
-use tower_http::body::Full;
 use tracing::{error, info, warn};
 use url::Url;
 use utoipa;
@@ -37,7 +36,7 @@ impl AppState {
         let model_service = Arc::new(ModelService::new((*config).clone()));
 
         // 初始化无锁 Apalis 管理器
-        info!("初始化无锁 Apalis 任务管理器");
+        info!("Initializing the Lock-Free Apalis Task Manager");
         let (manager, storage) =
             LockFreeApalisManager::new(config.task_management.clone(), model_service.clone())
                 .await?;
@@ -57,7 +56,7 @@ impl AppState {
         );
 
         // 初始化TTS服务
-        info!("初始化TTS服务");
+        info!("Initialize TTS service");
         let tts_service = Arc::new(
             TtsService::new(
                 config.tts.python_path.clone(),
@@ -79,14 +78,14 @@ impl AppState {
 
     /// 优雅关闭
     pub async fn shutdown(&self) {
-        info!("关闭应用状态");
+        info!("Close application state");
 
         // 优雅关闭 Apalis 管理器
         if let Err(e) = self.lock_free_apalis_manager.shutdown().await {
-            warn!("关闭 Apalis 管理器失败: {}", e);
+            warn!("Failed to close Apalis Manager: {}", e);
         }
 
-        info!("应用状态关闭完成");
+        info!("Application status closed completed");
     }
 }
 
@@ -178,7 +177,7 @@ pub async fn transcribe_handler(
     let metadata = match MetadataExtractor::extract_metadata(&temp_file).await {
         Ok(meta) => {
             info!(
-                "成功提取音视频元数据: {}",
+                "Audio and video metadata successfully extracted: {}",
                 crate::services::MetadataExtractor::get_format_description(&meta)
             );
             // 转换为models::request::AudioVideoMetadata
@@ -202,7 +201,7 @@ pub async fn transcribe_handler(
             })
         }
         Err(e) => {
-            warn!("提取元数据失败，使用默认值: {}", e);
+            warn!("Failed to extract metadata, using default value: {}", e);
             None
         }
     };
@@ -243,15 +242,22 @@ pub async fn transcribe_handler(
         response.metadata = Some(meta.clone());
     }
 
-    info!("同步转录完成: {} 字符", response.text.len());
+    info!(
+        "Synchronous transcription completed: {} characters",
+        response.text.len()
+    );
 
     // 清理临时文件 - 使用异步任务确保即使出错也不影响响应
     let cleanup_file = temp_file.clone();
-    info!("临时文件: {}", temp_file.display());
+    info!("Temporary file: {}", temp_file.display());
     tokio::spawn(async move {
         match tokio::fs::remove_file(&cleanup_file).await {
-            Ok(_) => info!("已清理临时文件: {}", cleanup_file.display()),
-            Err(e) => warn!("清理临时文件失败 {}: {}", cleanup_file.display(), e),
+            Ok(_) => info!("Cleaned temporary files: {}", cleanup_file.display()),
+            Err(e) => warn!(
+                "Failed to clean up temporary files {}: {}",
+                cleanup_file.display(),
+                e
+            ),
         }
     });
 
@@ -283,7 +289,10 @@ pub async fn async_transcribe_handler(
     multipart: Multipart,
 ) -> Result<HttpResult<AsyncTaskResponse>, VoiceCliError> {
     let task_id = generate_task_id();
-    info!("开始处理异步转录请求: {}", task_id);
+    info!(
+        "Start processing asynchronous transcription request: {}",
+        task_id
+    );
 
     // 使用流式处理避免内存占用
     let (audio_file_path, request) = extract_transcription_request_streaming(
@@ -296,7 +305,7 @@ pub async fn async_transcribe_handler(
     // 元数据提取移到worker中执行，避免阻塞接口响应
 
     // 提交任务到队列 - 使用无锁管理器
-    info!("开始提交任务到队列...");
+    info!("Start submitting tasks to the queue...");
     let mut storage = state.apalis_storage.clone();
     let manager = state.lock_free_apalis_manager.as_ref();
 
@@ -305,7 +314,7 @@ pub async fn async_transcribe_handler(
         .model
         .or_else(|| Some(state.config.whisper.default_model.clone()));
 
-    info!("使用无锁 ApalisManager 提交任务...");
+    info!("Submit tasks using lock-free ApalisManager...");
     let result = manager
         .submit_task(
             &mut storage,
@@ -315,10 +324,16 @@ pub async fn async_transcribe_handler(
             request.response_format,
         )
         .await;
-    info!("任务提交操作完成，结果: {:?}", result);
+    info!(
+        "The task submission operation is completed, result: {:?}",
+        result
+    );
     let returned_task_id = result?;
 
-    info!("异步转录任务提交成功: {}", returned_task_id);
+    info!(
+        "Asynchronous transcription task submitted successfully: {}",
+        returned_task_id
+    );
 
     let response = AsyncTaskResponse {
         task_id: returned_task_id,
@@ -356,7 +371,7 @@ pub async fn transcribe_from_url_handler(
 ) -> Result<HttpResult<AsyncTaskResponse>, VoiceCliError> {
     let task_id = generate_task_id();
     info!(
-        "开始处理URL异步转录请求: {} - URL: {}",
+        "Start processing asynchronous transcription request of URL: {} - URL: {}",
         task_id, request.url
     );
 
@@ -365,7 +380,7 @@ pub async fn transcribe_from_url_handler(
         extract_filename_from_url(&request.url).unwrap_or_else(|| "audio_from_url".to_string());
 
     // 提交URL任务到队列 - 使用无锁管理器
-    info!("开始提交URL任务到队列...");
+    info!("Start submitting URL tasks to the queue...");
     let mut storage = state.apalis_storage.clone();
     let manager = state.lock_free_apalis_manager.as_ref();
 
@@ -374,7 +389,7 @@ pub async fn transcribe_from_url_handler(
         .model
         .or_else(|| Some(state.config.whisper.default_model.clone()));
 
-    info!("使用无锁 ApalisManager 提交URL任务...");
+    info!("Submit URL tasks using lock-free ApalisManager...");
     let result = manager
         .submit_task_for_url(
             &mut storage,
@@ -384,10 +399,16 @@ pub async fn transcribe_from_url_handler(
             request.response_format,
         )
         .await;
-    info!("URL任务提交操作完成，结果: {:?}", result);
+    info!(
+        "URL task submission operation completed, result: {:?}",
+        result
+    );
     let returned_task_id = result?;
 
-    info!("URL异步转录任务提交成功: {}", returned_task_id);
+    info!(
+        "URL asynchronous transcription task submitted successfully: {}",
+        returned_task_id
+    );
 
     let response = AsyncTaskResponse {
         task_id: returned_task_id,
@@ -425,7 +446,10 @@ pub async fn get_task_handler(
 
     match manager.get_task_status(&task_id).await? {
         Some(status) => {
-            info!("获取任务状态成功: {} -> {:?}", task_id, status);
+            info!(
+                "Obtaining task status successfully: {} -> {:?}",
+                task_id, status
+            );
             let message = match &status {
                 TaskStatus::Completed { result_summary, .. } => result_summary.clone(),
                 TaskStatus::Failed { error, .. } => Some(error.to_string()),
@@ -443,7 +467,7 @@ pub async fn get_task_handler(
             Ok(HttpResult::success(response))
         }
         None => {
-            warn!("任务不存在: {}", task_id);
+            warn!("Task does not exist: {}", task_id);
             Err(VoiceCliError::NotFound(format!(
                 "任务 '{}' 不存在",
                 task_id
@@ -479,14 +503,14 @@ pub async fn get_task_result_handler(
     match manager.get_task_result(&task_id).await? {
         Some(result) => {
             info!(
-                "获取任务结果成功: {} -> {} 字符",
+                "Successful acquisition of task results: {} -> {} characters",
                 task_id,
                 result.text.len()
             );
             Ok(HttpResult::success(result))
         }
         None => {
-            warn!("任务结果不可用: {}", task_id);
+            warn!("Task result not available: {}", task_id);
             Err(VoiceCliError::NotFound(format!(
                 "任务 '{}' 的结果不可用",
                 task_id
@@ -531,7 +555,10 @@ pub async fn cancel_task_handler(
         },
     };
 
-    info!("任务取消操作: {} -> {}", task_id, response.message);
+    info!(
+        "Task cancellation operation: {} -> {}",
+        task_id, response.message
+    );
     Ok(HttpResult::success(response))
 }
 
@@ -572,7 +599,7 @@ pub async fn retry_task_handler(
         },
     };
 
-    info!("任务重试操作: {} -> {}", task_id, response.message);
+    info!("Task retry operation: {} -> {}", task_id, response.message);
     Ok(HttpResult::success(response))
 }
 
@@ -611,7 +638,10 @@ pub async fn delete_task_handler(
         },
     };
 
-    info!("任务删除操作: {} -> {}", task_id, response.message);
+    info!(
+        "Task deletion operation: {} -> {}",
+        task_id, response.message
+    );
     Ok(HttpResult::success(response))
 }
 
@@ -635,7 +665,7 @@ pub async fn get_tasks_stats_handler(
 
     let stats = manager.get_tasks_stats().await?;
 
-    info!("获取任务统计信息: 总共 {} 个任务", stats.total_tasks);
+    info!("Get task statistics: Total {} tasks", stats.total_tasks);
     Ok(HttpResult::success(stats))
 }
 
@@ -690,7 +720,7 @@ async fn extract_transcription_request_streaming(
                     .await
                     .map_err(|e| {
                         error!(
-                            "[Task {}] 无法创建临时音频文件 '{}': {}",
+                            "[Task {}] Unable to create temporary audio file '{}': {}",
                             task_id,
                             temp_file_path.display(),
                             e
@@ -710,13 +740,13 @@ async fn extract_transcription_request_streaming(
                 let total_bytes = tokio::io::copy(&mut reader, &mut writer)
                     .await
                     .map_err(|e| {
-                        error!("[Task {}] 流式复制音频文件数据失败: {}", task_id, e);
+                        error!("[Task {}] Failed to stream audio file data: {}", task_id, e);
                         VoiceCliError::Storage(format!("流式复制音频文件数据失败: {}", e))
                     })?;
 
                 writer.flush().await.map_err(|e| {
                     error!(
-                        "[Task {}] 无法刷新数据到临时文件 '{}': {}",
+                        "[Task {}] Unable to refresh data to temporary file '{}': {}",
                         task_id,
                         temp_file_path.display(),
                         e
@@ -729,7 +759,7 @@ async fn extract_transcription_request_streaming(
                 })?;
 
                 info!(
-                    "[Task {}] 成功接收音频文件: {} 字节 -> {}",
+                    "[Task {}] Successfully received audio file: {} bytes -> {}",
                     task_id,
                     total_bytes,
                     temp_file_path.display()
@@ -748,7 +778,7 @@ async fn extract_transcription_request_streaming(
                 })?);
             }
             _ => {
-                warn!("忽略未知字段: {}", field_name);
+                warn!("Ignore unknown fields: {}", field_name);
             }
         }
     }
@@ -759,7 +789,7 @@ async fn extract_transcription_request_streaming(
     // 检查文件是否存在且有效
     let metadata = tokio::fs::metadata(&temp_file_path).await.map_err(|e| {
         error!(
-            "[Task {}] 无法访问临时音频文件 '{}': {}",
+            "[Task {}] Unable to access temporary audio file '{}': {}",
             task_id,
             temp_file_path.display(),
             e
@@ -773,7 +803,7 @@ async fn extract_transcription_request_streaming(
 
     if metadata.len() == 0 {
         error!(
-            "[Task {}] 接收到的音频文件为空: {}",
+            "[Task {}] The received audio file is empty: {}",
             task_id,
             temp_file_path.display()
         );
@@ -788,7 +818,7 @@ async fn extract_transcription_request_streaming(
         Ok(Some(file_type)) => file_type.extension().to_lowercase(),
         Ok(None) => {
             warn!(
-                "[Task {}] 无法检测音频文件格式，尝试使用文件扩展名",
+                "[Task {}] Unable to detect audio file format, try using file extension",
                 task_id
             );
             // 尝试使用文件扩展名作为后备
@@ -799,7 +829,10 @@ async fn extract_transcription_request_streaming(
             }
         }
         Err(_) => {
-            warn!("[Task {}] 检测文件格式时出错，使用默认扩展名", task_id);
+            warn!(
+                "[Task {}] Error detecting file format, using default extension",
+                task_id
+            );
             "bin".to_string()
         }
     };
@@ -813,7 +846,7 @@ async fn extract_transcription_request_streaming(
         .await
         .map_err(|e| {
             error!(
-                "[Task {}] 无法重命名临时文件 '{}' -> '{}': {}",
+                "[Task {}] Unable to rename temporary file '{}' -> '{}': {}",
                 task_id,
                 temp_file_path.display(),
                 final_file_path.display(),
@@ -823,7 +856,7 @@ async fn extract_transcription_request_streaming(
         })?;
 
     info!(
-        "[Task {}] 音频文件已重命名: {} -> {}",
+        "[Task {}] The audio file has been renamed: {} -> {}",
         task_id,
         temp_file_path.display(),
         final_file_path.display()
@@ -880,7 +913,10 @@ pub async fn tts_sync_handler(
 ) -> Result<axum::response::Response, HttpResult<String>> {
     let start_time = std::time::Instant::now();
 
-    info!("收到TTS同步请求 - 文本长度: {}", request.text.len());
+    info!(
+        "TTS synchronization request received - text length: {}",
+        request.text.len()
+    );
 
     // 验证文本长度
     if request.text.len() > state.config.tts.max_text_length {
@@ -912,7 +948,10 @@ pub async fn tts_sync_handler(
     match state.tts_service.synthesize_sync(processed_request).await {
         Ok(audio_file_path) => {
             let processing_time = start_time.elapsed();
-            info!("TTS同步处理完成 - 耗时: {:?}", processing_time);
+            info!(
+                "TTS synchronization processing completed - time taken: {:?}",
+                processing_time
+            );
 
             // 读取音频文件并返回
             match tokio::fs::read(&audio_file_path).await {
@@ -974,7 +1013,10 @@ pub async fn tts_async_handler(
     State(state): State<AppState>,
     Json(request): Json<TtsAsyncRequest>,
 ) -> HttpResult<TtsTaskResponse> {
-    info!("收到TTS异步请求 - 文本长度: {}", request.text.len());
+    info!(
+        "TTS asynchronous request received - text length: {}",
+        request.text.len()
+    );
 
     // 验证文本长度
     if request.text.len() > state.config.tts.max_text_length {
@@ -1003,7 +1045,10 @@ pub async fn tts_async_handler(
     // 创建异步任务
     match state.tts_service.create_async_task(processed_request).await {
         Ok(response) => {
-            info!("TTS异步任务已创建 - ID: {}", response.task_id);
+            info!(
+                "TTS asynchronous task has been created - ID: {}",
+                response.task_id
+            );
             HttpResult::success(response)
         }
         Err(e) => {

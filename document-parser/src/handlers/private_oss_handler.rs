@@ -103,13 +103,13 @@ pub async fn upload_file_to_oss(
     State(state): State<AppState>,
     mut multipart: Multipart,
 ) -> impl IntoResponse {
-    info!("OSS文件上传请求");
+    info!("OSS file upload request");
 
     // 检查OSS客户端是否可用
     let oss_client = match &state.private_oss_client {
         Some(client) => client,
         None => {
-            error!("OSS客户端未配置");
+            error!("The OSS client is not configured");
             return ApiResponse::internal_error::<FileUploadResponse>("OSS客户端未配置")
                 .into_response();
         }
@@ -130,7 +130,7 @@ pub async fn upload_file_to_oss(
             let data = match field.bytes().await {
                 Ok(data) => data,
                 Err(e) => {
-                    error!("读取文件数据失败: {}", e);
+                    error!("Failed to read file data: {}", e);
                     return ApiResponse::validation_error::<FileUploadResponse>("文件数据读取失败")
                         .into_response();
                 }
@@ -140,14 +140,14 @@ pub async fn upload_file_to_oss(
             let temp_file = match tempfile::NamedTempFile::new() {
                 Ok(file) => file,
                 Err(e) => {
-                    error!("创建临时文件失败: {}", e);
+                    error!("Failed to create temporary file: {}", e);
                     return ApiResponse::internal_error::<FileUploadResponse>("临时文件创建失败")
                         .into_response();
                 }
             };
 
             if let Err(e) = std::fs::write(temp_file.path(), &data) {
-                error!("写入临时文件失败: {}", e);
+                error!("Failed to write to temporary file: {}", e);
                 return ApiResponse::internal_error::<FileUploadResponse>("文件写入失败")
                     .into_response();
             }
@@ -160,7 +160,7 @@ pub async fn upload_file_to_oss(
     let file_path = match file_path {
         Some(path) => path,
         None => {
-            warn!("未找到上传的文件");
+            warn!("Uploaded file not found");
             return ApiResponse::validation_error::<FileUploadResponse>("未提供文件")
                 .into_response();
         }
@@ -186,7 +186,7 @@ pub async fn upload_file_to_oss(
     // 上传到OSS
     match oss_client.upload_file(&file_path, &object_key).await {
         Ok(oss_url) => {
-            info!("文件上传OSS成功: object_key={}", object_key);
+            info!("File upload to OSS successful: object_key={}", object_key);
 
             // 生成下载URL（4小时有效）
             let download_url = match oss_client
@@ -208,7 +208,7 @@ pub async fn upload_file_to_oss(
             ApiResponse::success(response).into_response()
         }
         Err(e) => {
-            error!("文件上传OSS失败: {}", e);
+            error!("File upload to OSS failed: {}", e);
             ApiResponse::internal_error::<FileUploadResponse>(&format!("上传失败: {e}"))
                 .into_response()
         }
@@ -239,7 +239,7 @@ pub async fn get_upload_sign_url(
     Query(params): Query<GetUploadSignUrlParams>,
 ) -> impl IntoResponse {
     info!(
-        "获取上传签名URL请求: file_name={}, content_type={:?}, bucket={:?}",
+        "Get the upload signature URL request: file_name={}, content_type={:?}, bucket={:?}",
         params.file_name, params.content_type, params.bucket
     );
 
@@ -253,7 +253,7 @@ pub async fn get_upload_sign_url(
     let oss_client = match &state.private_oss_client {
         Some(client) => client,
         None => {
-            error!("OSS客户端未配置");
+            error!("The OSS client is not configured");
             return ApiResponse::internal_error::<UploadSignUrlResponse>("OSS客户端未配置")
                 .into_response();
         }
@@ -281,7 +281,7 @@ pub async fn get_upload_sign_url(
     match oss_client.generate_upload_url(&object_key, expires_in, Some(content_type)) {
         Ok(upload_url) => {
             info!(
-                "生成上传签名URL成功: object_key={}, content_type={}",
+                "Successfully generated upload signature URL: object_key={}, content_type={}",
                 object_key, content_type
             );
 
@@ -297,7 +297,7 @@ pub async fn get_upload_sign_url(
         }
         Err(e) => {
             error!(
-                "生成上传签名URL失败: file_name={}, error={}",
+                "Failed to generate upload signature URL: file_name={}, error={}",
                 params.file_name, e
             );
             ApiResponse::internal_error::<UploadSignUrlResponse>(&format!(
@@ -329,7 +329,7 @@ pub async fn get_download_sign_url(
     Query(params): Query<GetDownloadSignUrlParams>,
 ) -> impl IntoResponse {
     info!(
-        "获取下载签名URL请求: file_name={}, bucket={:?}",
+        "Get download signature URL request: file_name={}, bucket={:?}",
         params.file_name, params.bucket
     );
 
@@ -343,7 +343,7 @@ pub async fn get_download_sign_url(
     let oss_client = match &state.private_oss_client {
         Some(client) => client,
         None => {
-            error!("OSS客户端未配置");
+            error!("The OSS client is not configured");
             return ApiResponse::internal_error::<DownloadSignUrlResponse>("OSS客户端未配置")
                 .into_response();
         }
@@ -364,7 +364,10 @@ pub async fn get_download_sign_url(
     // 生成下载签名URL
     match oss_client.generate_download_url(&object_key, Some(expires_in)) {
         Ok(download_url) => {
-            info!("生成下载签名URL成功: object_key={}", object_key);
+            info!(
+                "Successfully generated download signature URL: object_key={}",
+                object_key
+            );
 
             let response = DownloadSignUrlResponse {
                 download_url,
@@ -377,7 +380,7 @@ pub async fn get_download_sign_url(
         }
         Err(e) => {
             error!(
-                "生成下载签名URL失败: file_name={}, error={}",
+                "Failed to generate download signature URL: file_name={}, error={}",
                 params.file_name, e
             );
             ApiResponse::internal_error::<DownloadSignUrlResponse>(&format!(
@@ -409,7 +412,7 @@ pub async fn delete_file_from_oss(
     Query(params): Query<DeleteFileParams>,
 ) -> impl IntoResponse {
     info!(
-        "删除OSS文件请求: file_name={}, bucket={:?}",
+        "Delete OSS file request: file_name={}, bucket={:?}",
         params.file_name, params.bucket
     );
 
@@ -423,7 +426,7 @@ pub async fn delete_file_from_oss(
     let oss_client = match &state.private_oss_client {
         Some(client) => client,
         None => {
-            error!("OSS客户端未配置");
+            error!("The OSS client is not configured");
             return ApiResponse::internal_error::<DeleteFileResponse>("OSS客户端未配置")
                 .into_response();
         }
@@ -442,13 +445,13 @@ pub async fn delete_file_from_oss(
     match oss_client.file_exists(&object_key).await {
         Ok(exists) => {
             if !exists {
-                warn!("要删除的文件不存在: {}", object_key);
+                warn!("The file to be deleted does not exist: {}", object_key);
                 return ApiResponse::not_found::<DeleteFileResponse>("文件不存在").into_response();
             }
         }
         Err(e) => {
             error!(
-                "检查文件存在性失败: file_name={}, error={}",
+                "Failed to check file existence: file_name={}, error={}",
                 params.file_name, e
             );
             return ApiResponse::internal_error::<DeleteFileResponse>(&format!(
@@ -461,7 +464,7 @@ pub async fn delete_file_from_oss(
     // 删除文件
     match oss_client.delete_file(&object_key).await {
         Ok(_) => {
-            info!("删除OSS文件成功: object_key={}", object_key);
+            info!("OSS file deleted successfully: object_key={}", object_key);
 
             let response = DeleteFileResponse {
                 oss_file_name: object_key,
@@ -473,7 +476,7 @@ pub async fn delete_file_from_oss(
         }
         Err(e) => {
             error!(
-                "删除OSS文件失败: file_name={}, error={}",
+                "Failed to delete OSS file: file_name={}, error={}",
                 params.file_name, e
             );
             ApiResponse::internal_error::<DeleteFileResponse>(&format!("删除文件失败: {e}"))

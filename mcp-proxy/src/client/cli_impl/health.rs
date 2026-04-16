@@ -30,7 +30,7 @@ struct HealthCheckResult {
 /// 成功返回 Ok(())，失败返回 Err。
 pub async fn run_health_command(args: HealthArgs, quiet: bool) -> Result<()> {
     if !quiet {
-        eprintln!("🔍 健康检查服务: {}", args.url);
+        eprintln!("Checking health for: {}", &args.url);
     }
 
     // 1. 确定协议类型
@@ -38,17 +38,17 @@ pub async fn run_health_command(args: HealthArgs, quiet: bool) -> Result<()> {
         Some(p) => {
             let proto = proxy_protocol_to_mcp_protocol(p.clone());
             if !quiet {
-                eprintln!("🔍 使用指定协议: {}", protocol_display_name(&proto));
+                eprintln!("Using protocol: {}", protocol_display_name(&proto));
             }
             proto
         }
         None => {
             if !quiet {
-                eprintln!("🔍 正在检测协议...");
+                eprintln!("Detecting protocol...");
             }
             let proto = detect_mcp_protocol(&args.url).await?;
             if !quiet {
-                eprintln!("🔍 检测到 {} 协议", protocol_display_name(&proto));
+                eprintln!("Detected protocol: {}", protocol_display_name(&proto));
             }
             proto
         }
@@ -56,7 +56,7 @@ pub async fn run_health_command(args: HealthArgs, quiet: bool) -> Result<()> {
 
     // 2. 检查协议类型是否支持
     if protocol == McpProtocol::Stdio {
-        bail!("health command does not support stdio protocol");
+        bail!("Stdio protocol is not supported for health checks");
     }
 
     // 3. 构建配置
@@ -75,32 +75,32 @@ pub async fn run_health_command(args: HealthArgs, quiet: bool) -> Result<()> {
     match result {
         Ok(Ok(health_result)) => {
             if !quiet {
-                eprintln!("✅ 服务健康");
-                eprintln!("   协议: {}", protocol_display_name(&protocol));
-                eprintln!("   工具数量: {}", health_result.tool_count);
-                eprintln!("   响应时间: {}ms", elapsed.as_millis());
+                eprintln!("Health check passed");
+                eprintln!("   Protocol: {}", protocol_display_name(&protocol));
+                eprintln!("   Tools: {}", health_result.tool_count);
+                eprintln!("   Response time: {}ms", elapsed.as_millis());
                 if let (Some(name), Some(version)) =
                     (&health_result.server_name, &health_result.server_version)
                 {
-                    eprintln!("   服务器: {} v{}", name, version);
+                    eprintln!("   Server: {} v{}", name, version);
                 } else if let Some(name) = &health_result.server_name {
-                    eprintln!("   服务器: {}", name);
+                    eprintln!("   Server: {}", name);
                 }
             }
             Ok(())
         }
         Ok(Err(e)) => {
             if !quiet {
-                eprintln!("❌ 服务不健康");
-                eprintln!("   错误: {}", e);
-                eprintln!("   响应时间: {}ms", elapsed.as_millis());
+                eprintln!("Health check failed");
+                eprintln!("   Error: {}", e);
+                eprintln!("   Response time: {}ms", elapsed.as_millis());
             }
             Err(anyhow::anyhow!("health check failed: {}", e))
         }
         Err(_) => {
             if !quiet {
-                eprintln!("❌ 服务不健康");
-                eprintln!("   错误: 连接超时 ({}s)", args.timeout);
+                eprintln!("Health check failed");
+                eprintln!("   Error: connection timed out ({}s)", args.timeout);
             }
             Err(anyhow::anyhow!("health check timeout"))
         }

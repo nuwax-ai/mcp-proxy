@@ -91,11 +91,13 @@ impl OssService {
         oss_config: &OssConfig,
         service_config: OssServiceConfig,
     ) -> Result<Self, AppError> {
-        info!("初始化OSS服务");
+        info!("Initialize OSS service");
 
         // 检查OSS配置是否完整（环境变量是否已设置）
         if oss_config.access_key_id.is_empty() || oss_config.access_key_secret.is_empty() {
-            warn!("OSS环境变量未配置，跳过OSS服务初始化");
+            warn!(
+                "OSS environment variables are not configured and OSS service initialization is skipped."
+            );
             return Err(AppError::Config(
                 "OSS环境变量未配置，请设置OSS_ACCESS_KEY_ID和OSS_ACCESS_KEY_SECRET".to_string(),
             ));
@@ -127,14 +129,14 @@ impl OssService {
         // 验证连接
         service.validate_connection().await?;
 
-        info!("OSS服务初始化成功");
+        info!("OSS service initialization successful");
         Ok(service)
     }
 
     /// 验证OSS连接
     #[instrument(skip(self))]
     async fn validate_connection(&self) -> Result<(), AppError> {
-        info!("验证OSS连接");
+        info!("Verify OSS connection");
 
         // 使用上传临时文件的方式验证连接
         let test_key = format!("health-check-{}", chrono::Utc::now().timestamp_millis());
@@ -145,13 +147,13 @@ impl OssService {
             .await
         {
             Ok(_) => {
-                info!("OSS连接验证成功");
+                info!("OSS connection verification successful");
                 // 尝试删除测试文件（忽略删除失败）
                 let _ = self.delete_object(&test_key).await;
                 Ok(())
             }
             Err(e) => {
-                error!("OSS连接验证失败: {}", e);
+                error!("OSS connection verification failed: {}", e);
                 Err(AppError::Oss(format!(
                     "无法连接到OSS存储桶 {}: {}",
                     self.bucket, e
@@ -163,7 +165,10 @@ impl OssService {
     /// 上传文件到OSS
     #[instrument(skip(self), fields(file_path, object_key))]
     pub async fn upload_file(&self, file_path: &str, object_key: &str) -> Result<String, AppError> {
-        info!("开始上传文件到OSS: {} -> {}", file_path, object_key);
+        info!(
+            "Start uploading files to OSS: {} -> {}",
+            file_path, object_key
+        );
 
         let _permit = self
             .semaphore
@@ -216,7 +221,7 @@ impl OssService {
     ) -> Result<String, AppError> {
         // 对于大文件，我们仍然使用简单上传，因为aliyun-oss-rust-sdk的分片上传API可能不同
         // 如果需要分片上传，需要查看具体的API文档
-        warn!("大文件上传，当前使用简单上传方式");
+        warn!("Large file upload, currently using the simple upload method");
 
         let builder = RequestBuilder::new().with_content_type(content_type);
 
@@ -322,7 +327,7 @@ impl OssService {
         // 由于我们无法直接验证不同bucket中的文件存在性，
         // 这里返回URL但在实际使用时可能需要额外的验证
         warn!(
-            "使用不同bucket生成下载URL，无法预先验证文件存在性: bucket={}, object_key={}",
+            "Use different buckets to generate download URLs, and the file existence cannot be verified in advance: bucket={}, object_key={}",
             bucket, object_key
         );
 
@@ -413,7 +418,7 @@ impl OssService {
             match self.do_upload(content, object_key, content_type).await {
                 Ok(url) => {
                     if attempt > 1 {
-                        info!("第{}次重试上传成功", attempt);
+                        info!("The {}th retry upload was successful.", attempt);
                     }
                     return Ok(url);
                 }
@@ -421,12 +426,12 @@ impl OssService {
                     last_error = Some(e);
                     if attempt < self.config.retry_attempts {
                         warn!(
-                            "第{}次上传失败，{}ms后重试",
+                            "The {} upload failed, try again after {}ms",
                             attempt, self.config.retry_delay_ms
                         );
                         sleep(Duration::from_millis(self.config.retry_delay_ms)).await;
                     } else {
-                        error!("上传失败，已达到最大重试次数");
+                        error!("Upload failed, maximum number of retries reached");
                     }
                 }
             }
@@ -529,10 +534,9 @@ impl OssService {
         image_paths: &[String],
         progress_callback: Option<ProgressCallback>,
     ) -> Result<BatchUploadResult, AppError> {
-        let start_time = std::time::Instant::now();
         let total_count = image_paths.len();
 
-        info!("开始批量上传{}个图片", total_count);
+        info!("Start batch uploading {} pictures", total_count);
 
         let files: Vec<(String, String)> = image_paths
             .iter()
@@ -562,7 +566,7 @@ impl OssService {
         let mut failed = Vec::new();
         let mut total_bytes = 0u64;
 
-        info!("开始批量上传{}个文件", total_count);
+        info!("Start batch uploading {} files", total_count);
 
         // 使用流处理来控制并发
         let mut stream = stream::iter(files.into_iter().enumerate())
@@ -577,7 +581,7 @@ impl OssService {
 
         let mut processed = 0;
 
-        while let Some((index, local_path, object_key, result)) = stream.next().await {
+        while let Some((_index, local_path, object_key, result)) = stream.next().await {
             processed += 1;
 
             match result {
@@ -618,14 +622,14 @@ impl OssService {
             }
 
             if processed % 10 == 0 {
-                info!("已处理 {}/{} 个文件", processed, total_count);
+                info!("{}/{} files processed", processed, total_count);
             }
         }
 
         let duration = start_time.elapsed();
 
         info!(
-            "批量上传完成: 成功 {}, 失败 {}, 总大小 {} bytes, 耗时 {:?}",
+            "Batch upload completed: success {}, failure {}, total size {} bytes, time consumption {:?}",
             successful.len(),
             failed.len(),
             total_bytes,
@@ -695,7 +699,7 @@ impl OssService {
         std::fs::write(target_path, content)
             .map_err(|e| AppError::Oss(format!("写入文件失败: {e}")))?;
 
-        info!("文件下载成功: {}", target_path.display());
+        info!("File download successful: {}", target_path.display());
         Ok(())
     }
 
@@ -707,7 +711,7 @@ impl OssService {
         match self.client.get_object(object_key, builder).await {
             Ok(content) => {
                 info!(
-                    "成功获取对象内容: object_key={}, size={} bytes",
+                    "Successfully obtained the object content: object_key={}, size={} bytes",
                     object_key,
                     content.len()
                 );
@@ -784,7 +788,7 @@ impl OssService {
 
         match self.client.delete_object(object_key, builder).await {
             Ok(_) => {
-                info!("对象删除成功: {}", object_key);
+                info!("Object deleted successfully: {}", object_key);
                 Ok(())
             }
             Err(e) => Err(AppError::Oss(format!("删除对象失败: {e}"))),
@@ -800,7 +804,7 @@ impl OssService {
             match self.delete_object(object_key).await {
                 Ok(_) => deleted.push(object_key.clone()),
                 Err(e) => {
-                    warn!("删除对象失败 {}: {}", object_key, e);
+                    warn!("Failed to delete object {}: {}", object_key, e);
                 }
             }
         }
@@ -824,11 +828,13 @@ impl OssService {
     #[instrument(skip(self), fields(object_key))]
     pub async fn get_object_metadata(
         &self,
-        object_key: &str,
+        _object_key: &str,
     ) -> Result<HashMap<String, String>, AppError> {
         // 暂时返回空的元数据，因为 get_object_metadata 方法可能不存在
         // 如果需要元数据，可能需要使用其他方法或者升级SDK版本
-        warn!("get_object_metadata 方法暂未实现，返回空元数据");
+        warn!(
+            "The get_object_metadata method has not been implemented yet and returns empty metadata."
+        );
         Ok(HashMap::new())
     }
 
@@ -889,12 +895,14 @@ impl OssService {
     #[instrument(skip(self), fields(prefix, max_keys))]
     pub async fn list_objects(
         &self,
-        prefix: Option<&str>,
-        max_keys: Option<i32>,
+        _prefix: Option<&str>,
+        _max_keys: Option<i32>,
     ) -> Result<Vec<String>, AppError> {
         // 注意：aliyun-oss-rust-sdk可能没有直接的list_objects API
         // 这里返回空列表，实际使用时需要根据SDK的API来实现
-        warn!("list_objects功能需要根据aliyun-oss-rust-sdk的API来实现");
+        warn!(
+            "The list_objects function needs to be implemented according to the API of aliyun-oss-rust-sdk"
+        );
         Ok(Vec::new())
     }
 
@@ -902,7 +910,9 @@ impl OssService {
     #[instrument(skip(self))]
     pub async fn get_storage_stats(&self, prefix: Option<&str>) -> Result<StorageStats, AppError> {
         // 注意：这个功能需要根据aliyun-oss-rust-sdk的API来实现
-        warn!("get_storage_stats功能需要根据aliyun-oss-rust-sdk的API来实现");
+        warn!(
+            "The get_storage_stats function needs to be implemented according to the API of aliyun-oss-rust-sdk"
+        );
         Ok(StorageStats {
             total_objects: 0,
             total_size: 0,
