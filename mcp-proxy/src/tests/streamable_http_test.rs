@@ -290,6 +290,197 @@ async fn test_java_client_simulation() {
     println!("=== 测试完成 ===");
 }
 
+/// 测试：模拟 Java 端调用测试环境 mcp-proxy 的完整流程
+///
+/// 直接请求测试环境的 mcp-proxy 服务：
+/// 1. POST /mcp/sse/check_status → 触发部署，等待 Ready
+/// 2. GET /mcp/sse/check_is_status/{mcp_id} → 确认状态
+/// 3. GET /mcp/sse/proxy/{mcp_id}/sse → SSE 连接
+/// 4. POST /mcp/sse/proxy/{mcp_id}/message → 发送 initialize + tools/list
+///
+/// 需要设置环境变量 MCP_PROXY_URL (默认 http://localhost:8020)
+#[tokio::test]
+#[ignore] // 需要测试环境 mcp-proxy 运行
+async fn test_remote_mcp_proxy_e2e() {
+    use std::time::Instant;
+
+    let proxy_url = std::env::var("MCP_PROXY_URL")
+        .unwrap_or_else(|_| "http://localhost:8020".to_string());
+    let mcp_json_config = r#"{"mcpServers":{"mcpServerName":{"type":"http","url":"https://qcest-1.com/cvs1/GuruOutbound/McpPublic","headers":{}}}}"#;
+
+    println!("=== 远程 mcp-proxy 端到端测试 ===");
+    println!("  Proxy URL: {}", proxy_url);
+    println!("  MCP Config: {}\n", mcp_json_config);
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap();
+    let total_start = Instant::now();
+
+    // Step 1: check_status 触发部署
+    let step1_start = Instant::now();
+    println!("--- Step 1: POST /mcp/sse/check_status (触发部署) ---");
+
+    let check_status_body = serde_json::json!({
+        "mcp_id": "e2e-test-001",
+        "mcp_json_config": mcp_json_config,
+        "mcp_type": "OneShot"
+    });
+
+    let resp = client
+        .post(format!("{}/mcp/sse/check_status", proxy_url))
+        .json(&check_status_body)
+        .send()
+        .await
+        .expect("check_status request failed");
+    let status = resp.status();
+    let body: serde_json::Value = resp.json().await.unwrap_or_default();
+    println!(
+        "  HTTP {}, response: {}",
+        status,
+        serde_json::to_string_pretty(&body).unwrap_or_default()
+    );
+    println!("  耗时: {}ms\n", step1_start.elapsed().as_millis());
+
+    // Step 2: 轮询 check_is_status 直到 Ready（最多 20 秒）
+    println!("--- Step 2: 轮询 check_is_status 等待 Ready ---");
+    let mcp_id = "e2e-test-001";
+    let mut ready = false;
+    let poll_start = Instant::now();
+
+    for i in 1..=20 {
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+        let resp = client
+            .get(format!(
+                "{}/mcp/sse/check_is_status/{}",
+                proxy_url, mcp_id
+            ))
+            .send()
+            .await;
+
+        match resp {
+            Ok(r) => {
+                let status_code = r.status();
+                let body: serde_json::Value = r.json().await.unwrap_or_default();
+
+                // 检查 data.status 字段
+                let service_status = body
+                    .get("data")
+                    .and_then(|d| d.get("status"))
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("unknown");
+                let service_ready = body
+                    .get("data")
+                    .and_then(|d| d.get("ready"))
+                    .and_then(|r| r.as_bool())
+                    .unwrap_or(false);
+
+                println!(
+                    "  轮询 #{}: HTTP {}, status={}, ready={} ({}ms)",
+                    i,
+                    status_code,
+                    service_status,
+                    service_ready,
+                    poll_start.elapsed().as_millis()
+                );
+
+                if service_ready || service_status == "Ready" {
+                    ready = true;
+                    println!("  ✅ 服务就绪！\n");
+                    break;
+                }
+            }
+            Err(e) => {
+                println!("  轮询 #{}: 请求失败: {}", i, e);
+            }
+        }
+    }
+
+    if !ready {
+        println!("  ❌ 超时 20 秒仍未就绪\n");
+        println!("📊 总耗时: {}ms", total_start.elapsed().as_millis());
+        panic!("Service did not become Ready within 20 seconds");
+    }
+
+    // Step 3: 连接 SSE 端点
+    let step3_start = Instant::now();
+    println!("--- Step 3: 连接 SSE 端点 ---");
+    let sse_url = format!("{}/mcp/sse/proxy/{}/sse", proxy_url, mcp_id);
+    println!("  GET {}", sse_url);
+
+    let sse_resp = client.get(&sse_url).send().await.expect("SSE GET failed");
+    println!(
+        "  SSE 状态码: {} ({}ms)",
+        sse_resp.status(),
+        step3_start.elapsed().as_millis()
+    );
+    assert_eq!(sse_resp.status(), 200, "SSE endpoint should return 200");
+
+    // 流式读取 SSE 获取 session endpoint
+    use futures::StreamExt;
+    let mut stream = sse_resp.bytes_stream();
+    let mut collected = String::new();
+    let message_url = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.expect("SSE stream error");
+            collected.push_str(&String::from_utf8_lossy(&chunk));
+            for line in collected.lines() {
+                if line.starts_with("data: ") && line.contains("message") {
+                    let path = line.strip_prefix("data: ").unwrap();
+                    return if path.starts_with("http") {
+                        path.to_string()
+                    } else {
+                        format!("{}{}", proxy_url, path)
+                    };
+                }
+            }
+        }
+        panic!("SSE stream ended without endpoint event");
+    })
+    .await
+    .expect("Timeout waiting for SSE endpoint event");
+    println!("  消息端点: {}\n", message_url);
+
+    // Step 4: initialize
+    let step4_start = Instant::now();
+    println!("--- Step 4: initialize ---");
+    let init_req = serde_json::json!({
+        "jsonrpc": "2.0", "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "e2e-test", "version": "1.0"}
+        }
+    });
+    let resp = client.post(&message_url).json(&init_req).send().await.unwrap();
+    println!(
+        "  HTTP {} ({}ms)\n",
+        resp.status(),
+        step4_start.elapsed().as_millis()
+    );
+
+    // Step 5: tools/list
+    let step5_start = Instant::now();
+    println!("--- Step 5: tools/list ---");
+    let tools_req = serde_json::json!({
+        "jsonrpc": "2.0", "id": 2,
+        "method": "tools/list", "params": {}
+    });
+    let resp = client.post(&message_url).json(&tools_req).send().await.unwrap();
+    println!(
+        "  HTTP {} ({}ms)",
+        resp.status(),
+        step5_start.elapsed().as_millis()
+    );
+
+    let total_time = total_start.elapsed();
+    println!("\n📊 总耗时: {}ms", total_time.as_millis());
+    println!("=== 端到端测试完成 ===");
+}
+
 /// 测试：直接用 StreamClientConnection 验证后端可用
 #[tokio::test]
 #[ignore] // 需要网络访问
