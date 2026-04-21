@@ -2741,7 +2741,7 @@ dependencies = [
 
 [[package]]
 name = "mcp-common"
-version = "0.1.24"
+version = "0.1.25"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -2765,7 +2765,7 @@ dependencies = [
 
 [[package]]
 name = "mcp-sse-proxy"
-version = "0.1.24"
+version = "0.1.25"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -2787,7 +2787,7 @@ dependencies = [
 
 [[package]]
 name = "mcp-stdio-proxy"
-version = "0.1.64"
+version = "0.1.65"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -2841,7 +2841,7 @@ dependencies = [
 
 [[package]]
 name = "mcp-streamable-proxy"
-version = "0.1.24"
+version = "0.1.25"
 dependencies = [
  "anyhow",
  "arc-swap",

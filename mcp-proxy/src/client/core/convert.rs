@@ -103,10 +103,22 @@ pub async fn run_url_mode_with_retry(
     tracing::info!("Using protocol: {}", protocol_name(&protocol));
     match protocol {
         crate::client::protocol::McpProtocol::Sse => {
-            run_sse_mode(config, args.clone(), tool_filter, verbose, quiet).await
+            run_sse_mode(config, args.clone(), tool_filter, verbose, quiet)
+                .await
+                .map_err(|e| {
+                    tracing::error!("SSE mode failed: {:?}", e);
+                    eprintln!("❌ SSE mode failed: {}", e);
+                    e
+                })
         }
         crate::client::protocol::McpProtocol::Stream => {
-            run_stream_mode(config, args.clone(), tool_filter, verbose, quiet).await
+            run_stream_mode(config, args.clone(), tool_filter, verbose, quiet)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Stream mode failed: {:?}", e);
+                    eprintln!("❌ Stream mode failed: {}", e);
+                    e
+                })
         }
         crate::client::protocol::McpProtocol::Stdio => {
             tracing::error!("Stdio protocol does not support URL conversion");

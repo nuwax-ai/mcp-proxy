@@ -23,6 +23,23 @@ use tracing_subscriber::{EnvFilter, Layer as _};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // 在最早期注册 panic hook，确保 panic 信息一定输出到 stderr
+    // 当作为 stdio 子进程运行时（如 mcp-proxy convert），父进程通过 stderr pipe 捕获此输出
+    std::panic::set_hook(Box::new(|info| {
+        let msg = if let Some(s) = info.payload().downcast_ref::<String>() {
+            s.clone()
+        } else if let Some(s) = info.payload().downcast_ref::<&str>() {
+            s.to_string()
+        } else {
+            "unknown panic".to_string()
+        };
+        let location = info
+            .location()
+            .map(|l| format!(" at {}:{}", l.file(), l.line()))
+            .unwrap_or_default();
+        eprintln!("❌ PANIC{}: {}", location, msg);
+    }));
+
     // 初始化 Rustls CryptoProvider（必须在任何使用 TLS 的代码之前）
     rustls::crypto::ring::default_provider()
         .install_default()
@@ -84,7 +101,12 @@ async fn run_cli_mode(cli: Cli) -> Result<()> {
     }
 
     // 运行 CLI 命令
-    run_cli(cli).await
+    let result = run_cli(cli).await;
+    if let Err(ref e) = result {
+        // 确保错误信息在进程退出前写到 stderr，方便排查 stdio bridge 启动失败问题
+        eprintln!("❌ CLI command failed: {:?}", e);
+    }
+    result
 }
 
 /// 运行传统的服务器模式

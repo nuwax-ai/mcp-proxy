@@ -47,32 +47,92 @@ pub async fn run_stream_mode(
         eprintln!("🔗 Connecting to backend service (Stream)...");
     }
 
-    // 1. 使用高层 API 连接
-    let connect_timeout = Duration::from_secs(30);
+    // 1. 使用高层 API 连接（带重试，防止初始连接因时序问题失败）
+    //
+    // 重试策略：最多 3 次，每次给 10s 连接超时，间隔 2s/4s
+    // 第1次（最多 10s）→ 失败 → 等 2s → 第2次（最多 10s）→ 失败 → 等 4s → 第3次（最多 10s）→ 退出
+    // 最坏总耗时：10 + 2 + 10 + 4 + 10 = 36s（但大多数失败会比 10s 更快返回）
+    // 通常总耗时：连接快速失败(~1s) + 2 + 快速失败(~1s) + 4 + 快速失败(~1s) = ~9s
+    let connect_timeout = Duration::from_secs(10);
+    const MAX_INITIAL_RETRIES: u32 = 3;
+    const INITIAL_BACKOFF_SECS: u64 = 2;
+    const MAX_BACKOFF_SECS: u64 = 4;
+
     tracing::info!(
-        "Connecting to backend (timeout: {}s)",
-        connect_timeout.as_secs()
+        "Connecting to backend (per-attempt timeout: {}s, max retries: {})",
+        connect_timeout.as_secs(),
+        MAX_INITIAL_RETRIES
     );
     let connect_start = std::time::Instant::now();
 
-    let conn = tokio::time::timeout(
-        connect_timeout,
-        StreamClientConnection::connect(config.clone()),
-    )
-    .await
-    .map_err(|_| {
-        tracing::error!(
-            "Backend connection timeout ({}s)",
-            connect_timeout.as_secs()
-        );
-        anyhow::anyhow!(
-            "Backend connection timeout ({}s)",
-            connect_timeout.as_secs()
+    let mut last_error = None;
+    let mut conn = None;
+    let mut backoff_secs = INITIAL_BACKOFF_SECS;
+    for attempt in 1..=MAX_INITIAL_RETRIES {
+        match tokio::time::timeout(
+            connect_timeout,
+            StreamClientConnection::connect(config.clone()),
         )
-    })?
-    .map_err(|e| {
-        tracing::error!("Backend connection failed: {}", e);
-        anyhow::anyhow!("Backend connection failed: {}", e)
+        .await
+        {
+            Ok(Ok(c)) => {
+                if attempt > 1 {
+                    tracing::info!(
+                        "Backend connection succeeded on attempt {}/{}",
+                        attempt,
+                        MAX_INITIAL_RETRIES
+                    );
+                }
+                conn = Some(c);
+                break;
+            }
+            Ok(Err(e)) => {
+                tracing::warn!(
+                    "Backend connection attempt {}/{} failed: {}",
+                    attempt,
+                    MAX_INITIAL_RETRIES,
+                    e
+                );
+                last_error = Some(format!("Backend connection failed: {}", e));
+            }
+            Err(_) => {
+                tracing::warn!(
+                    "Backend connection attempt {}/{} timed out ({}s)",
+                    attempt,
+                    MAX_INITIAL_RETRIES,
+                    connect_timeout.as_secs()
+                );
+                last_error = Some(format!(
+                    "Backend connection timeout ({}s)",
+                    connect_timeout.as_secs()
+                ));
+            }
+        }
+        if attempt < MAX_INITIAL_RETRIES {
+            tracing::info!("Retrying in {}s... (elapsed: {:?})", backoff_secs, connect_start.elapsed());
+            if !quiet {
+                eprintln!(
+                    "⚠️ Connection attempt {}/{} failed, retrying in {}s...",
+                    attempt, MAX_INITIAL_RETRIES, backoff_secs
+                );
+            }
+            tokio::time::sleep(Duration::from_secs(backoff_secs)).await;
+            backoff_secs = (backoff_secs * 2).min(MAX_BACKOFF_SECS);
+        }
+    }
+
+    let conn = conn.ok_or_else(|| {
+        let elapsed = connect_start.elapsed();
+        let msg = last_error.unwrap_or_else(|| "Unknown connection error".to_string());
+        tracing::error!(
+            "All {} connection attempts failed after {:?}: {}",
+            MAX_INITIAL_RETRIES, elapsed, msg
+        );
+        eprintln!(
+            "❌ All {} connection attempts failed after {:.1}s: {}",
+            MAX_INITIAL_RETRIES, elapsed.as_secs_f64(), msg
+        );
+        anyhow::anyhow!(msg)
     })?;
 
     let connect_duration = connect_start.elapsed();
@@ -100,7 +160,11 @@ pub async fn run_stream_mode(
 
     // 3. 启动 stdio server（使用 stream_stdio，即 rmcp 0.12 的 stdio）
     tracing::info!("Starting stdio server...");
-    let server = (*handler).clone().serve(stream_stdio()).await?;
+    let server = (*handler).clone().serve(stream_stdio()).await.map_err(|e| {
+        tracing::error!("Failed to start stdio server: {:?}", e);
+        eprintln!("❌ Failed to start stdio server: {}", e);
+        e
+    })?;
     tracing::info!("Stdio server started");
 
     if !quiet {

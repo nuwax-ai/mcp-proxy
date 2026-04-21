@@ -33,6 +33,7 @@ use rmcp::{
     },
 };
 use std::sync::Arc;
+use std::time::Duration;
 use tracing::{debug, info, warn};
 
 use super::proxy_handler::ProxyHandler;
@@ -57,13 +58,24 @@ pub struct ProxyAwareSessionManager {
 }
 
 impl ProxyAwareSessionManager {
+    /// 默认 session keep_alive 超时: 30 分钟
+    /// rmcp 默认 5 分钟太短, 对于代理场景, agent 可能长时间不发消息但仍需要保持 session
+    const DEFAULT_SESSION_KEEP_ALIVE_SECS: u64 = 30 * 60;
+
     pub fn new(handler: Arc<ProxyHandler>) -> Self {
+        Self::with_keep_alive(handler, Duration::from_secs(Self::DEFAULT_SESSION_KEEP_ALIVE_SECS))
+    }
+
+    pub fn with_keep_alive(handler: Arc<ProxyHandler>, keep_alive: Duration) -> Self {
         info!(
-            "[Session Manager] Create ProxyAwareSessionManager - MCP ID: {}",
-            handler.mcp_id()
+            "[Session Manager] Create ProxyAwareSessionManager - MCP ID: {}, keep_alive: {}s",
+            handler.mcp_id(),
+            keep_alive.as_secs()
         );
+        let mut inner = LocalSessionManager::default();
+        inner.session_config.keep_alive = Some(keep_alive);
         Self {
-            inner: LocalSessionManager::default(),
+            inner,
             handler,
             session_versions: DashMap::new(),
         }
