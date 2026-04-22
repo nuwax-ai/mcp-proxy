@@ -1,6 +1,6 @@
 [package]
 name = "mcp-streamable-proxy"
-version = "0.1.25"
+version = "0.1.26"
 edition = "2024"
 authors = ["nuwax-ai"]
 description = "Streamable HTTP proxy implementation for MCP protocol using rmcp 0.13"
@@ -11,10 +11,10 @@ categories = ["web-programming", "network-programming"]
 
 [dependencies]
 # 共享类型和工具
-mcp-common = { version = "0.1.25", path = "../mcp-common" }
+mcp-common = { version = "0.1.26", path = "../mcp-common" }
 
 # MCP protocol implementation - using forked rmcp-soddygo with non-standard stdout log tolerance
-rmcp = { version = "1.4.0", package = "rmcp-soddygo", features = [
+rmcp = { version = "1.5.0", package = "rmcp-soddygo", features = [
     "server",
     "client",
     "transport-streamable-http-server",
