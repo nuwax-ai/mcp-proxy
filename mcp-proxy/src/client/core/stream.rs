@@ -49,11 +49,11 @@ pub async fn run_stream_mode(
 
     // 1. 使用高层 API 连接（带重试，防止初始连接因时序问题失败）
     //
-    // 重试策略：最多 3 次，每次给 10s 连接超时，间隔 2s/4s
-    // 第1次（最多 10s）→ 失败 → 等 2s → 第2次（最多 10s）→ 失败 → 等 4s → 第3次（最多 10s）→ 退出
-    // 最坏总耗时：10 + 2 + 10 + 4 + 10 = 36s（但大多数失败会比 10s 更快返回）
+    // 重试策略：最多 3 次，每次给 15s 连接超时，间隔 2s/4s
+    // 第1次（最多 15s）→ 失败 → 等 2s → 第2次（最多 15s）→ 失败 → 等 4s → 第3次（最多 15s）→ 退出
+    // 最坏总耗时：15 + 2 + 15 + 4 + 15 = 51s（但大多数失败会比 15s 更快返回）
     // 通常总耗时：连接快速失败(~1s) + 2 + 快速失败(~1s) + 4 + 快速失败(~1s) = ~9s
-    let connect_timeout = Duration::from_secs(10);
+    let connect_timeout = Duration::from_secs(15);
     const MAX_INITIAL_RETRIES: u32 = 3;
     const INITIAL_BACKOFF_SECS: u64 = 2;
     const MAX_BACKOFF_SECS: u64 = 4;

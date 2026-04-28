@@ -49,7 +49,7 @@ pub async fn run_sse_mode(
     }
 
     // 1. 使用高层 API 连接（带重试，防止初始连接因时序问题失败）
-    let connect_timeout = Duration::from_secs(10);
+    let connect_timeout = Duration::from_secs(15);
     const MAX_INITIAL_RETRIES: u32 = 3;
     const INITIAL_BACKOFF_SECS: u64 = 2;
     const MAX_BACKOFF_SECS: u64 = 4;

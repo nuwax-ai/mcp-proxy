@@ -137,9 +137,20 @@ pub fn build_mcp_config(
 ) -> McpClientConfig {
     let mut config = McpClientConfig::new(url);
     for (k, v) in headers {
-        config = config.with_header(k, v);
+        // Authorization header: 确保有 "Bearer " 前缀，与 Server 模式行为一致
+        if k.eq_ignore_ascii_case("Authorization") {
+            let value = if v.starts_with("Bearer ") {
+                v.clone()
+            } else {
+                format!("Bearer {}", v)
+            };
+            config = config.with_header(k, value);
+        } else {
+            config = config.with_header(k, v);
+        }
     }
     if let Some(auth_value) = auth {
+        // 命令行 --auth 参数不带 "Bearer " 前缀，直接添加
         config = config.with_header("Authorization", auth_value);
     }
     config
