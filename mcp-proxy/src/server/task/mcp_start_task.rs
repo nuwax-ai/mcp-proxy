@@ -20,6 +20,7 @@ use crate::{
 
 use anyhow::{Context, Result};
 use log::{debug, info};
+use std::collections::HashMap;
 
 /// Start an MCP service based on configuration
 ///
@@ -75,9 +76,14 @@ pub async fn integrate_server_with_axum(
         // URL config: parse type field or auto-detect
         McpServerConfig::Url(url_config) => {
             // Merge headers + auth_token for protocol detection
-            let mut detection_headers = url_config.headers.clone().unwrap_or_default();
+            let mut detection_headers = normalize_headers(&url_config.headers).unwrap_or_default();
             if let Some(auth_token) = &url_config.auth_token {
-                detection_headers.insert("Authorization".to_string(), auth_token.clone());
+                let value = if auth_token.starts_with("Bearer ") {
+                    auth_token.clone()
+                } else {
+                    format!("Bearer {}", auth_token)
+                };
+                detection_headers.insert("Authorization".to_string(), value);
             }
             let detection_headers_ref = if detection_headers.is_empty() {
                 None
@@ -313,14 +319,20 @@ async fn connect_stream_backend(
     );
 
     let mut config = mcp_common::McpClientConfig::new(url.to_string());
-    if let Some(ref headers) = url_config.headers {
+    let normalized = normalize_headers(&url_config.headers);
+    if let Some(ref headers) = normalized {
         for (k, v) in headers {
             config = config.with_header(k, v);
         }
     }
     // auth_token 合并到 Authorization header（与 build_sse_backend_config 逻辑一致）
     if let Some(ref auth_token) = url_config.auth_token {
-        config = config.with_header("Authorization", auth_token);
+        let value = if auth_token.starts_with("Bearer ") {
+            auth_token.clone()
+        } else {
+            format!("Bearer {}", auth_token)
+        };
+        config = config.with_header("Authorization", value);
     }
 
     let conn = StreamClientConnection::connect(config).await?;
@@ -352,7 +364,7 @@ fn build_sse_backend_config(
                 info!("Connecting to SSE backend: {}", url_config.get_url());
                 Ok(SseBackendConfig::SseUrl {
                     url: url_config.get_url().to_string(),
-                    headers: url_config.headers.clone(),
+                    headers: normalize_headers(&url_config.headers),
                 })
             }
             McpProtocol::Stream => Err(anyhow::anyhow!(
@@ -398,12 +410,30 @@ fn build_stream_backend_config(
                     );
                     Ok(StreamBackendConfig::Url {
                         url: url_config.get_url().to_string(),
-                        headers: url_config.headers.clone(),
+                        headers: normalize_headers(&url_config.headers),
                     })
                 }
             }
         }
     }
+}
+
+/// 规范化 headers：确保 Authorization header 有 "Bearer " 前缀
+///
+/// 与 client 模式 (`convert.rs:build_mcp_config`) 行为一致，
+/// 对没有 "Bearer " 前缀的 Authorization header 自动添加前缀。
+fn normalize_headers(headers: &Option<HashMap<String, String>>) -> Option<HashMap<String, String>> {
+    headers.as_ref().map(|h| {
+        h.iter()
+            .map(|(k, v)| {
+                if k.eq_ignore_ascii_case("Authorization") && !v.starts_with("Bearer ") {
+                    (k.clone(), format!("Bearer {}", v))
+                } else {
+                    (k.clone(), v.clone())
+                }
+            })
+            .collect()
+    })
 }
 
 /// Log command execution details for debugging
@@ -558,3 +588,5 @@ async fn base_path_fallback_handler(
         )
     }
 }
+
+
