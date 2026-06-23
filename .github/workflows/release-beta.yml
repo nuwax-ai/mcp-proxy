@@ -27,15 +27,20 @@ jobs:
           persist-credentials: false
           submodules: recursive
       - name: Extract version from tag and update Cargo.toml
+        shell: bash
         run: |
           TAG="${{ github.ref_name }}"
-          # Remove 'v' prefix if present
           VERSION="${TAG#v}"
           echo "==> Updating mcp-proxy/Cargo.toml version to: $VERSION"
-          sed -i "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" mcp-proxy/Cargo.toml
-          # Also update Cargo.lock
-          cargo update -p mcp-stdio-proxy --precise "$VERSION" || cargo generate-lockfile
-          echo "==> Updated version in Cargo.toml:"
+          python3 -c "
+          import re, sys
+          version = sys.argv[1]
+          with open('mcp-proxy/Cargo.toml', 'r') as f:
+              content = f.read()
+          content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1)
+          with open('mcp-proxy/Cargo.toml', 'w') as f:
+              f.write(content)
+          " "$VERSION"
           grep '^version' mcp-proxy/Cargo.toml
       - name: Install dist
         shell: bash
@@ -79,12 +84,21 @@ jobs:
           persist-credentials: false
           submodules: recursive
       - name: Extract version from tag and update Cargo.toml
+        shell: bash
         run: |
           TAG="${{ github.ref_name }}"
           VERSION="${TAG#v}"
           echo "==> Updating mcp-proxy/Cargo.toml version to: $VERSION"
-          sed -i "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" mcp-proxy/Cargo.toml
-          cargo update -p mcp-stdio-proxy --precise "$VERSION" || cargo generate-lockfile
+          python3 -c "
+          import re, sys
+          version = sys.argv[1]
+          with open('mcp-proxy/Cargo.toml', 'r') as f:
+              content = f.read()
+          content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1)
+          with open('mcp-proxy/Cargo.toml', 'w') as f:
+              f.write(content)
+          " "$VERSION"
+          grep '^version' mcp-proxy/Cargo.toml
       - name: Install Rust non-interactively if not already installed
         if: ${{ matrix.container }}
         run: |
