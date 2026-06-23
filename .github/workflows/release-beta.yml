@@ -35,18 +35,18 @@ jobs:
           python3 -c "
           import re, sys
           version = sys.argv[1]
-          with open('mcp-proxy/Cargo.toml', 'r') as f:
+          with open('mcp-proxy/Cargo.toml', 'r', encoding='utf-8') as f:
               content = f.read()
           content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
-          with open('mcp-proxy/Cargo.toml', 'w') as f:
+          with open('mcp-proxy/Cargo.toml', 'w', encoding='utf-8') as f:
               f.write(content)
           " "$VERSION" || python -c "
           import re, sys
           version = sys.argv[1]
-          with open('mcp-proxy/Cargo.toml', 'r') as f:
+          with open('mcp-proxy/Cargo.toml', 'r', encoding='utf-8') as f:
               content = f.read()
           content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
-          with open('mcp-proxy/Cargo.toml', 'w') as f:
+          with open('mcp-proxy/Cargo.toml', 'w', encoding='utf-8') as f:
               f.write(content)
           " "$VERSION"
           grep '^version' mcp-proxy/Cargo.toml
@@ -102,18 +102,18 @@ jobs:
           python3 -c "
           import re, sys
           version = sys.argv[1]
-          with open('mcp-proxy/Cargo.toml', 'r') as f:
+          with open('mcp-proxy/Cargo.toml', 'r', encoding='utf-8') as f:
               content = f.read()
           content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
-          with open('mcp-proxy/Cargo.toml', 'w') as f:
+          with open('mcp-proxy/Cargo.toml', 'w', encoding='utf-8') as f:
               f.write(content)
           " "$VERSION" || python -c "
           import re, sys
           version = sys.argv[1]
-          with open('mcp-proxy/Cargo.toml', 'r') as f:
+          with open('mcp-proxy/Cargo.toml', 'r', encoding='utf-8') as f:
               content = f.read()
           content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
-          with open('mcp-proxy/Cargo.toml', 'w') as f:
+          with open('mcp-proxy/Cargo.toml', 'w', encoding='utf-8') as f:
               f.write(content)
           " "$VERSION"
           grep '^version' mcp-proxy/Cargo.toml
@@ -178,18 +178,18 @@ jobs:
           python3 -c "
           import re, sys
           version = sys.argv[1]
-          with open('mcp-proxy/Cargo.toml', 'r') as f:
+          with open('mcp-proxy/Cargo.toml', 'r', encoding='utf-8') as f:
               content = f.read()
           content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
-          with open('mcp-proxy/Cargo.toml', 'w') as f:
+          with open('mcp-proxy/Cargo.toml', 'w', encoding='utf-8') as f:
               f.write(content)
           " "$VERSION" || python -c "
           import re, sys
           version = sys.argv[1]
-          with open('mcp-proxy/Cargo.toml', 'r') as f:
+          with open('mcp-proxy/Cargo.toml', 'r', encoding='utf-8') as f:
               content = f.read()
           content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
-          with open('mcp-proxy/Cargo.toml', 'w') as f:
+          with open('mcp-proxy/Cargo.toml', 'w', encoding='utf-8') as f:
               f.write(content)
           " "$VERSION"
           cargo generate-lockfile
@@ -246,18 +246,18 @@ jobs:
           python3 -c "
           import re, sys
           version = sys.argv[1]
-          with open('mcp-proxy/Cargo.toml', 'r') as f:
+          with open('mcp-proxy/Cargo.toml', 'r', encoding='utf-8') as f:
               content = f.read()
           content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
-          with open('mcp-proxy/Cargo.toml', 'w') as f:
+          with open('mcp-proxy/Cargo.toml', 'w', encoding='utf-8') as f:
               f.write(content)
           " "$VERSION" || python -c "
           import re, sys
           version = sys.argv[1]
-          with open('mcp-proxy/Cargo.toml', 'r') as f:
+          with open('mcp-proxy/Cargo.toml', 'r', encoding='utf-8') as f:
               content = f.read()
           content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
-          with open('mcp-proxy/Cargo.toml', 'w') as f:
+          with open('mcp-proxy/Cargo.toml', 'w', encoding='utf-8') as f:
               f.write(content)
           " "$VERSION"
           cargo generate-lockfile
