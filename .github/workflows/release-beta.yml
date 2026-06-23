@@ -26,6 +26,17 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+      - name: Extract version from tag and update Cargo.toml
+        run: |
+          TAG="${{ github.ref_name }}"
+          # Remove 'v' prefix if present
+          VERSION="${TAG#v}"
+          echo "==> Updating mcp-proxy/Cargo.toml version to: $VERSION"
+          sed -i "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" mcp-proxy/Cargo.toml
+          # Also update Cargo.lock
+          cargo update -p mcp-stdio-proxy --precise "$VERSION" || cargo generate-lockfile
+          echo "==> Updated version in Cargo.toml:"
+          grep '^version' mcp-proxy/Cargo.toml
       - name: Install dist
         shell: bash
         run: "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.30.3/cargo-dist-installer.sh | sh"
@@ -67,6 +78,13 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+      - name: Extract version from tag and update Cargo.toml
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          echo "==> Updating mcp-proxy/Cargo.toml version to: $VERSION"
+          sed -i "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" mcp-proxy/Cargo.toml
+          cargo update -p mcp-stdio-proxy --precise "$VERSION" || cargo generate-lockfile
       - name: Install Rust non-interactively if not already installed
         if: ${{ matrix.container }}
         run: |
@@ -118,6 +136,12 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+      - name: Extract version from tag and update Cargo.toml
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          sed -i "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" mcp-proxy/Cargo.toml
+          cargo update -p mcp-stdio-proxy --precise "$VERSION" || cargo generate-lockfile
       - name: Install cached dist
         uses: actions/download-artifact@v4
         with:
@@ -163,6 +187,12 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+      - name: Extract version from tag and update Cargo.toml
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          sed -i "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" mcp-proxy/Cargo.toml
+          cargo update -p mcp-stdio-proxy --precise "$VERSION" || cargo generate-lockfile
       - name: Install cached dist
         uses: actions/download-artifact@v4
         with:
