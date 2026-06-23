@@ -37,7 +37,7 @@ jobs:
           version = sys.argv[1]
           with open('mcp-proxy/Cargo.toml', 'r') as f:
               content = f.read()
-          content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1)
+          content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
           with open('mcp-proxy/Cargo.toml', 'w') as f:
               f.write(content)
           " "$VERSION"
@@ -96,7 +96,7 @@ jobs:
           version = sys.argv[1]
           with open('mcp-proxy/Cargo.toml', 'r') as f:
               content = f.read()
-          content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1)
+          content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
           with open('mcp-proxy/Cargo.toml', 'w') as f:
               f.write(content)
           " "$VERSION"
@@ -164,7 +164,7 @@ jobs:
           version = sys.argv[1]
           with open('mcp-proxy/Cargo.toml', 'r') as f:
               content = f.read()
-          content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1)
+          content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
           with open('mcp-proxy/Cargo.toml', 'w') as f:
               f.write(content)
           " "$VERSION"
@@ -224,7 +224,7 @@ jobs:
           version = sys.argv[1]
           with open('mcp-proxy/Cargo.toml', 'r') as f:
               content = f.read()
-          content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1)
+          content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
           with open('mcp-proxy/Cargo.toml', 'w') as f:
               f.write(content)
           " "$VERSION"
