@@ -1,8 +1,8 @@
 use crate::{
     AppState,
     models::{
-        DocumentFormat, DocumentTask, ImageInfo, ParserEngine, ProcessingStage, SourceType,
-        TaskStatus,
+        CreateTaskParams, DocumentFormat, DocumentTask, ImageInfo, ParserEngine, ProcessingStage,
+        SourceType, TaskStatus,
     },
     services::{StorageService, TaskQueueService, TaskService},
     tests::test_helpers::{create_test_app_state, create_test_config, safe_init_global_config},
@@ -333,16 +333,16 @@ mod comprehensive_service_tests {
         let task_service = TaskService::new(db.clone()).expect("Failed to create task service");
 
         // Test task storage and retrieval
-        let mut task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            None,
-            None,
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: None,
+            original_filename: None,
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task.parser_engine = Some(ParserEngine::MinerU);
 
         // 保存任务到存储
@@ -422,16 +422,16 @@ mod comprehensive_service_tests {
         );
 
         // 创建测试任务
-        let mut task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("test.pdf".to_string()),
-            Some("test.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("test.pdf".to_string()),
+            original_filename: Some("test.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task.file_size = Some(1024);
         task.parser_engine = Some(ParserEngine::MinerU);
 
@@ -531,16 +531,16 @@ mod comprehensive_service_tests {
         // 创建多个测试任务
         let mut tasks = Vec::new();
         for i in 0..5 {
-            let mut task = DocumentTask::new(
-                Uuid::new_v4().to_string(),
-                SourceType::Upload,
-                Some(format!("test{i}.pdf")),
-                Some(format!("test{i}.pdf")),
-                Some(DocumentFormat::PDF),
-                Some("pipeline".to_string()),
-                Some(24),
-                Some(3),
-            );
+            let mut task = DocumentTask::new(CreateTaskParams {
+                id: Uuid::new_v4().to_string(),
+                source_type: SourceType::Upload,
+                source: Some(format!("test{i}.pdf")),
+                original_filename: Some(format!("test{i}.pdf")),
+                document_format: Some(DocumentFormat::PDF),
+                backend: Some("pipeline".to_string()),
+                expires_in_hours: Some(24),
+                max_retries: Some(3),
+            });
             task.file_size = Some(1024 + i as u64);
             task.parser_engine = Some(ParserEngine::MinerU);
 
@@ -554,16 +554,16 @@ mod comprehensive_service_tests {
 
         // 创建一些会失败的任务
         for i in 0..2 {
-            let mut fail_task = DocumentTask::new(
-                Uuid::new_v4().to_string(),
-                SourceType::Upload,
-                Some(format!("fail{i}.pdf")),
-                Some(format!("fail{i}.pdf")),
-                Some(DocumentFormat::PDF),
-                Some("pipeline".to_string()),
-                Some(24),
-                Some(3),
-            );
+            let mut fail_task = DocumentTask::new(CreateTaskParams {
+                id: Uuid::new_v4().to_string(),
+                source_type: SourceType::Upload,
+                source: Some(format!("fail{i}.pdf")),
+                original_filename: Some(format!("fail{i}.pdf")),
+                document_format: Some(DocumentFormat::PDF),
+                backend: Some("pipeline".to_string()),
+                expires_in_hours: Some(24),
+                max_retries: Some(3),
+            });
             fail_task.file_size = Some(1024);
             fail_task.parser_engine = Some(ParserEngine::MinerU);
 
@@ -786,16 +786,16 @@ More content."#;
             StorageService::new(db.clone()).expect("Failed to create storage service");
 
         // 创建一些过期的任务 - 设置1小时前过期，而不是立即过期
-        let mut expired_task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("expired.pdf".to_string()),
-            Some("expired.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(1),
-            Some(3),
-        );
+        let mut expired_task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("expired.pdf".to_string()),
+            original_filename: Some("expired.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(1),
+            max_retries: Some(3),
+        });
         expired_task.file_size = Some(1024);
         expired_task.parser_engine = Some(ParserEngine::MinerU);
 

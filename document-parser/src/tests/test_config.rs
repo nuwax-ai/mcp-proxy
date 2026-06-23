@@ -182,16 +182,16 @@ pub mod generators {
         // 安全初始化全局配置
         safe_init_global_config();
         {
-            let mut t = DocumentTask::new(
-                Uuid::new_v4().to_string(),
-                SourceType::Upload,
-                Some("/tmp/test.pdf".to_string()),
-                Some("test.pdf".to_string()),
-                Some(DocumentFormat::PDF),
-                Some("pipeline".to_string()),
-                Some(24),
-                Some(3),
-            );
+            let mut t = DocumentTask::new(CreateTaskParams {
+                id: Uuid::new_v4().to_string(),
+                source_type: SourceType::Upload,
+                source: Some("/tmp/test.pdf".to_string()),
+                original_filename: Some("test.pdf".to_string()),
+                document_format: Some(DocumentFormat::PDF),
+                backend: Some("pipeline".to_string()),
+                expires_in_hours: Some(24),
+                max_retries: Some(3),
+            });
             t.parser_engine = Some(ParserEngine::MinerU);
             t.file_size = Some(1024 * 1024);
             t.mime_type = Some("application/pdf".to_string());
@@ -208,16 +208,16 @@ pub mod generators {
         // 安全初始化全局配置
         safe_init_global_config();
         {
-            let mut t = DocumentTask::new(
-                Uuid::new_v4().to_string(),
+            let mut t = DocumentTask::new(CreateTaskParams {
+                id: Uuid::new_v4().to_string(),
                 source_type,
-                Some("/tmp/test.pdf".to_string()),
-                Some("test.pdf".to_string()),
-                Some(format),
-                Some("pipeline".to_string()),
-                Some(24),
-                Some(3),
-            );
+                source: Some("/tmp/test.pdf".to_string()),
+                original_filename: Some("test.pdf".to_string()),
+                document_format: Some(format),
+                backend: Some("pipeline".to_string()),
+                expires_in_hours: Some(24),
+                max_retries: Some(3),
+            });
             t.parser_engine = Some(engine);
             t.file_size = Some(1024 * 1024);
             t.mime_type = Some("application/pdf".to_string());

@@ -54,17 +54,28 @@ pub async fn handle_tts_init(_force: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// TTS 测试参数
+pub struct TtsTestParams {
+    pub text: String,
+    pub output: Option<std::path::PathBuf>,
+    pub model: Option<String>,
+    pub speed: f32,
+    pub pitch: i32,
+    pub volume: f32,
+    pub format: String,
+}
+
 /// Test TTS functionality
-pub async fn handle_tts_test(
-    config: &crate::Config,
-    text: String,
-    output: Option<std::path::PathBuf>,
-    model: Option<String>,
-    speed: f32,
-    pitch: i32,
-    volume: f32,
-    format: String,
-) -> anyhow::Result<()> {
+pub async fn handle_tts_test(config: &crate::Config, params: TtsTestParams) -> anyhow::Result<()> {
+    let TtsTestParams {
+        text,
+        output,
+        model,
+        speed,
+        pitch,
+        volume,
+        format,
+    } = params;
     println!("🎤 Testing TTS functionality...");
 
     // Create TTS service
@@ -117,6 +128,20 @@ pub async fn handle_tts_command(action: TtsAction, config: &crate::Config) -> an
             pitch,
             volume,
             format,
-        } => handle_tts_test(config, text, output, model, speed, pitch, volume, format).await,
+        } => {
+            handle_tts_test(
+                config,
+                TtsTestParams {
+                    text,
+                    output,
+                    model,
+                    speed,
+                    pitch,
+                    volume,
+                    format,
+                },
+            )
+            .await
+        }
     }
 }

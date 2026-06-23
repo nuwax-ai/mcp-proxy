@@ -12,7 +12,7 @@
 #[cfg(test)]
 mod tests {
     use crate::AppState;
-    use crate::models::{DocumentFormat, DocumentTask, SourceType, TaskStatus};
+    use crate::models::{CreateTaskParams, DocumentFormat, DocumentTask, SourceType, TaskStatus};
     use crate::utils::environment_manager::EnvironmentManager;
     use std::path::{Path, PathBuf};
     use tempfile::TempDir;
@@ -471,16 +471,16 @@ mod tests {
             .expect("Failed to create app state");
 
         // 创建测试文档任务
-        let task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("test_document.pdf".to_string()),
-            Some("test_document.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("test_document.pdf".to_string()),
+            original_filename: Some("test_document.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
 
         // 验证任务创建成功
         assert_eq!(task.source_path, Some("test_document.pdf".to_string()));
@@ -746,16 +746,16 @@ mod tests {
         // DocumentService creation removed for simplicity
 
         // 创建测试任务验证功能
-        let task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("workflow_test.pdf".to_string()),
-            Some("workflow_test.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("workflow_test.pdf".to_string()),
+            original_filename: Some("workflow_test.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
 
         assert_eq!(task.source_path, Some("workflow_test.pdf".to_string()));
         assert!(matches!(task.status, TaskStatus::Pending { .. }));

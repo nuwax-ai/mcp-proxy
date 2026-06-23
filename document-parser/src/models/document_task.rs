@@ -70,18 +70,31 @@ pub enum SourceType {
 
 // 删除手写的 DocumentTaskBuilder，使用 derive_builder 生成的同名构建器类型
 
+/// 创建 DocumentTask 的参数
+pub struct CreateTaskParams {
+    pub id: String,
+    pub source_type: SourceType,
+    pub source: Option<String>,
+    pub original_filename: Option<String>,
+    pub document_format: Option<DocumentFormat>,
+    pub backend: Option<String>,
+    pub expires_in_hours: Option<i64>,
+    pub max_retries: Option<u32>,
+}
+
 impl DocumentTask {
     /// 创建新的任务（适配 TaskService::create_task 的初始需求）
-    pub fn new(
-        id: String,
-        source_type: SourceType,
-        source: Option<String>,
-        original_filename: Option<String>,
-        document_format: Option<DocumentFormat>,
-        backend: Option<String>,
-        expires_in_hours: Option<i64>,
-        max_retries: Option<u32>,
-    ) -> Self {
+    pub fn new(params: CreateTaskParams) -> Self {
+        let CreateTaskParams {
+            id,
+            source_type,
+            source,
+            original_filename,
+            document_format,
+            backend,
+            expires_in_hours,
+            max_retries,
+        } = params;
         let now = Utc::now();
         let mut builder = DocumentTaskBuilder::default();
         builder.id(id);
@@ -418,16 +431,16 @@ mod tests {
     #[test]
     fn test_document_task_builder_success() {
         init_test_config();
-        let mut task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("/path/to/file.pdf".to_string()),
-            Some("file.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/path/to/file.pdf".to_string()),
+            original_filename: Some("file.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
 
         // Set additional fields manually
         task.file_size = Some(1024);
@@ -446,16 +459,16 @@ mod tests {
     #[test]
     fn test_document_task_validation_success() {
         init_test_config();
-        let task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("/path/to/file.pdf".to_string()),
-            Some("file.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/path/to/file.pdf".to_string()),
+            original_filename: Some("file.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
 
         assert!(task.validate().is_ok());
     }
@@ -463,16 +476,16 @@ mod tests {
     #[test]
     fn test_document_task_validation_invalid_uuid() {
         init_test_config();
-        let result = DocumentTask::new(
-            "invalid-uuid".to_string(),
-            SourceType::Upload,
-            Some("/path/to/file.pdf".to_string()),
-            Some("file.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let result = DocumentTask::new(CreateTaskParams {
+            id: "invalid-uuid".to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/path/to/file.pdf".to_string()),
+            original_filename: Some("file.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
 
         // Should fail during validation due to invalid UUID
         assert!(result.validate().is_err());
@@ -481,16 +494,16 @@ mod tests {
     #[test]
     fn test_document_task_validation_unsupported_format() {
         init_test_config();
-        let result = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("/path/to/file.pdf".to_string()),
-            Some("file.pdf".to_string()),
-            Some(DocumentFormat::Other("unknown".to_string())),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let result = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/path/to/file.pdf".to_string()),
+            original_filename: Some("file.pdf".to_string()),
+            document_format: Some(DocumentFormat::Other("unknown".to_string())),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
 
         // Should fail during validation due to unsupported format
         assert!(result.validate().is_err());
@@ -499,16 +512,16 @@ mod tests {
     #[test]
     fn test_document_task_validation_engine_format_mismatch() {
         init_test_config();
-        let mut task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("/path/to/file.pdf".to_string()),
-            Some("file.pdf".to_string()),
-            Some(DocumentFormat::Word),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/path/to/file.pdf".to_string()),
+            original_filename: Some("file.pdf".to_string()),
+            document_format: Some(DocumentFormat::Word),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
 
         // Manually set mismatched engine
         task.parser_engine = Some(ParserEngine::MinerU);
@@ -519,16 +532,16 @@ mod tests {
     fn test_document_task_validation_file_size_too_large() {
         init_test_config();
 
-        let mut task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("/path/to/file.pdf".to_string()),
-            Some("file.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/path/to/file.pdf".to_string()),
+            original_filename: Some("file.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
 
         // Set file size to exceed limit
         task.file_size = Some(250 * 1024 * 1024); // 250MB > 200MB limit (from config.yml)
@@ -539,16 +552,16 @@ mod tests {
     fn test_document_task_validation_file_size_within_limit() {
         init_test_config();
 
-        let mut task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("/path/to/file.pdf".to_string()),
-            Some("file.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/path/to/file.pdf".to_string()),
+            original_filename: Some("file.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
 
         // Set file size within limit
         task.file_size = Some(50 * 1024 * 1024); // 50MB < 200MB limit (from config.yml)
@@ -558,16 +571,16 @@ mod tests {
     #[test]
     fn test_status_transition_validation() {
         init_test_config();
-        let mut task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("/path/to/file.pdf".to_string()),
-            Some("file.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/path/to/file.pdf".to_string()),
+            original_filename: Some("file.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
 
         // Valid transitions
         assert!(
@@ -602,16 +615,16 @@ mod tests {
     #[test]
     fn test_status_transition_failed_to_pending() {
         init_test_config();
-        let mut task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("/path/to/file.pdf".to_string()),
-            Some("file.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/path/to/file.pdf".to_string()),
+            original_filename: Some("file.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
 
         // Set to failed status
         task.set_error("Test error".to_string()).unwrap();
@@ -626,16 +639,16 @@ mod tests {
     #[test]
     fn test_retry_limit_exceeded() {
         init_test_config();
-        let mut task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("/path/to/file.pdf".to_string()),
-            Some("file.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(2),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/path/to/file.pdf".to_string()),
+            original_filename: Some("file.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(2),
+        });
 
         // Exceed retry limit
         task.retry_count = 3;
@@ -661,16 +674,16 @@ mod tests {
     #[test]
     fn test_update_progress_validation() {
         init_test_config();
-        let mut task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("/path/to/file.pdf".to_string()),
-            Some("file.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/path/to/file.pdf".to_string()),
+            original_filename: Some("file.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
 
         // Valid progress
         assert!(task.update_progress(50).is_ok());
@@ -683,16 +696,16 @@ mod tests {
     #[test]
     fn test_set_error_validation() {
         init_test_config();
-        let mut task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("/path/to/file.pdf".to_string()),
-            Some("file.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/path/to/file.pdf".to_string()),
+            original_filename: Some("file.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
 
         // Valid error
         assert!(task.set_error("Test error".to_string()).is_ok());
@@ -700,32 +713,32 @@ mod tests {
         assert_eq!(task.error_message, Some("Test error".to_string()));
 
         // Invalid empty error
-        let mut task2 = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("/path/to/file.pdf".to_string()),
-            Some("file.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task2 = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/path/to/file.pdf".to_string()),
+            original_filename: Some("file.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         assert!(task2.set_error("".to_string()).is_err());
     }
 
     #[test]
     fn test_set_file_info_validation() {
         init_test_config();
-        let mut task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("/path/to/file.pdf".to_string()),
-            Some("file.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/path/to/file.pdf".to_string()),
+            original_filename: Some("file.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
 
         // Valid file info
         assert!(
@@ -748,16 +761,16 @@ mod tests {
     #[test]
     fn test_task_expiry() {
         init_test_config();
-        let mut task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("/path/to/file.pdf".to_string()),
-            Some("file.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/path/to/file.pdf".to_string()),
+            original_filename: Some("file.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
 
         // Set expiry manually
         task.expires_at = Utc::now() + Duration::hours(1);
@@ -770,16 +783,16 @@ mod tests {
     #[test]
     fn test_extend_expiry() {
         init_test_config();
-        let mut task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("/path/to/file.pdf".to_string()),
-            Some("file.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/path/to/file.pdf".to_string()),
+            original_filename: Some("file.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
 
         // Set expiry manually
         task.expires_at = Utc::now() + Duration::hours(1);
@@ -799,32 +812,32 @@ mod tests {
     #[test]
     fn test_cancel_task() {
         init_test_config();
-        let mut task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("/path/to/file.pdf".to_string()),
-            Some("file.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/path/to/file.pdf".to_string()),
+            original_filename: Some("file.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
 
         // Can cancel pending task
         assert!(task.cancel().is_ok());
         assert!(matches!(task.status, TaskStatus::Cancelled { .. }));
 
         // Cannot cancel completed task
-        let mut completed_task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("/path/to/file.pdf".to_string()),
-            Some("file.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut completed_task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/path/to/file.pdf".to_string()),
+            original_filename: Some("file.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         completed_task.status = TaskStatus::new_completed(std::time::Duration::from_secs(60));
         assert!(completed_task.cancel().is_err());
     }
@@ -832,16 +845,16 @@ mod tests {
     #[test]
     fn test_reset_task() {
         init_test_config();
-        let mut task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("/path/to/file.pdf".to_string()),
-            Some("file.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/path/to/file.pdf".to_string()),
+            original_filename: Some("file.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
 
         // Set to failed state
         task.set_error("Test error".to_string()).unwrap();
@@ -888,16 +901,16 @@ mod tests {
     #[test]
     fn test_get_status_description() {
         init_test_config();
-        let mut task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("/path/to/file.pdf".to_string()),
-            Some("file.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/path/to/file.pdf".to_string()),
+            original_filename: Some("file.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
 
         // 使用静态描述方法，避免时间相关的动态描述
         assert_eq!(task.status.get_static_description(), "等待处理");
@@ -927,16 +940,16 @@ mod tests {
     #[test]
     fn test_get_age_hours() {
         init_test_config();
-        let task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("/path/to/file.pdf".to_string()),
-            Some("file.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/path/to/file.pdf".to_string()),
+            original_filename: Some("file.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
 
         // Should be 0 hours old (just created)
         assert_eq!(task.get_age_hours(), 0);
@@ -945,17 +958,17 @@ mod tests {
     #[test]
     fn test_backward_compatibility() {
         init_test_config();
-        // Test that the old constructor still works
-        let task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("/path/to/file.pdf".to_string()),
-            Some("file.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        // Test that the new constructor works
+        let task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/path/to/file.pdf".to_string()),
+            original_filename: Some("file.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
 
         assert_eq!(task.source_type, SourceType::Upload);
         assert_eq!(task.document_format, Some(DocumentFormat::PDF));

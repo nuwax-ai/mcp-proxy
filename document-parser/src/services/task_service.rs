@@ -1,6 +1,7 @@
 use crate::error::AppError;
 use crate::models::{
-    DocumentFormat, DocumentTask, ParserEngine, ProcessingStage, SourceType, TaskStatus,
+    CreateTaskParams, DocumentFormat, DocumentTask, ParserEngine, ProcessingStage, SourceType,
+    TaskStatus,
 };
 use sled::Db;
 use std::sync::Arc;
@@ -37,16 +38,16 @@ impl TaskService {
             task_id, source_type, format
         );
 
-        let task = DocumentTask::new(
-            task_id.clone(),
-            source_type.clone(),
-            source_path,
+        let task = DocumentTask::new(CreateTaskParams {
+            id: task_id.clone(),
+            source_type: source_type.clone(),
+            source: source_path,
             original_filename,
-            format,
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+            document_format: format,
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
 
         // 保存到数据库
         self.save_task(&task).await?;

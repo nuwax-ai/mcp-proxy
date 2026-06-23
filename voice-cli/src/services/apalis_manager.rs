@@ -193,6 +193,18 @@ pub struct ApalisManager {
     pub monitor_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
+/// 保存任务信息的参数
+struct SaveTaskInfoParams<'a> {
+    task_id: &'a str,
+    status: &'a TaskStatus,
+    file_path: Option<&'a PathBuf>,
+    original_filename: Option<&'a str>,
+    model: Option<&'a str>,
+    response_format: Option<&'a str>,
+    retry_count: u32,
+    error_message: Option<&'a str>,
+}
+
 impl LockFreeApalisManager {
     /// 创建新的无锁管理器，返回 (LockFreeApalisManager, SqliteStorage) 元组
     pub async fn new(
@@ -435,16 +447,16 @@ impl LockFreeApalisManager {
         };
 
         // 使用新的保存任务信息方法，包含文件路径
-        self.save_task_info(
-            &task.task_id,
-            &initial_status,
-            Some(&audio_file_path),
-            Some(&original_filename),
-            model.as_deref(),
-            response_format.as_deref(),
-            0,
-            None,
-        )
+        self.save_task_info(SaveTaskInfoParams {
+            task_id: &task.task_id,
+            status: &initial_status,
+            file_path: Some(&audio_file_path),
+            original_filename: Some(&original_filename),
+            model: model.as_deref(),
+            response_format: response_format.as_deref(),
+            retry_count: 0,
+            error_message: None,
+        })
         .await?;
 
         info!("Task submitted successfully: {}", task.task_id);
@@ -531,16 +543,16 @@ impl LockFreeApalisManager {
         };
 
         // 保存任务信息，包含URL
-        self.save_task_info(
-            &task.task_id,
-            &initial_status,
-            None, // 文件路径将在下载后设置
-            Some(&filename),
-            model.as_deref(),
-            response_format.as_deref(),
-            0,
-            None,
-        )
+        self.save_task_info(SaveTaskInfoParams {
+            task_id: &task.task_id,
+            status: &initial_status,
+            file_path: None, // 文件路径将在下载后设置
+            original_filename: Some(&filename),
+            model: model.as_deref(),
+            response_format: response_format.as_deref(),
+            retry_count: 0,
+            error_message: None,
+        })
         .await?;
 
         info!("URL task submitted successfully: {}", task.task_id);
@@ -596,17 +608,17 @@ impl LockFreeApalisManager {
     }
 
     /// 保存任务信息（包括文件路径）
-    async fn save_task_info(
-        &self,
-        task_id: &str,
-        status: &TaskStatus,
-        file_path: Option<&PathBuf>,
-        original_filename: Option<&str>,
-        model: Option<&str>,
-        response_format: Option<&str>,
-        retry_count: u32,
-        error_message: Option<&str>,
-    ) -> Result<(), VoiceCliError> {
+    async fn save_task_info(&self, params: SaveTaskInfoParams<'_>) -> Result<(), VoiceCliError> {
+        let SaveTaskInfoParams {
+            task_id,
+            status,
+            file_path,
+            original_filename,
+            model,
+            response_format,
+            retry_count,
+            error_message,
+        } = params;
         let status_json = serde_json::to_string(status)
             .map_err(|e| VoiceCliError::Storage(format!("序列化任务状态失败: {}", e)))?;
 
@@ -730,7 +742,14 @@ impl LockFreeApalisManager {
         match current_status {
             Some(TaskStatus::Failed { .. }) | Some(TaskStatus::Cancelled { .. }) => {
                 // 查询我们自己的 task_info 表中存储的原始任务数据
-                let task_data: Option<(Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+                type TaskDataRow = (
+                    Option<String>,
+                    Option<String>,
+                    Option<String>,
+                    Option<String>,
+                    Option<String>,
+                );
+                let task_data: Option<TaskDataRow> = sqlx::query_as(
                     "SELECT file_path, original_filename, model, response_format, error_message FROM task_info WHERE task_id = ?"
                 )
                 .bind(task_id)

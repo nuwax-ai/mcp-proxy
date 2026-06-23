@@ -10,7 +10,7 @@ mod test_models;
 mod toc_item;
 
 pub use document_format::DocumentFormat;
-pub use document_task::{DocumentTask, SourceType};
+pub use document_task::{CreateTaskParams, DocumentTask, SourceType};
 pub use http_result::HttpResult;
 pub use oss_data::{ImageInfo, OssData};
 pub use parse_result::ParseResult;

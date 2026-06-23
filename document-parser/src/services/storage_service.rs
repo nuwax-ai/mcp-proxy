@@ -1108,7 +1108,7 @@ impl StorageService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::SourceType;
+    use crate::models::{CreateTaskParams, SourceType};
     use tempfile::TempDir;
 
     #[tokio::test]
@@ -1121,16 +1121,16 @@ mod tests {
 
         // 创建测试任务
         let task_id = uuid::Uuid::new_v4().to_string();
-        let mut task = DocumentTask::new(
-            task_id.clone(),
-            SourceType::Upload,
-            Some("/test/path".to_string()),
-            Some("path.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: task_id.clone(),
+            source_type: SourceType::Upload,
+            source: Some("/test/path".to_string()),
+            original_filename: Some("path.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task.parser_engine = Some(crate::models::ParserEngine::MinerU);
         task.file_size = Some(1024);
         task.mime_type = Some("application/pdf".to_string());
@@ -1163,16 +1163,16 @@ mod tests {
         // 创建多个任务进行批量保存
         let mut tasks = Vec::new();
         for i in 0..5 {
-            let mut task = DocumentTask::new(
-                format!("batch_task_{i}"),
-                SourceType::Upload,
-                Some(format!("/test/path_{i}")),
-                Some(format!("path_{i}.pdf")),
-                Some(DocumentFormat::PDF),
-                Some("pipeline".to_string()),
-                Some(24),
-                Some(3),
-            );
+            let mut task = DocumentTask::new(CreateTaskParams {
+                id: format!("batch_task_{i}"),
+                source_type: SourceType::Upload,
+                source: Some(format!("/test/path_{i}")),
+                original_filename: Some(format!("path_{i}.pdf")),
+                document_format: Some(DocumentFormat::PDF),
+                backend: Some("pipeline".to_string()),
+                expires_in_hours: Some(24),
+                max_retries: Some(3),
+            });
             task.parser_engine = Some(crate::models::ParserEngine::MinerU);
             task.file_size = Some(1024);
             task.mime_type = Some("application/pdf".to_string());
@@ -1207,31 +1207,31 @@ mod tests {
 
         // 创建测试任务
         let task1_id = uuid::Uuid::new_v4().to_string();
-        let mut task1 = DocumentTask::new(
-            task1_id.clone(),
-            SourceType::Upload,
-            Some("/test/path1".to_string()),
-            Some("path1.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task1 = DocumentTask::new(CreateTaskParams {
+            id: task1_id.clone(),
+            source_type: SourceType::Upload,
+            source: Some("/test/path1".to_string()),
+            original_filename: Some("path1.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task1.parser_engine = Some(crate::models::ParserEngine::MinerU);
         task1.file_size = Some(1024);
         task1.mime_type = Some("application/pdf".to_string());
 
         let task2_id = uuid::Uuid::new_v4().to_string();
-        let mut task2 = DocumentTask::new(
-            task2_id.clone(),
-            SourceType::Upload,
-            Some("/test/path2".to_string()),
-            Some("path2.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task2 = DocumentTask::new(CreateTaskParams {
+            id: task2_id.clone(),
+            source_type: SourceType::Upload,
+            source: Some("/test/path2".to_string()),
+            original_filename: Some("path2.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task2.parser_engine = Some(crate::models::ParserEngine::MinerU);
         task2.file_size = Some(1024);
         task2.mime_type = Some("application/pdf".to_string());
@@ -1268,16 +1268,16 @@ mod tests {
 
         // 创建已完成的任务
         let task_id = uuid::Uuid::new_v4().to_string();
-        let mut task = DocumentTask::new(
-            task_id.clone(),
-            SourceType::Upload,
-            Some("/test/path".to_string()),
-            Some("path.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: task_id.clone(),
+            source_type: SourceType::Upload,
+            source: Some("/test/path".to_string()),
+            original_filename: Some("path.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task.parser_engine = Some(crate::models::ParserEngine::MinerU);
         task.file_size = Some(1024);
         task.mime_type = Some("application/pdf".to_string());
@@ -1312,16 +1312,16 @@ mod tests {
         // 创建一些测试任务
         for i in 0..3 {
             let task_id = uuid::Uuid::new_v4().to_string();
-            let mut task = DocumentTask::new(
-                task_id,
-                SourceType::Upload,
-                Some(format!("/test/path_{i}")),
-                Some(format!("path_{i}.pdf")),
-                Some(DocumentFormat::PDF),
-                Some("pipeline".to_string()),
-                Some(24),
-                Some(3),
-            );
+            let mut task = DocumentTask::new(CreateTaskParams {
+                id: task_id,
+                source_type: SourceType::Upload,
+                source: Some(format!("/test/path_{i}")),
+                original_filename: Some(format!("path_{i}.pdf")),
+                document_format: Some(DocumentFormat::PDF),
+                backend: Some("pipeline".to_string()),
+                expires_in_hours: Some(24),
+                max_retries: Some(3),
+            });
             task.parser_engine = Some(crate::models::ParserEngine::MinerU);
             task.file_size = Some(1024);
             task.mime_type = Some("application/pdf".to_string());

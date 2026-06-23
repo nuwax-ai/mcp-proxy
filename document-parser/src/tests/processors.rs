@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::{
     error::AppError,
-    models::{DocumentFormat, DocumentTask, ParserEngine, SourceType},
+    models::{CreateTaskParams, DocumentFormat, DocumentTask, ParserEngine, SourceType},
     parsers::DualEngineParser,
     parsers::parser_trait::DocumentParser,
     processors::MarkdownProcessor,
@@ -44,16 +44,16 @@ mod document_processor_tests {
         std::fs::write(&test_file, "fake pdf content").unwrap();
 
         // 创建测试任务
-        let mut task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some(test_file.to_string_lossy().to_string()),
-            Some("test.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some(test_file.to_string_lossy().to_string()),
+            original_filename: Some("test.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task.parser_engine = Some(ParserEngine::MinerU);
         task.file_size = Some(1024);
         task.mime_type = Some("application/pdf".to_string());
@@ -96,16 +96,16 @@ mod document_processor_tests {
         std::fs::write(&test_file, "fake docx content").unwrap();
 
         // 创建测试任务
-        let mut task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some(test_file.to_string_lossy().to_string()),
-            Some("test.docx".to_string()),
-            Some(DocumentFormat::Word),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some(test_file.to_string_lossy().to_string()),
+            original_filename: Some("test.docx".to_string()),
+            document_format: Some(DocumentFormat::Word),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task.parser_engine = Some(ParserEngine::MarkItDown);
         task.file_size = Some(1024);
         task.mime_type = Some(
@@ -145,16 +145,16 @@ mod document_processor_tests {
         let processor = DualEngineParser::new(&config.mineru, &config.markitdown);
 
         // 创建无效路径的测试任务
-        let mut task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("/nonexistent/path/test.pdf".to_string()),
-            Some("test.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/nonexistent/path/test.pdf".to_string()),
+            original_filename: Some("test.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task.parser_engine = Some(ParserEngine::MinerU);
         task.file_size = Some(1024);
         task.mime_type = Some("application/pdf".to_string());
@@ -192,16 +192,16 @@ mod document_processor_tests {
         std::fs::write(&test_file, "fake pdf content").unwrap();
 
         // 创建测试任务
-        let mut task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some(test_file.to_string_lossy().to_string()),
-            Some("test.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some(test_file.to_string_lossy().to_string()),
+            original_filename: Some("test.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task.parser_engine = Some(ParserEngine::MinerU);
         task.file_size = Some(1024);
 
@@ -213,16 +213,16 @@ mod document_processor_tests {
         // assert!(result.is_err(), "Should fail for invalid PDF content");
 
         // 测试没有源路径的情况
-        let mut task_no_path = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            None,
-            None,
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task_no_path = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: None,
+            original_filename: None,
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task_no_path.parser_engine = Some(ParserEngine::MinerU);
         task_no_path.file_size = Some(1024);
 
@@ -252,16 +252,16 @@ mod document_processor_tests {
         std::fs::write(&test_file, "fake content").unwrap();
 
         // 创建测试任务
-        let mut task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some(test_file.to_string_lossy().to_string()),
-            Some("test.unknown".to_string()),
-            Some(DocumentFormat::Other("unknown".to_string())),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some(test_file.to_string_lossy().to_string()),
+            original_filename: Some("test.unknown".to_string()),
+            document_format: Some(DocumentFormat::Other("unknown".to_string())),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task.parser_engine = Some(ParserEngine::MinerU);
         task.file_size = Some(1024);
 
@@ -688,16 +688,16 @@ mod integration_processor_tests {
         assert_eq!(detected_format, DocumentFormat::PDF);
 
         // 创建测试任务
-        let mut task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some(test_file.to_string_lossy().to_string()),
-            Some("test.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some(test_file.to_string_lossy().to_string()),
+            original_filename: Some("test.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task.parser_engine = Some(ParserEngine::MinerU);
         task.file_size = Some(1024);
         task.mime_type = Some("application/pdf".to_string());
@@ -762,16 +762,16 @@ mod integration_processor_tests {
         let markdown_processor = MarkdownProcessor::default();
 
         // 创建有问题的测试任务
-        let mut task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            None,
-            None,
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: None,
+            original_filename: None,
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task.parser_engine = Some(ParserEngine::MinerU);
         task.file_size = Some(1024);
         task.mime_type = Some("application/pdf".to_string());
@@ -799,16 +799,16 @@ mod integration_processor_tests {
         let empty_file = temp_dir.path().join("empty.txt");
         std::fs::write(&empty_file, "").unwrap();
 
-        let mut empty_task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some(empty_file.to_string_lossy().to_string()),
-            Some("empty.txt".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut empty_task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some(empty_file.to_string_lossy().to_string()),
+            original_filename: Some("empty.txt".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         empty_task.parser_engine = Some(ParserEngine::MinerU);
         empty_task.file_size = Some(1024);
         empty_task.mime_type = Some("application/pdf".to_string());
