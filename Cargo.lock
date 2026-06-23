@@ -4543,16 +4543,15 @@ dependencies = [
 
 [[package]]
 name = "run_code_rmcp"
-version = "0.0.36"
+version = "0.0.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8fd62ebbd0dbe6b759fa7be58a5a54b787348a05161ecca5097e66192dbdb59"
+checksum = "141a6e2d5905efbc727e13f070039add4bed62b6803ff7f506318363ffd8e917"
 dependencies = [
  "anyhow",
  "async-trait",
  "blake3",
  "clap",
  "env_logger",
- "libc",
  "log",
  "once_cell",
  "pest",
