@@ -40,6 +40,14 @@ jobs:
           content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
           with open('mcp-proxy/Cargo.toml', 'w') as f:
               f.write(content)
+          " "$VERSION" || python -c "
+          import re, sys
+          version = sys.argv[1]
+          with open('mcp-proxy/Cargo.toml', 'r') as f:
+              content = f.read()
+          content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
+          with open('mcp-proxy/Cargo.toml', 'w') as f:
+              f.write(content)
           " "$VERSION"
           grep '^version' mcp-proxy/Cargo.toml
           echo "==> Regenerating Cargo.lock"
@@ -92,6 +100,14 @@ jobs:
           VERSION="${TAG#v}"
           echo "==> Updating mcp-proxy/Cargo.toml version to: $VERSION"
           python3 -c "
+          import re, sys
+          version = sys.argv[1]
+          with open('mcp-proxy/Cargo.toml', 'r') as f:
+              content = f.read()
+          content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
+          with open('mcp-proxy/Cargo.toml', 'w') as f:
+              f.write(content)
+          " "$VERSION" || python -c "
           import re, sys
           version = sys.argv[1]
           with open('mcp-proxy/Cargo.toml', 'r') as f:
@@ -167,6 +183,14 @@ jobs:
           content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
           with open('mcp-proxy/Cargo.toml', 'w') as f:
               f.write(content)
+          " "$VERSION" || python -c "
+          import re, sys
+          version = sys.argv[1]
+          with open('mcp-proxy/Cargo.toml', 'r') as f:
+              content = f.read()
+          content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
+          with open('mcp-proxy/Cargo.toml', 'w') as f:
+              f.write(content)
           " "$VERSION"
           cargo generate-lockfile
       - name: Install cached dist
@@ -220,6 +244,14 @@ jobs:
           TAG="${{ github.ref_name }}"
           VERSION="${TAG#v}"
           python3 -c "
+          import re, sys
+          version = sys.argv[1]
+          with open('mcp-proxy/Cargo.toml', 'r') as f:
+              content = f.read()
+          content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
+          with open('mcp-proxy/Cargo.toml', 'w') as f:
+              f.write(content)
+          " "$VERSION" || python -c "
           import re, sys
           version = sys.argv[1]
           with open('mcp-proxy/Cargo.toml', 'r') as f:
