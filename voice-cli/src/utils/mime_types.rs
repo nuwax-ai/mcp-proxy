@@ -51,7 +51,7 @@ pub fn extract_extension_from_url(url: &str) -> Option<&'static str> {
     if let Ok(parsed_url) = Url::parse(url) {
         parsed_url
             .path_segments()
-            .and_then(|segments| segments.last())
+            .and_then(|mut segments| segments.next_back())
             .and_then(|filename| {
                 if let Some(dot_index) = filename.rfind('.') {
                     let ext = &filename[dot_index + 1..];
@@ -124,10 +124,10 @@ pub fn get_file_extension(content_type: &str, url: &str) -> &'static str {
     let extension = mime_type_to_extension(content_type);
 
     // 如果得到的是默认扩展名，尝试从 URL 中获取更精确的扩展名
-    if extension == "bin" {
-        if let Some(url_extension) = extract_extension_from_url(url) {
-            return url_extension;
-        }
+    if extension == "bin"
+        && let Some(url_extension) = extract_extension_from_url(url)
+    {
+        return url_extension;
     }
 
     extension

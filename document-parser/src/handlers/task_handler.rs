@@ -185,15 +185,11 @@ pub async fn create_task(
     }
 
     // 验证源路径（如果提供）
-    if let Some(ref source_path) = request.source_path {
-        match request.source_type {
-            SourceType::Url => {
-                if let Err(e) = RequestValidator::validate_url(source_path) {
-                    return ApiResponse::from_app_error::<TaskOperationResponse>(e).into_response();
-                }
-            }
-            _ => {} // Upload类型的路径在上传时验证
-        }
+    if let Some(ref source_path) = request.source_path
+        && request.source_type == SourceType::Url
+        && let Err(e) = RequestValidator::validate_url(source_path)
+    {
+        return ApiResponse::from_app_error::<TaskOperationResponse>(e).into_response();
     }
 
     // 创建任务
@@ -259,14 +255,14 @@ pub async fn get_task(
             let complete = task.status.is_terminal();
 
             // 如果任务状态为 Failed，使用 ApiResponse::error 返回错误响应
-            if task.status.is_failed() {
-                if let Some(error) = task.status.get_error() {
-                    return ApiResponse::error::<TaskOperationResponse>(
-                        error.error_code.clone(),
-                        error.error_message.clone(),
-                    )
-                    .into_response();
-                }
+            if task.status.is_failed()
+                && let Some(error) = task.status.get_error()
+            {
+                return ApiResponse::error::<TaskOperationResponse>(
+                    error.error_code.clone(),
+                    error.error_message.clone(),
+                )
+                .into_response();
             }
 
             let response = TaskOperationResponse {
@@ -859,19 +855,19 @@ fn build_task_filter(params: &TaskQueryParams) -> Result<TaskFilter, AppError> {
     }
 
     // 验证时间范围
-    if let (Some(after), Some(before)) = (filter.created_after, filter.created_before) {
-        if after >= before {
-            return Err(AppError::Validation("开始时间必须早于结束时间".to_string()));
-        }
+    if let (Some(after), Some(before)) = (filter.created_after, filter.created_before)
+        && after >= before
+    {
+        return Err(AppError::Validation("开始时间必须早于结束时间".to_string()));
     }
 
     // 验证文件大小范围
-    if let (Some(min_size), Some(max_size)) = (filter.min_file_size, filter.max_file_size) {
-        if min_size >= max_size {
-            return Err(AppError::Validation(
-                "最小文件大小必须小于最大文件大小".to_string(),
-            ));
-        }
+    if let (Some(min_size), Some(max_size)) = (filter.min_file_size, filter.max_file_size)
+        && min_size >= max_size
+    {
+        return Err(AppError::Validation(
+            "最小文件大小必须小于最大文件大小".to_string(),
+        ));
     }
 
     Ok(filter)
@@ -901,24 +897,24 @@ fn can_retry_task(status: &TaskStatus) -> bool {
 /// 应用任务过滤器
 fn apply_task_filter(task: &DocumentTask, filter: &TaskFilter) -> bool {
     // 状态过滤
-    if let Some(ref status) = filter.status {
-        if &task.status != status {
-            return false;
-        }
+    if let Some(ref status) = filter.status
+        && &task.status != status
+    {
+        return false;
     }
 
     // 格式过滤
-    if let Some(ref format) = filter.format {
-        if task.document_format.as_ref() != Some(format) {
-            return false;
-        }
+    if let Some(ref format) = filter.format
+        && task.document_format.as_ref() != Some(format)
+    {
+        return false;
     }
 
     // 源类型过滤
-    if let Some(ref source_type) = filter.source_type {
-        if &task.source_type != source_type {
-            return false;
-        }
+    if let Some(ref source_type) = filter.source_type
+        && &task.source_type != source_type
+    {
+        return false;
     }
 
     // 搜索关键词过滤
@@ -941,16 +937,16 @@ fn apply_task_filter(task: &DocumentTask, filter: &TaskFilter) -> bool {
     }
 
     // 创建时间范围过滤
-    if let Some(created_after) = filter.created_after {
-        if task.created_at <= created_after {
-            return false;
-        }
+    if let Some(created_after) = filter.created_after
+        && task.created_at <= created_after
+    {
+        return false;
     }
 
-    if let Some(created_before) = filter.created_before {
-        if task.created_at >= created_before {
-            return false;
-        }
+    if let Some(created_before) = filter.created_before
+        && task.created_at >= created_before
+    {
+        return false;
     }
 
     // 文件大小范围过滤（这里假设 DocumentTask 有 file_size 字段，如果没有则忽略）
@@ -970,22 +966,22 @@ fn apply_task_filter(task: &DocumentTask, filter: &TaskFilter) -> bool {
 }
 
 /// 应用任务排序
-fn apply_task_sorting(tasks: &mut Vec<DocumentTask>, sort_by: &str, sort_order: &str) {
+fn apply_task_sorting(tasks: &mut [DocumentTask], sort_by: &str, sort_order: &str) {
     let ascending = sort_order == "asc";
 
     match sort_by {
         "created_at" => {
             if ascending {
-                tasks.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+                tasks.sort_by_key(|a| a.created_at);
             } else {
-                tasks.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+                tasks.sort_by_key(|a| std::cmp::Reverse(a.created_at));
             }
         }
         "updated_at" => {
             if ascending {
-                tasks.sort_by(|a, b| a.updated_at.cmp(&b.updated_at));
+                tasks.sort_by_key(|a| a.updated_at);
             } else {
-                tasks.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+                tasks.sort_by_key(|a| std::cmp::Reverse(a.updated_at));
             }
         }
         "status" => {
@@ -997,7 +993,7 @@ fn apply_task_sorting(tasks: &mut Vec<DocumentTask>, sort_by: &str, sort_order: 
         }
         _ => {
             // 默认按创建时间降序排序
-            tasks.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+            tasks.sort_by_key(|a| std::cmp::Reverse(a.created_at));
         }
     }
 }

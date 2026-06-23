@@ -43,14 +43,12 @@ pub async fn basic_tracing_middleware(request: Request, next: Next) -> Response 
 
 /// 获取或生成追踪ID
 fn get_or_generate_trace_id(request: &Request) -> String {
-    if let Some(traceparent) = request.headers().get("traceparent") {
-        if let Ok(traceparent_str) = traceparent.to_str() {
-            if let Some(trace_id) = traceparent_str.split('-').nth(1) {
-                if trace_id.len() == 32 {
-                    return trace_id.to_string();
-                }
-            }
-        }
+    if let Some(traceparent) = request.headers().get("traceparent")
+        && let Ok(traceparent_str) = traceparent.to_str()
+        && let Some(trace_id) = traceparent_str.split('-').nth(1)
+        && trace_id.len() == 32
+    {
+        return trace_id.to_string();
     }
     Uuid::new_v4().to_string()
 }

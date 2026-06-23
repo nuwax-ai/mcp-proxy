@@ -396,13 +396,14 @@ impl LogConfig {
 
         // 验证路径是否可以创建
         let path = Path::new(&self.path);
-        if let Some(parent) = path.parent() {
-            if parent.exists() && !parent.is_dir() {
-                return Err(ConfigError::InvalidPath {
-                    path: self.path.clone(),
-                    message: "父目录不是一个有效的目录".to_string(),
-                });
-            }
+        if let Some(parent) = path.parent()
+            && parent.exists()
+            && !parent.is_dir()
+        {
+            return Err(ConfigError::InvalidPath {
+                path: self.path.clone(),
+                message: "父目录不是一个有效的目录".to_string(),
+            });
         }
 
         Ok(())
@@ -805,10 +806,10 @@ impl AppConfig {
     /// 加载基础配置文件，支持可选的配置文件路径
     pub fn load_base_config_with_path(config_path: Option<String>) -> Result<Self, ConfigError> {
         // 优先尝试从传入的路径加载
-        if let Some(path) = config_path {
-            if Path::new(&path).exists() {
-                return Self::load_from_file(&path);
-            }
+        if let Some(path) = config_path
+            && Path::new(&path).exists()
+        {
+            return Self::load_from_file(&path);
         }
 
         let config_paths = [
@@ -1244,10 +1245,10 @@ pub fn update_global_cuda_status(cuda_status: CudaStatus) -> Result<(), ConfigEr
 
 /// 获取全局CUDA状态的克隆
 pub fn get_global_cuda_status_clone() -> CudaStatus {
-    if let Some(global_status) = GLOBAL_CUDA_STATUS.get() {
-        if let Ok(status) = global_status.read() {
-            return status.clone();
-        }
+    if let Some(global_status) = GLOBAL_CUDA_STATUS.get()
+        && let Ok(status) = global_status.read()
+    {
+        return status.clone();
     }
     warn!("The global CUDA state has not been initialized and returns to the default value.");
     CudaStatus::default()

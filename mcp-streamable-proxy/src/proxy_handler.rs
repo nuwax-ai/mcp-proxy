@@ -1001,9 +1001,9 @@ impl ProxyHandler {
         use rmcp::model::PaginatedRequestParams;
 
         let inner_guard = self.peer.load();
-        let inner = inner_guard.as_ref().ok_or_else(|| {
-            "Backend connection is not available (reconnecting)".to_string()
-        })?;
+        let inner = inner_guard
+            .as_ref()
+            .ok_or_else(|| "Backend connection is not available (reconnecting)".to_string())?;
 
         if inner.peer.is_transport_closed() {
             return Err("Backend transport is closed".to_string());
@@ -1012,63 +1012,81 @@ impl ProxyHandler {
         match method {
             "tools/list" => {
                 let request: Option<PaginatedRequestParams> = serde_json::from_value(params).ok();
-                let result = inner.peer.list_tools(request).await
+                let result = inner
+                    .peer
+                    .list_tools(request)
+                    .await
                     .map_err(|e| format!("list_tools error: {:?}", e))?;
-                serde_json::to_value(result)
-                    .map_err(|e| format!("serialize error: {}", e))
+                serde_json::to_value(result).map_err(|e| format!("serialize error: {}", e))
             }
             "tools/call" => {
                 let request: rmcp::model::CallToolRequestParams = serde_json::from_value(params)
                     .map_err(|e| format!("Invalid params for tools/call: {}", e))?;
-                let result = inner.peer.call_tool(request).await
+                let result = inner
+                    .peer
+                    .call_tool(request)
+                    .await
                     .map_err(|e| format!("call_tool error: {:?}", e))?;
-                serde_json::to_value(result)
-                    .map_err(|e| format!("serialize error: {}", e))
+                serde_json::to_value(result).map_err(|e| format!("serialize error: {}", e))
             }
             "resources/list" => {
                 let request: Option<PaginatedRequestParams> = serde_json::from_value(params).ok();
-                let result = inner.peer.list_resources(request).await
+                let result = inner
+                    .peer
+                    .list_resources(request)
+                    .await
                     .map_err(|e| format!("list_resources error: {:?}", e))?;
-                serde_json::to_value(result)
-                    .map_err(|e| format!("serialize error: {}", e))
+                serde_json::to_value(result).map_err(|e| format!("serialize error: {}", e))
             }
             "resources/read" => {
-                let request: rmcp::model::ReadResourceRequestParams = serde_json::from_value(params)
-                    .map_err(|e| format!("Invalid params for resources/read: {}", e))?;
-                let result = inner.peer.read_resource(request).await
+                let request: rmcp::model::ReadResourceRequestParams =
+                    serde_json::from_value(params)
+                        .map_err(|e| format!("Invalid params for resources/read: {}", e))?;
+                let result = inner
+                    .peer
+                    .read_resource(request)
+                    .await
                     .map_err(|e| format!("read_resource error: {:?}", e))?;
-                serde_json::to_value(result)
-                    .map_err(|e| format!("serialize error: {}", e))
+                serde_json::to_value(result).map_err(|e| format!("serialize error: {}", e))
             }
             "prompts/list" => {
                 let request: Option<PaginatedRequestParams> = serde_json::from_value(params).ok();
-                let result = inner.peer.list_prompts(request).await
+                let result = inner
+                    .peer
+                    .list_prompts(request)
+                    .await
                     .map_err(|e| format!("list_prompts error: {:?}", e))?;
-                serde_json::to_value(result)
-                    .map_err(|e| format!("serialize error: {}", e))
+                serde_json::to_value(result).map_err(|e| format!("serialize error: {}", e))
             }
             "prompts/get" => {
-                let request: rmcp::model::GetPromptRequestParams = serde_json::from_value(params)
-                    .map_err(|e| format!("Invalid params for prompts/get: {}", e))?;
-                let result = inner.peer.get_prompt(request).await
+                let request: rmcp::model::GetPromptRequestParams =
+                    serde_json::from_value(params)
+                        .map_err(|e| format!("Invalid params for prompts/get: {}", e))?;
+                let result = inner
+                    .peer
+                    .get_prompt(request)
+                    .await
                     .map_err(|e| format!("get_prompt error: {:?}", e))?;
-                serde_json::to_value(result)
-                    .map_err(|e| format!("serialize error: {}", e))
+                serde_json::to_value(result).map_err(|e| format!("serialize error: {}", e))
             }
             "resources/templates/list" => {
                 let request: Option<PaginatedRequestParams> = serde_json::from_value(params).ok();
-                let result = inner.peer.list_resource_templates(request).await
+                let result = inner
+                    .peer
+                    .list_resource_templates(request)
+                    .await
                     .map_err(|e| format!("list_resource_templates error: {:?}", e))?;
-                serde_json::to_value(result)
-                    .map_err(|e| format!("serialize error: {}", e))
+                serde_json::to_value(result).map_err(|e| format!("serialize error: {}", e))
             }
             "completion/complete" => {
                 let request: rmcp::model::CompleteRequestParams = serde_json::from_value(params)
                     .map_err(|e| format!("Invalid params for completion/complete: {}", e))?;
-                let result = inner.peer.complete(request).await
+                let result = inner
+                    .peer
+                    .complete(request)
+                    .await
                     .map_err(|e| format!("complete error: {:?}", e))?;
-                serde_json::to_value(result)
-                    .map_err(|e| format!("serialize error: {}", e))
+                serde_json::to_value(result).map_err(|e| format!("serialize error: {}", e))
             }
             _ => Err(format!("Unsupported method: {}", method)),
         }

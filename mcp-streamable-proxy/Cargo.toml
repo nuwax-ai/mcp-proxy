@@ -14,7 +14,7 @@ categories = ["web-programming", "network-programming"]
 mcp-common = { version = "0.1.28", path = "../mcp-common" }
 
 # MCP protocol implementation - using forked rmcp-soddygo with non-standard stdout log tolerance
-rmcp = { version = "1.5.0", package = "rmcp-soddygo", features = [
+rmcp = { version = "1.7.0", package = "rmcp-soddygo", features = [
     "server",
     "client",
     "transport-streamable-http-server",
@@ -59,7 +59,7 @@ futures = { workspace = true }
 # 版本需要与 rmcp 0.13 兼容
 # 添加 process-group 特性用于 Unix 平台的进程组管理
 # 添加 job-object 特性用于 Windows 平台的进程树管理
-process-wrap = { version = "9.0.3", features = ["tokio1", "process-group", "job-object"] }
+process-wrap = { version = "9.1", features = ["tokio1", "process-group", "job-object"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = ["Win32_System_Threading"] }

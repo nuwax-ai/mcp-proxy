@@ -147,23 +147,23 @@ impl DocumentTask {
         }
 
         // 验证文档格式支持（若已提供）
-        if let Some(format) = &self.document_format {
-            if !format.is_supported() {
-                return Err(AppError::UnsupportedFormat(format!(
-                    "不支持的文档格式: {format}"
-                )));
-            }
+        if let Some(format) = &self.document_format
+            && !format.is_supported()
+        {
+            return Err(AppError::UnsupportedFormat(format!(
+                "不支持的文档格式: {format}"
+            )));
         }
 
         // 验证解析引擎与格式匹配（若两者均已提供）
-        if let (Some(engine), Some(format)) = (&self.parser_engine, &self.document_format) {
-            if !engine.supports_format(format) {
-                return Err(AppError::Validation(format!(
-                    "解析引擎 {} 不支持格式 {}",
-                    engine.get_name(),
-                    format
-                )));
-            }
+        if let (Some(engine), Some(format)) = (&self.parser_engine, &self.document_format)
+            && !engine.supports_format(format)
+        {
+            return Err(AppError::Validation(format!(
+                "解析引擎 {} 不支持格式 {}",
+                engine.get_name(),
+                format
+            )));
         }
 
         // 验证进度范围
@@ -373,12 +373,12 @@ impl SourceType {
     pub fn validate_source_path(&self, path: &Option<String>) -> Result<(), AppError> {
         match self {
             SourceType::Upload => {
-                if let Some(p) = path {
-                    if p.is_empty() {
-                        return Err(AppError::Validation("文件上传路径不能为空".to_string()));
-                    }
-                    // 可以添加更多文件路径验证逻辑
+                if let Some(p) = path
+                    && p.is_empty()
+                {
+                    return Err(AppError::Validation("文件上传路径不能为空".to_string()));
                 }
+                // 可以添加更多文件路径验证逻辑
             }
             SourceType::Url => {
                 // 变更：URL 任务的下载地址存放于 source_url 字段，此处不再强制要求 source_path

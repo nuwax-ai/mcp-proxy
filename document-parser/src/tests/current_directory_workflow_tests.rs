@@ -246,7 +246,7 @@ mod tests {
         let actual_python_path = EnvironmentManager::get_venv_python_path(&venv_path);
 
         // 规范化路径以避免符号链接问题
-        let expected_canonical = expected_python_path
+        let _expected_canonical = expected_python_path
             .canonicalize()
             .unwrap_or(expected_python_path);
         let actual_canonical = actual_python_path
@@ -388,7 +388,7 @@ mod tests {
         }
 
         // 创建应用状态来模拟服务器启动
-        let app_state = test_env
+        let _app_state = test_env
             .create_test_app_state()
             .await
             .expect("Failed to create app state");
@@ -465,7 +465,7 @@ mod tests {
             .expect("Failed to create mock virtual environment");
 
         // 创建应用状态
-        let app_state = test_env
+        let _app_state = test_env
             .create_test_app_state()
             .await
             .expect("Failed to create app state");
@@ -735,7 +735,7 @@ mod tests {
         assert_eq!(venv_status.expected_path.as_deref(), Some("./venv"));
 
         // 步骤6：验证服务器可以启动
-        let app_state = test_env
+        let _app_state = test_env
             .create_test_app_state()
             .await
             .expect("Failed to create app state");
@@ -768,7 +768,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "Changes global current directory, causes race conditions with parallel tests"]
     async fn test_environment_manager_factory_methods() {
-        let test_env = CurrentDirectoryTestEnvironment::new()
+        let _test_env = CurrentDirectoryTestEnvironment::new()
             .await
             .expect("Failed to create test environment");
 

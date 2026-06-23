@@ -127,7 +127,8 @@ impl StreamClientConnection {
             Duration::from_secs(60), // 最大间隔 60 秒
         );
 
-        let mut transport_config = StreamableHttpClientTransportConfig::with_uri(config.url.clone());
+        let mut transport_config =
+            StreamableHttpClientTransportConfig::with_uri(config.url.clone());
         transport_config.retry_config = Arc::new(retry_policy);
 
         let transport = StreamableHttpClientTransport::with_client(http_client, transport_config);
@@ -161,7 +162,7 @@ impl StreamClientConnection {
     }
 
     /// Get the peer info from the server
-    pub fn peer_info(&self) -> Option<&rmcp::model::ServerInfo> {
+    pub fn peer_info(&self) -> Option<Arc<rmcp::model::ServerInfo>> {
         self.inner.peer_info()
     }
 
@@ -222,12 +223,7 @@ fn build_http_client(config: &McpClientConfig) -> Result<reqwest::Client> {
 
 /// Create default client info for MCP handshake
 fn create_default_client_info() -> ClientInfo {
-    let capabilities = ClientCapabilities::builder()
-        .enable_experimental()
-        .enable_roots()
-        .enable_roots_list_changed()
-        .enable_sampling()
-        .build();
+    let capabilities = ClientCapabilities::builder().enable_experimental().build();
     ClientInfo::new(
         capabilities,
         Implementation::new("mcp-streamable-proxy-client", env!("CARGO_PKG_VERSION")),

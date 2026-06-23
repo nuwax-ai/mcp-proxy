@@ -181,15 +181,10 @@ impl std::fmt::Display for TtsTaskError {
 }
 
 /// TTS任务优先级 (复用现有的TaskPriority)
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema, Default)]
 pub enum TaskPriority {
     Low = 1,
+    #[default]
     Normal = 2,
     High = 3,
-}
-
-impl Default for TaskPriority {
-    fn default() -> Self {
-        TaskPriority::Normal
-    }
 }

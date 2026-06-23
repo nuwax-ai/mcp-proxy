@@ -172,10 +172,10 @@ fn is_multipart_request(method: &Method, uri: &Uri, headers: &HeaderMap) -> bool
     let _ = method;
     let _ = uri;
     // 检查Content-Type是否包含multipart
-    if let Some(content_type) = headers.get("content-type") {
-        if let Ok(content_type_str) = content_type.to_str() {
-            return content_type_str.contains("multipart/form-data");
-        }
+    if let Some(content_type) = headers.get("content-type")
+        && let Ok(content_type_str) = content_type.to_str()
+    {
+        return content_type_str.contains("multipart/form-data");
     }
     false
 }
@@ -271,12 +271,12 @@ fn is_file_upload_request(method: &Method, uri: &Uri, headers: &HeaderMap) -> bo
     }
 
     // 检查Content-Type是否包含multipart或媒体文件
-    if let Some(content_type) = headers.get("content-type") {
-        if let Ok(content_type_str) = content_type.to_str() {
-            return content_type_str.contains("multipart/form-data")
-                || content_type_str.contains("audio/")
-                || content_type_str.contains("video/");
-        }
+    if let Some(content_type) = headers.get("content-type")
+        && let Ok(content_type_str) = content_type.to_str()
+    {
+        return content_type_str.contains("multipart/form-data")
+            || content_type_str.contains("audio/")
+            || content_type_str.contains("video/");
     }
 
     false
@@ -309,13 +309,13 @@ fn extract_client_ip(headers: &HeaderMap) -> String {
     ];
 
     for header_name in &ip_headers {
-        if let Some(header_value) = headers.get(*header_name) {
-            if let Ok(ip_str) = header_value.to_str() {
-                // x-forwarded-for 可能包含多个IP，取第一个
-                let ip = ip_str.split(',').next().unwrap_or(ip_str).trim();
-                if !ip.is_empty() && ip != "unknown" {
-                    return ip.to_string();
-                }
+        if let Some(header_value) = headers.get(*header_name)
+            && let Ok(ip_str) = header_value.to_str()
+        {
+            // x-forwarded-for 可能包含多个IP，取第一个
+            let ip = ip_str.split(',').next().unwrap_or(ip_str).trim();
+            if !ip.is_empty() && ip != "unknown" {
+                return ip.to_string();
             }
         }
     }
@@ -327,13 +327,6 @@ fn extract_client_ip(headers: &HeaderMap) -> String {
 mod tests {
     use super::*;
     use axum::http::{HeaderName, HeaderValue};
-
-    #[test]
-    fn test_middleware_module_exists() {
-        // Simple test to verify the module compiles
-        // Actual middleware testing would require more complex setup
-        assert!(true);
-    }
 
     #[test]
     fn test_is_multipart_request() {

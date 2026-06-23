@@ -814,23 +814,23 @@ impl EnhancedHealthCheckManager {
                 let status = SystemHealthStatus::new(results);
 
                 // 更新指标
-                if let Some(ref registry) = metrics_registry {
-                    if let Err(e) = Self::update_health_metrics_static(registry, &status).await {
-                        tracing::warn!("Failed to update health check indicators: {}", e);
-                    }
+                if let Some(ref registry) = metrics_registry
+                    && let Err(e) = Self::update_health_metrics_static(registry, &status).await
+                {
+                    tracing::warn!("Failed to update health check indicators: {}", e);
                 }
 
                 // 记录状态变化
                 {
                     let mut last_check_guard = last_check.write().await;
-                    if let Some(ref previous) = *last_check_guard {
-                        if previous.overall_status != status.overall_status {
-                            tracing::warn!(
-                                previous_status = %previous.overall_status,
-                                new_status = %status.overall_status,
-                                "System health status changed"
-                            );
-                        }
+                    if let Some(ref previous) = *last_check_guard
+                        && previous.overall_status != status.overall_status
+                    {
+                        tracing::warn!(
+                            previous_status = %previous.overall_status,
+                            new_status = %status.overall_status,
+                            "System health status changed"
+                        );
                     }
                     *last_check_guard = Some(status);
                 }

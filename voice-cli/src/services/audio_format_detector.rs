@@ -2,11 +2,10 @@ use bytes::Bytes;
 use infer::{self, Type};
 use std::io::Cursor;
 use std::path::Path;
-use symphonia::core::formats::{FormatReader, Track};
+use symphonia::core::formats::probe::Hint;
+use symphonia::core::formats::{FormatOptions, FormatReader, TrackType};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
-use symphonia::core::probe::ProbeResult;
 use symphonia::default::get_probe;
 use tracing::{error, info, warn};
 
@@ -76,25 +75,24 @@ impl AudioFormatDetector {
 
         // Create a hint based on filename if available
         let mut hint = Hint::new();
-        if let Some(filename) = filename {
-            if let Some(extension) = std::path::Path::new(filename)
+        if let Some(filename) = filename
+            && let Some(extension) = std::path::Path::new(filename)
                 .extension()
                 .and_then(|ext| ext.to_str())
-            {
-                hint.with_extension(extension);
-            }
+        {
+            hint.with_extension(extension);
         }
 
         // Get the default probe
         let probe = get_probe();
 
         // Attempt to probe the media source
-        let probe_result = probe
-            .format(
+        let reader = probe
+            .probe(
                 &hint,
                 media_source,
-                &FormatOptions::default(),
-                &MetadataOptions::default(),
+                FormatOptions::default(),
+                MetadataOptions::default(),
             )
             .map_err(|e| {
                 warn!("Symphonia probe failed: {}", e);
@@ -102,29 +100,31 @@ impl AudioFormatDetector {
             })?;
 
         // Extract format information
-        let format_info = Self::extract_format_info(&probe_result)?;
+        let format_info = Self::extract_format_info(reader.as_ref())?;
 
         Ok(format_info)
     }
 
-    /// Extract format and metadata information from Symphonia probe result
-    fn extract_format_info(probe_result: &ProbeResult) -> Result<AudioFormatResult, VoiceCliError> {
-        let reader = &probe_result.format;
-        let tracks = reader.tracks();
+    /// Extract format and metadata information from Symphonia format reader
+    fn extract_format_info(reader: &dyn FormatReader) -> Result<AudioFormatResult, VoiceCliError> {
+        // Use default_track to find the primary audio track
+        let track = reader.default_track(TrackType::Audio).ok_or_else(|| {
+            VoiceCliError::UnsupportedFormat("No audio tracks found in file".to_string())
+        })?;
 
-        // Find the first audio track (any track with codec parameters)
-        let track = tracks
-            .iter()
-            .find(|t| t.codec_params.codec != symphonia::core::codecs::CODEC_TYPE_NULL)
+        let audio_params = track
+            .codec_params
+            .as_ref()
+            .and_then(|p| p.audio())
             .ok_or_else(|| {
-                VoiceCliError::UnsupportedFormat("No audio tracks found in file".to_string())
+                VoiceCliError::UnsupportedFormat("No audio codec parameters found".to_string())
             })?;
 
         // Convert codec type to our AudioFormat
-        let format = AudioFormat::from_symphonia_codec(track.codec_params.codec);
+        let format = AudioFormat::from_symphonia_codec(audio_params.codec);
 
         // Extract metadata
-        let metadata = Self::extract_metadata(track, reader);
+        let metadata = Self::extract_metadata(audio_params);
 
         // Calculate confidence based on detection success
         let confidence = if format != AudioFormat::Unknown {
@@ -136,7 +136,7 @@ impl AudioFormatDetector {
         if format == AudioFormat::Unknown {
             return Err(VoiceCliError::UnsupportedFormat(format!(
                 "Unsupported codec type: {:?}",
-                track.codec_params.codec
+                audio_params.codec
             )));
         }
 
@@ -148,24 +148,17 @@ impl AudioFormatDetector {
         })
     }
 
-    /// Extract detailed audio metadata from track and format reader
-    fn extract_metadata(track: &Track, _reader: &Box<dyn FormatReader>) -> AudioMetadata {
-        let codec_params = &track.codec_params;
-
+    /// Extract detailed audio metadata from audio codec parameters
+    fn extract_metadata(
+        audio_params: &symphonia::core::codecs::audio::AudioCodecParameters,
+    ) -> AudioMetadata {
         // Extract basic parameters
-        let sample_rate = codec_params.sample_rate;
-        let channels = codec_params.channels.map(|ch| ch.count() as u8);
-        let bit_depth = codec_params.bits_per_sample.map(|bits| bits as u8);
+        let sample_rate = audio_params.sample_rate;
+        let channels = audio_params.channels.as_ref().map(|ch| ch.count() as u8);
+        let bit_depth = audio_params.bits_per_sample.map(|bits| bits as u8);
 
-        // Calculate duration if time base and n_frames are available
-        let duration = if let (Some(time_base), Some(n_frames)) =
-            (codec_params.time_base, codec_params.n_frames)
-        {
-            let duration_secs = n_frames as f64 * time_base.numer as f64 / time_base.denom as f64;
-            Some(std::time::Duration::from_secs_f64(duration_secs))
-        } else {
-            None
-        };
+        // Duration is no longer available directly from codec params in symphonia 0.6
+        let duration = None;
 
         // Estimate bitrate if possible
         let bitrate = if let (Some(sample_rate), Some(channels), Some(bit_depth)) =
@@ -177,7 +170,7 @@ impl AudioFormatDetector {
         };
 
         // Create codec info string
-        let codec_info = format!("Codec: {:?}", codec_params.codec);
+        let codec_info = format!("Codec: {:?}", audio_params.codec);
 
         AudioMetadata {
             duration,
@@ -209,9 +202,6 @@ impl AudioFormatDetector {
         Ok(())
     }
 }
-
-// Import FormatOptions for compilation
-use symphonia::core::formats::FormatOptions;
 
 #[cfg(test)]
 mod tests {

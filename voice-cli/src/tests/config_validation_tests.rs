@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod config_validation_tests {
+mod tests {
     use crate::models::{
         AudioProcessingConfig, Config, DaemonConfig, LoggingConfig, ServerConfig,
         TaskManagementConfig, TtsConfig, WhisperConfig, WorkersConfig,

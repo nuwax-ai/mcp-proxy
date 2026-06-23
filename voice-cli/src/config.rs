@@ -67,7 +67,7 @@ impl ConfigTemplateGenerator {
 
     /// 生成所有类型的配置文件到指定目录
     pub fn generate_all_configs(
-        output_dir: &PathBuf,
+        output_dir: &std::path::Path,
     ) -> crate::Result<HashMap<ServiceType, PathBuf>> {
         let mut generated_files = HashMap::new();
 

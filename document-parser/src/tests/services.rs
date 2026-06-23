@@ -771,10 +771,7 @@ More content."#;
 
         // The operation might complete quickly or timeout
         // Either result is acceptable for this test
-        match timeout_result {
-            Ok(_) => {}  // Operation completed quickly
-            Err(_) => {} // Operation timed out
-        }
+        let _ = timeout_result;
     }
 
     #[tokio::test]
@@ -812,7 +809,6 @@ More content."#;
         let cleaned_count = storage_service.cleanup_expired_data().await.unwrap();
 
         // 验证清理结果
-        assert!(cleaned_count >= 0, "Cleaned count should be non-negative");
         println!("Cleaned {cleaned_count} expired records");
     }
 }

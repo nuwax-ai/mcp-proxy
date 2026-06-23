@@ -206,7 +206,7 @@ mod document_processor_tests {
         task.file_size = Some(1024);
 
         // 测试处理文档 - 由于是假的PDF内容，应该会失败
-        let result = processor
+        let _result = processor
             .parse_document_auto(test_file.to_str().unwrap())
             .await;
         // 由于文件内容不是真正的PDF，解析应该失败
@@ -369,7 +369,7 @@ mod markdown_processor_tests {
 
         let processor = MarkdownProcessor::default();
 
-        let structured_doc =
+        let _structured_doc =
             StructuredDocument::new(Uuid::new_v4().to_string(), "Empty Document".to_string())
                 .unwrap();
 
@@ -669,7 +669,7 @@ mod integration_processor_tests {
         let markdown_processor = MarkdownProcessor::default();
 
         // 创建临时输出目录
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let _temp_dir = TempDir::new().expect("Failed to create temp dir");
 
         // 模拟图片处理器
         let image_processor = crate::services::ImageProcessor::new(
@@ -701,7 +701,7 @@ mod integration_processor_tests {
         task.parser_engine = Some(ParserEngine::MinerU);
         task.file_size = Some(1024);
         task.mime_type = Some("application/pdf".to_string());
-        let output_dir = temp_dir.path().to_str().unwrap();
+        let _output_dir = temp_dir.path().to_str().unwrap();
 
         // 步骤1: 文档处理
         let doc_result = doc_processor
@@ -709,7 +709,7 @@ mod integration_processor_tests {
             .await;
 
         match doc_result {
-            Ok(parse_result) => {
+            Ok(_parse_result) => {
                 // 步骤2: 解析Markdown内容
                 let markdown_content = "# Test Document\n\nThis is test content.";
                 let markdown_result = markdown_processor
@@ -777,7 +777,7 @@ mod integration_processor_tests {
         task.mime_type = Some("application/pdf".to_string());
 
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        let output_dir = temp_dir.path().to_str().unwrap();
+        let _output_dir = temp_dir.path().to_str().unwrap();
 
         // 文档处理应该失败
         let doc_result = doc_processor.parse("/nonexistent/path.pdf").await;
@@ -867,7 +867,7 @@ Final thoughts
         let result = processor.parse_markdown_with_toc(complex_content).await;
         assert!(result.is_ok());
 
-        let doc_structure = result.unwrap();
+        let _doc_structure = result.unwrap();
 
         // 验证TOC结构
         let toc = processor.extract_table_of_contents(complex_content).await;
@@ -1058,8 +1058,8 @@ Text content here.
 
         use crate::services::ImageProcessor;
 
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        let processor = ImageProcessor::new(ImageProcessorConfig::default(), None);
+        let _temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let _processor = ImageProcessor::new(ImageProcessorConfig::default(), None);
 
         // 测试基本功能 - 验证处理器创建成功
         // ImageProcessor 没有 is_ok 方法，我们通过测试其他功能来验证创建成功
@@ -1079,7 +1079,7 @@ Text content here.
 
         use crate::services::ImageProcessor;
 
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let _temp_dir = TempDir::new().expect("Failed to create temp dir");
         let processor = ImageProcessor::new(ImageProcessorConfig::default(), None);
 
         // 测试无效路径 - 使用批处理方法
@@ -1106,7 +1106,7 @@ Text content here.
 
         use crate::services::ImageProcessor;
 
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let _temp_dir = TempDir::new().expect("Failed to create temp dir");
         let processor = ImageProcessor::new(ImageProcessorConfig::default(), None);
 
         // 测试批处理
@@ -1262,10 +1262,7 @@ mod processor_error_handling_tests {
             let result = processor.parse_markdown_with_toc(input).await;
             // Should handle malformed input gracefully
             // Either succeed with best-effort parsing or fail gracefully
-            match result {
-                Ok(_) => {}  // Graceful handling
-                Err(_) => {} // Graceful failure
-            }
+            let _ = result;
         }
     }
 
@@ -1276,7 +1273,7 @@ mod processor_error_handling_tests {
 
         use crate::services::ImageProcessor;
 
-        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let _temp_dir = TempDir::new().expect("Failed to create temp dir");
         let processor = ImageProcessor::new(ImageProcessorConfig::default(), None);
 
         // Test error scenarios

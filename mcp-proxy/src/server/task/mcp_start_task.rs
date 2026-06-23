@@ -304,11 +304,7 @@ async fn connect_stream_backend(
 
     let url_config = match mcp_config {
         McpServerConfig::Url(url_config) => url_config,
-        _ => {
-            return Err(anyhow::anyhow!(
-                "Stream backend requires URL-based config"
-            ))
-        }
+        _ => return Err(anyhow::anyhow!("Stream backend requires URL-based config")),
     };
 
     let url = url_config.get_url();
@@ -370,7 +366,7 @@ fn build_sse_backend_config(
             McpProtocol::Stream => Err(anyhow::anyhow!(
                 "Stream backend should be handled via connect_stream_backend(), \
                  not build_sse_backend_config()"
-            ))
+            )),
         },
     }
 }
@@ -588,5 +584,3 @@ async fn base_path_fallback_handler(
         )
     }
 }
-
-

@@ -54,7 +54,7 @@ async fn test_image_extraction_from_directory() {
 
 #[tokio::test]
 async fn test_error_handling_and_recovery() {
-    let temp_dir = TempDir::new().unwrap();
+    let _temp_dir = TempDir::new().unwrap();
     let config = ImageProcessorConfig::default();
     let processor = ImageProcessor::new(config, None);
 

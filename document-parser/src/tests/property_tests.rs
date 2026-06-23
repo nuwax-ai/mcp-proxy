@@ -63,7 +63,7 @@ impl Arbitrary for ProcessingStage {
 }
 
 #[cfg(test)]
-mod property_tests {
+mod tests {
     use super::*;
 
     #[quickcheck]
@@ -185,101 +185,5 @@ mod property_tests {
         } else {
             true // Invalid sizes are handled appropriately
         }
-    }
-}
-
-/// Test utilities for generating test data
-pub mod generators {
-    use super::*;
-
-    /// Generate a valid test DocumentTask
-    pub fn generate_test_document_task() -> DocumentTask {
-        // 安全初始化全局配置
-        safe_init_global_config();
-        {
-            let mut t = DocumentTask::new(
-                Uuid::new_v4().to_string(),
-                SourceType::Upload,
-                Some("/tmp/test.pdf".to_string()),
-                Some("test.pdf".to_string()),
-                Some(DocumentFormat::PDF),
-                Some("pipeline".to_string()),
-                Some(24),
-                Some(3),
-            );
-            t.parser_engine = Some(ParserEngine::MinerU);
-            t.file_size = Some(1024 * 1024);
-            t.mime_type = Some("application/pdf".to_string());
-            t
-        }
-    }
-
-    /// Generate test markdown content with various structures
-    pub fn generate_test_markdown_content() -> Vec<String> {
-        vec![
-            // Simple document
-            r#"# Title
-Content here.
-"#
-            .to_string(),
-            // Nested headings
-            r#"# Chapter 1
-Introduction content.
-
-## Section 1.1
-Section content.
-
-### Subsection 1.1.1
-Subsection content.
-
-## Section 1.2
-More content.
-
-# Chapter 2
-Second chapter.
-"#
-            .to_string(),
-            // Document with images and links
-            r#"# Document with Media
-![Image](image.png)
-[Link](http://example.com)
-
-## Content Section
-Regular content here.
-"#
-            .to_string(),
-            // Empty document
-            "".to_string(),
-            // Document with special characters
-            r#"# 中文标题
-中文内容测试。
-
-## English Section
-Mixed content with 特殊字符 and symbols: @#$%^&*()
-"#
-            .to_string(),
-        ]
-    }
-
-    /// Generate test error scenarios
-    pub fn generate_test_errors() -> Vec<TaskError> {
-        vec![
-            TaskError::new(
-                "E001".to_string(),
-                "File not found".to_string(),
-                Some(ProcessingStage::DownloadingDocument),
-            ),
-            TaskError::new(
-                "E002".to_string(),
-                "Invalid file format".to_string(),
-                Some(ProcessingStage::FormatDetection),
-            ),
-            TaskError::new(
-                "E003".to_string(),
-                "Parser execution failed".to_string(),
-                Some(ProcessingStage::MinerUExecuting),
-            ),
-            TaskError::new("E004".to_string(), "Network timeout".to_string(), None),
-        ]
     }
 }

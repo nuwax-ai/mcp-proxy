@@ -245,7 +245,6 @@ fn get_config_path_for_server_action(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
 
     #[test]
     fn test_cli_parsing() {

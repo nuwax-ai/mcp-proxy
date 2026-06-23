@@ -548,26 +548,25 @@ impl MonitoringIntegration {
 
 impl MetricsCollector for SystemMetricsCollector {
     fn collect_metrics(&self) -> Result<Vec<Metric>> {
-        let mut metrics = Vec::new();
-
         // 收集系统指标
-        metrics.push(Metric {
-            name: "system_cpu_usage".to_string(),
-            value: 0.5, // 这里应该从系统获取实际值
-            metric_type: MetricType::Gauge,
-            labels: HashMap::new(),
-            timestamp: SystemTime::now(),
-            help: Some("系统 CPU 使用率".to_string()),
-        });
-
-        metrics.push(Metric {
-            name: "system_memory_usage".to_string(),
-            value: 0.7,
-            metric_type: MetricType::Gauge,
-            labels: HashMap::new(),
-            timestamp: SystemTime::now(),
-            help: Some("系统内存使用率".to_string()),
-        });
+        let metrics = vec![
+            Metric {
+                name: "system_cpu_usage".to_string(),
+                value: 0.5, // 这里应该从系统获取实际值
+                metric_type: MetricType::Gauge,
+                labels: HashMap::new(),
+                timestamp: SystemTime::now(),
+                help: Some("系统 CPU 使用率".to_string()),
+            },
+            Metric {
+                name: "system_memory_usage".to_string(),
+                value: 0.7,
+                metric_type: MetricType::Gauge,
+                labels: HashMap::new(),
+                timestamp: SystemTime::now(),
+                help: Some("系统内存使用率".to_string()),
+            },
+        ];
 
         Ok(metrics)
     }
@@ -579,17 +578,15 @@ impl MetricsCollector for SystemMetricsCollector {
 
 impl MetricsCollector for ApplicationMetricsCollector {
     fn collect_metrics(&self) -> Result<Vec<Metric>> {
-        let mut metrics = Vec::new();
-
         // 这里应该收集应用特定的指标
-        metrics.push(Metric {
+        let metrics = vec![Metric {
             name: "app_requests_total".to_string(),
             value: 1000.0,
             metric_type: MetricType::Counter,
             labels: HashMap::new(),
             timestamp: SystemTime::now(),
             help: Some("应用请求总数".to_string()),
-        });
+        }];
 
         Ok(metrics)
     }

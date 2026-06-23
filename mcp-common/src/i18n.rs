@@ -146,7 +146,7 @@ fn normalize_locale(input: &str) -> String {
     }
 
     // 尝试解析语言-地区格式
-    let parts: Vec<&str> = input.split(|c| c == '-' || c == '_').collect();
+    let parts: Vec<&str> = input.split(['-', '_']).collect();
     if parts.len() >= 2 {
         let lang = parts[0].to_lowercase();
         let region = parts[1].to_uppercase();

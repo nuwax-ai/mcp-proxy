@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod config_env_tests {
+mod tests {
     use crate::models::Config;
     use std::collections::HashMap;
     use std::env;
@@ -69,23 +69,6 @@ mod config_env_tests {
 
         // Add a small delay to ensure environment changes propagate
         std::thread::sleep(std::time::Duration::from_millis(10));
-    }
-
-    // Cleanup function to restore original environment state
-    fn restore_original_env_vars() {
-        let lock = get_test_env_lock();
-        let env_state = lock.lock().unwrap();
-
-        for (key, original_value) in env_state.iter() {
-            match original_value {
-                Some(value) => unsafe {
-                    env::set_var(key, value);
-                },
-                None => unsafe {
-                    env::remove_var(key);
-                },
-            }
-        }
     }
 
     #[test]

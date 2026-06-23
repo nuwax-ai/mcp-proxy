@@ -1128,11 +1128,11 @@ impl EnvironmentManager {
     #[instrument(skip(self))]
     pub async fn check_environment(&self) -> Result<EnvironmentStatus, AppError> {
         // 检查缓存
-        if let Some(cached_status) = self.get_cached_status().await {
-            if !cached_status.is_cache_expired(self.cache_ttl) {
-                debug!("Using cached environment state");
-                return Ok(cached_status);
-            }
+        if let Some(cached_status) = self.get_cached_status().await
+            && !cached_status.is_cache_expired(self.cache_ttl)
+        {
+            debug!("Using cached environment state");
+            return Ok(cached_status);
         }
 
         let start_time = std::time::SystemTime::now();
@@ -1382,10 +1382,10 @@ impl EnvironmentManager {
                 }
             }
 
-            if compat.upgrade_available {
-                if let Some(ref rec) = compat.upgrade_recommendation {
-                    report.push_str(&format!("升级建议: {rec}\n"));
-                }
+            if compat.upgrade_available
+                && let Some(ref rec) = compat.upgrade_recommendation
+            {
+                report.push_str(&format!("升级建议: {rec}\n"));
             }
         }
 
@@ -1444,10 +1444,10 @@ impl EnvironmentManager {
                 }
             }
 
-            if compat.upgrade_available {
-                if let Some(ref rec) = compat.upgrade_recommendation {
-                    report.push_str(&format!("升级建议: {rec}\n"));
-                }
+            if compat.upgrade_available
+                && let Some(ref rec) = compat.upgrade_recommendation
+            {
+                report.push_str(&format!("升级建议: {rec}\n"));
             }
         }
 
@@ -1693,20 +1693,17 @@ impl EnvironmentManager {
                 .map(|dir| Self::get_venv_python_path(&dir.join("venv")))
                 .ok();
 
-            if let Some(expected_path) = expected_python_path {
-                if !expected_path.exists() {
-                    let issue = EnvironmentIssue {
-                        component: "Virtual Environment".to_string(),
-                        severity: IssueSeverity::Medium,
-                        message: format!(
-                            "预期的Python可执行文件不存在: {}",
-                            expected_path.display()
-                        ),
-                        suggestion: "重新创建虚拟环境: 运行 'document-parser uv-init'".to_string(),
-                        auto_fixable: true,
-                    };
-                    status.issues.push(issue);
-                }
+            if let Some(expected_path) = expected_python_path
+                && !expected_path.exists()
+            {
+                let issue = EnvironmentIssue {
+                    component: "Virtual Environment".to_string(),
+                    severity: IssueSeverity::Medium,
+                    message: format!("预期的Python可执行文件不存在: {}", expected_path.display()),
+                    suggestion: "重新创建虚拟环境: 运行 'document-parser uv-init'".to_string(),
+                    auto_fixable: true,
+                };
+                status.issues.push(issue);
             }
         }
     }
@@ -1856,10 +1853,10 @@ impl EnvironmentManager {
                     compat.current_version, compat.minimum_version
                 ));
             }
-            if compat.upgrade_available {
-                if let Some(ref rec) = compat.upgrade_recommendation {
-                    recommendations.push(rec.clone());
-                }
+            if compat.upgrade_available
+                && let Some(ref rec) = compat.upgrade_recommendation
+            {
+                recommendations.push(rec.clone());
             }
         }
 
@@ -1870,10 +1867,10 @@ impl EnvironmentManager {
                     compat.current_version, compat.minimum_version
                 ));
             }
-            if compat.upgrade_available {
-                if let Some(ref rec) = compat.upgrade_recommendation {
-                    recommendations.push(rec.clone());
-                }
+            if compat.upgrade_available
+                && let Some(ref rec) = compat.upgrade_recommendation
+            {
+                recommendations.push(rec.clone());
             }
         }
 
@@ -2222,12 +2219,12 @@ impl EnvironmentManager {
         let version = version_output.trim().to_string();
 
         // 验证Python版本是否符合要求（3.8+）
-        if let Some(version_num) = self.extract_python_version(&version) {
-            if version_num < (3, 8) {
-                return Err(AppError::Environment(format!(
-                    "Python版本过低: {version}，需要3.8或更高版本"
-                )));
-            }
+        if let Some(version_num) = self.extract_python_version(&version)
+            && version_num < (3, 8)
+        {
+            return Err(AppError::Environment(format!(
+                "Python版本过低: {version}，需要3.8或更高版本"
+            )));
         }
 
         // 检查虚拟环境（带超时）
@@ -2275,13 +2272,13 @@ impl EnvironmentManager {
         if parts.len() >= 2 {
             let version_part = parts[1];
             let version_nums: Vec<&str> = version_part.split('.').collect();
-            if version_nums.len() >= 2 {
-                if let (Ok(major), Ok(minor)) = (
+            if version_nums.len() >= 2
+                && let (Ok(major), Ok(minor)) = (
                     version_nums[0].parse::<u32>(),
                     version_nums[1].parse::<u32>(),
-                ) {
-                    return Some((major, minor));
-                }
+                )
+            {
+                return Some((major, minor));
             }
         }
         None
@@ -2369,20 +2366,20 @@ impl EnvironmentManager {
     /// 解析CUDA设备信息
     fn parse_cuda_device_info(&self, line: &str) -> Option<CudaDevice> {
         let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
-        if parts.len() >= 5 {
-            if let (Ok(id), Ok(memory_total), Ok(memory_free)) = (
+        if parts.len() >= 5
+            && let (Ok(id), Ok(memory_total), Ok(memory_free)) = (
                 parts[0].parse::<u32>(),
                 parts[2].parse::<u64>(),
                 parts[3].parse::<u64>(),
-            ) {
-                return Some(CudaDevice {
-                    id,
-                    name: parts[1].to_string(),
-                    memory_total: memory_total * 1024 * 1024, // 转换为字节
-                    memory_free: memory_free * 1024 * 1024,   // 转换为字节
-                    compute_capability: parts[4].to_string(),
-                });
-            }
+            )
+        {
+            return Some(CudaDevice {
+                id,
+                name: parts[1].to_string(),
+                memory_total: memory_total * 1024 * 1024, // 转换为字节
+                memory_free: memory_free * 1024 * 1024,   // 转换为字节
+                compute_capability: parts[4].to_string(),
+            });
         }
         None
     }
@@ -2394,11 +2391,11 @@ impl EnvironmentManager {
             .arg("--format=csv,noheader,nounits")
             .output();
 
-        if let Ok(Ok(output)) = timeout(Duration::from_secs(5), version_cmd).await {
-            if output.status.success() {
-                let version_str = String::from_utf8_lossy(&output.stdout);
-                return Some(version_str.trim().to_string());
-            }
+        if let Ok(Ok(output)) = timeout(Duration::from_secs(5), version_cmd).await
+            && output.status.success()
+        {
+            let version_str = String::from_utf8_lossy(&output.stdout);
+            return Some(version_str.trim().to_string());
         }
         None
     }
@@ -3959,11 +3956,9 @@ print('MarkItDown功能验证成功')
             .await;
 
         // 如果在中国大陆，配置模型源
-        if is_china {
-            if let Err(e) = self.configure_mineru_model_source().await {
-                warn!("Failed to configure MinerU model source: {}", e);
-                // 不阻断安装流程，只记录警告
-            }
+        if is_china && let Err(e) = self.configure_mineru_model_source().await {
+            warn!("Failed to configure MinerU model source: {}", e);
+            // 不阻断安装流程，只记录警告
         }
 
         self.send_progress("MinerU", InstallStage::Verifying, 90.0, "验证MinerU安装")
@@ -4094,17 +4089,17 @@ print('MarkItDown功能验证成功')
     /// 检测是否在中国大陆地区
     async fn is_china_region(&self) -> bool {
         // 检查时区
-        if let Ok(tz) = std::env::var("TZ") {
-            if tz.contains("Asia/Shanghai") || tz.contains("Asia/Beijing") {
-                return true;
-            }
+        if let Ok(tz) = std::env::var("TZ")
+            && (tz.contains("Asia/Shanghai") || tz.contains("Asia/Beijing"))
+        {
+            return true;
         }
 
         // 检查语言环境
-        if let Ok(lang) = std::env::var("LANG") {
-            if lang.contains("zh_CN") {
-                return true;
-            }
+        if let Ok(lang) = std::env::var("LANG")
+            && lang.contains("zh_CN")
+        {
+            return true;
         }
 
         // 检查系统语言（macOS）
@@ -4130,10 +4125,9 @@ print('MarkItDown功能验证成功')
             .arg("baidu.com")
             .output()
             .await
+            && output.status.success()
         {
-            if output.status.success() {
-                return true;
-            }
+            return true;
         }
 
         false
@@ -4216,14 +4210,14 @@ print('MarkItDown功能验证成功')
         }
 
         // 检查虚拟环境是否已经激活
-        if let Ok(virtual_env) = std::env::var("VIRTUAL_ENV") {
-            if virtual_env == venv_path.to_string_lossy() {
-                debug!(
-                    "The virtual environment has been activated: {}",
-                    virtual_env
-                );
-                return Ok(());
-            }
+        if let Ok(virtual_env) = std::env::var("VIRTUAL_ENV")
+            && virtual_env == venv_path.to_string_lossy()
+        {
+            debug!(
+                "The virtual environment has been activated: {}",
+                virtual_env
+            );
+            return Ok(());
         }
 
         // 检查Python可执行文件是否存在

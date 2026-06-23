@@ -453,10 +453,8 @@ impl ProductionLogger {
                     !buffer.entries.is_empty()
                 };
 
-                if should_flush {
-                    if let Err(e) = logger.flush_buffer().await {
-                        error!("Failed to refresh the log buffer regularly: {}", e);
-                    }
+                if should_flush && let Err(e) = logger.flush_buffer().await {
+                    error!("Failed to refresh the log buffer regularly: {}", e);
                 }
             }
         });

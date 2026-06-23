@@ -262,7 +262,7 @@ fn init_otlp_tracing(logging: &LoggingArgs, mcp_name: Option<&str>, quiet: bool)
 
 /// 生成随机会话 ID（8 位十六进制）
 pub fn generate_session_id() -> String {
-    use rand::Rng;
+    use rand::RngExt;
     let mut rng = rand::rng();
     format!("{:08x}", rng.random::<u32>())
 }

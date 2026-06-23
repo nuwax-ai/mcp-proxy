@@ -63,7 +63,10 @@ impl ProxyAwareSessionManager {
     const DEFAULT_SESSION_KEEP_ALIVE_SECS: u64 = 30 * 60;
 
     pub fn new(handler: Arc<ProxyHandler>) -> Self {
-        Self::with_keep_alive(handler, Duration::from_secs(Self::DEFAULT_SESSION_KEEP_ALIVE_SECS))
+        Self::with_keep_alive(
+            handler,
+            Duration::from_secs(Self::DEFAULT_SESSION_KEEP_ALIVE_SECS),
+        )
     }
 
     pub fn with_keep_alive(handler: Arc<ProxyHandler>, keep_alive: Duration) -> Self {

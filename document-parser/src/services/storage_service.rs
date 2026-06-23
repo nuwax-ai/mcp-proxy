@@ -421,10 +421,10 @@ impl StorageService {
         let cache = self.memory_cache.read().await;
         if let Some(cache_item) = cache.get(task_id) {
             // 检查是否过期
-            if let Some(expires_at) = cache_item.expires_at {
-                if SystemTime::now() > expires_at {
-                    return None;
-                }
+            if let Some(expires_at) = cache_item.expires_at
+                && SystemTime::now() > expires_at
+            {
+                return None;
             }
             Some(cache_item.data.clone())
         } else {
@@ -696,10 +696,11 @@ impl StorageService {
             // 检查是否过期
             let task_created_at =
                 UNIX_EPOCH + std::time::Duration::from_secs(task.created_at.timestamp() as u64);
-            if let Ok(elapsed) = now.duration_since(task_created_at) {
-                if elapsed > self.config.retention_period && task.status.is_terminal() {
-                    expired_tasks.push(task);
-                }
+            if let Ok(elapsed) = now.duration_since(task_created_at)
+                && elapsed > self.config.retention_period
+                && task.status.is_terminal()
+            {
+                expired_tasks.push(task);
             }
         }
 
@@ -885,17 +886,17 @@ impl StorageService {
     /// 检查任务是否匹配过滤器
     fn task_matches_filter(&self, task: &DocumentTask, filter: &QueryFilter) -> bool {
         // 状态过滤
-        if let Some(status) = &filter.status {
-            if &task.status != status {
-                return false;
-            }
+        if let Some(status) = &filter.status
+            && &task.status != status
+        {
+            return false;
         }
 
         // 格式过滤
-        if let Some(format) = &filter.format {
-            if task.document_format.as_ref() != Some(format) {
-                return false;
-            }
+        if let Some(format) = &filter.format
+            && task.document_format.as_ref() != Some(format)
+        {
+            return false;
         }
 
         // 创建时间过滤
@@ -955,14 +956,14 @@ impl StorageService {
                 .map_err(|e| AppError::Database(format!("反序列化缓存项失败: {e}")))?;
 
             // 检查是否过期
-            if let Some(expires_at) = cache_item.expires_at {
-                if SystemTime::now() > expires_at {
-                    // 过期，删除缓存项
-                    self.cache_tree
-                        .remove(&cache_key)
-                        .map_err(|e| AppError::Database(format!("删除过期缓存失败: {e}")))?;
-                    return Ok(None);
-                }
+            if let Some(expires_at) = cache_item.expires_at
+                && SystemTime::now() > expires_at
+            {
+                // 过期，删除缓存项
+                self.cache_tree
+                    .remove(&cache_key)
+                    .map_err(|e| AppError::Database(format!("删除过期缓存失败: {e}")))?;
+                return Ok(None);
             }
 
             // 更新访问计数（简化版本，不实际更新）
@@ -1050,15 +1051,13 @@ impl StorageService {
                 result.map_err(|e| AppError::Database(format!("扫描缓存失败: {e}")))?;
 
             // 尝试解析缓存项（简化版本）
-            if let Ok(cache_item) = serde_json::from_slice::<serde_json::Value>(&data) {
-                if let Some(expires_at_timestamp) =
+            if let Ok(cache_item) = serde_json::from_slice::<serde_json::Value>(&data)
+                && let Some(expires_at_timestamp) =
                     cache_item.get("expires_at").and_then(|v| v.as_u64())
-                {
-                    let expires_at =
-                        UNIX_EPOCH + std::time::Duration::from_secs(expires_at_timestamp);
-                    if now > expires_at {
-                        to_remove.push(key.to_vec());
-                    }
+            {
+                let expires_at = UNIX_EPOCH + std::time::Duration::from_secs(expires_at_timestamp);
+                if now > expires_at {
+                    to_remove.push(key.to_vec());
                 }
             }
         }

@@ -64,7 +64,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn demonstrate_utilities(client: &PrivateOssClient) -> Result<(), Box<dyn std::error::Error>> {
+fn demonstrate_utilities(_client: &PrivateOssClient) -> Result<(), Box<dyn std::error::Error>> {
     println!("\\n=== Tool function demonstration ===");
 
     // 文件名处理

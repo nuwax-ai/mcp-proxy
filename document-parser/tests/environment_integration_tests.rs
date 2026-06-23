@@ -198,7 +198,7 @@ async fn test_cache_functionality() {
 
     // 第三次检查（缓存已过期）
     let start_time = std::time::Instant::now();
-    let result3 = manager.check_environment().await.unwrap();
+    let _result3 = manager.check_environment().await.unwrap();
     let third_check_duration = start_time.elapsed();
 
     // 过期后的检查可能比缓存检查慢，但在测试环境中可能不稳定

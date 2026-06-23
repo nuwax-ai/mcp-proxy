@@ -93,6 +93,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn test_virtual_env_properly_configured_logic() {
         let mut status = EnvironmentStatus::default();
 

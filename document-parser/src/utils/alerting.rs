@@ -93,10 +93,10 @@ impl AlertRule {
         }
 
         // 检查组件匹配
-        if let Some(ref component) = self.component {
-            if &result.component != component {
-                return false;
-            }
+        if let Some(ref component) = self.component
+            && &result.component != component
+        {
+            return false;
         }
 
         // 检查条件匹配
@@ -874,10 +874,6 @@ mod tests {
 
         fn get_alert_count(&self) -> usize {
             self.alert_count.load(Ordering::Relaxed)
-        }
-
-        fn get_resolution_count(&self) -> usize {
-            self.resolution_count.load(Ordering::Relaxed)
         }
     }
 

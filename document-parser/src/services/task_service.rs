@@ -305,10 +305,10 @@ impl TaskService {
         let mut count = 0;
 
         for result in self.tasks_tree.iter() {
-            if let Some(max_count) = limit {
-                if count >= max_count {
-                    break;
-                }
+            if let Some(max_count) = limit
+                && count >= max_count
+            {
+                break;
             }
 
             match result {
@@ -328,7 +328,7 @@ impl TaskService {
         }
 
         // 按创建时间倒序排列
-        tasks.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        tasks.sort_by_key(|a| std::cmp::Reverse(a.created_at));
 
         Ok(tasks)
     }
@@ -431,13 +431,12 @@ impl TaskService {
         // 删除过期任务并清理相关文件
         for key in to_remove {
             // 获取任务信息以便清理文件
-            if let Ok(data) = self.tasks_tree.get(&key) {
-                if let Some(data) = data {
-                    if let Ok(task) = serde_json::from_slice::<DocumentTask>(&data) {
-                        // 清理任务相关的临时文件
-                        self.cleanup_task_files(&task).await;
-                    }
-                }
+            if let Ok(data) = self.tasks_tree.get(&key)
+                && let Some(data) = data
+                && let Ok(task) = serde_json::from_slice::<DocumentTask>(&data)
+            {
+                // 清理任务相关的临时文件
+                self.cleanup_task_files(&task).await;
             }
 
             if let Err(e) = self.tasks_tree.remove(&key) {

@@ -91,32 +91,3 @@ async fn demonstrate_polymorphic_usage(
 
     Ok(())
 }
-
-/// 通用的文件操作函数，接受任何实现了 OssClientTrait 的客户端
-async fn upload_file_generic(
-    client: &dyn OssClientTrait,
-    local_path: &str,
-    object_key: &str,
-) -> Result<String, Box<dyn std::error::Error>> {
-    println!("Use the common interface to upload files: {local_path} -> {object_key}");
-
-    // 通过 trait 接口调用上传方法
-    let url = client.upload_file(local_path, object_key).await?;
-    println!("Upload successful, file URL: {url}");
-
-    Ok(url)
-}
-
-/// 通用的文件删除函数
-async fn delete_file_generic(
-    client: &dyn OssClientTrait,
-    object_key: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    println!("Delete files using common interface: {object_key}");
-
-    // 通过 trait 接口调用删除方法
-    client.delete_file(object_key).await?;
-    println!("Delete successfully");
-
-    Ok(())
-}

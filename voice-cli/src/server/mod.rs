@@ -280,9 +280,9 @@ except Exception as e:
         println!("⚠️  TTS installation test failed:");
         println!("   stderr: {}", stderr);
         println!("   stdout: {}", stdout);
-        return Err(crate::VoiceCliError::Config(format!(
-            "TTS installation test failed"
-        )));
+        return Err(crate::VoiceCliError::Config(
+            "TTS installation test failed".to_string(),
+        ));
     }
 
     println!("✅ Python TTS environment setup complete!");
@@ -329,7 +329,7 @@ pub async fn handle_server_run(config: &Config) -> crate::Result<()> {
         let result = axum::serve(listener, app)
             .with_graceful_shutdown(shutdown_signal_with_broadcast(shutdown_tx))
             .await
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e));
+            .map_err(std::io::Error::other);
 
         info!("Axum server completed, performing graceful shutdown...");
 

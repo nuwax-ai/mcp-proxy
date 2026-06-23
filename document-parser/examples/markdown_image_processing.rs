@@ -114,19 +114,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Ok(mut entries) = fs::read_dir(&images_dir).await {
                 while let Ok(Some(entry)) = entries.next_entry().await {
                     let entry_path = entry.path();
-                    if let Some(entry_filename) = entry_path.file_name().and_then(|f| f.to_str()) {
-                        if entry_filename == filename {
-                            let metadata = fs::metadata(&entry_path).await?;
-                            println!(
-                                "✅ {} ({} bytes) [match by file name]",
-                                filename,
-                                metadata.len()
-                            );
-                            existing_images += 1;
-                            valid_image_paths.push(image_name.clone());
-                            found = true;
-                            break;
-                        }
+                    if let Some(entry_filename) = entry_path.file_name().and_then(|f| f.to_str())
+                        && entry_filename == filename
+                    {
+                        let metadata = fs::metadata(&entry_path).await?;
+                        println!(
+                            "✅ {} ({} bytes) [match by file name]",
+                            filename,
+                            metadata.len()
+                        );
+                        existing_images += 1;
+                        valid_image_paths.push(image_name.clone());
+                        found = true;
+                        break;
                     }
                 }
             }
@@ -212,7 +212,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
 
         // 检查是否成功替换了图片路径
-        let original_image_count = image_paths.len();
+        let _original_image_count = image_paths.len();
         let replaced_image_count = ImageProcessor::extract_image_paths(&replaced_content).len();
 
         if replaced_image_count == 0 {

@@ -154,11 +154,11 @@ impl AppState {
     async fn init_database(config: &AppConfig) -> Result<Db, AppError> {
         // 确保数据目录存在
         let db_path = &config.storage.sled.path;
-        if let Some(parent) = std::path::Path::new(db_path).parent() {
-            if !parent.exists() {
-                std::fs::create_dir_all(parent)
-                    .map_err(|e| AppError::Config(format!("无法创建数据库目录: {e}")))?;
-            }
+        if let Some(parent) = std::path::Path::new(db_path).parent()
+            && !parent.exists()
+        {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| AppError::Config(format!("无法创建数据库目录: {e}")))?;
         }
 
         // 打开数据库
@@ -215,11 +215,10 @@ impl AppState {
                 Ok((key, value)) => {
                     if let Ok(task_data) =
                         serde_json::from_slice::<crate::models::DocumentTask>(&value)
+                        && task_data.is_expired()
                     {
-                        if task_data.is_expired() {
-                            to_remove.push(key);
-                            expired_tasks.push(task_data);
-                        }
+                        to_remove.push(key);
+                        expired_tasks.push(task_data);
                     }
                 }
                 Err(e) => {
@@ -295,22 +294,22 @@ impl AppState {
         let temp_dir_path = std::env::temp_dir();
         if let Ok(entries) = std::fs::read_dir(&temp_dir_path) {
             for entry in entries.flatten() {
-                if let Some(filename) = entry.file_name().to_str() {
-                    if filename.starts_with(&format!("task_{}_", task.id)) {
-                        if let Err(e) = tokio::fs::remove_file(entry.path()).await {
-                            log::warn!(
-                                "Cleanup task {}'s temporary files failed: {} - {}",
-                                task.id,
-                                entry.path().display(),
-                                e
-                            );
-                        } else {
-                            log::info!(
-                                "Cleaned temporary files of task {}: {}",
-                                task.id,
-                                entry.path().display()
-                            );
-                        }
+                if let Some(filename) = entry.file_name().to_str()
+                    && filename.starts_with(&format!("task_{}_", task.id))
+                {
+                    if let Err(e) = tokio::fs::remove_file(entry.path()).await {
+                        log::warn!(
+                            "Cleanup task {}'s temporary files failed: {} - {}",
+                            task.id,
+                            entry.path().display(),
+                            e
+                        );
+                    } else {
+                        log::info!(
+                            "Cleaned temporary files of task {}: {}",
+                            task.id,
+                            entry.path().display()
+                        );
                     }
                 }
             }

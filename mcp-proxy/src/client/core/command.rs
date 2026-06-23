@@ -152,12 +152,7 @@ pub async fn run_command_mode(
 
 /// 创建 ClientInfo（使用 rmcp 1.1.0 类型）
 fn create_client_info() -> ClientInfo {
-    let capabilities = ClientCapabilities::builder()
-        .enable_experimental()
-        .enable_roots()
-        .enable_roots_list_changed()
-        .enable_sampling()
-        .build();
+    let capabilities = ClientCapabilities::builder().enable_experimental().build();
     ClientInfo::new(
         capabilities,
         Implementation::new("mcp-proxy-cli", env!("CARGO_PKG_VERSION")),

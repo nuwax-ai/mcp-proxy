@@ -105,7 +105,11 @@ pub async fn run_sse_mode(
             }
         }
         if attempt < MAX_INITIAL_RETRIES {
-            tracing::info!("Retrying in {}s... (elapsed: {:?})", backoff_secs, connect_start.elapsed());
+            tracing::info!(
+                "Retrying in {}s... (elapsed: {:?})",
+                backoff_secs,
+                connect_start.elapsed()
+            );
             if !quiet {
                 eprintln!(
                     "⚠️ Connection attempt {}/{} failed, retrying in {}s...",
@@ -122,11 +126,15 @@ pub async fn run_sse_mode(
         let msg = last_error.unwrap_or_else(|| "Unknown connection error".to_string());
         tracing::error!(
             "All {} connection attempts failed after {:?}: {}",
-            MAX_INITIAL_RETRIES, elapsed, msg
+            MAX_INITIAL_RETRIES,
+            elapsed,
+            msg
         );
         eprintln!(
             "❌ All {} connection attempts failed after {:.1}s: {}",
-            MAX_INITIAL_RETRIES, elapsed.as_secs_f64(), msg
+            MAX_INITIAL_RETRIES,
+            elapsed.as_secs_f64(),
+            msg
         );
         anyhow::anyhow!(msg)
     })?;
