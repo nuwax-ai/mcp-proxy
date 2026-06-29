@@ -6,7 +6,7 @@ pub use mcp_common::ToolFilter;
 use rmcp::{
     ErrorData, RoleClient, RoleServer, ServerHandler,
     model::{
-        CallToolRequestParams, CallToolResult, ClientInfo, Content, Implementation,
+        CallToolRequestParams, CallToolResult, ClientInfo, ContentBlock, Implementation,
         ListToolsResult, PaginatedRequestParams, ServerInfo,
     },
     service::{NotificationContext, Peer, RequestContext, RunningService},
@@ -177,7 +177,7 @@ impl ServerHandler for ProxyHandler {
                 "[call_tool:{}] Tool is filtered - MCP ID: {}, Tool: {}",
                 request_id, self.mcp_id, request.name
             );
-            return Ok(CallToolResult::error(vec![Content::text(format!(
+            return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
                 "Tool '{}' is not allowed by filter configuration",
                 request.name
             ))]));
@@ -199,7 +199,7 @@ impl ServerHandler for ProxyHandler {
                     "[call_tool:{}] Backend connection unavailable (reconnecting) - MCP ID: {}",
                     request_id, self.mcp_id
                 );
-                return Ok(CallToolResult::error(vec![Content::text(
+                return Ok(CallToolResult::error(vec![ContentBlock::text(
                     "Backend connection is not available, reconnecting...",
                 )]));
             }
@@ -211,7 +211,7 @@ impl ServerHandler for ProxyHandler {
                 "[call_tool:{}] Backend transport is closed - MCP ID: {}",
                 request_id, self.mcp_id
             );
-            return Ok(CallToolResult::error(vec![Content::text(
+            return Ok(CallToolResult::error(vec![ContentBlock::text(
                 "Backend connection closed, please retry",
             )]));
         }
@@ -252,7 +252,7 @@ impl ServerHandler for ProxyHandler {
                                 "[call_tool:{}] Request canceled - Tool: {}, Time taken: {}ms, MCP ID: {}",
                                 request_id, request.name, elapsed.as_millis(), self.mcp_id
                             );
-                            return Ok(CallToolResult::error(vec![Content::text(
+                            return Ok(CallToolResult::error(vec![ContentBlock::text(
                                 "Request cancelled"
                             )]));
                         }
@@ -300,7 +300,7 @@ impl ServerHandler for ProxyHandler {
                             self.mcp_id
                         );
                         // Return an error result instead of propagating the error
-                        Ok(CallToolResult::error(vec![Content::text(format!(
+                        Ok(CallToolResult::error(vec![ContentBlock::text(format!(
                             "Error: {err}"
                         ))]))
                     }
@@ -311,7 +311,7 @@ impl ServerHandler for ProxyHandler {
                     "[call_tool:{}] The server does not support tools capability - MCP ID: {}",
                     request_id, self.mcp_id
                 );
-                Ok(CallToolResult::error(vec![Content::text(
+                Ok(CallToolResult::error(vec![ContentBlock::text(
                     "Server doesn't support tools capability",
                 )]))
             }
