@@ -12,16 +12,16 @@ mod document_task_tests {
     #[test]
     fn test_document_task_builder() {
         safe_init_global_config();
-        let mut task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("/tmp/test.pdf".to_string()),
-            Some("test.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/tmp/test.pdf".to_string()),
+            original_filename: Some("test.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task.parser_engine = Some(ParserEngine::MinerU);
         task.file_size = Some(1024);
         task.mime_type = Some("application/pdf".to_string());
@@ -36,16 +36,16 @@ mod document_task_tests {
     #[test]
     fn test_document_task_validation_invalid_uuid() {
         safe_init_global_config();
-        let result = DocumentTask::new(
-            "invalid-uuid".to_string(),
-            SourceType::Upload,
-            Some("/tmp/test.pdf".to_string()),
-            Some("test.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let result = DocumentTask::new(CreateTaskParams {
+            id: "invalid-uuid".to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/tmp/test.pdf".to_string()),
+            original_filename: Some("test.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         let result = uuid::Uuid::parse_str(&result.id);
         assert!(result.is_err(), "Should fail with invalid UUID");
 
@@ -238,16 +238,16 @@ mod comprehensive_model_tests {
     #[test]
     fn test_document_task_builder_comprehensive() {
         safe_init_global_config();
-        let mut task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("/tmp/test.pdf".to_string()),
-            Some("test.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/tmp/test.pdf".to_string()),
+            original_filename: Some("test.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task.parser_engine = Some(ParserEngine::MinerU);
         task.file_size = Some(1024 * 1024);
         task.mime_type = Some("application/pdf".to_string());
@@ -267,32 +267,32 @@ mod comprehensive_model_tests {
     fn test_document_task_builder_validation_errors() {
         // 该测试原本验证 Builder 行为，现改为验证基本ID格式
         safe_init_global_config();
-        let t = DocumentTask::new(
-            "invalid-uuid".to_string(),
-            SourceType::Upload,
-            None,
-            None,
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let t = DocumentTask::new(CreateTaskParams {
+            id: "invalid-uuid".to_string(),
+            source_type: SourceType::Upload,
+            source: None,
+            original_filename: None,
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         assert!(uuid::Uuid::parse_str(&t.id).is_err());
     }
 
     #[test]
     fn test_document_task_serialization_roundtrip() {
         safe_init_global_config();
-        let mut original_task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("/tmp/test.pdf".to_string()),
-            Some("test.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut original_task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/tmp/test.pdf".to_string()),
+            original_filename: Some("test.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         original_task.parser_engine = Some(ParserEngine::MinerU);
         original_task.file_size = Some(1024);
         original_task.mime_type = Some("application/pdf".to_string());
@@ -554,16 +554,16 @@ mod edge_case_tests {
         assert!(matches!(format, DocumentFormat::Other(_)));
 
         // Test null-like values
-        let task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            None,
-            None,
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: None,
+            original_filename: None,
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         assert!(task.source_path.is_none());
     }
 
@@ -572,16 +572,16 @@ mod edge_case_tests {
         safe_init_global_config();
         // Test maximum file size
         // 边界值原使用 Builder 进行校验，现简化为仅构造并不崩溃
-        let mut large_task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            None,
-            None,
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut large_task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: None,
+            original_filename: None,
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         large_task.file_size = Some(u64::MAX);
     }
 
@@ -589,16 +589,16 @@ mod edge_case_tests {
     fn test_unicode_and_special_characters() {
         safe_init_global_config();
         // Test Unicode in file paths and content
-        let mut task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("/tmp/测试文档.pdf".to_string()),
-            Some("测试文档.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/tmp/测试文档.pdf".to_string()),
+            original_filename: Some("测试文档.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task.parser_engine = Some(ParserEngine::MinerU);
         task.mime_type = Some("application/pdf".to_string());
 
@@ -622,16 +622,16 @@ mod edge_case_tests {
 
         // Test that models can be safely shared between threads
         let task = Arc::new({
-            let mut t = DocumentTask::new(
-                Uuid::new_v4().to_string(),
-                SourceType::Upload,
-                None,
-                None,
-                Some(DocumentFormat::PDF),
-                Some("pipeline".to_string()),
-                Some(24),
-                Some(3),
-            );
+            let mut t = DocumentTask::new(CreateTaskParams {
+                id: Uuid::new_v4().to_string(),
+                source_type: SourceType::Upload,
+                source: None,
+                original_filename: None,
+                document_format: Some(DocumentFormat::PDF),
+                backend: Some("pipeline".to_string()),
+                expires_in_hours: Some(24),
+                max_retries: Some(3),
+            });
             t.parser_engine = Some(ParserEngine::MinerU);
             t
         });

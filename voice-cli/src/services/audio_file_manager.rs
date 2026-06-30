@@ -92,25 +92,21 @@ impl AudioFileManager {
             task_id, original_filename, temp_file_name
         );
 
-        let file_path = self.storage_dir.join(&temp_file_name);
+        let file_path = self.storage_dir.join(temp_file_name);
 
         // 确保存储目录存在
-        if let Some(parent) = file_path.parent() {
-            if !parent.exists() {
-                tokio::fs::create_dir_all(parent).await.map_err(|e| {
-                    error!(
-                        "[Task {}] Unable to create storage directory '{}': {}",
-                        task_id,
-                        parent.display(),
-                        e
-                    );
-                    VoiceCliError::Storage(format!(
-                        "无法创建存储目录 '{}': {}",
-                        parent.display(),
-                        e
-                    ))
-                })?;
-            }
+        if let Some(parent) = file_path.parent()
+            && !parent.exists()
+        {
+            tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                error!(
+                    "[Task {}] Unable to create storage directory '{}': {}",
+                    task_id,
+                    parent.display(),
+                    e
+                );
+                VoiceCliError::Storage(format!("无法创建存储目录 '{}': {}", parent.display(), e))
+            })?;
         }
 
         // 创建文件
@@ -128,9 +124,7 @@ impl AudioFileManager {
         let mut writer = tokio::io::BufWriter::new(file);
 
         // 将 field 转换为 StreamReader (实现 AsyncRead trait)
-        let mut reader = tokio_util::io::StreamReader::new(
-            field.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)),
-        );
+        let mut reader = tokio_util::io::StreamReader::new(field.map_err(std::io::Error::other));
 
         // 使用 tokio::io::copy 进行高效的流式复制
         let total_bytes = tokio::io::copy(&mut reader, &mut writer)
@@ -236,17 +230,15 @@ impl AudioFileManager {
         {
             let path = entry.path();
 
-            if path.is_file() {
-                if let Ok(metadata) = entry.metadata().await {
-                    if let Ok(modified) = metadata.modified() {
-                        if modified < cutoff_time {
-                            if let Err(e) = self.delete_audio_file(&path).await {
-                                error!("Failed to cleanup old file '{}': {}", path.display(), e);
-                            } else {
-                                cleaned_count += 1;
-                            }
-                        }
-                    }
+            if path.is_file()
+                && let Ok(metadata) = entry.metadata().await
+                && let Ok(modified) = metadata.modified()
+                && modified < cutoff_time
+            {
+                if let Err(e) = self.delete_audio_file(&path).await {
+                    error!("Failed to cleanup old file '{}': {}", path.display(), e);
+                } else {
+                    cleaned_count += 1;
                 }
             }
         }
@@ -288,10 +280,10 @@ impl AudioFileManager {
             .await
             .map_err(|e| VoiceCliError::Storage(format!("Failed to read directory entry: {}", e)))?
         {
-            if entry.path().is_file() {
-                if let Ok(metadata) = entry.metadata().await {
-                    total_size += metadata.len();
-                }
+            if entry.path().is_file()
+                && let Ok(metadata) = entry.metadata().await
+            {
+                total_size += metadata.len();
             }
         }
 

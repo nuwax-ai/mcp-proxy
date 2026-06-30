@@ -12,7 +12,7 @@
 #[cfg(test)]
 mod tests {
     use crate::AppState;
-    use crate::models::{DocumentFormat, DocumentTask, SourceType, TaskStatus};
+    use crate::models::{CreateTaskParams, DocumentFormat, DocumentTask, SourceType, TaskStatus};
     use crate::utils::environment_manager::EnvironmentManager;
     use std::path::{Path, PathBuf};
     use tempfile::TempDir;
@@ -246,7 +246,7 @@ mod tests {
         let actual_python_path = EnvironmentManager::get_venv_python_path(&venv_path);
 
         // 规范化路径以避免符号链接问题
-        let expected_canonical = expected_python_path
+        let _expected_canonical = expected_python_path
             .canonicalize()
             .unwrap_or(expected_python_path);
         let actual_canonical = actual_python_path
@@ -388,7 +388,7 @@ mod tests {
         }
 
         // 创建应用状态来模拟服务器启动
-        let app_state = test_env
+        let _app_state = test_env
             .create_test_app_state()
             .await
             .expect("Failed to create app state");
@@ -465,22 +465,22 @@ mod tests {
             .expect("Failed to create mock virtual environment");
 
         // 创建应用状态
-        let app_state = test_env
+        let _app_state = test_env
             .create_test_app_state()
             .await
             .expect("Failed to create app state");
 
         // 创建测试文档任务
-        let task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("test_document.pdf".to_string()),
-            Some("test_document.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("test_document.pdf".to_string()),
+            original_filename: Some("test_document.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
 
         // 验证任务创建成功
         assert_eq!(task.source_path, Some("test_document.pdf".to_string()));
@@ -735,7 +735,7 @@ mod tests {
         assert_eq!(venv_status.expected_path.as_deref(), Some("./venv"));
 
         // 步骤6：验证服务器可以启动
-        let app_state = test_env
+        let _app_state = test_env
             .create_test_app_state()
             .await
             .expect("Failed to create app state");
@@ -746,16 +746,16 @@ mod tests {
         // DocumentService creation removed for simplicity
 
         // 创建测试任务验证功能
-        let task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("workflow_test.pdf".to_string()),
-            Some("workflow_test.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("workflow_test.pdf".to_string()),
+            original_filename: Some("workflow_test.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
 
         assert_eq!(task.source_path, Some("workflow_test.pdf".to_string()));
         assert!(matches!(task.status, TaskStatus::Pending { .. }));
@@ -768,7 +768,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "Changes global current directory, causes race conditions with parallel tests"]
     async fn test_environment_manager_factory_methods() {
-        let test_env = CurrentDirectoryTestEnvironment::new()
+        let _test_env = CurrentDirectoryTestEnvironment::new()
             .await
             .expect("Failed to create test environment");
 

@@ -21,7 +21,7 @@ fn create_default_config_source() -> Result<ConfigRs, VoiceCliError> {
 }
 
 /// Configuration settings that can be overridden via CLI arguments
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
 pub struct CliOverrides {
     /// Server host override
     pub host: Option<String>,
@@ -35,19 +35,6 @@ pub struct CliOverrides {
     pub default_model: Option<String>,
     /// Transcription workers override
     pub transcription_workers: Option<usize>,
-}
-
-impl Default for CliOverrides {
-    fn default() -> Self {
-        Self {
-            host: None,
-            port: None,
-            log_level: None,
-            models_dir: None,
-            default_model: None,
-            transcription_workers: None,
-        }
-    }
 }
 
 /// Configuration loader using config-rs with proper hierarchy
@@ -155,14 +142,11 @@ impl ConfigRsLoader {
     ) -> Result<CliOverrides, VoiceCliError> {
         let overrides = CliOverrides::default();
 
-        match &args.command {
-            crate::cli::Commands::Server { action } => {
-                if let crate::cli::ServerAction::Run { .. } = action {
-                    // Server run command can have port overrides
-                    // These will be extracted from the action in the main handler
-                }
-            }
-            _ => {}
+        if let crate::cli::Commands::Server { action } = &args.command
+            && let crate::cli::ServerAction::Run { .. } = action
+        {
+            // Server run command can have port overrides
+            // These will be extracted from the action in the main handler
         }
 
         Ok(overrides)

@@ -373,10 +373,8 @@ impl ConfigValidator {
             report.push_str("\n错误:\n");
             for error in &result.errors {
                 report.push_str(&format!(
-                    "  - [{}] {}: {}\n",
-                    error.config_path,
-                    format!("{:?}", error.error_type),
-                    error.message
+                    "  - [{}] {:?}: {}\n",
+                    error.config_path, error.error_type, error.message
                 ));
                 if let Some(suggestion) = &error.suggestion {
                     report.push_str(&format!("    建议: {suggestion}\n"));
@@ -388,10 +386,8 @@ impl ConfigValidator {
             report.push_str("\n警告:\n");
             for warning in &result.warnings {
                 report.push_str(&format!(
-                    "  - [{}] {}: {}\n",
-                    warning.config_path,
-                    format!("{:?}", warning.warning_type),
-                    warning.message
+                    "  - [{}] {:?}: {}\n",
+                    warning.config_path, warning.warning_type, warning.message
                 ));
                 if let Some(suggestion) = &warning.suggestion {
                     report.push_str(&format!("    建议: {suggestion}\n"));

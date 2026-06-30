@@ -278,7 +278,7 @@ impl DocumentService {
             .dual_parser
             .parse_document_auto(&absolute_path)
             .await
-            .with_context(|| format!("文档解析失败[parse_document_internal]"))?;
+            .with_context(|| "文档解析失败[parse_document_internal]".to_string())?;
         debug!(
             "Parser call completed, content length: {}",
             parse_result.markdown_content.len()
@@ -573,10 +573,10 @@ impl DocumentService {
                 // 优先通过 metadata 判断类型，避免竞态
                 match fs::metadata(&path).await {
                     Ok(meta) if meta.is_dir() => {
-                        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                            if name == "images" {
-                                images_dirs.push(path.clone());
-                            }
+                        if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                            && name == "images"
+                        {
+                            images_dirs.push(path.clone());
                         }
                         to_visit.push(path);
                     }
@@ -744,12 +744,11 @@ impl DocumentService {
         filename_to_oss_url: &std::collections::HashMap<String, String>,
     ) -> Option<String> {
         // 从 Markdown 图片路径中提取文件名进行匹配
-        if let Some(filename) = Path::new(image_path).file_name() {
-            if let Some(filename_str) = filename.to_str() {
-                if let Some(oss_url) = filename_to_oss_url.get(filename_str) {
-                    return Some(oss_url.clone());
-                }
-            }
+        if let Some(filename) = Path::new(image_path).file_name()
+            && let Some(filename_str) = filename.to_str()
+            && let Some(oss_url) = filename_to_oss_url.get(filename_str)
+        {
+            return Some(oss_url.clone());
         }
 
         // 如果没有找到匹配，返回None
@@ -895,7 +894,6 @@ impl DocumentService {
     }
 
     /// Safe task update methods - handle errors gracefully without failing the main operation
-
     async fn update_task_stage_safe(&self, task_id: &str, stage: crate::models::ProcessingStage) {
         if let Err(e) = self.task_service.update_task_stage(task_id, stage).await {
             warn!("Failed to update task stage for {}: {}", task_id, e);

@@ -337,22 +337,22 @@ impl FileOutput {
     async fn rotate_if_needed(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         use std::fs;
 
-        if let Ok(metadata) = fs::metadata(&self.file_path) {
-            if metadata.len() > self.max_file_size {
-                // 轮转日志文件
-                for i in (1..self.max_files).rev() {
-                    let old_file = format!("{}.{}", self.file_path, i);
-                    let new_file = format!("{}.{}", self.file_path, i + 1);
+        if let Ok(metadata) = fs::metadata(&self.file_path)
+            && metadata.len() > self.max_file_size
+        {
+            // 轮转日志文件
+            for i in (1..self.max_files).rev() {
+                let old_file = format!("{}.{}", self.file_path, i);
+                let new_file = format!("{}.{}", self.file_path, i + 1);
 
-                    if fs::metadata(&old_file).is_ok() {
-                        fs::rename(&old_file, &new_file)?;
-                    }
+                if fs::metadata(&old_file).is_ok() {
+                    fs::rename(&old_file, &new_file)?;
                 }
-
-                // 移动当前文件
-                let backup_file = format!("{}.1", self.file_path);
-                fs::rename(&self.file_path, &backup_file)?;
             }
+
+            // 移动当前文件
+            let backup_file = format!("{}.1", self.file_path);
+            fs::rename(&self.file_path, &backup_file)?;
         }
 
         Ok(())
@@ -472,11 +472,11 @@ impl EnhancedLoggingSystem {
         }
 
         // 文件输出层
-        if let Some(ref _file_path) = config.file_path {
-            if config.output == LogOutputTarget::File || config.output == LogOutputTarget::Both {
-                // 简化的文件层配置
-                // 在实际实现中，这里需要更复杂的配置
-            }
+        if let Some(ref _file_path) = config.file_path
+            && (config.output == LogOutputTarget::File || config.output == LogOutputTarget::Both)
+        {
+            // 简化的文件层配置
+            // 在实际实现中，这里需要更复杂的配置
         }
 
         // 简化的订阅者初始化
@@ -767,10 +767,6 @@ mod tests {
 
         fn get_entries(&self) -> Vec<LogEntry> {
             self.entries.lock().unwrap().clone()
-        }
-
-        fn get_write_count(&self) -> usize {
-            self.write_count.load(Ordering::SeqCst)
         }
     }
 

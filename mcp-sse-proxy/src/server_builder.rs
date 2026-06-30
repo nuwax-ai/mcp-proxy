@@ -31,8 +31,8 @@ use rmcp::{
 };
 
 use crate::{
-    sse_handler::{BackendSessionHandler, SseServerHandler},
     SseHandler, ToolFilter,
+    sse_handler::{BackendSessionHandler, SseServerHandler},
 };
 
 /// Performance warning threshold for stdio (child process) backend connections

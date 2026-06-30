@@ -294,14 +294,13 @@ pub async fn upload_document(
     }
 
     // 8.1 保存 bucket_dir 到任务（如果提供）
-    if let Some(ref dir) = params.bucket_dir {
-        if let Err(e) = state
+    if let Some(ref dir) = params.bucket_dir
+        && let Err(e) = state
             .task_service
             .set_task_bucket_dir(&task_id, Some(dir.clone()))
             .await
-        {
-            warn!("Failed to save bucket_dir: {}", e);
-        }
+    {
+        warn!("Failed to save bucket_dir: {}", e);
     }
 
     // 9. 更新任务的文件信息
@@ -429,7 +428,7 @@ async fn process_multipart_upload_streaming_with_task_id(
 }
 
 /// 处理multipart文件上传（改进的流式处理）
-
+///
 /// 流式写入文件（带验证和进度监控）
 async fn stream_write_file_with_validation(
     mut field: axum::extract::multipart::Field<'_>,
@@ -854,14 +853,13 @@ pub async fn download_document_from_url(
     };
 
     // 如果提供了 bucket_dir，保存到任务
-    if let Some(ref dir) = request.bucket_dir {
-        if let Err(e) = state
+    if let Some(ref dir) = request.bucket_dir
+        && let Err(e) = state
             .task_service
             .set_task_bucket_dir(&task.id, Some(dir.clone()))
             .await
-        {
-            warn!("Failed to save bucket_dir: {}", e);
-        }
+    {
+        warn!("Failed to save bucket_dir: {}", e);
     }
 
     // 入队由 worker 池处理

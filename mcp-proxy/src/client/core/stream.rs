@@ -109,7 +109,11 @@ pub async fn run_stream_mode(
             }
         }
         if attempt < MAX_INITIAL_RETRIES {
-            tracing::info!("Retrying in {}s... (elapsed: {:?})", backoff_secs, connect_start.elapsed());
+            tracing::info!(
+                "Retrying in {}s... (elapsed: {:?})",
+                backoff_secs,
+                connect_start.elapsed()
+            );
             if !quiet {
                 eprintln!(
                     "⚠️ Connection attempt {}/{} failed, retrying in {}s...",
@@ -126,11 +130,15 @@ pub async fn run_stream_mode(
         let msg = last_error.unwrap_or_else(|| "Unknown connection error".to_string());
         tracing::error!(
             "All {} connection attempts failed after {:?}: {}",
-            MAX_INITIAL_RETRIES, elapsed, msg
+            MAX_INITIAL_RETRIES,
+            elapsed,
+            msg
         );
         eprintln!(
             "❌ All {} connection attempts failed after {:.1}s: {}",
-            MAX_INITIAL_RETRIES, elapsed.as_secs_f64(), msg
+            MAX_INITIAL_RETRIES,
+            elapsed.as_secs_f64(),
+            msg
         );
         anyhow::anyhow!(msg)
     })?;
@@ -160,11 +168,15 @@ pub async fn run_stream_mode(
 
     // 3. 启动 stdio server（使用 stream_stdio，即 rmcp 0.12 的 stdio）
     tracing::info!("Starting stdio server...");
-    let server = (*handler).clone().serve(stream_stdio()).await.map_err(|e| {
-        tracing::error!("Failed to start stdio server: {:?}", e);
-        eprintln!("❌ Failed to start stdio server: {}", e);
-        e
-    })?;
+    let server = (*handler)
+        .clone()
+        .serve(stream_stdio())
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to start stdio server: {:?}", e);
+            eprintln!("❌ Failed to start stdio server: {}", e);
+            e
+        })?;
     tracing::info!("Stdio server started");
 
     if !quiet {

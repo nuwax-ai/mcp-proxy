@@ -117,9 +117,11 @@ impl MarkdownProcessor {
 
     /// 创建带图片处理器的处理器
     pub fn with_image_processor(image_processor: Arc<ImageProcessor>) -> Self {
-        let mut config = MarkdownProcessorConfig::default();
-        config.enable_image_processing = true;
-        config.auto_upload_images = true;
+        let config = MarkdownProcessorConfig {
+            enable_image_processing: true,
+            auto_upload_images: true,
+            ..MarkdownProcessorConfig::default()
+        };
 
         Self::new(config, Some(image_processor))
     }
@@ -136,11 +138,11 @@ impl MarkdownProcessor {
         let cache_key = self.generate_cache_key(content);
 
         // 尝试从缓存获取
-        if self.config.enable_cache {
-            if let Some(cached_result) = self.get_from_cache(&cache_key).await {
-                debug!("Get Markdown parsing results from cache");
-                return Ok(cached_result);
-            }
+        if self.config.enable_cache
+            && let Some(cached_result) = self.get_from_cache(&cache_key).await
+        {
+            debug!("Get Markdown parsing results from cache");
+            return Ok(cached_result);
         }
 
         // 预处理内容（图片处理）
@@ -175,39 +177,39 @@ impl MarkdownProcessor {
     /// 预处理Markdown内容（图片处理）
     #[instrument(skip(self, content))]
     async fn preprocess_content(&self, content: &str) -> Result<String, AppError> {
-        if let Some(image_processor) = &self.image_processor {
-            if self.config.auto_upload_images {
-                // 提取图片路径
-                let image_paths = ImageProcessor::extract_image_paths(content);
+        if let Some(image_processor) = &self.image_processor
+            && self.config.auto_upload_images
+        {
+            // 提取图片路径
+            let image_paths = ImageProcessor::extract_image_paths(content);
 
-                if !image_paths.is_empty() {
-                    info!(
-                        "Found {} pictures that need to be processed",
-                        image_paths.len()
+            if !image_paths.is_empty() {
+                info!(
+                    "Found {} pictures that need to be processed",
+                    image_paths.len()
+                );
+
+                // 批量上传图片
+                let upload_results = image_processor.batch_upload_images(image_paths).await?;
+
+                // 统计上传结果
+                let successful = upload_results.iter().filter(|r| r.success).count();
+                let failed = upload_results.len() - successful;
+
+                if failed > 0 {
+                    warn!(
+                        "Image upload completed: {} successfully, {} failed",
+                        successful, failed
                     );
-
-                    // 批量上传图片
-                    let upload_results = image_processor.batch_upload_images(image_paths).await?;
-
-                    // 统计上传结果
-                    let successful = upload_results.iter().filter(|r| r.success).count();
-                    let failed = upload_results.len() - successful;
-
-                    if failed > 0 {
-                        warn!(
-                            "Image upload completed: {} successfully, {} failed",
-                            successful, failed
-                        );
-                    } else {
-                        info!("All pictures uploaded successfully: {}", successful);
-                    }
-
-                    // 替换Markdown中的图片路径
-                    return image_processor
-                        .replace_markdown_images(content)
-                        .await
-                        .map_err(|e| AppError::Processing(format!("图片路径替换失败: {e}")));
+                } else {
+                    info!("All pictures uploaded successfully: {}", successful);
                 }
+
+                // 替换Markdown中的图片路径
+                return image_processor
+                    .replace_markdown_images(content)
+                    .await
+                    .map_err(|e| AppError::Processing(format!("图片路径替换失败: {e}")));
             }
         }
 
@@ -272,10 +274,10 @@ impl MarkdownProcessor {
                 }
 
                 // 保存前一个章节（只有当它有标题时才保存）
-                if let Some(section) = current_section.take() {
-                    if !section.title.trim().is_empty() {
-                        sections.push(section);
-                    }
+                if let Some(section) = current_section.take()
+                    && !section.title.trim().is_empty()
+                {
+                    sections.push(section);
                 }
 
                 // 创建新章节
@@ -300,10 +302,10 @@ impl MarkdownProcessor {
         }
 
         // 保存最后一个章节（只有当它有标题时才保存）
-        if let Some(section) = current_section {
-            if !section.title.trim().is_empty() {
-                sections.push(section);
-            }
+        if let Some(section) = current_section
+            && !section.title.trim().is_empty()
+        {
+            sections.push(section);
         }
 
         // 构建层次结构
@@ -488,19 +490,19 @@ impl MarkdownProcessor {
         for event in events {
             match event {
                 Event::Start(Tag::Heading { level, .. }) => {
-                    if let Some((prev_level, prev_title)) = current_heading.take() {
-                        if usize::from(prev_level) <= self.config.max_toc_depth {
-                            let id = if self.config.enable_anchors {
-                                self.generate_anchor_id(&prev_title)
-                            } else {
-                                uuid::Uuid::new_v4().to_string()
-                            };
+                    if let Some((prev_level, prev_title)) = current_heading.take()
+                        && usize::from(prev_level) <= self.config.max_toc_depth
+                    {
+                        let id = if self.config.enable_anchors {
+                            self.generate_anchor_id(&prev_title)
+                        } else {
+                            uuid::Uuid::new_v4().to_string()
+                        };
 
-                            toc_items.push(TocItem::new(
-                                id, prev_title, prev_level, 0, // start_pos
-                                0, // end_pos
-                            ));
-                        }
+                        toc_items.push(TocItem::new(
+                            id, prev_title, prev_level, 0, // start_pos
+                            0, // end_pos
+                        ));
                     }
 
                     let level_num = match level {
@@ -521,22 +523,22 @@ impl MarkdownProcessor {
                     }
                 }
                 Event::End(TagEnd::Heading(_)) => {
-                    if let Some((level, _)) = current_heading.take() {
-                        if usize::from(level) <= self.config.max_toc_depth {
-                            let id = if self.config.enable_anchors {
-                                self.generate_anchor_id(&heading_text)
-                            } else {
-                                uuid::Uuid::new_v4().to_string()
-                            };
+                    if let Some((level, _)) = current_heading.take()
+                        && usize::from(level) <= self.config.max_toc_depth
+                    {
+                        let id = if self.config.enable_anchors {
+                            self.generate_anchor_id(&heading_text)
+                        } else {
+                            uuid::Uuid::new_v4().to_string()
+                        };
 
-                            toc_items.push(TocItem::new(
-                                id,
-                                heading_text.clone(),
-                                level,
-                                0, // start_pos
-                                0, // end_pos
-                            ));
-                        }
+                        toc_items.push(TocItem::new(
+                            id,
+                            heading_text.clone(),
+                            level,
+                            0, // start_pos
+                            0, // end_pos
+                        ));
                     }
                     heading_text.clear();
                 }
@@ -620,26 +622,26 @@ impl MarkdownProcessor {
             match event {
                 Event::Start(Tag::Heading { level, .. }) => {
                     // 保存前一个章节（只有当它有标题时才保存）
-                    if let Some(level) = current_heading_level {
-                        if !current_heading_title.trim().is_empty() {
-                            // 生成唯一的章节ID，处理重复
-                            let mut id = self.generate_anchor_id(&current_heading_title);
-                            let original_id = id.clone();
-                            let mut counter = 1;
-                            while used_ids.contains(&id) {
-                                id = format!("{original_id}-{counter}");
-                                counter += 1;
-                            }
-                            used_ids.insert(id.clone());
-
-                            let section = StructuredSection::new(
-                                id,
-                                current_heading_title.clone(),
-                                level,
-                                current_content.trim().to_string(),
-                            )?;
-                            sections.push(section);
+                    if let Some(level) = current_heading_level
+                        && !current_heading_title.trim().is_empty()
+                    {
+                        // 生成唯一的章节ID，处理重复
+                        let mut id = self.generate_anchor_id(&current_heading_title);
+                        let original_id = id.clone();
+                        let mut counter = 1;
+                        while used_ids.contains(&id) {
+                            id = format!("{original_id}-{counter}");
+                            counter += 1;
                         }
+                        used_ids.insert(id.clone());
+
+                        let section = StructuredSection::new(
+                            id,
+                            current_heading_title.clone(),
+                            level,
+                            current_content.trim().to_string(),
+                        )?;
+                        sections.push(section);
                     }
 
                     let level_num = match level {
@@ -712,10 +714,8 @@ impl MarkdownProcessor {
                         current_content.push_str("**");
                     }
                 }
-                Event::End(TagEnd::Strong) => {
-                    if !in_heading {
-                        current_content.push_str("**");
-                    }
+                Event::End(TagEnd::Strong) if !in_heading => {
+                    current_content.push_str("**");
                 }
                 _ => {
                     // 忽略其他事件，或者可以根据需要处理更多类型
@@ -724,26 +724,26 @@ impl MarkdownProcessor {
         }
 
         // 保存最后一个章节（只有当它有标题时才保存）
-        if let Some(level) = current_heading_level {
-            if !current_heading_title.trim().is_empty() {
-                // 生成唯一的章节ID，处理重复
-                let mut id = self.generate_anchor_id(&current_heading_title);
-                let original_id = id.clone();
-                let mut counter = 1;
-                while used_ids.contains(&id) {
-                    id = format!("{original_id}-{counter}");
-                    counter += 1;
-                }
-                used_ids.insert(id.clone());
-
-                let section = StructuredSection::new(
-                    id,
-                    current_heading_title.clone(),
-                    level,
-                    current_content.trim().to_string(),
-                )?;
-                sections.push(section);
+        if let Some(level) = current_heading_level
+            && !current_heading_title.trim().is_empty()
+        {
+            // 生成唯一的章节ID，处理重复
+            let mut id = self.generate_anchor_id(&current_heading_title);
+            let original_id = id.clone();
+            let mut counter = 1;
+            while used_ids.contains(&id) {
+                id = format!("{original_id}-{counter}");
+                counter += 1;
             }
+            used_ids.insert(id.clone());
+
+            let section = StructuredSection::new(
+                id,
+                current_heading_title.clone(),
+                level,
+                current_content.trim().to_string(),
+            )?;
+            sections.push(section);
         }
 
         // 构建层次结构
@@ -1266,10 +1266,9 @@ mod tests {
         assert_eq!(result1.title, result2.title);
 
         // 获取缓存统计
-        let cache_stats = processor.get_cache_stats().await;
+        let _cache_stats = processor.get_cache_stats().await;
         // 注意：由于缓存可能因为各种原因（如内容预处理）而不被使用，
         // 我们只验证缓存统计可以正常获取，而不强制要求有缓存条目
-        assert!(cache_stats.total_entries >= 0);
     }
 
     #[tokio::test]
@@ -1295,7 +1294,6 @@ mod tests {
         assert!(result.total_sections > 0);
         // 注意：由于文档大小可能没有超过阈值，仍然会生成TOC
         // 实际的大文档流式处理会在文档超过10MB时启用
-        assert!(result.toc.len() >= 0); // TOC可能存在也可能不存在
     }
 
     #[tokio::test]

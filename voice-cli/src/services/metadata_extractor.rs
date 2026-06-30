@@ -126,16 +126,16 @@ impl MetadataExtractor {
                 for line in stderr_output.lines() {
                     if line.contains("Duration:") {
                         // 解析时长: Duration: 00:00:01.60, start: 0.000000, bitrate: 705 kb/s
-                        if let Some(duration_part) = line.split("Duration: ").nth(1) {
-                            if let Some(duration_str) = duration_part.split(',').next() {
-                                let parts: Vec<&str> = duration_str.split(':').collect();
-                                if parts.len() == 3 {
-                                    let hours: f64 = parts[0].parse().unwrap_or(0.0);
-                                    let minutes: f64 = parts[1].parse().unwrap_or(0.0);
-                                    let seconds: f64 = parts[2].parse().unwrap_or(0.0);
-                                    metadata.duration_seconds =
-                                        hours * 3600.0 + minutes * 60.0 + seconds;
-                                }
+                        if let Some(duration_part) = line.split("Duration: ").nth(1)
+                            && let Some(duration_str) = duration_part.split(',').next()
+                        {
+                            let parts: Vec<&str> = duration_str.split(':').collect();
+                            if parts.len() == 3 {
+                                let hours: f64 = parts[0].parse().unwrap_or(0.0);
+                                let minutes: f64 = parts[1].parse().unwrap_or(0.0);
+                                let seconds: f64 = parts[2].parse().unwrap_or(0.0);
+                                metadata.duration_seconds =
+                                    hours * 3600.0 + minutes * 60.0 + seconds;
                             }
                         }
                     }
@@ -150,10 +150,10 @@ impl MetadataExtractor {
                         }
 
                         for part in parts {
-                            if part.contains("Hz") {
-                                if let Some(rate_str) = part.split("Hz").next() {
-                                    metadata.sample_rate = rate_str.trim().parse().unwrap_or(0);
-                                }
+                            if part.contains("Hz")
+                                && let Some(rate_str) = part.split("Hz").next()
+                            {
+                                metadata.sample_rate = rate_str.trim().parse().unwrap_or(0);
                             }
                             if part.contains("mono") {
                                 metadata.channels = 1;
@@ -161,11 +161,10 @@ impl MetadataExtractor {
                             if part.contains("stereo") {
                                 metadata.channels = 2;
                             }
-                            if part.contains("kb/s") {
-                                if let Some(bitrate_str) = part.split("kb/s").next() {
-                                    metadata.audio_bitrate =
-                                        bitrate_str.trim().parse().unwrap_or(0);
-                                }
+                            if part.contains("kb/s")
+                                && let Some(bitrate_str) = part.split("kb/s").next()
+                            {
+                                metadata.audio_bitrate = bitrate_str.trim().parse().unwrap_or(0);
                             }
                         }
                     }
@@ -188,16 +187,16 @@ impl MetadataExtractor {
                                     metadata.height = resolution_parts[1].trim().parse().ok();
                                 }
                             }
-                            if part.contains("fps") {
-                                if let Some(fps_str) = part.split("fps").next() {
-                                    metadata.frame_rate = fps_str.trim().parse().ok();
-                                }
+                            if part.contains("fps")
+                                && let Some(fps_str) = part.split("fps").next()
+                            {
+                                metadata.frame_rate = fps_str.trim().parse().ok();
                             }
-                            if part.contains("kb/s") {
-                                if let Some(bitrate_str) = part.split("kb/s").next() {
-                                    metadata.video_bitrate =
-                                        Some(bitrate_str.trim().parse().unwrap_or(0));
-                                }
+                            if part.contains("kb/s")
+                                && let Some(bitrate_str) = part.split("kb/s").next()
+                            {
+                                metadata.video_bitrate =
+                                    Some(bitrate_str.trim().parse().unwrap_or(0));
                             }
                         }
                     }

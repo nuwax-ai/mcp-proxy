@@ -22,6 +22,9 @@ pub mod test_helpers {
     use crate::app_state::AppState;
     use crate::config::AppConfig;
 
+    /// Type alias for config override function
+    type ConfigOverrideFn = Box<dyn Fn(&mut AppConfig)>;
+
     /// 安全地初始化全局配置，避免重复初始化错误
     /// 这个函数可以在测试中多次调用而不会出错
     pub fn safe_init_global_config() {
@@ -65,9 +68,7 @@ pub mod test_helpers {
     }
 
     /// 创建测试用的配置，支持自定义覆盖
-    pub fn create_test_config_with_overrides(
-        overrides: Option<Box<dyn Fn(&mut AppConfig)>>,
-    ) -> AppConfig {
+    pub fn create_test_config_with_overrides(overrides: Option<ConfigOverrideFn>) -> AppConfig {
         use std::time::{SystemTime, UNIX_EPOCH};
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)

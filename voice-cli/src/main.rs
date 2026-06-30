@@ -224,9 +224,20 @@ async fn handle_tts_command(action: TtsAction, config: &voice_cli::Config) -> Re
             format,
         } => {
             info!("Testing TTS functionality");
-            tts::handle_tts_test(config, text, output, model, speed, pitch, volume, format)
-                .await
-                .context("Failed to test TTS functionality")
+            tts::handle_tts_test(
+                config,
+                tts::TtsTestParams {
+                    text,
+                    output,
+                    model,
+                    speed,
+                    pitch,
+                    volume,
+                    format,
+                },
+            )
+            .await
+            .context("Failed to test TTS functionality")
         }
     }
 }
@@ -245,7 +256,6 @@ fn get_config_path_for_server_action(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
 
     #[test]
     fn test_cli_parsing() {

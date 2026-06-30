@@ -711,13 +711,6 @@ mod tests {
                 should_fail: false,
             }
         }
-
-        fn with_failure() -> Self {
-            Self {
-                processed_count: AtomicUsize::new(0),
-                should_fail: true,
-            }
-        }
     }
 
     #[async_trait::async_trait]
@@ -807,7 +800,6 @@ mod tests {
         assert!(stats.last_updated.elapsed() < Duration::from_secs(1));
         assert!(stats.worker_utilization >= 0.0 && stats.worker_utilization <= 1.0);
         // Memory usage might be 0 if tasks are processed quickly, so we just check it's non-negative
-        assert!(stats.memory_usage_bytes >= 0);
 
         queue_service.shutdown().await.expect("shutdown ok");
     }

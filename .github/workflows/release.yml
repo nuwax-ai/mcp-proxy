@@ -52,7 +52,7 @@ jobs:
       val: ${{ steps.plan.outputs.manifest }}
       tag: ${{ !github.event.pull_request && github.ref_name || '' }}
       tag-flag: ${{ !github.event.pull_request && format('--tag={0}', github.ref_name) || '' }}
-      publishing: ${{ !github.event.pull_request }}
+      publishing: ${{ !github.event.pull_request && !contains(github.ref_name, '-beta') }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:

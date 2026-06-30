@@ -68,8 +68,8 @@ pub fn init_logging(config: &Config) -> crate::Result<()> {
         .with_ansi(false);
 
     // Create filters based on configured log level
-    let console_filter = EnvFilter::new(&format!("{}", level));
-    let file_filter = EnvFilter::new(&format!("{}", level));
+    let console_filter = EnvFilter::new(format!("{}", level));
+    let file_filter = EnvFilter::new(format!("{}", level));
 
     // Create the subscriber with both layers
     let subscriber = tracing_subscriber::registry()
@@ -77,7 +77,7 @@ pub fn init_logging(config: &Config) -> crate::Result<()> {
         .with(file_layer.with_filter(file_filter));
 
     // Set as global default and get the guard
-    let _ = tracing::subscriber::set_global_default(subscriber)
+    tracing::subscriber::set_global_default(subscriber)
         .map_err(|e| VoiceCliError::Config(format!("Failed to set global subscriber: {}", e)))?;
 
     // Store the guard globally to keep logging active
@@ -159,10 +159,7 @@ pub fn get_current_exe_path() -> crate::Result<PathBuf> {
 
 /// Check if a port is available
 pub fn is_port_available(host: &str, port: u16) -> bool {
-    match std::net::TcpListener::bind(format!("{}:{}", host, port)) {
-        Ok(_) => true,
-        Err(_) => false,
-    }
+    std::net::TcpListener::bind(format!("{}:{}", host, port)).is_ok()
 }
 
 /// Create a safe filename from a string

@@ -193,6 +193,18 @@ pub struct ApalisManager {
     pub monitor_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
+/// 保存任务信息的参数
+struct SaveTaskInfoParams<'a> {
+    task_id: &'a str,
+    status: &'a TaskStatus,
+    file_path: Option<&'a PathBuf>,
+    original_filename: Option<&'a str>,
+    model: Option<&'a str>,
+    response_format: Option<&'a str>,
+    retry_count: u32,
+    error_message: Option<&'a str>,
+}
+
 impl LockFreeApalisManager {
     /// 创建新的无锁管理器，返回 (LockFreeApalisManager, SqliteStorage) 元组
     pub async fn new(
@@ -435,16 +447,16 @@ impl LockFreeApalisManager {
         };
 
         // 使用新的保存任务信息方法，包含文件路径
-        self.save_task_info(
-            &task.task_id,
-            &initial_status,
-            Some(&audio_file_path),
-            Some(&original_filename),
-            model.as_ref().map(|s| s.as_str()),
-            response_format.as_ref().map(|s| s.as_str()),
-            0,
-            None,
-        )
+        self.save_task_info(SaveTaskInfoParams {
+            task_id: &task.task_id,
+            status: &initial_status,
+            file_path: Some(&audio_file_path),
+            original_filename: Some(&original_filename),
+            model: model.as_deref(),
+            response_format: response_format.as_deref(),
+            retry_count: 0,
+            error_message: None,
+        })
         .await?;
 
         info!("Task submitted successfully: {}", task.task_id);
@@ -531,16 +543,16 @@ impl LockFreeApalisManager {
         };
 
         // 保存任务信息，包含URL
-        self.save_task_info(
-            &task.task_id,
-            &initial_status,
-            None, // 文件路径将在下载后设置
-            Some(&filename),
-            model.as_ref().map(|s| s.as_str()),
-            response_format.as_ref().map(|s| s.as_str()),
-            0,
-            None,
-        )
+        self.save_task_info(SaveTaskInfoParams {
+            task_id: &task.task_id,
+            status: &initial_status,
+            file_path: None, // 文件路径将在下载后设置
+            original_filename: Some(&filename),
+            model: model.as_deref(),
+            response_format: response_format.as_deref(),
+            retry_count: 0,
+            error_message: None,
+        })
         .await?;
 
         info!("URL task submitted successfully: {}", task.task_id);
@@ -596,17 +608,17 @@ impl LockFreeApalisManager {
     }
 
     /// 保存任务信息（包括文件路径）
-    async fn save_task_info(
-        &self,
-        task_id: &str,
-        status: &TaskStatus,
-        file_path: Option<&PathBuf>,
-        original_filename: Option<&str>,
-        model: Option<&str>,
-        response_format: Option<&str>,
-        retry_count: u32,
-        error_message: Option<&str>,
-    ) -> Result<(), VoiceCliError> {
+    async fn save_task_info(&self, params: SaveTaskInfoParams<'_>) -> Result<(), VoiceCliError> {
+        let SaveTaskInfoParams {
+            task_id,
+            status,
+            file_path,
+            original_filename,
+            model,
+            response_format,
+            retry_count,
+            error_message,
+        } = params;
         let status_json = serde_json::to_string(status)
             .map_err(|e| VoiceCliError::Storage(format!("序列化任务状态失败: {}", e)))?;
 
@@ -654,12 +666,11 @@ impl LockFreeApalisManager {
             // 尝试获取元数据
             let metadata_json: Option<String> = row.try_get("metadata").unwrap_or(None);
 
-            if let Some(meta_json) = metadata_json {
-                if let Ok(metadata) =
+            if let Some(meta_json) = metadata_json
+                && let Ok(metadata) =
                     serde_json::from_str::<crate::models::request::AudioVideoMetadata>(&meta_json)
-                {
-                    result.metadata = Some(metadata);
-                }
+            {
+                result.metadata = Some(metadata);
             }
 
             Ok(Some(result))
@@ -731,7 +742,14 @@ impl LockFreeApalisManager {
         match current_status {
             Some(TaskStatus::Failed { .. }) | Some(TaskStatus::Cancelled { .. }) => {
                 // 查询我们自己的 task_info 表中存储的原始任务数据
-                let task_data: Option<(Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> = sqlx::query_as(
+                type TaskDataRow = (
+                    Option<String>,
+                    Option<String>,
+                    Option<String>,
+                    Option<String>,
+                    Option<String>,
+                );
+                let task_data: Option<TaskDataRow> = sqlx::query_as(
                     "SELECT file_path, original_filename, model, response_format, error_message FROM task_info WHERE task_id = ?"
                 )
                 .bind(task_id)
@@ -959,10 +977,10 @@ impl LockFreeApalisManager {
         let mut cleaned_count = 0;
 
         for task_id in &expired_tasks {
-            if let Ok(deleted) = self.delete_task_with_files(task_id).await {
-                if deleted {
-                    cleaned_count += 1;
-                }
+            if let Ok(deleted) = self.delete_task_with_files(task_id).await
+                && deleted
+            {
+                cleaned_count += 1;
             }
         }
 
@@ -1263,8 +1281,7 @@ async fn audio_preprocessing_step(
                 download_audio_from_url(&url, &task.task_id, &ctx.audio_file_manager.storage_dir)
                     .await
                     .map_err(|e| {
-                        Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::new(
-                            std::io::ErrorKind::Other,
+                        Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
                             format!("下载URL音频文件失败: {}", e),
                         ))))
                     })?;
@@ -1273,8 +1290,7 @@ async fn audio_preprocessing_step(
             let final_audio_path = detect_and_rename_audio_file(&downloaded_path, &task.task_id)
                 .await
                 .map_err(|e| {
-                    Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::new(
-                        std::io::ErrorKind::Other,
+                    Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
                         format!("检测音频文件格式失败: {}", e),
                     ))))
                 })?;
@@ -1283,8 +1299,7 @@ async fn audio_preprocessing_step(
             update_task_file_path_in_db(&task.task_id, &final_audio_path, &ctx)
                 .await
                 .map_err(|e| {
-                    Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::new(
-                        std::io::ErrorKind::Other,
+                    Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
                         format!("更新数据库文件路径失败: {}", e),
                     ))))
                 })?;
@@ -1292,10 +1307,7 @@ async fn audio_preprocessing_step(
             final_audio_path
         } else {
             return Err(Error::Abort(std::sync::Arc::new(Box::new(
-                std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("URL任务缺少URL地址: {}", task.task_id),
-                ),
+                std::io::Error::other(format!("URL任务缺少URL地址: {}", task.task_id)),
             ))));
         }
     } else {
@@ -1307,8 +1319,7 @@ async fn audio_preprocessing_step(
 
         // 读取并验证音频文件
         let _audio_data = tokio::fs::read(&task.audio_file_path).await.map_err(|e| {
-            Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
                 format!("读取音频文件失败: {}", e),
             ))))
         })?;
@@ -1317,8 +1328,7 @@ async fn audio_preprocessing_step(
         update_task_file_path_in_db(&task.task_id, &task.audio_file_path, &ctx)
             .await
             .map_err(|e| {
-                Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
                     format!("更新数据库文件路径失败: {}", e),
                 ))))
             })?;
@@ -1400,18 +1410,14 @@ async fn transcription_step(
     let has_audio = check_file_has_audio_stream(&task.processed_audio_path)
         .await
         .map_err(|e| {
-            Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
                 format!("检查音频流失败: {}", e),
             ))))
         })?;
 
     if !has_audio {
         return Err(Error::Abort(std::sync::Arc::new(Box::new(
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "文件不包含音频流，无法进行转录".to_string(),
-            ),
+            std::io::Error::other("文件不包含音频流，无法进行转录".to_string()),
         ))));
     }
 
@@ -1424,8 +1430,7 @@ async fn transcription_step(
         )
         .await
         .map_err(|e| {
-            Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
                 format!("转录失败: {}", e),
             ))))
         })?;
@@ -1821,7 +1826,7 @@ async fn detect_and_rename_audio_file(
 /// 更新数据库中任务的文件路径
 async fn update_task_file_path_in_db(
     task_id: &str,
-    file_path: &PathBuf,
+    file_path: &std::path::Path,
     ctx: &StepContext,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let file_path_str = file_path.to_string_lossy().to_string();

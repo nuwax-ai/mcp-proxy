@@ -421,10 +421,10 @@ impl StorageService {
         let cache = self.memory_cache.read().await;
         if let Some(cache_item) = cache.get(task_id) {
             // 检查是否过期
-            if let Some(expires_at) = cache_item.expires_at {
-                if SystemTime::now() > expires_at {
-                    return None;
-                }
+            if let Some(expires_at) = cache_item.expires_at
+                && SystemTime::now() > expires_at
+            {
+                return None;
             }
             Some(cache_item.data.clone())
         } else {
@@ -696,10 +696,11 @@ impl StorageService {
             // 检查是否过期
             let task_created_at =
                 UNIX_EPOCH + std::time::Duration::from_secs(task.created_at.timestamp() as u64);
-            if let Ok(elapsed) = now.duration_since(task_created_at) {
-                if elapsed > self.config.retention_period && task.status.is_terminal() {
-                    expired_tasks.push(task);
-                }
+            if let Ok(elapsed) = now.duration_since(task_created_at)
+                && elapsed > self.config.retention_period
+                && task.status.is_terminal()
+            {
+                expired_tasks.push(task);
             }
         }
 
@@ -885,17 +886,17 @@ impl StorageService {
     /// 检查任务是否匹配过滤器
     fn task_matches_filter(&self, task: &DocumentTask, filter: &QueryFilter) -> bool {
         // 状态过滤
-        if let Some(status) = &filter.status {
-            if &task.status != status {
-                return false;
-            }
+        if let Some(status) = &filter.status
+            && &task.status != status
+        {
+            return false;
         }
 
         // 格式过滤
-        if let Some(format) = &filter.format {
-            if task.document_format.as_ref() != Some(format) {
-                return false;
-            }
+        if let Some(format) = &filter.format
+            && task.document_format.as_ref() != Some(format)
+        {
+            return false;
         }
 
         // 创建时间过滤
@@ -955,14 +956,14 @@ impl StorageService {
                 .map_err(|e| AppError::Database(format!("反序列化缓存项失败: {e}")))?;
 
             // 检查是否过期
-            if let Some(expires_at) = cache_item.expires_at {
-                if SystemTime::now() > expires_at {
-                    // 过期，删除缓存项
-                    self.cache_tree
-                        .remove(&cache_key)
-                        .map_err(|e| AppError::Database(format!("删除过期缓存失败: {e}")))?;
-                    return Ok(None);
-                }
+            if let Some(expires_at) = cache_item.expires_at
+                && SystemTime::now() > expires_at
+            {
+                // 过期，删除缓存项
+                self.cache_tree
+                    .remove(&cache_key)
+                    .map_err(|e| AppError::Database(format!("删除过期缓存失败: {e}")))?;
+                return Ok(None);
             }
 
             // 更新访问计数（简化版本，不实际更新）
@@ -1050,15 +1051,13 @@ impl StorageService {
                 result.map_err(|e| AppError::Database(format!("扫描缓存失败: {e}")))?;
 
             // 尝试解析缓存项（简化版本）
-            if let Ok(cache_item) = serde_json::from_slice::<serde_json::Value>(&data) {
-                if let Some(expires_at_timestamp) =
+            if let Ok(cache_item) = serde_json::from_slice::<serde_json::Value>(&data)
+                && let Some(expires_at_timestamp) =
                     cache_item.get("expires_at").and_then(|v| v.as_u64())
-                {
-                    let expires_at =
-                        UNIX_EPOCH + std::time::Duration::from_secs(expires_at_timestamp);
-                    if now > expires_at {
-                        to_remove.push(key.to_vec());
-                    }
+            {
+                let expires_at = UNIX_EPOCH + std::time::Duration::from_secs(expires_at_timestamp);
+                if now > expires_at {
+                    to_remove.push(key.to_vec());
                 }
             }
         }
@@ -1109,7 +1108,7 @@ impl StorageService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::SourceType;
+    use crate::models::{CreateTaskParams, SourceType};
     use tempfile::TempDir;
 
     #[tokio::test]
@@ -1122,16 +1121,16 @@ mod tests {
 
         // 创建测试任务
         let task_id = uuid::Uuid::new_v4().to_string();
-        let mut task = DocumentTask::new(
-            task_id.clone(),
-            SourceType::Upload,
-            Some("/test/path".to_string()),
-            Some("path.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: task_id.clone(),
+            source_type: SourceType::Upload,
+            source: Some("/test/path".to_string()),
+            original_filename: Some("path.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task.parser_engine = Some(crate::models::ParserEngine::MinerU);
         task.file_size = Some(1024);
         task.mime_type = Some("application/pdf".to_string());
@@ -1164,16 +1163,16 @@ mod tests {
         // 创建多个任务进行批量保存
         let mut tasks = Vec::new();
         for i in 0..5 {
-            let mut task = DocumentTask::new(
-                format!("batch_task_{i}"),
-                SourceType::Upload,
-                Some(format!("/test/path_{i}")),
-                Some(format!("path_{i}.pdf")),
-                Some(DocumentFormat::PDF),
-                Some("pipeline".to_string()),
-                Some(24),
-                Some(3),
-            );
+            let mut task = DocumentTask::new(CreateTaskParams {
+                id: format!("batch_task_{i}"),
+                source_type: SourceType::Upload,
+                source: Some(format!("/test/path_{i}")),
+                original_filename: Some(format!("path_{i}.pdf")),
+                document_format: Some(DocumentFormat::PDF),
+                backend: Some("pipeline".to_string()),
+                expires_in_hours: Some(24),
+                max_retries: Some(3),
+            });
             task.parser_engine = Some(crate::models::ParserEngine::MinerU);
             task.file_size = Some(1024);
             task.mime_type = Some("application/pdf".to_string());
@@ -1208,31 +1207,31 @@ mod tests {
 
         // 创建测试任务
         let task1_id = uuid::Uuid::new_v4().to_string();
-        let mut task1 = DocumentTask::new(
-            task1_id.clone(),
-            SourceType::Upload,
-            Some("/test/path1".to_string()),
-            Some("path1.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task1 = DocumentTask::new(CreateTaskParams {
+            id: task1_id.clone(),
+            source_type: SourceType::Upload,
+            source: Some("/test/path1".to_string()),
+            original_filename: Some("path1.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task1.parser_engine = Some(crate::models::ParserEngine::MinerU);
         task1.file_size = Some(1024);
         task1.mime_type = Some("application/pdf".to_string());
 
         let task2_id = uuid::Uuid::new_v4().to_string();
-        let mut task2 = DocumentTask::new(
-            task2_id.clone(),
-            SourceType::Upload,
-            Some("/test/path2".to_string()),
-            Some("path2.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task2 = DocumentTask::new(CreateTaskParams {
+            id: task2_id.clone(),
+            source_type: SourceType::Upload,
+            source: Some("/test/path2".to_string()),
+            original_filename: Some("path2.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task2.parser_engine = Some(crate::models::ParserEngine::MinerU);
         task2.file_size = Some(1024);
         task2.mime_type = Some("application/pdf".to_string());
@@ -1269,16 +1268,16 @@ mod tests {
 
         // 创建已完成的任务
         let task_id = uuid::Uuid::new_v4().to_string();
-        let mut task = DocumentTask::new(
-            task_id.clone(),
-            SourceType::Upload,
-            Some("/test/path".to_string()),
-            Some("path.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: task_id.clone(),
+            source_type: SourceType::Upload,
+            source: Some("/test/path".to_string()),
+            original_filename: Some("path.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task.parser_engine = Some(crate::models::ParserEngine::MinerU);
         task.file_size = Some(1024);
         task.mime_type = Some("application/pdf".to_string());
@@ -1313,16 +1312,16 @@ mod tests {
         // 创建一些测试任务
         for i in 0..3 {
             let task_id = uuid::Uuid::new_v4().to_string();
-            let mut task = DocumentTask::new(
-                task_id,
-                SourceType::Upload,
-                Some(format!("/test/path_{i}")),
-                Some(format!("path_{i}.pdf")),
-                Some(DocumentFormat::PDF),
-                Some("pipeline".to_string()),
-                Some(24),
-                Some(3),
-            );
+            let mut task = DocumentTask::new(CreateTaskParams {
+                id: task_id,
+                source_type: SourceType::Upload,
+                source: Some(format!("/test/path_{i}")),
+                original_filename: Some(format!("path_{i}.pdf")),
+                document_format: Some(DocumentFormat::PDF),
+                backend: Some("pipeline".to_string()),
+                expires_in_hours: Some(24),
+                max_retries: Some(3),
+            });
             task.parser_engine = Some(crate::models::ParserEngine::MinerU);
             task.file_size = Some(1024);
             task.mime_type = Some("application/pdf".to_string());

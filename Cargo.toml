@@ -13,23 +13,23 @@ mcp-proxy = { path = "mcp-proxy" }
 oss-client = { path = "oss-client" }
 
 # Note: rmcp 依赖由各子项目独立管理（mcp-sse-proxy 用 0.10，mcp-streamable-proxy 用 0.12）
-tokio = { version = "1.48", features = ["macros", "net", "rt", "rt-multi-thread"] }
+tokio = { version = "1.52", features = ["macros", "net", "rt", "rt-multi-thread"] }
 tokio-util = "0.7"
 
 # Logging and tracing
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
-tracing-opentelemetry = "0.32"
-opentelemetry = { version = "0.31", features = ["trace"] }
+tracing-opentelemetry = "0.33"
+opentelemetry = { version = "0.32", features = ["trace"] }
 opentelemetry-jaeger = { version = "0.22", features = ["rt-tokio"] }
-opentelemetry-semantic-conventions = { version = "0.31", features = ["semconv_experimental"] }
-opentelemetry_sdk = "0.31"
-opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic"] }
-tonic = "0.13"
+opentelemetry-semantic-conventions = { version = "0.32", features = ["semconv_experimental"] }
+opentelemetry_sdk = "0.32"
+opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic"] }
+tonic = "0.14"
 hostname = "0.4"
-uuid = { version = "1.19", features = ["v4", "v7"] }
-rand = "0.9"
+uuid = { version = "1.23", features = ["v4", "v7"] }
+rand = "0.10"
 log = "0.4"
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde", "now"] }
@@ -43,7 +43,7 @@ axum = { version = "0.8", features = [
     "macros",
 ] }
 tower = { version = "0.5" }
-tower-http = { version = "0.6", features = [
+tower-http = { version = "0.7", features = [
     "compression-full",
     "cors",
     "fs",
@@ -51,52 +51,51 @@ tower-http = { version = "0.6", features = [
     "limit",
 ] }
 axum-extra = { version = "0.12", features = ["typed-header"] }
-utoipa = { version = "5.4", features = ["axum_extras", "chrono", "uuid"] }
+utoipa = { version = "5.5", features = ["axum_extras", "chrono", "uuid"] }
 utoipa-rapidoc = { version = "6", features = ["axum"] }
 utoipa-redoc = { version = "6", features = ["axum"] }
 utoipa-swagger-ui = { version = "9", features = ["axum"] }
 dashmap = "6.1"
-arc-swap = "1.7"
+arc-swap = "1.9"
 moka = { version = "0.12", features = ["future"] }
 criterion = "0.7"
 once_cell = "1.21"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "=0.9.33"
-serde_with = "3.12"
+serde_with = "3.21"
 reqwest = { version = "0.13", features = ["json"] }
 http = "1.4"
 aliyun-oss-rust-sdk = { version = "0.2", default-features = false, features = ["async"] }
-clap = { version = "4.5", features = ["derive", "env"] }
+clap = { version = "4.6", features = ["derive", "env"] }
 futures = "0.3"
-run_code_rmcp = "0.0.35"
+run_code_rmcp = "0.0.37"
 derive_builder = "0.20"
-bytes = "1.0"
+bytes = "1.12"
 base64 = "0.22"
-tempfile = "3.23"
+tempfile = "3.27"
 dirs = "6.0"
 scopeguard = "1.2"
 
 async-trait = "0.1"
 
 # 自己开发的语音相关工具
-voice-toolkit = { version = "0.16", features = ["stt", "audio"] }
+voice-toolkit = { version = "0.16.1", features = ["stt", "audio"] }
 
 # Task queue and persistence for async processing
 apalis = { version = "0.7", features = ["tracing", "limit"] }
 apalis-sql = { version = "0.7", features = ["sqlite"] }
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
+sqlx = { version = "0.9", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
 sled = "0.34"
 
 # 可执行文件查找
-which = "7.0"
+which = "8.0"
 
 # 国际化支持
-rust-i18n = "3"
+rust-i18n = "4"
 
 # Audio format detection and processing
-symphonia = { version = "0.5", features = ["all"] }
-bincode = "2.0"
+symphonia = { version = "0.6", features = ["all"] }
 tokio-stream = "0.1.18"
 backtrace = "0.3"
 tracing-futures = "0.2.5"

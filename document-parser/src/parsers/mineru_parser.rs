@@ -882,11 +882,11 @@ impl MinerUParser {
 
             if path.is_file() {
                 // 检查是否是Markdown文件
-                if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
-                    if ext.to_lowercase() == "md" {
-                        markdown_files.push(path.clone());
-                        debug!("Markdown file found: {}", path.display());
-                    }
+                if let Some(ext) = path.extension().and_then(|s| s.to_str())
+                    && ext.to_lowercase() == "md"
+                {
+                    markdown_files.push(path.clone());
+                    debug!("Markdown file found: {}", path.display());
                 }
             } else if path.is_dir() {
                 // 递归搜索子目录
@@ -1198,7 +1198,7 @@ mod tests {
         temp_file.write_all(&large_content).unwrap();
         temp_file.flush().unwrap();
 
-        let result = parser
+        let _result = parser
             .validate_input_file(temp_file.path().to_str().unwrap())
             .await;
         // 注意：这个测试可能会通过，取决于全局文件大小配置
@@ -1331,8 +1331,7 @@ mod tests {
         let word_path = "/path/to/test.docx";
         let result = parser.parse(word_path).await;
         // 由于文件路径不存在，可能返回文件错误或其他错误
-        if result.is_err() {
-            let error = result.unwrap_err();
+        if let Err(error) = result {
             let error_msg = error.to_string();
             // 验证错误信息包含预期的内容或文件相关错误
             assert!(

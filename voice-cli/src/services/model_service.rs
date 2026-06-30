@@ -125,7 +125,7 @@ impl ModelService {
 
             if total_size > 0 {
                 let progress = (downloaded as f32 / total_size as f32) * 100.0;
-                if downloaded % (1024 * 1024) == 0 {
+                if downloaded.is_multiple_of(1024 * 1024) {
                     // Log every MB
                     debug!(
                         "Downloaded {:.1}% ({} / {} bytes)",
@@ -296,7 +296,7 @@ impl ModelService {
 
         // Check if file size is reasonable for the model type
         if let Some(expected_size) = self.get_expected_model_size(
-            &model_path
+            model_path
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .map(|s| s.strip_prefix("ggml-").unwrap_or(s))
@@ -424,11 +424,7 @@ impl ModelService {
         ));
 
         if let Some(expected_size) = self.get_expected_model_size(model_name) {
-            let size_diff = if actual_size > expected_size {
-                actual_size - expected_size
-            } else {
-                expected_size - actual_size
-            };
+            let size_diff = actual_size.abs_diff(expected_size);
             let size_diff_percent = (size_diff as f64 / expected_size as f64) * 100.0;
 
             diagnosis.push(format!(

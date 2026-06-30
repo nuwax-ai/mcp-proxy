@@ -1,7 +1,7 @@
 # Docker Compose 配置文件 for mcp-proxy
 # 用于快速启动和测试 mcp-proxy 服务
 
-version: '3.8'
+name: mcp-proxy
 
 services:
   mcp-proxy:

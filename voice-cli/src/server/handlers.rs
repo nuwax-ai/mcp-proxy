@@ -733,9 +733,8 @@ async fn extract_transcription_request_streaming(
                     })?;
 
                 let mut writer = tokio::io::BufWriter::new(file);
-                let mut reader = tokio_util::io::StreamReader::new(
-                    field.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)),
-                );
+                let mut reader =
+                    tokio_util::io::StreamReader::new(field.map_err(std::io::Error::other));
 
                 let total_bytes = tokio::io::copy(&mut reader, &mut writer)
                     .await
@@ -881,7 +880,7 @@ fn extract_filename_from_url(url: &str) -> Option<String> {
         .and_then(|parsed_url| {
             parsed_url
                 .path_segments()
-                .and_then(|segments| segments.last())
+                .and_then(|mut segments| segments.next_back())
                 .map(|last_segment| last_segment.to_string())
         })
         .filter(|filename| !filename.is_empty())

@@ -267,40 +267,39 @@ async fn get_memory_info() -> (u64, u64) {
         #[cfg(target_os = "macos")]
         {
             use std::process::Command;
-            if let Ok(output) = Command::new("vm_stat").output() {
-                if let Ok(output_str) = String::from_utf8(output.stdout) {
-                    let mut free_pages = 0u64;
-                    let mut active_pages = 0u64;
-                    let mut inactive_pages = 0u64;
-                    let mut wired_pages = 0u64;
+            if let Ok(output) = Command::new("vm_stat").output()
+                && let Ok(output_str) = String::from_utf8(output.stdout)
+            {
+                let mut free_pages = 0u64;
+                let mut active_pages = 0u64;
+                let mut inactive_pages = 0u64;
+                let mut wired_pages = 0u64;
 
-                    for line in output_str.lines() {
-                        if line.contains("Pages free:") {
-                            if let Some(pages) = extract_pages(line) {
-                                free_pages = pages;
-                            }
-                        } else if line.contains("Pages active:") {
-                            if let Some(pages) = extract_pages(line) {
-                                active_pages = pages;
-                            }
-                        } else if line.contains("Pages inactive:") {
-                            if let Some(pages) = extract_pages(line) {
-                                inactive_pages = pages;
-                            }
-                        } else if line.contains("Pages wired down:") {
-                            if let Some(pages) = extract_pages(line) {
-                                wired_pages = pages;
-                            }
+                for line in output_str.lines() {
+                    if line.contains("Pages free:") {
+                        if let Some(pages) = extract_pages(line) {
+                            free_pages = pages;
                         }
+                    } else if line.contains("Pages active:") {
+                        if let Some(pages) = extract_pages(line) {
+                            active_pages = pages;
+                        }
+                    } else if line.contains("Pages inactive:") {
+                        if let Some(pages) = extract_pages(line) {
+                            inactive_pages = pages;
+                        }
+                    } else if line.contains("Pages wired down:")
+                        && let Some(pages) = extract_pages(line)
+                    {
+                        wired_pages = pages;
                     }
-
-                    let page_size = 4096u64;
-                    let total =
-                        (free_pages + active_pages + inactive_pages + wired_pages) * page_size;
-                    let used = (active_pages + inactive_pages + wired_pages) * page_size;
-
-                    return (total / 1024 / 1024, used / 1024 / 1024);
                 }
+
+                let page_size = 4096u64;
+                let total = (free_pages + active_pages + inactive_pages + wired_pages) * page_size;
+                let used = (active_pages + inactive_pages + wired_pages) * page_size;
+
+                return (total / 1024 / 1024, used / 1024 / 1024);
             }
         }
 

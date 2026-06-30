@@ -375,32 +375,35 @@ impl AudioFormat {
         !matches!(self, AudioFormat::Wav)
     }
 
-    /// Convert from Symphonia codec type
-    pub fn from_symphonia_codec(codec_type: symphonia::core::codecs::CodecType) -> Self {
-        // Convert codec type to string for matching since Symphonia 0.5 uses different constants
-        let codec_str = format!("{:?}", codec_type).to_lowercase();
+    /// Convert from Symphonia audio codec ID
+    pub fn from_symphonia_codec(codec_id: symphonia::core::codecs::audio::AudioCodecId) -> Self {
+        use symphonia::core::codecs::audio::well_known::*;
 
-        if codec_str.contains("pcm") || codec_str.contains("wav") {
+        if codec_id == CODEC_ID_PCM_S16LE
+            || codec_id == CODEC_ID_PCM_S16BE
+            || codec_id == CODEC_ID_PCM_S24LE
+            || codec_id == CODEC_ID_PCM_S24BE
+            || codec_id == CODEC_ID_PCM_S32LE
+            || codec_id == CODEC_ID_PCM_S32BE
+            || codec_id == CODEC_ID_PCM_F32LE
+            || codec_id == CODEC_ID_PCM_F32BE
+            || codec_id == CODEC_ID_PCM_F64LE
+            || codec_id == CODEC_ID_PCM_F64BE
+        {
             AudioFormat::Wav
-        } else if codec_str.contains("mp3") || codec_str.contains("mpeg") {
+        } else if codec_id == CODEC_ID_MP3 {
             AudioFormat::Mp3
-        } else if codec_str.contains("flac") {
+        } else if codec_id == CODEC_ID_FLAC {
             AudioFormat::Flac
-        } else if codec_str.contains("aac") {
+        } else if codec_id == CODEC_ID_AAC {
             AudioFormat::Aac
-        } else if codec_str.contains("vorbis") {
+        } else if codec_id == CODEC_ID_VORBIS {
             AudioFormat::Ogg
-        } else if codec_str.contains("opus") {
+        } else if codec_id == CODEC_ID_OPUS {
             AudioFormat::Opus
         } else {
             AudioFormat::Unknown
         }
-    }
-
-    /// Get corresponding Symphonia codec type (placeholder implementation)
-    pub fn to_symphonia_codec(&self) -> Option<symphonia::core::codecs::CodecType> {
-        // For MVP, return None since we don't need reverse mapping
-        None
     }
 }
 

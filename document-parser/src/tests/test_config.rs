@@ -169,13 +169,6 @@ Content for section 2.
 "#;
         self.create_test_file(filename, markdown_content.as_bytes())
     }
-
-    /// Create a test image file
-    pub fn create_test_image(&self, filename: &str) -> std::path::PathBuf {
-        // Create a minimal PNG-like file for testing
-        let png_header = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\tpHYs\x00\x00\x0b\x13\x00\x00\x0b\x13\x01\x00\x9a\x9c\x18\x00\x00\x00\nIDATx\x9cc\xf8\x00\x00\x00\x01\x00\x01\x00\x00\x00\x00IEND\xaeB`\x82";
-        self.create_test_file(filename, png_header)
-    }
 }
 
 /// Test data generators
@@ -189,16 +182,16 @@ pub mod generators {
         // 安全初始化全局配置
         safe_init_global_config();
         {
-            let mut t = DocumentTask::new(
-                Uuid::new_v4().to_string(),
-                SourceType::Upload,
-                Some("/tmp/test.pdf".to_string()),
-                Some("test.pdf".to_string()),
-                Some(DocumentFormat::PDF),
-                Some("pipeline".to_string()),
-                Some(24),
-                Some(3),
-            );
+            let mut t = DocumentTask::new(CreateTaskParams {
+                id: Uuid::new_v4().to_string(),
+                source_type: SourceType::Upload,
+                source: Some("/tmp/test.pdf".to_string()),
+                original_filename: Some("test.pdf".to_string()),
+                document_format: Some(DocumentFormat::PDF),
+                backend: Some("pipeline".to_string()),
+                expires_in_hours: Some(24),
+                max_retries: Some(3),
+            });
             t.parser_engine = Some(ParserEngine::MinerU);
             t.file_size = Some(1024 * 1024);
             t.mime_type = Some("application/pdf".to_string());
@@ -215,16 +208,16 @@ pub mod generators {
         // 安全初始化全局配置
         safe_init_global_config();
         {
-            let mut t = DocumentTask::new(
-                Uuid::new_v4().to_string(),
+            let mut t = DocumentTask::new(CreateTaskParams {
+                id: Uuid::new_v4().to_string(),
                 source_type,
-                Some("/tmp/test.pdf".to_string()),
-                Some("test.pdf".to_string()),
-                Some(format),
-                Some("pipeline".to_string()),
-                Some(24),
-                Some(3),
-            );
+                source: Some("/tmp/test.pdf".to_string()),
+                original_filename: Some("test.pdf".to_string()),
+                document_format: Some(format),
+                backend: Some("pipeline".to_string()),
+                expires_in_hours: Some(24),
+                max_retries: Some(3),
+            });
             t.parser_engine = Some(engine);
             t.file_size = Some(1024 * 1024);
             t.mime_type = Some("application/pdf".to_string());
@@ -356,89 +349,11 @@ pub mod assertions {
         }
     }
 
-    /// Assert that a structured document is valid
-    pub fn assert_valid_structured_document(doc: &StructuredDocument) {
-        assert!(!doc.task_id.is_empty());
-        assert!(!doc.document_title.is_empty());
-        assert_eq!(doc.toc.len(), doc.total_sections);
-
-        // Validate TOC structure
-        for section in &doc.toc {
-            assert_valid_structured_section(section);
-        }
-    }
-
-    /// Assert that a structured section is valid
-    pub fn assert_valid_structured_section(section: &StructuredSection) {
-        assert!(!section.id.is_empty());
-        assert!(!section.title.is_empty());
-        assert!(section.level > 0);
-
-        // Validate children
-        for child in &section.children {
-            assert!(child.level > section.level);
-            assert_valid_structured_section(child);
-        }
-
-        // Validate position information if present
-        if let (Some(start), Some(end)) = (section.start_pos, section.end_pos) {
-            assert!(start <= end);
-        }
-    }
-
     /// Assert that an error is properly formatted
     pub fn assert_valid_task_error(error: &TaskError) {
         assert!(!error.error_code.is_empty());
         assert!(!error.error_message.is_empty());
         // TaskError doesn't have timestamp field, so we skip this assertion
-    }
-}
-
-/// Performance testing utilities
-pub mod performance {
-    use std::time::{Duration, Instant};
-
-    /// Measure execution time of a function
-    pub async fn measure_async<F, Fut, T>(f: F) -> (T, Duration)
-    where
-        F: FnOnce() -> Fut,
-        Fut: std::future::Future<Output = T>,
-    {
-        let start = Instant::now();
-        let result = f().await;
-        let duration = start.elapsed();
-        (result, duration)
-    }
-
-    /// Assert that an operation completes within a time limit
-    pub fn assert_within_time_limit<T>(
-        result: (T, Duration),
-        limit: Duration,
-        operation_name: &str,
-    ) -> T {
-        let (value, duration) = result;
-        assert!(
-            duration <= limit,
-            "{operation_name} took {duration:?}, expected <= {limit:?}"
-        );
-        value
-    }
-
-    /// Benchmark configuration
-    pub struct BenchmarkConfig {
-        pub iterations: usize,
-        pub warmup_iterations: usize,
-        pub time_limit: Duration,
-    }
-
-    impl Default for BenchmarkConfig {
-        fn default() -> Self {
-            Self {
-                iterations: 100,
-                warmup_iterations: 10,
-                time_limit: Duration::from_secs(1),
-            }
-        }
     }
 }
 

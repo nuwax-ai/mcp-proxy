@@ -99,28 +99,28 @@ impl TtsService {
             return Err(VoiceCliError::InvalidInput("文本不能为空".to_string()));
         }
 
-        if let Some(speed) = request.speed {
-            if !(0.5..=2.0).contains(&speed) {
-                return Err(VoiceCliError::InvalidInput(
-                    "语速必须在0.5-2.0之间".to_string(),
-                ));
-            }
+        if let Some(speed) = request.speed
+            && !(0.5..=2.0).contains(&speed)
+        {
+            return Err(VoiceCliError::InvalidInput(
+                "语速必须在0.5-2.0之间".to_string(),
+            ));
         }
 
-        if let Some(pitch) = request.pitch {
-            if !(-20..=20).contains(&pitch) {
-                return Err(VoiceCliError::InvalidInput(
-                    "音调必须在-20到20之间".to_string(),
-                ));
-            }
+        if let Some(pitch) = request.pitch
+            && !(-20..=20).contains(&pitch)
+        {
+            return Err(VoiceCliError::InvalidInput(
+                "音调必须在-20到20之间".to_string(),
+            ));
         }
 
-        if let Some(volume) = request.volume {
-            if !(0.5..=2.0).contains(&volume) {
-                return Err(VoiceCliError::InvalidInput(
-                    "音量必须在0.5-2.0之间".to_string(),
-                ));
-            }
+        if let Some(volume) = request.volume
+            && !(0.5..=2.0).contains(&volume)
+        {
+            return Err(VoiceCliError::InvalidInput(
+                "音量必须在0.5-2.0之间".to_string(),
+            ));
         }
 
         // 创建临时输出文件
@@ -258,7 +258,7 @@ impl TtsService {
         let estimated_seconds = (text.len() as f32 / chars_per_second as f32).ceil() as u32;
 
         // 最少3秒，最多300秒（5分钟）
-        estimated_seconds.max(3).min(300)
+        estimated_seconds.clamp(3, 300)
     }
 
     /// 持久化输出文件

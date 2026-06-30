@@ -23,37 +23,34 @@ async fn cleanup_temp_directories() {
     ];
 
     for pattern in &temp_patterns {
-        if let Some(parent) = Path::new(pattern).parent() {
-            if parent.exists() {
-                match std::fs::read_dir(parent) {
-                    Ok(entries) => {
-                        for entry in entries.flatten() {
-                            let path = entry.path();
-                            if let Some(name) = path.file_name() {
-                                if name.to_string_lossy().starts_with("voice-cli-") {
-                                    if path.is_file() {
-                                        if let Err(e) = std::fs::remove_file(&path) {
-                                            warn!("Failed to cleanup temp file {:?}: {}", path, e);
-                                        } else {
-                                            info!("Cleaned up temp file: {:?}", path);
-                                        }
-                                    } else if path.is_dir() {
-                                        if let Err(e) = std::fs::remove_dir_all(&path) {
-                                            warn!(
-                                                "Failed to cleanup temp directory {:?}: {}",
-                                                path, e
-                                            );
-                                        } else {
-                                            info!("Cleaned up temp directory: {:?}", path);
-                                        }
-                                    }
+        if let Some(parent) = Path::new(pattern).parent()
+            && parent.exists()
+        {
+            match std::fs::read_dir(parent) {
+                Ok(entries) => {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if let Some(name) = path.file_name()
+                            && name.to_string_lossy().starts_with("voice-cli-")
+                        {
+                            if path.is_file() {
+                                if let Err(e) = std::fs::remove_file(&path) {
+                                    warn!("Failed to cleanup temp file {:?}: {}", path, e);
+                                } else {
+                                    info!("Cleaned up temp file: {:?}", path);
+                                }
+                            } else if path.is_dir() {
+                                if let Err(e) = std::fs::remove_dir_all(&path) {
+                                    warn!("Failed to cleanup temp directory {:?}: {}", path, e);
+                                } else {
+                                    info!("Cleaned up temp directory: {:?}", path);
                                 }
                             }
                         }
                     }
-                    Err(e) => {
-                        warn!("Failed to read temp directory {:?}: {}", parent, e);
-                    }
+                }
+                Err(e) => {
+                    warn!("Failed to read temp directory {:?}: {}", parent, e);
                 }
             }
         }

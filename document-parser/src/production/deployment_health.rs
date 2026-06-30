@@ -456,10 +456,10 @@ impl HealthCheckManager {
         let mut results = Vec::new();
 
         for checker in &self.checkers {
-            if let Some(ref name) = checker_name {
-                if checker.name() != name {
-                    continue;
-                }
+            if let Some(ref name) = checker_name
+                && checker.name() != name
+            {
+                continue;
             }
 
             match Self::execute_check_with_retry(checker.as_ref(), &self.config).await {

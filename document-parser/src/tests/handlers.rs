@@ -117,16 +117,16 @@ mod task_handler_tests {
         let task_id = create_test_task_id();
 
         // 首先创建一个测试任务
-        let mut task = DocumentTask::new(
-            task_id.clone(),
-            SourceType::Upload,
-            Some("/tmp/test.pdf".to_string()),
-            Some("test.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: task_id.clone(),
+            source_type: SourceType::Upload,
+            source: Some("/tmp/test.pdf".to_string()),
+            original_filename: Some("test.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task.parser_engine = Some(ParserEngine::MinerU);
         task.file_size = Some(1024);
         task.mime_type = Some("application/pdf".to_string());
@@ -189,16 +189,16 @@ mod markdown_handler_tests {
         let task_id = create_test_task_id();
 
         // 创建测试任务
-        let mut task = DocumentTask::new(
-            task_id.clone(),
-            SourceType::Upload,
-            Some("/tmp/test.pdf".to_string()),
-            Some("test.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: task_id.clone(),
+            source_type: SourceType::Upload,
+            source: Some("/tmp/test.pdf".to_string()),
+            original_filename: Some("test.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task.parser_engine = Some(ParserEngine::MinerU);
         task.status = TaskStatus::new_completed(std::time::Duration::from_secs(60));
         task.progress = 100;
@@ -231,16 +231,16 @@ mod markdown_handler_tests {
         let task_id = create_test_task_id();
 
         // 创建未完成的任务
-        let mut task = DocumentTask::new(
-            task_id.clone(),
-            SourceType::Upload,
-            Some("/tmp/test.pdf".to_string()),
-            Some("test.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: task_id.clone(),
+            source_type: SourceType::Upload,
+            source: Some("/tmp/test.pdf".to_string()),
+            original_filename: Some("test.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task.parser_engine = Some(ParserEngine::MinerU);
         task.status = TaskStatus::new_processing(ProcessingStage::MinerUExecuting);
         task.progress = 50;
@@ -267,16 +267,16 @@ mod markdown_handler_tests {
         let task_id = create_test_task_id();
 
         // 创建已完成的任务
-        let mut task = DocumentTask::new(
-            task_id.clone(),
-            SourceType::Upload,
-            Some("/tmp/test.pdf".to_string()),
-            Some("test.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: task_id.clone(),
+            source_type: SourceType::Upload,
+            source: Some("/tmp/test.pdf".to_string()),
+            original_filename: Some("test.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task.parser_engine = Some(ParserEngine::MinerU);
         task.status = TaskStatus::new_completed(std::time::Duration::from_secs(60));
         task.progress = 100;
@@ -308,16 +308,16 @@ mod markdown_handler_tests {
         let task_id = create_test_task_id();
 
         // 创建已完成的任务
-        let mut task = DocumentTask::new(
-            task_id.clone(),
-            SourceType::Upload,
-            Some("/tmp/test.pdf".to_string()),
-            Some("test.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: task_id.clone(),
+            source_type: SourceType::Upload,
+            source: Some("/tmp/test.pdf".to_string()),
+            original_filename: Some("test.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task.status = TaskStatus::new_completed(std::time::Duration::from_secs(60));
         task.progress = 100;
         task.parser_engine = Some(ParserEngine::MinerU);
@@ -396,16 +396,16 @@ mod toc_handler_tests {
         let task_id = create_test_task_id();
 
         // 创建已完成的任务
-        let mut task = DocumentTask::new(
-            task_id.clone(),
-            SourceType::Upload,
-            Some("/tmp/test.pdf".to_string()),
-            Some("test.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: task_id.clone(),
+            source_type: SourceType::Upload,
+            source: Some("/tmp/test.pdf".to_string()),
+            original_filename: Some("test.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task.parser_engine = Some(ParserEngine::MinerU);
         task.status = TaskStatus::new_completed(std::time::Duration::from_secs(60));
         task.progress = 100;
@@ -437,16 +437,16 @@ mod toc_handler_tests {
         let task_id = create_test_task_id();
 
         // 创建未完成的任务
-        let mut task = DocumentTask::new(
-            task_id.clone(),
-            SourceType::Upload,
-            Some("/tmp/test.pdf".to_string()),
-            Some("test.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: task_id.clone(),
+            source_type: SourceType::Upload,
+            source: Some("/tmp/test.pdf".to_string()),
+            original_filename: Some("test.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task.parser_engine = Some(ParserEngine::MinerU);
         task.status = TaskStatus::new_processing(ProcessingStage::GeneratingToc);
         task.progress = 80;
@@ -698,16 +698,16 @@ mod comprehensive_handler_tests {
         ];
 
         for (status, _status_name) in tasks {
-            let task = DocumentTask::new(
-                Uuid::new_v4().to_string(),
-                SourceType::Upload,
-                None,
-                None,
-                Some(DocumentFormat::PDF),
-                Some("pipeline".to_string()),
-                Some(24),
-                Some(3),
-            );
+            let task = DocumentTask::new(CreateTaskParams {
+                id: Uuid::new_v4().to_string(),
+                source_type: SourceType::Upload,
+                source: None,
+                original_filename: None,
+                document_format: Some(DocumentFormat::PDF),
+                backend: Some("pipeline".to_string()),
+                expires_in_hours: Some(24),
+                max_retries: Some(3),
+            });
             let task = {
                 let mut t = task;
                 t.parser_engine = Some(ParserEngine::MinerU);
@@ -806,16 +806,16 @@ mod comprehensive_handler_tests {
             let app_state_clone = app_state.clone();
             let handle = tokio::spawn(async move {
                 // Simulate concurrent task creation
-                let mut task = DocumentTask::new(
-                    Uuid::new_v4().to_string(),
-                    SourceType::Upload,
-                    Some(format!("/tmp/test{i}.pdf")),
-                    Some(format!("test{i}.pdf")),
-                    Some(DocumentFormat::PDF),
-                    Some("pipeline".to_string()),
-                    Some(24),
-                    Some(3),
-                );
+                let mut task = DocumentTask::new(CreateTaskParams {
+                    id: Uuid::new_v4().to_string(),
+                    source_type: SourceType::Upload,
+                    source: Some(format!("/tmp/test{i}.pdf")),
+                    original_filename: Some(format!("test{i}.pdf")),
+                    document_format: Some(DocumentFormat::PDF),
+                    backend: Some("pipeline".to_string()),
+                    expires_in_hours: Some(24),
+                    max_retries: Some(3),
+                });
                 task.parser_engine = Some(ParserEngine::MinerU);
 
                 app_state_clone
@@ -968,16 +968,16 @@ mod handler_integration_tests {
         let app_state = create_test_app_state().await;
 
         // Create a task that will fail
-        let mut task = DocumentTask::new(
-            Uuid::new_v4().to_string(),
-            SourceType::Upload,
-            Some("/nonexistent/file.pdf".to_string()),
-            Some("file.pdf".to_string()),
-            Some(DocumentFormat::PDF),
-            Some("pipeline".to_string()),
-            Some(24),
-            Some(3),
-        );
+        let mut task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/nonexistent/file.pdf".to_string()),
+            original_filename: Some("file.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
         task.parser_engine = Some(ParserEngine::MinerU);
 
         // Set task to failed state

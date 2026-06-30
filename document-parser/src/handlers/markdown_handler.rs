@@ -467,7 +467,7 @@ pub async fn download_markdown(
 /// Markdown来源类型
 enum MarkdownSource {
     Oss(String),
-    StructuredDocument(StructuredDocument),
+    StructuredDocument(Box<StructuredDocument>),
     NotAvailable,
 }
 
@@ -477,22 +477,22 @@ fn determine_markdown_source(
     params: &DownloadParams,
 ) -> MarkdownSource {
     // 如果强制重新生成，优先使用结构化文档
-    if params.force_regenerate.unwrap_or(false) {
-        if let Some(doc) = &task.structured_document {
-            return MarkdownSource::StructuredDocument(doc.clone());
-        }
+    if params.force_regenerate.unwrap_or(false)
+        && let Some(doc) = &task.structured_document
+    {
+        return MarkdownSource::StructuredDocument(Box::new(doc.clone()));
     }
 
     // 优先从OSS获取
-    if let Some(oss) = &task.oss_data {
-        if !oss.markdown_url.is_empty() {
-            return MarkdownSource::Oss(oss.markdown_url.clone());
-        }
+    if let Some(oss) = &task.oss_data
+        && !oss.markdown_url.is_empty()
+    {
+        return MarkdownSource::Oss(oss.markdown_url.clone());
     }
 
     // 其次从结构化文档生成
     if let Some(doc) = &task.structured_document {
-        return MarkdownSource::StructuredDocument(doc.clone());
+        return MarkdownSource::StructuredDocument(Box::new(doc.clone()));
     }
 
     MarkdownSource::NotAvailable
@@ -959,34 +959,34 @@ fn build_range_response(
 
     // 处理Range请求
     if let Some(range_str) = range_header {
-        if let Some((start, end)) = parse_range_header(&range_str, total_len) {
-            if validate_range_request(start, end, total_len) {
-                let start_usize = start as usize;
-                let end_usize = end as usize;
+        if let Some((start, end)) = parse_range_header(&range_str, total_len)
+            && validate_range_request(start, end, total_len)
+        {
+            let start_usize = start as usize;
+            let end_usize = end as usize;
 
-                // 安全的切片操作
-                if start_usize < full.len() && end_usize < full.len() && start_usize <= end_usize {
-                    let slice = full[start_usize..=end_usize].to_vec();
-                    let content_length = calculate_content_length(start, end);
+            // 安全的切片操作
+            if start_usize < full.len() && end_usize < full.len() && start_usize <= end_usize {
+                let slice = full[start_usize..=end_usize].to_vec();
+                let content_length = calculate_content_length(start, end);
 
-                    let mut range_headers = headers;
-                    range_headers.insert(
-                        header::CONTENT_RANGE,
-                        header::HeaderValue::from_str(&format!("bytes {start}-{end}/{total_len}"))
-                            .unwrap_or(header::HeaderValue::from_static("bytes */*")),
-                    );
-                    range_headers.insert(
-                        header::CONTENT_LENGTH,
-                        header::HeaderValue::from_str(&content_length.to_string())
-                            .unwrap_or(header::HeaderValue::from_static("0")),
-                    );
+                let mut range_headers = headers;
+                range_headers.insert(
+                    header::CONTENT_RANGE,
+                    header::HeaderValue::from_str(&format!("bytes {start}-{end}/{total_len}"))
+                        .unwrap_or(header::HeaderValue::from_static("bytes */*")),
+                );
+                range_headers.insert(
+                    header::CONTENT_LENGTH,
+                    header::HeaderValue::from_str(&content_length.to_string())
+                        .unwrap_or(header::HeaderValue::from_static("0")),
+                );
 
-                    info!(
-                        "Return Range response: {}-{}/{} bytes",
-                        start, end, total_len
-                    );
-                    return (StatusCode::PARTIAL_CONTENT, range_headers, slice).into_response();
-                }
+                info!(
+                    "Return Range response: {}-{}/{} bytes",
+                    start, end, total_len
+                );
+                return (StatusCode::PARTIAL_CONTENT, range_headers, slice).into_response();
             }
         }
 

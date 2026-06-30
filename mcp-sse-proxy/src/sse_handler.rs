@@ -990,8 +990,8 @@ impl BackendSessionHandler {
         // 从后端获取 ServerInfo（JSON 桥接跨 rmcp 版本）
         // 这确保 SSE 客户端能看到后端实际支持的 capabilities（tools、resources 等）
         let backend_info_json = backend.get_server_info_json();
-        let mut cached_info: rmcp::model::ServerInfo =
-            serde_json::from_value(backend_info_json).unwrap_or_else(|e| {
+        let mut cached_info: rmcp::model::ServerInfo = serde_json::from_value(backend_info_json)
+            .unwrap_or_else(|e| {
                 warn!(
                     "[BackendSessionHandler] Failed to deserialize backend ServerInfo: {}, \
                      using default - MCP ID: {}",

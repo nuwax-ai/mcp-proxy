@@ -630,11 +630,10 @@ impl MarkItDownParser {
                         }
 
                         // 收集临时文件信息
-                        if line.contains("Created temp file:") {
-                            if let Some(file_path) = line.split("Created temp file:").nth(1) {
+                        if line.contains("Created temp file:")
+                            && let Some(file_path) = line.split("Created temp file:").nth(1) {
                                 temp_files.push(file_path.trim().to_string());
                             }
-                        }
                     }
 
                     // 等待进程完成
@@ -865,11 +864,11 @@ impl MarkItDownParser {
                                 | "tif"
                         ) {
                             // 验证文件不为空
-                            if let Ok(metadata) = fs::metadata(&path).await {
-                                if metadata.len() > 0 {
-                                    images.push(path.to_string_lossy().to_string());
-                                    debug!("Image file found: {}", path.display());
-                                }
+                            if let Ok(metadata) = fs::metadata(&path).await
+                                && metadata.len() > 0
+                            {
+                                images.push(path.to_string_lossy().to_string());
+                                debug!("Image file found: {}", path.display());
                             }
                         }
                     }
@@ -1150,15 +1149,6 @@ mod tests {
         Ok(temp_file)
     }
 
-    fn create_test_html_file() -> Result<NamedTempFile, std::io::Error> {
-        let mut temp_file = NamedTempFile::with_suffix(".html")?;
-        temp_file.write_all(
-            b"<html><head><title>Test</title></head><body><h1>Hello</h1><p>World</p></body></html>",
-        )?;
-        temp_file.flush()?;
-        Ok(temp_file)
-    }
-
     #[test]
     fn test_markitdown_config_default() {
         let config = MarkItDownConfig::default();
@@ -1265,7 +1255,7 @@ mod tests {
 
         // 测试存在的文件
         let temp_file = create_test_text_file().unwrap();
-        let result = parser
+        let _result = parser
             .validate_input_file(temp_file.path().to_str().unwrap(), &DocumentFormat::Text)
             .await;
         // 这可能会失败，因为我们没有真正的MarkItDown环境，但至少可以测试文件存在性检查
@@ -1502,8 +1492,7 @@ mod tests {
         let pdf_path = "/path/to/test.pdf";
         let result = parser.parse(pdf_path).await;
         // 由于文件路径不存在，可能返回文件错误或其他错误
-        if result.is_err() {
-            let error = result.unwrap_err();
+        if let Err(error) = result {
             let error_msg = error.to_string();
             // 验证错误信息包含预期的内容或文件相关错误
             assert!(

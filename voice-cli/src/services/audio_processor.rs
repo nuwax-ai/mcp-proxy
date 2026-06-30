@@ -126,7 +126,7 @@ impl AudioProcessor {
                     toolkit_error
                 );
 
-                return Err(toolkit_error);
+                Err(toolkit_error)
             }
         }
     }
@@ -191,7 +191,7 @@ impl AudioProcessor {
     ) -> Result<NamedTempFile, VoiceCliError> {
         let extension = format.to_string();
         let mut temp_file =
-            NamedTempFile::with_suffix_in(&format!(".{}", extension), &self.temp_dir).map_err(
+            NamedTempFile::with_suffix_in(format!(".{}", extension), &self.temp_dir).map_err(
                 |e| VoiceCliError::AudioProcessing(format!("Failed to create temp file: {}", e)),
             )?;
 

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     /// 服务器配置
     #[serde(default)]
@@ -133,19 +133,6 @@ pub struct TtsConfig {
     pub default_volume: f32,
     /// TTS任务超时时间（秒）
     pub timeout_seconds: u64,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            server: ServerConfig::default(),
-            whisper: WhisperConfig::default(),
-            logging: LoggingConfig::default(),
-            daemon: DaemonConfig::default(),
-            task_management: TaskManagementConfig::default(),
-            tts: TtsConfig::default(),
-        }
-    }
 }
 
 impl Default for ServerConfig {

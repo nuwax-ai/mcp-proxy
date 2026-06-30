@@ -120,7 +120,7 @@ impl TranscriptionEngine {
             }
         })?;
 
-        Ok(result.map_err(|e| VoiceCliError::TranscriptionFailed(e.to_string()))?)
+        result.map_err(|e| VoiceCliError::TranscriptionFailed(e.to_string()))
     }
 
     /// Get the default model name from configuration

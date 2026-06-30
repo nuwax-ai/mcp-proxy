@@ -1,28 +1,5 @@
 #[cfg(test)]
-mod task_management_integration_tests {
-    use crate::models::{AsyncTranscriptionTask, Config, TaskManagementConfig, TaskStatus};
-    use std::path::PathBuf;
-    use std::sync::Arc;
-    use tempfile::TempDir;
-
-    async fn create_test_config() -> (Arc<Config>, TempDir) {
-        let temp_dir = TempDir::new().unwrap();
-        let db_path = temp_dir.path().join("test_tasks.db");
-
-        let mut config = Config::default();
-        config.task_management = TaskManagementConfig {
-            max_concurrent_tasks: 2,
-            retry_attempts: 2,
-            task_timeout_seconds: 30,
-            catch_panic: true,
-            sqlite_db_path: db_path.to_string_lossy().to_string(),
-            task_retention_minutes: 1440, // 24 hours in minutes
-            sled_db_path: "./data/sled".to_string(),
-        };
-
-        (Arc::new(config), temp_dir)
-    }
-
+mod tests {
     // #[tokio::test]
     // async fn test_task_store_crud_operations() {
     //     let (config, _temp_dir) = create_test_config().await;

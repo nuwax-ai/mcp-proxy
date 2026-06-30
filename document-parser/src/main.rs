@@ -916,8 +916,6 @@ fn print_success_message(_current_dir: &std::path::Path) {
     if let Ok(shell) = std::env::var("SHELL") {
         if shell.contains("fish") {
             println!("   source ./venv/bin/activate.fish");
-        } else if shell.contains("zsh") || shell.contains("bash") {
-            println!("   source ./venv/bin/activate");
         } else {
             println!("   source ./venv/bin/activate");
         }

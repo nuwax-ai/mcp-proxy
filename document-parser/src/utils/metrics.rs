@@ -643,10 +643,10 @@ impl AsyncMetricsCollector {
         }
 
         // CPU使用情况
-        if let Ok(cpu_usage) = Self::get_cpu_usage().await {
-            if let Some(gauge) = registry.get_gauge("system_cpu_usage_percent").await {
-                gauge.set((cpu_usage * 100.0) as u64);
-            }
+        if let Ok(cpu_usage) = Self::get_cpu_usage().await
+            && let Some(gauge) = registry.get_gauge("system_cpu_usage_percent").await
+        {
+            gauge.set((cpu_usage * 100.0) as u64);
         }
 
         // 磁盘使用情况

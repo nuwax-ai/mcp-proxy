@@ -87,9 +87,10 @@ pub struct ProcessingStageInfo {
     pub duration: Duration,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema, Default)]
 pub enum TaskPriority {
     Low = 1,
+    #[default]
     Normal = 2,
     High = 3,
 }
@@ -212,12 +213,6 @@ impl std::fmt::Display for TaskError {
     }
 }
 
-impl Default for TaskPriority {
-    fn default() -> Self {
-        TaskPriority::Normal
-    }
-}
-
 impl AsyncTranscriptionTask {
     pub fn with_priority(mut self, priority: TaskPriority) -> Self {
         self.priority = priority;
@@ -270,7 +265,7 @@ impl From<voice_toolkit::stt::TranscriptionResult> for SerializableTranscription
             segments: result
                 .segments
                 .into_iter()
-                .map(|s| SerializableSegment::from_voice_toolkit_segment(s))
+                .map(SerializableSegment::from_voice_toolkit_segment)
                 .collect(),
             language: result.language,
             audio_duration: result.audio_duration,

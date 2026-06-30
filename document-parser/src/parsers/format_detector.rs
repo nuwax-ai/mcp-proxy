@@ -144,24 +144,24 @@ impl FormatDetector {
             }
 
             // 检查文件名中的危险字符
-            if let Some(filename) = path.file_name().and_then(|name| name.to_str()) {
-                if filename.contains("..") || filename.contains("/") || filename.contains("\\") {
-                    bail!("文件名包含危险字符: {}", filename);
-                }
+            if let Some(filename) = path.file_name().and_then(|name| name.to_str())
+                && (filename.contains("..") || filename.contains("/") || filename.contains("\\"))
+            {
+                bail!("文件名包含危险字符: {}", filename);
             }
         }
 
         // 文件大小检查
-        if self.security_config.enable_size_check {
-            if let Ok(metadata) = std::fs::metadata(file_path) {
-                let file_size = metadata.len();
-                if file_size > self.security_config.max_allowed_size {
-                    bail!(
-                        "文件大小超过限制: {} bytes (最大: {} bytes)",
-                        file_size,
-                        self.security_config.max_allowed_size
-                    );
-                }
+        if self.security_config.enable_size_check
+            && let Ok(metadata) = std::fs::metadata(file_path)
+        {
+            let file_size = metadata.len();
+            if file_size > self.security_config.max_allowed_size {
+                bail!(
+                    "文件大小超过限制: {} bytes (最大: {} bytes)",
+                    file_size,
+                    self.security_config.max_allowed_size
+                );
             }
         }
 
@@ -531,17 +531,17 @@ impl FormatDetector {
             }
         }
 
-        if best_result.is_none() || best_result.as_ref().unwrap().confidence < 0.9 {
-            if let Some(mime) = mime_type {
-                if let Some(result) = self.detect_by_mime_type(mime) {
-                    if best_result.is_none()
-                        || result.confidence > best_result.as_ref().unwrap().confidence
-                    {
-                        best_result = Some(result);
-                    }
-                } else {
-                    fallback_methods.push(DetectionMethod::MimeType);
+        if (best_result.is_none() || best_result.as_ref().unwrap().confidence < 0.9)
+            && let Some(mime) = mime_type
+        {
+            if let Some(result) = self.detect_by_mime_type(mime) {
+                if best_result.is_none()
+                    || result.confidence > best_result.as_ref().unwrap().confidence
+                {
+                    best_result = Some(result);
                 }
+            } else {
+                fallback_methods.push(DetectionMethod::MimeType);
             }
         }
 
@@ -1242,7 +1242,6 @@ mod tests {
         assert!(matches!(result.format, DocumentFormat::PDF));
         assert!(result.confidence > 0.9);
         assert!(result.file_size.is_some());
-        assert!(result.detection_time_ms >= 0);
 
         Ok(())
     }

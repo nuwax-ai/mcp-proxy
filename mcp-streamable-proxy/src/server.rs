@@ -89,12 +89,7 @@ pub async fn run_stream_server_from_config(
     }
 
     // 3. 创建客户端信息
-    let capabilities = ClientCapabilities::builder()
-        .enable_experimental()
-        .enable_roots()
-        .enable_roots_list_changed()
-        .enable_sampling()
-        .build();
+    let capabilities = ClientCapabilities::builder().enable_experimental().build();
     let client_info = ClientInfo::new(
         capabilities,
         rmcp::model::Implementation::new("mcp-streamable-proxy-server", env!("CARGO_PKG_VERSION")),

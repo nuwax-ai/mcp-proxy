@@ -114,16 +114,16 @@ impl ImageProcessor {
         }
 
         // 检查文件大小
-        if let Ok(metadata) = fs::metadata(image_path).await {
-            if metadata.len() > self.config.max_image_size as u64 {
-                return ImageUploadResult {
-                    original_path: image_path.to_string(),
-                    oss_url: String::new(),
-                    filename: self.extract_filename(image_path),
-                    success: false,
-                    error_message: Some("Image file too large".to_string()),
-                };
-            }
+        if let Ok(metadata) = fs::metadata(image_path).await
+            && metadata.len() > self.config.max_image_size as u64
+        {
+            return ImageUploadResult {
+                original_path: image_path.to_string(),
+                oss_url: String::new(),
+                filename: self.extract_filename(image_path),
+                success: false,
+                error_message: Some("Image file too large".to_string()),
+            };
         }
 
         // 检查文件格式
@@ -283,10 +283,10 @@ impl ImageProcessor {
         }
 
         // 检查文件大小
-        if let Ok(metadata) = fs::metadata(image_path).await {
-            if metadata.len() > self.config.max_image_size as u64 {
-                return Ok(false);
-            }
+        if let Ok(metadata) = fs::metadata(image_path).await
+            && metadata.len() > self.config.max_image_size as u64
+        {
+            return Ok(false);
         }
 
         // 检查文件格式
@@ -335,14 +335,14 @@ impl ImageProcessor {
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
 
-            if path.is_file() {
-                if let Some(extension) = path.extension() {
-                    let ext = extension.to_string_lossy().to_lowercase();
-                    if self.config.supported_formats.contains(&ext) {
-                        if let Some(path_str) = path.to_str() {
-                            image_paths.push(path_str.to_string());
-                        }
-                    }
+            if path.is_file()
+                && let Some(extension) = path.extension()
+            {
+                let ext = extension.to_string_lossy().to_lowercase();
+                if self.config.supported_formats.contains(&ext)
+                    && let Some(path_str) = path.to_str()
+                {
+                    image_paths.push(path_str.to_string());
                 }
             }
         }
