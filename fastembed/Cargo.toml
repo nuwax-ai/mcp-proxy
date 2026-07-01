@@ -1,5 +1,7 @@
 [package]
-name = "fastembed"
+# package 名用 fastembed-server，避免与依赖的 crates.io `fastembed` 库同名冲突；
+# [[bin]] name 保持 fastembed，命令名不变。
+name = "fastembed-server"
 version = "0.1.28"
 edition = "2024"
 

@@ -26,7 +26,7 @@ Text embedding HTTP service using FastEmbed library for efficient text vectoriza
 
 ```bash
 # Build from source
-cargo build --release -p fastembed
+cargo build --release -p fastembed-server
 
 # Binary location
 ls target/release/fastembed
@@ -64,10 +64,10 @@ curl -X POST http://localhost:8080/embed \
 
 ```bash
 # Build
-cargo build -p fastembed
+cargo build -p fastembed-server
 
 # Test
-cargo test -p fastembed
+cargo test -p fastembed-server
 ```
 
 ## License

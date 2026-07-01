@@ -1,0 +1,49 @@
+# syntax=docker/dockerfile:1
+# 多阶段构建 Dockerfile，用于编译 fastembed (文本嵌入 HTTP 服务)
+#
+# ⚠️ fastembed 模块被 workspace exclude (ort 平台兼容性，开发中)，但用了 { workspace = true }
+#    依赖。本 Dockerfile 在容器内 sed 临时纳入 members (不改宿主代码)。
+#    package 名为 fastembed-server，bin/命令名保持 fastembed，用 --bin fastembed 编译消歧。
+#
+# 用法:
+#   make build-fastembed-x86_64
+FROM rust:1.90 AS builder
+
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    openssl \
+    ca-certificates \
+    build-essential \
+    libc6-dev \
+    gcc \
+    g++ \
+    libclang-dev \
+    clang \
+    cmake \
+    make \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+RUN rustup component add rustfmt
+COPY . .
+
+# 临时将 fastembed 纳入 workspace (仅容器内生效，不改宿主 Cargo.toml)
+RUN sed -i 's/^members = \[/members = ["fastembed", /' Cargo.toml && \
+    sed -i '/^exclude = \["fastembed"\]/d' Cargo.toml && \
+    echo "=== [workspace] after patch ===" && sed -n '1,8p' Cargo.toml
+
+# 编译 (-p fastembed-server 指定 package；--bin fastembed 会因 fastembed-server 不在 default-members 而找不到)
+RUN --mount=type=cache,target=/app/target \
+    --mount=type=cache,target=/usr/local/cargo/registry \
+    export LIBCLANG_PATH=$(find /usr -name "libclang.so*" -printf "%h\n" 2>/dev/null | sort -u | head -1) && \
+    echo "LIBCLANG_PATH=$LIBCLANG_PATH" && \
+    cargo build --release -p fastembed-server && \
+    mkdir -p /output && cp target/release/fastembed /output/
+
+FROM scratch AS runtime
+COPY --from=builder /output/fastembed /fastembed
+ENTRYPOINT ["/fastembed"]
+
+FROM scratch AS export
+COPY --from=builder /output/fastembed /fastembed

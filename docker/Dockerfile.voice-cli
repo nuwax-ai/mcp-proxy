@@ -1,0 +1,56 @@
+# syntax=docker/dockerfile:1
+# 多阶段构建 Dockerfile，用于跨平台编译 voice-cli
+#
+# 用法:
+#   make build-voice-cli-x86_64            # Linux x86_64 (CPU 后端，默认)
+#   make build-voice-cli-arm64             # Linux ARM64
+#
+# GPU 加速 (cuda/metal/vulkan):
+#   docker buildx build --platform linux/amd64 --target export \
+#     --build-arg VOICE_FEATURES=cuda --output type=local,dest=./dist/voice-cli-x86_64-cuda \
+#     -f docker/Dockerfile.voice-cli .
+#   注意: cuda 需 CUDA Toolkit，建议直接在 NVIDIA 服务器上 cargo build --features cuda。
+FROM rust:1.90 AS builder
+
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    openssl \
+    ca-certificates \
+    build-essential \
+    libc6-dev \
+    gcc \
+    g++ \
+    libclang-dev \
+    clang \
+    cmake \
+    make \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN echo "=== Verifying build environment ===" && gcc --version && cmake --version
+
+WORKDIR /app
+RUN rustup component add rustfmt
+COPY . .
+
+# 可选 feature: 空 = CPU 后端 (默认), 可选 cuda / metal / vulkan
+ARG VOICE_FEATURES=""
+RUN --mount=type=cache,target=/app/target \
+    --mount=type=cache,target=/usr/local/cargo/registry \
+    export LIBCLANG_PATH=$(find /usr -name "libclang.so*" -printf "%h\n" 2>/dev/null | sort -u | head -1) && \
+    echo "LIBCLANG_PATH=$LIBCLANG_PATH" && \
+    if [ -n "$VOICE_FEATURES" ]; then \
+        echo "=== Building voice-cli with features: $VOICE_FEATURES ===" && \
+        cargo build --release -p voice-cli --features "$VOICE_FEATURES"; \
+    else \
+        echo "=== Building voice-cli (CPU backend) ===" && \
+        cargo build --release -p voice-cli; \
+    fi && \
+    mkdir -p /output && cp target/release/voice-cli /output/
+
+FROM scratch AS runtime
+COPY --from=builder /output/voice-cli /voice-cli
+ENTRYPOINT ["/voice-cli"]
+
+FROM scratch AS export
+COPY --from=builder /output/voice-cli /voice-cli

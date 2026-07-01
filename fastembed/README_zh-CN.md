@@ -26,7 +26,7 @@
 
 ```bash
 # 从源码构建
-cargo build --release -p fastembed
+cargo build --release -p fastembed-server
 
 # 二进制文件位置
 ls target/release/fastembed
@@ -64,10 +64,10 @@ curl -X POST http://localhost:8080/embed \
 
 ```bash
 # 构建
-cargo build -p fastembed
+cargo build -p fastembed-server
 
 # 测试
-cargo test -p fastembed
+cargo test -p fastembed-server
 ```
 
 ## 许可证
