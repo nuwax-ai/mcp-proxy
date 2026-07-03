@@ -62,7 +62,15 @@ thiserror = { workspace = true }
 rust-i18n = { workspace = true }
 
 # HTTP client for model downloads
-reqwest = { version = "0.12", features = ["json", "stream"] }
+# 使用 rustls + webpki-roots（内置 Mozilla 根证书），避免动态链接系统 OpenSSL。
+# 这样产物不依赖任何版本的 libssl.so，跨发行版部署不会再出现 libssl.so.1.1 找不到的问题。
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "stream",
+    "rustls-tls",
+    "charset",
+    "http2",
+] }
 
 # Time handling
 chrono = { workspace = true, features = ["serde"] }
