@@ -32,7 +32,10 @@ start_server() {
     fi
 
     # Start server in background and capture PID (use nohup to detach)
-    nohup "$VOICE_CLI_BIN" server run >> "$LOG_FILE" 2>&1 &
+    # 关键 1: cd 到 PROJECT_ROOT，让 ./models ./logs ./data/tasks.db 相对路径落对
+    # 关键 2: --config 必须在 server run 后（全局 -c 在 server run 时被代码忽略）
+    cd "$PROJECT_ROOT" || return 1
+    nohup "$VOICE_CLI_BIN" server run --config "${PROJECT_ROOT}/config.yml" >> "$LOG_FILE" 2>&1 &
     SERVER_PID=$!
     
     echo $SERVER_PID > "$PID_FILE"

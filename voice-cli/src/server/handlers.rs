@@ -900,7 +900,8 @@ fn generate_task_id() -> String {
     responses(
         (status = 200, description = "转换成功"),
         (status = 400, description = "请求参数错误"),
-        (status = 500, description = "服务器内部错误")
+        (status = 500, description = "服务器内部错误"),
+        (status = 503, description = "TTS 未启用或 tts_service.py 缺失")
     ),
 )]
 pub async fn tts_sync_handler(
@@ -1010,7 +1011,8 @@ pub async fn tts_sync_handler(
     responses(
         (status = 202, description = "任务已接受", body = TtsTaskResponse),
         (status = 400, description = "请求参数错误", body = HttpResult<String>),
-        (status = 500, description = "服务器内部错误", body = HttpResult<String>)
+        (status = 500, description = "服务器内部错误", body = HttpResult<String>),
+        (status = 503, description = "TTS 未启用或 tts_service.py 缺失", body = HttpResult<String>)
     ),
 )]
 pub async fn tts_async_handler(

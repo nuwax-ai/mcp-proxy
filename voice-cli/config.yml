@@ -47,6 +47,8 @@ whisper:
 
 # TTS (Text-to-Speech) configuration
 tts:
+  # 是否启用 TTS（默认 false；缺 tts_service.py 不崩，TTS 请求返回 503，STT 正常）
+  enabled: false
   # Python interpreter path (relative to project directory)
   python_path: ".venv/bin/python"
   # TTS model directory (optional, for advanced TTS models)
@@ -65,8 +67,7 @@ tts:
   default_volume: 1.0
   # TTS processing timeout in seconds
   timeout_seconds: 300
-  # Path to TTS service script (relative to project directory)
-  script_path: "tts_service.py"
+  # 注: script_path 已废弃（TtsService 硬编码找 ./tts_service.py），无需配置
 
 logging:
   # Log level (trace, debug, info, warn, error)
