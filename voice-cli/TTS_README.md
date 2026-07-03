@@ -1,5 +1,7 @@
 # TTS功能集成说明
 
+> ⚠️ **TTS 默认禁用**（`tts.enabled: false`）。需在 config.yml 设 `tts.enabled: true` + 放置 `tts_service.py` 后方可使用；否则 STT 服务照常启动，TTS 接口返回 503。启用步骤见 `deploy/enable-tts.md`。
+
 本项目已成功集成文本转语音（TTS）功能，使用index-tts库作为核心语音合成引擎。
 
 ## 功能特性

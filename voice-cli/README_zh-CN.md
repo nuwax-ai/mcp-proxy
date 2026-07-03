@@ -24,7 +24,7 @@
 - **实时监控**: 服务状态、健康检查
 - **任务处理**: 高效的音频处理流水线
 
-> **注意**: TTS（文本转语音）功能目前正在开发中，存在已知问题，将在未来版本中提供。
+> **注意**: TTS（文本转语音）默认禁用（`tts.enabled: false`）。缺 `tts_service.py` 不阻塞 STT 启动，`/tts/*` 请求返回 503。启用步骤见 [TTS_README.md](TTS_README.md) 和 [deploy/enable-tts.md](deploy/enable-tts.md)。
 
 ## 系统要求
 

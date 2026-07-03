@@ -24,7 +24,7 @@ High-performance speech-to-text HTTP service built with Rust, leveraging Whisper
 - **Real-time Monitoring**: Service status, health checks
 - **Task Processing**: Efficient audio processing pipeline
 
-> **Note**: TTS (Text-to-Speech) feature is currently under development and has known issues. It will be available in a future release.
+> **Note**: TTS (Text-to-Speech) 默认禁用（`tts.enabled: false`）。缺 `tts_service.py` 不阻塞 STT 启动，`/tts/*` 请求返回 503。启用步骤见 [TTS_README.md](TTS_README.md) 和 [deploy/enable-tts.md](deploy/enable-tts.md)。
 
 ## System Requirements
 

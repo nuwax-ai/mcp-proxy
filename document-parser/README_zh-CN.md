@@ -78,7 +78,7 @@ server:
 
 # MinerU配置
 mineru:
-  backend: "vlm-sglang-engine"  # 启用GPU加速
+  backend: "hybrid-engine"  # 启用GPU加速
   max_concurrent: 3
   quality_level: "Balanced"
 ```
@@ -87,7 +87,7 @@ mineru:
 
 ```yaml
 mineru:
-  backend: "vlm-sglang-engine"  # 使用sglang后端
+  backend: "hybrid-engine"  # 使用sglang后端
   max_concurrent: 2              # GPU环境下建议降低并发数
   batch_size: 1
 ```
@@ -136,7 +136,7 @@ curl "http://localhost:8087/api/v1/documents/{task_id}/status"
 ### GPU加速
 
 1. 确保安装了 `sglang[all]`
-2. 配置 `backend: "vlm-sglang-engine"`
+2. 配置 `backend: "hybrid-engine"`
 3. 根据GPU内存调整并发参数
 4. 监控GPU使用情况
 

@@ -99,7 +99,7 @@ python -c "import torch; print('PyTorch版本:', torch.__version__); print('CUDA
 ```yaml
 # MinerU配置
 mineru:
-  backend: "vlm-sglang-engine"  # 关键：启用sglang后端
+  backend: "hybrid-engine"  # 关键：启用sglang后端
   python_path: "./venv/bin/python"
   max_concurrent: 2              # GPU环境下建议降低并发数
   queue_size: 100
@@ -107,14 +107,12 @@ mineru:
   quality_level: "Balanced"
 ```
 
-### 2. 或者通过环境变量
-```bash
-# 设置环境变量
-export MINERU_BACKEND="vlm-sglang-engine"
-
-# 启动服务
-document-parser server
-```
+### 2. device / vram / model-source 由 document-parser 自动注入给 mineru
+> ⚠️ backend **不存在** `MINERU_BACKEND` 环境变量（只能改 config.yml 的 `mineru.backend`）。
+> 真正通过环境变量传给 mineru 子进程的是 device / vram / model-source（document-parser 按 config.yml + CUDA 检测自动设置，用户无需手动设）：
+> - `MINERU_DEVICE_MODE`（cuda / cpu / mps）
+> - `MINERU_VIRTUAL_VRAM_SIZE`（GB，对应 config 的 `vram`）
+> - `MINERU_MODEL_SOURCE`（modelscope / huggingface）
 
 ## 验证GPU加速是否生效
 
@@ -130,8 +128,8 @@ tail -f logs/log.$(date +%Y-%m-%d)
 查找以下关键信息：
 ```
 INFO 虚拟环境已自动激活
-INFO MinerU配置: backend=vlm-sglang-engine
-DEBUG MinerU完整命令: .../mineru -p input.pdf -o output -b vlm-sglang-engine
+INFO MinerU配置: backend=hybrid-engine
+DEBUG MinerU完整命令: .../mineru -p input.pdf -o output -b hybrid-engine
 ```
 
 ### 2. 实时监控GPU使用
@@ -251,7 +249,7 @@ pip install "sglang[all]"
 mineru -p test.pdf -o output -b pipeline
 
 # 测试sglang后端（GPU）
-mineru -p test.pdf -o output -b vlm-sglang-engine
+mineru -p test.pdf -o output -b hybrid-engine
 
 # 对比处理时间和资源使用
 ```
@@ -289,7 +287,7 @@ grep "ERROR" logs/log.* | tail -20
 ### Q: 为什么GPU加速没有生效？
 A: 检查以下几点：
 1. sglang是否正确安装
-2. 配置文件中的backend是否为"vlm-sglang-engine"
+2. 配置文件中的backend是否为"hybrid-engine"
 3. CUDA环境是否可用
 4. GPU内存是否充足
 

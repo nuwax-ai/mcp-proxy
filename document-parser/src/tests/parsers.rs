@@ -309,7 +309,10 @@ mod mineru_parser_tests {
                         || error_msg.contains("command")
                         || error_msg.contains("No such file or directory")
                         || error_msg.contains("MinerU错误")
-                        || error_msg.contains("启动MinerU进程失败"),
+                        || error_msg.contains("启动MinerU进程失败")
+                        // 有真 mineru 环境时，mineru 实际执行产生的错误（文档无效/执行失败）
+                        || error_msg.contains("No supported documents")
+                        || error_msg.contains("MinerU执行失败"),
                     "Unexpected error: {error_msg}"
                 );
             }

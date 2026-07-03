@@ -94,7 +94,7 @@ nvcc -v -x cu - -o /dev/null <<< '#include <math.h>'
 ```yaml
 # MinerU配置
 mineru:
-  backend: "vlm-sglang-engine"  # 启用sglang后端以支持GPU加速
+  backend: "hybrid-engine"  # 启用sglang后端以支持GPU加速
   python_path: "./venv/bin/python"
   max_concurrent: 3
   queue_size: 100
@@ -102,25 +102,23 @@ mineru:
   quality_level: "Balanced"
 ```
 
-### 2. 或者通过命令行指定
-```bash
-# 启动服务时指定后端
-document-parser server --mineru-backend vlm-sglang-engine
-```
+### 2. backend 只能通过 config.yml 配置
+> ⚠️ 不存在 `--mineru-backend` 命令行参数，也不存在 `MINERU_BACKEND` 环境变量。backend 只能改 config.yml 的 `mineru.backend` 字段。
+> device / vram / model-source 由 document-parser 自动注入给 mineru（见 `CUDA_SETUP_GUIDE.md`）。
 
-## 验证MinerU是否使用sglang加速
+## 验证MinerU是否使用hybrid-engine加速
 
 ### 1. 检查服务日志
 启动服务后，查看日志中是否有以下信息：
 ```
 INFO 虚拟环境已自动激活
-INFO MinerU配置: backend=vlm-sglang-engine
+INFO MinerU配置: backend=hybrid-engine
 ```
 
 ### 2. 测试PDF解析
 上传一个PDF文件进行解析，查看日志输出：
 ```
-DEBUG MinerU完整命令: .../mineru -p input.pdf -o output -b vlm-sglang-engine
+DEBUG MinerU完整命令: .../mineru -p input.pdf -o output -b hybrid-engine
 ```
 
 ### 3. 检查GPU使用情况
@@ -261,7 +259,7 @@ document-parser parse --input input.pdf --output output.md --parser mineru
 
 ### 1. GPU加速
 - 确保安装了 `sglang[all]`
-- 使用 `vlm-sglang-engine` 后端
+- 使用 `hybrid-engine` 后端
 - 监控GPU内存使用情况
 
 ### 2. 并发控制

@@ -78,7 +78,7 @@ server:
 
 # MinerU configuration
 mineru:
-  backend: "vlm-sglang-engine"  # Enable GPU acceleration
+  backend: "hybrid-engine"  # Enable GPU acceleration
   max_concurrent: 3
   quality_level: "Balanced"
 ```
@@ -87,7 +87,7 @@ mineru:
 
 ```yaml
 mineru:
-  backend: "vlm-sglang-engine"  # Use sglang backend
+  backend: "hybrid-engine"  # Use sglang backend
   max_concurrent: 2              # Lower concurrency for GPU
   batch_size: 1
 ```
@@ -136,7 +136,7 @@ Once the service is running, visit:
 ### GPU Acceleration
 
 1. Ensure `sglang[all]` is installed
-2. Configure `backend: "vlm-sglang-engine"`
+2. Configure `backend: "hybrid-engine"`
 3. Adjust concurrency parameters based on GPU memory
 4. Monitor GPU usage
 

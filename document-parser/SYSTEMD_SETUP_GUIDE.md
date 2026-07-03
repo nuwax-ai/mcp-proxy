@@ -48,6 +48,27 @@ ss -ltn | grep :8087 || echo "8087 空闲"
 
 ---
 
+## ⚠️ mineru 3.4 适配注意（新部署必看）
+
+document-parser 已适配 mineru 3.4.x。新部署注意以下几点（详细踩坑见 `deploy/PITFALLS.md`）：
+
+1. **mineru 锁 3.4.2**：3.4.0 有 PageChars bug（任务失败 `TypeError: 'PageChars' object is not iterable`），必须 3.4.2。
+   ```bash
+   uv pip install "mineru[core]==3.4.2" --python ./venv/bin/python --index-url https://pypi.org/simple
+   ```
+2. **huggingface-hub<1.0**：mineru 3.4.2 要 huggingface-hub<1.0，但升级会拉进 1.22，要降级。
+   ```bash
+   uv pip install "huggingface-hub>=0.34,<1.0" --python ./venv/bin/python
+   ```
+   （推荐直接用 `deploy/scripts/setup-venv.sh`，已锁版本 + 处理冲突）
+3. **venv 用系统 Python 3.12**（避开 anaconda 3.7 污染）：`uv venv --python /usr/bin/python3 ./venv`
+4. **backend 改名**：旧 `vlm-transformers`/`vlm-sglang-engine`/`vlm-sglang-client` 已废，新值 `pipeline`/`vlm-engine`/`hybrid-engine`/`vlm-http-client`/`hybrid-http-client`。config.yml 默认 `hybrid-engine`。
+5. **CLI 参数变更**：mineru 3.4 不再支持 `-d`/`--vram`/`--source`（document-parser 已改用环境变量 `MINERU_DEVICE_MODE`/`MINERU_VIRTUAL_VRAM_SIZE`/`MINERU_MODEL_SOURCE`，用户无需手动设）。
+6. **GPU 共存 OOM**：与 voice-cli 等 GPU 进程共存时，config.yml 设 `gpu_memory_utilization: 0.3`（让 vllm 少占显存）。
+7. **hybrid-engine + vllm 冲突**：vllm 要 huggingface-hub≥1.0、mineru 要 <1.0，互斥。如撞 `Please install vllm`，改用 `pipeline` backend（不用 vllm，仍 cuda 加速 OCR/公式）。
+
+---
+
 ## 第一步：准备环境变量（密钥）文件
 
 `config.yml` 里 OSS 密钥写的是占位符（`${OSS_ACCESS_KEY_ID}`），实际值通过环境变量注入。代码里读的是裸变量名（`document-parser/src/config.rs` 的 `load_oss_config_from_env`）：

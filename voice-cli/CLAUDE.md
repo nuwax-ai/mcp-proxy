@@ -26,6 +26,8 @@ cargo run --bin voice-cli -- server run
 ```
 
 ### Python Dependencies (TTS)
+> TTS 默认禁用（`TtsConfig.enabled=false`）。以下命令仅在启用 TTS 时需要。缺 `tts_service.py` 不阻塞 STT 启动，`TtsService::new` 返回 `available=false` 实例，`/tts/*` 返回 503。
+
 ```bash
 # Install uv package manager
 curl -LsSf https://astral.sh/uv/install.sh | sh
