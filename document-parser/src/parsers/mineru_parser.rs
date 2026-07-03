@@ -88,7 +88,8 @@ impl Default for MinerUConfig {
             batch_size: 1,
             quality_level: QualityLevel::Balanced,
             device: "cpu".to_string(),
-            vram: 8, // 默认8GB显存限制
+            vram: 0, // 默认不限制显存（mineru 3.4 改用 MINERU_VIRTUAL_VRAM_SIZE 环境变量）
+            gpu_memory_utilization: 0.0, // 默认不传，用 mineru 默认
         }
     }
 }
@@ -132,19 +133,22 @@ impl MinerUParser {
         };
 
         // 尝试从全局配置获取MinerU配置，如果失败则使用默认值
-        let (backend, device) = match std::panic::catch_unwind(crate::config::get_global_config) {
+        let (backend, device, vram, gpu_memory_utilization) = match std::panic::catch_unwind(crate::config::get_global_config) {
             Ok(global_config) => (
                 global_config.mineru.backend.clone(),
                 global_config.mineru.device.clone(),
+                global_config.mineru.vram,
+                global_config.mineru.gpu_memory_utilization,
             ),
-            Err(_) => ("pipeline".to_string(), "cpu".to_string()),
+            Err(_) => ("pipeline".to_string(), "cpu".to_string(), 0, 0.0),
         };
 
         let config = MinerUConfig {
             python_path: python_path.to_string_lossy().to_string(),
             backend,
             device,
-            vram: 8, // 默认显存限制
+            vram,
+            gpu_memory_utilization,
             ..Default::default()
         };
 
@@ -493,61 +497,49 @@ impl MinerUParser {
             .arg("-o")
             .arg(output_dir);
 
-        // 添加后端类型参数
-        if !self.config.backend.is_empty() && self.config.backend != "pipeline" {
+        // 后端类型：mineru 3.4 合法值为 pipeline/vlm-engine/hybrid-engine/vlm-http-client/hybrid-http-client。
+        // 统一传 -b（不再对 pipeline 做特殊处理）
+        if !self.config.backend.is_empty() {
             cmd.arg("-b").arg(&self.config.backend);
             debug!("MinerU sets the backend type: {}", self.config.backend);
         }
 
-        // 添加设备参数：当使用pipeline后端且支持CUDA时，自动添加-d cuda参数
-        if self.config.backend == "pipeline" {
-            // 使用全局缓存的CUDA状态，避免每次都检查环境
-            let cuda_available = crate::config::is_cuda_available();
-
-            if cuda_available {
-                // 如果配置中指定了设备，使用配置的设备；否则使用"cuda"
-                let device = if self.config.device != "cpu" {
-                    self.config.device.as_str()
-                } else {
-                    "cuda" // 直接使用"cuda"，不需要调用get_recommended_cuda_device
-                };
-                cmd.arg("-d").arg(device);
-                debug!(
-                    "MinerU sets the inference device: {} (global CUDA status is available)",
-                    device
-                );
-            } else if self.config.device != "cpu" {
-                // 即使没有CUDA支持，如果配置中指定了其他设备，也使用配置的设备
-                cmd.arg("-d").arg(&self.config.device);
-                debug!(
-                    "MinerU sets the inference device: {} (configuration specified, CUDA is not available)",
-                    self.config.device
-                );
-            } else {
-                debug!(
-                    "MinerU uses default CPU mode (CUDA is not available and no other devices are specified)"
-                );
-            }
-
-            // 添加显存限制参数：只要是 pipeline 后端就设置
-            if self.config.vram > 0 {
-                cmd.arg("--vram").arg(self.config.vram.to_string());
-                debug!("MinerU sets the video memory limit: {}GB", self.config.vram);
-            }
+        // vllm 显存占用比例(仅 hybrid-engine/vlm-engine 等走 vllm 的后端)。
+        // mineru 3.4 默认约 0.5(占一半显存)；多 GPU 进程共存时调低避免 OOM。pipeline 后端不走 vllm，无需设置。
+        if self.config.backend != "pipeline" && self.config.gpu_memory_utilization > 0.0 {
+            cmd.arg("--gpu-memory-utilization")
+                .arg(self.config.gpu_memory_utilization.to_string());
+            debug!(
+                "MinerU sets gpu_memory_utilization: {}",
+                self.config.gpu_memory_utilization
+            );
         }
 
-        // 检查是否在中国大陆，如果是则添加模型源参数
-        if self.is_china_region().await {
-            cmd.arg("--source").arg("modelscope");
-            debug!("MinerU sets the model source: modelscope");
+        // 设备：mineru 3.4 不再支持 -d CLI 参数，改用环境变量 MINERU_DEVICE_MODE。
+        // 有 CUDA 且 config 未显式指定非 cpu 设备时自动用 cuda；否则用 config 里的设备
+        let cuda_available = crate::config::is_cuda_available();
+        let device = if cuda_available && self.config.device == "cpu" {
+            "cuda"
+        } else {
+            self.config.device.as_str()
+        };
+        cmd.env("MINERU_DEVICE_MODE", device);
+        debug!("MinerU sets device (MINERU_DEVICE_MODE): {}", device);
+
+        // 显存：mineru 3.4 不再支持 --vram CLI 参数，改用环境变量 MINERU_VIRTUAL_VRAM_SIZE。
+        // vram=0 表示不限制，交由 mineru/vllm 自动管理
+        if self.config.vram > 0 {
+            cmd.env("MINERU_VIRTUAL_VRAM_SIZE", self.config.vram.to_string());
+            debug!(
+                "MinerU sets VRAM limit (MINERU_VIRTUAL_VRAM_SIZE): {}GB",
+                self.config.vram
+            );
         }
 
-        // MinerU 会自动检测和使用可用的 GPU，无需手动设置环境变量
-
-        // 设置模型源环境变量（如果网络访问有问题）
+        // 模型源：mineru 3.4 的 main CLI 不再支持 --source 参数，统一用环境变量
         if self.is_china_region().await {
             cmd.env("MINERU_MODEL_SOURCE", "modelscope");
-            debug!("MinerU sets the environment variable MINERU_MODEL_SOURCE: modelscope");
+            debug!("MinerU sets model source (MINERU_MODEL_SOURCE): modelscope");
         }
 
         cmd.stdout(Stdio::piped())
@@ -1105,6 +1097,7 @@ mod tests {
             quality_level: QualityLevel::Fast,
             device: "cpu".to_string(),
             vram: 8, // 默认显存限制
+            gpu_memory_utilization: 0.0,
         }
     }
 

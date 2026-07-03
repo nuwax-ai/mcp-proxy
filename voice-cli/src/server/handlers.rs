@@ -55,15 +55,12 @@ impl AppState {
                 .map_err(|e| VoiceCliError::Storage(format!("创建音频文件管理器失败: {}", e)))?,
         );
 
-        // 初始化TTS服务
+        // 初始化TTS服务（缺 tts_service.py 不再阻断启动：TtsService::new 返回 available=false 实例）
         info!("Initialize TTS service");
-        let tts_service = Arc::new(
-            TtsService::new(
-                config.tts.python_path.clone(),
-                config.tts.model_path.clone(),
-            )
-            .map_err(|e| VoiceCliError::Config(format!("创建TTS服务失败: {}", e)))?,
-        );
+        let tts_service = Arc::new(TtsService::new(
+            config.tts.python_path.clone(),
+            config.tts.model_path.clone(),
+        )?);
 
         Ok(Self {
             config,
@@ -912,6 +909,14 @@ pub async fn tts_sync_handler(
 ) -> Result<axum::response::Response, HttpResult<String>> {
     let start_time = std::time::Instant::now();
 
+    // TTS 未启用或不可用时直接拒绝（缺 tts_service.py 不影响服务启动，但 TTS 请求返回 503）
+    if !state.config.tts.enabled || !state.tts_service.is_available() {
+        let msg = "TTS service is disabled or tts_service.py is missing".to_string();
+        return Ok(
+            HttpResult::<String>::from(VoiceCliError::InvalidInput(msg)).into_response(),
+        );
+    }
+
     info!(
         "TTS synchronization request received - text length: {}",
         request.text.len()
@@ -1012,6 +1017,12 @@ pub async fn tts_async_handler(
     State(state): State<AppState>,
     Json(request): Json<TtsAsyncRequest>,
 ) -> HttpResult<TtsTaskResponse> {
+    // TTS 未启用或不可用时直接拒绝（缺 tts_service.py 不影响服务启动，但 TTS 请求返回 503）
+    if !state.config.tts.enabled || !state.tts_service.is_available() {
+        let msg = "TTS service is disabled or tts_service.py is missing".to_string();
+        return HttpResult::<String>::error("503".to_string(), msg);
+    }
+
     info!(
         "TTS asynchronous request received - text length: {}",
         request.text.len()

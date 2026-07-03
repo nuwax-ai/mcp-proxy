@@ -115,6 +115,9 @@ pub struct TaskManagementConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TtsConfig {
+    /// 是否启用 TTS（默认 false；缺 tts_service.py 时也自动禁用，不影响 STT 启动）
+    #[serde(default)]
+    pub enabled: bool,
     /// Python解释器路径
     pub python_path: Option<PathBuf>,
     /// TTS模型路径
@@ -237,6 +240,7 @@ impl Default for TaskManagementConfig {
 impl Default for TtsConfig {
     fn default() -> Self {
         Self {
+            enabled: false,
             python_path: Some(if cfg!(windows) {
                 PathBuf::from(".venv/Scripts/python.exe")
             } else {

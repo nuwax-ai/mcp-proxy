@@ -270,6 +270,7 @@ mod mineru_parser_tests {
             quality_level: crate::config::QualityLevel::Balanced,
             device: "cpu".to_string(),
             vram: 8,
+            gpu_memory_utilization: 0.0,
         };
         let parser = MinerUParser::new(mineru_config);
 
@@ -334,6 +335,7 @@ mod mineru_parser_tests {
             quality_level: crate::config::QualityLevel::Balanced,
             device: "cpu".to_string(),
             vram: 8,
+            gpu_memory_utilization: 0.0,
         };
         let parser = MinerUParser::new(mineru_config);
 

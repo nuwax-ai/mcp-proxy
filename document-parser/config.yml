@@ -23,8 +23,8 @@ document_parser:
 
 # MinerU配置
 mineru:
-  # 后端选择：pipeline|vlm-transformers|vlm-sglang-engine|vlm-sglang-client, 有cuda环境目前推荐: vlm-transformers
-  backend: "pipeline"
+  # 后端选择：pipeline|vlm-engine|hybrid-engine|vlm-http-client|hybrid-http-client，有 cuda 推荐 hybrid-engine（mineru 3.4 默认）
+  backend: "hybrid-engine"
   python_path: "./venv/bin/python"  # 默认使用虚拟环境，如不存在则自动检测系统Python
   # 这个是mineru的并发数，目前没用,占位使用,只需要小于document_parser.max_concurrent 即可
   max_concurrent: 1
@@ -32,8 +32,11 @@ mineru:
   # timeout 已移除，统一使用 document_parser.processing_timeout (3600秒)
   batch_size: 1
   quality_level: "Balanced"
-  # 单进程最大GPU显存占用(GB)，仅对pipeline后端,这个是一个软上限
-  vram: 8
+  # 单进程GPU显存占用(GB)，通过 MINERU_VIRTUAL_VRAM_SIZE 环境变量传给 mineru 3.4，0=不限
+  vram: 0
+  # vllm 显存占用比例(仅 hybrid-engine/vlm-engine)，通过 --gpu-memory-utilization 传给 mineru 3.4。
+  # 0=用 mineru 默认(约0.5)；与 voice-cli 等其他 GPU 进程共存时建议 0.3 避免 OOM
+  gpu_memory_utilization: 0.3
 
 # MarkItDown配置
 markitdown:

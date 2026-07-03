@@ -47,6 +47,7 @@ impl DualEngineParser {
             quality_level: mineru_config.quality_level.clone(),
             device: mineru_config.device.clone(),
             vram: mineru_config.vram,
+            gpu_memory_utilization: mineru_config.gpu_memory_utilization,
         };
 
         let markitdown_parser_config = MarkItDownConfig::with_global_config();

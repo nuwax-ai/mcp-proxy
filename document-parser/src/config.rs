@@ -481,6 +481,10 @@ pub struct MinerUConfig {
     pub device: String, // 推理设备：cpu/cuda/cuda:0/npu/mps等
     #[serde(default = "default_vram")]
     pub vram: u32, // 单进程最大GPU显存占用(GB)，仅对pipeline后端且支持CUDA时有效
+    /// vllm 显存占用比例(0.0-1.0)，仅对 hybrid-engine/vlm-engine 等走 vllm 的后端有效。
+    /// 0 表示不传，用 mineru 默认(约0.5)；多 GPU 进程共存时调低(如 0.3)避免 OOM。
+    #[serde(default)]
+    pub gpu_memory_utilization: f32,
 }
 
 /// 质量级别
@@ -514,16 +518,17 @@ fn default_device() -> String {
 }
 
 fn default_vram() -> u32 {
-    8 // 默认8GB显存限制
+    0 // 默认不限制显存（mineru 3.4 改用 MINERU_VIRTUAL_VRAM_SIZE 环境变量）
 }
 
 impl MinerUConfig {
     pub fn validate(&self) -> Result<(), ConfigError> {
         let valid_backends = [
             "pipeline",
-            "vlm-transformers",
-            "vlm-sglang-engine",
-            "vlm-sglang-client",
+            "vlm-engine",
+            "hybrid-engine",
+            "vlm-http-client",
+            "hybrid-http-client",
         ];
         if !valid_backends.contains(&self.backend.as_str()) {
             return Err(ConfigError::Validation {
@@ -1462,6 +1467,7 @@ mod tests {
             quality_level: QualityLevel::Balanced,
             device: "cpu".to_string(),
             vram: 8, // 默认显存限制
+            gpu_memory_utilization: 0.0,
         };
 
         assert!(config.validate().is_ok());

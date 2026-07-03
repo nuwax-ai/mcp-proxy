@@ -78,12 +78,18 @@ pub async fn handle_tts_test(config: &crate::Config, params: TtsTestParams) -> a
     } = params;
     println!("🎤 Testing TTS functionality...");
 
-    // Create TTS service
+    // Create TTS service（缺 tts_service.py 时给出明确提示并优雅退出，不报错）
     let tts_service = crate::services::TtsService::new(
         config.tts.python_path.clone(),
         config.tts.model_path.clone(),
-    )
-    .map_err(|e| anyhow::anyhow!("Failed to create TTS service: {}", e))?;
+    )?;
+    if !tts_service.is_available() {
+        println!(
+            "⚠️  TTS 未启用：找不到 tts_service.py。\n\
+             如需 TTS，请先运行 `voice-cli tts init`，并在 config.yml 中设置 tts.enabled: true。"
+        );
+        return Ok(());
+    }
 
     // Create request
     let request = crate::models::TtsSyncRequest {

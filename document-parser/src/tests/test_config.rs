@@ -105,6 +105,7 @@ impl TestEnvironment {
                 quality_level: crate::config::QualityLevel::Balanced,
                 device: "cpu".to_string(),
                 vram: 8,
+                gpu_memory_utilization: 0.0,
             },
             markitdown: crate::config::MarkItDownConfig {
                 python_path: "python3".to_string(),

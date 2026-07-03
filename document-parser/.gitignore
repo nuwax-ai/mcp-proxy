@@ -1,0 +1,8 @@
+# 本地测试/运行产物（Mac 本地验证 mineru metal 等使用）
+venv/
+.venv/
+temp/
+data/
+logs/
+.document-parser.env
+config.yml.bak*

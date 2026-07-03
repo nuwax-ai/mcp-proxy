@@ -3,7 +3,7 @@ use crate::models::{TtsAsyncRequest, TtsSyncRequest, TtsTaskResponse};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tempfile::NamedTempFile;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 /// TTS服务 - 处理文本到语音转换
@@ -12,6 +12,8 @@ pub struct TtsService {
     python_path: PathBuf,
     script_path: PathBuf,
     model_path: Option<PathBuf>,
+    /// TTS 是否可用（缺 tts_service.py 时为 false，服务仍可启动，TTS 请求会被拒绝）
+    available: bool,
 }
 
 impl TtsService {
@@ -55,39 +57,52 @@ impl TtsService {
         });
 
         // 获取脚本路径（首先尝试当前目录，然后尝试 crate 目录）
+        // 注意：找不到脚本不再视为致命错误——返回 available=false，让 STT 服务仍能启动；
+        // TTS 请求会在 handler 层被拒绝。这样部署时即使没准备 tts_service.py 也不会阻塞启动。
         let current_dir = std::env::current_dir()
             .map_err(|e| VoiceCliError::Config(format!("获取当前目录失败: {}", e)))?;
 
         let script_path = current_dir.join("tts_service.py");
 
-        let final_script_path = if script_path.exists() {
-            script_path
+        let (final_script_path, available) = if script_path.exists() {
+            (script_path, true)
         } else {
             // 尝试在 crate 目录中查找
             let crate_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
             let crate_script_path = crate_path.join("tts_service.py");
             if crate_script_path.exists() {
-                crate_script_path
+                (crate_script_path, true)
             } else {
-                return Err(VoiceCliError::Config(format!(
-                    "TTS脚本不存在: 在 {:?} 或 {:?} 中都未找到",
+                warn!(
+                    "TTS 脚本不存在，TTS 功能将不可用: 在 {:?} 或 {:?} 中都未找到。\
+                     如需 TTS，请放置 tts_service.py 或运行 `voice-cli tts init`",
                     script_path, crate_script_path
-                )));
+                );
+                (script_path, false)
             }
         };
 
-        info!("Use TTS script: {:?}", final_script_path);
-
-        info!(
-            "Initialize TTS service - Python: {:?}, script: {:?}",
-            python_path, final_script_path
-        );
+        if available {
+            info!("Use TTS script: {:?}", final_script_path);
+            info!(
+                "Initialize TTS service - Python: {:?}, script: {:?}",
+                python_path, final_script_path
+            );
+        } else {
+            info!("TTS service initialized but DISABLED (tts_service.py missing)");
+        }
 
         Ok(Self {
             python_path,
             script_path: final_script_path,
             model_path,
+            available,
         })
+    }
+
+    /// TTS 服务是否可用（脚本存在且已就绪）
+    pub fn is_available(&self) -> bool {
+        self.available
     }
 
     /// 同步TTS合成
