@@ -1,0 +1,72 @@
+# Voice CLI 配置模板
+# 部署时复制为 config.yml，按需修改 server.port / whisper.default_model
+# 注意: 启动必须用 `voice-cli server run --config config.yml`（--config 在 server run 后）
+
+server:
+  host: "0.0.0.0"
+  port: 8087                       # ← 监听端口
+  max_file_size: 209715200         # 200MB
+  cors_enabled: true
+
+whisper:
+  default_model: "large-v3"        # 默认转写模型，CPU 环境可调小(base/small)加速
+  models_dir: "./models"
+  auto_download: true
+  supported_models:
+    - "tiny"
+    - "tiny.en"
+    - "base"
+    - "base.en"
+    - "small"
+    - "small.en"
+    - "medium"
+    - "medium.en"
+    - "large-v1"
+    - "large-v2"
+    - "large-v3"
+  audio_processing:
+    supported_formats: ["mp3", "wav", "flac", "m4a", "ogg", "aac", "opus", "amr", "wma", "aiff", "caf", "mp4", "mov", "avi", "mkv", "webm", "3gp", "flv", "wmv", "mpeg", "mxf"]
+    auto_convert: true
+    conversion_timeout: 60
+    temp_file_cleanup: true
+    temp_file_retention: 300
+  workers:
+    transcription_workers: 3
+    channel_buffer_size: 100
+    worker_timeout: 3600
+
+# TTS（文字转语音）配置 —— 默认禁用
+# 不启用时: 缺 tts_service.py 不崩，/tts/* 返回 503，STT 正常
+# 启用步骤见 deploy/enable-tts.md
+tts:
+  enabled: false                   # ← true 启用（需配合 tts_service.py + IndexTTS 环境）
+  python_path: ".venv/bin/python"
+  model_path: "./checkpoints"
+  default_model: "default"
+  supported_formats: ["mp3", "wav"]
+  max_text_length: 5000
+  default_speed: 1.0
+  default_pitch: 0
+  default_volume: 1.0
+  timeout_seconds: 300
+  # 注: script_path 字段已废弃（TtsService 硬编码找 ./tts_service.py），不要写
+
+logging:
+  level: "info"
+  log_dir: "./logs"
+  max_file_size: "100MB"
+  max_files: 20
+
+daemon:
+  pid_file: "./voice-cli-server.pid"
+  log_file: "./logs/server-daemon.log"
+  work_dir: "./"
+
+# 异步任务队列
+task_management:
+  max_concurrent_tasks: 4
+  retry_attempts: 2
+  task_timeout_seconds: 3600
+  catch_panic: true
+  task_retention_minutes: 1440     # 24 小时
+  sqlite_db_path: "./data/tasks.db"

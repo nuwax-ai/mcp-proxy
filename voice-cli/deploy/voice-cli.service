@@ -1,0 +1,28 @@
+# voice-cli systemd 服务单元模板（可选，比 server-manager.sh 更标准，开机自启+崩溃重启）
+#
+# 用法: 替换 __占位符__ 后放到 /etc/systemd/system/voice-cli.service
+#   sudo sed -e "s|__USER__|$USER|g" -e "s|__INSTALL_DIR__|/opt/voice-cli|g" voice-cli.service | \
+#     sudo tee /etc/systemd/system/voice-cli.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now voice-cli
+
+[Unit]
+Description=voice-cli speech-to-text service
+After=network.target
+
+[Service]
+Type=simple
+User=__USER__
+Group=__GROUP__
+# WorkingDirectory 必须设，否则 ./models ./logs ./data/tasks.db 会落到 /
+WorkingDirectory=__INSTALL_DIR__
+# 注意: --config 必须在 server run 后面（全局 -c 在 server run 时被代码忽略）
+ExecStart=__INSTALL_DIR__/voice-cli server run --config __INSTALL_DIR__/config.yml
+Restart=on-failure
+RestartSec=5
+Environment=RUST_LOG=info
+
+# GPU: 如访问 /dev/nvidia* 受限，取消下面注释并把用户加入对应组
+# SupplementaryGroups=video render
+
+[Install]
+WantedBy=multi-user.target
