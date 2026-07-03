@@ -1,0 +1,49 @@
+[package]
+name = "run_code_rmcp"
+description = "云函数服务,执行JS/TS/Python语言代码,脚本必须有约定的函数名称(handler/main),会调用约定的函数名称结果和日志返回."
+version = "0.0.37"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/nuwax-ai/run_code_rmcp"
+homepage = "https://nuwax.com/"
+readme = "README.md"
+default-run = "run_code_rmcp"
+
+[features]
+default = []
+mcp = ["dep:rmcp"]
+
+[dependencies]
+# 与 workspace 统一版本的依赖（hoist 到 [workspace.dependencies]）
+tokio = { workspace = true, features = ["fs", "signal", "io-util", "process", "time"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tempfile = { workspace = true }
+clap = { workspace = true }
+once_cell = { workspace = true }
+async-trait = { workspace = true }
+
+# crate 专属依赖（workspace 未集中管理）
+env_logger = "0.11"
+# rmcp 仅在 mcp feature 下启用；workspace 内 mcp-sse-proxy(0.10)/mcp-streamable-proxy(0.12) 各自管理 rmcp 版本，互不影响
+rmcp = { version = "0.17", features = [
+    "server",
+    "client",
+    "transport-io",
+    "transport-async-rw",
+    "macros",
+], optional = true }
+regex = "1.12"
+pest = { version = "2.8", features = ["pretty-print"] }
+pest_derive = "2.8"
+blake3 = "1.8"
+pin-project = "1.1"
+schemars = "1.2"
+
+[[bin]]
+name = "script_runner"
+path = "src/script_runner.rs"
+required-features = ["mcp"]

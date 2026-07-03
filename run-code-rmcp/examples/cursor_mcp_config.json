@@ -1,0 +1,6 @@
+{
+  "name": "Script Runner",
+  "description": "执行JavaScript、TypeScript和Python代码",
+  "path": "/path/to/script_runner",
+  "transport": "stdio"
+} 
