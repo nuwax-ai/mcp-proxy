@@ -138,21 +138,14 @@ pub async fn handle_embed(
         )
     })?;
 
-    // 解析模型名称
-    let model_name = req
-        .model
-        .as_deref()
-        .unwrap_or(&state.config.fastembed.default_model);
-
-    // image 类型走独立的默认模型（若用户未指定）
-    let model_name = if req.model.is_none() {
-        match model_type {
+    // 解析模型名称：用户未指定时按类型取配置默认值
+    let model_name = match req.model.as_deref() {
+        Some(name) => name,
+        None => match model_type {
             EmbeddingType::Image => &state.config.fastembed.default_image_model,
             EmbeddingType::Sparse => &state.config.fastembed.default_sparse_model,
             EmbeddingType::Text => &state.config.fastembed.default_model,
-        }
-    } else {
-        model_name
+        },
     };
 
     // 获取或初始化模型
@@ -178,9 +171,12 @@ pub async fn handle_embed(
     // 执行嵌入
     let batch_size = req.batch_size.unwrap_or(state.config.fastembed.batch_size);
 
+    // lock 毒化（某次请求持锁时 panic）时恢复，避免单个请求 panic 拖垮整个服务
     let output = {
-        let mut model_guard = model_arc.lock().unwrap();
-        model_guard.embed(req.texts.clone(), Some(batch_size))
+        let mut model_guard = model_arc
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        model_guard.embed(req.texts, Some(batch_size))
     }
     .map_err(|e| {
         tracing::error!("Embedding calculation failed: {}", e);

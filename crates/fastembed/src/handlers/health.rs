@@ -36,6 +36,9 @@ pub async fn handle_health(State(state): State<Arc<AppState>>) -> Json<HealthRes
     Json(HealthResponse {
         status: "ok".to_string(),
         uptime_ms: uptime.as_millis(),
-        model_cache_ready: *state.model_cache_ready.lock().unwrap(),
+        model_cache_ready: *state
+            .model_cache_ready
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()),
     })
 }

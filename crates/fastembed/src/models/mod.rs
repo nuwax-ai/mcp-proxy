@@ -17,6 +17,12 @@ type CachedModel = Arc<Mutex<InitializedModel>>;
 pub static MODEL_CACHE: Lazy<DashMap<(EmbeddingType, String), CachedModel>> =
     Lazy::new(DashMap::new);
 
+/// 初始化串行锁：用于 double-checked locking。
+/// 仅在「缓存未命中 → 初始化」慢路径上持有，序列化同一模型的并发首次加载，
+/// 避免 ort 在并发初始化同一缓存模型时互相冲突而失败。
+/// 快路径（命中缓存）不触碰此锁，运行时 embed 不受影响。
+static INIT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// 嵌入类型
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, utoipa::ToSchema,
@@ -351,6 +357,11 @@ fn resolve_auto_providers() -> Vec<ExecutionProviderDispatch> {
 ///
 /// 返回 `(模型句柄, 模型信息)`。缓存键为 `(类型, 规范化模型代码)`，
 /// 因此同名变体名与模型代码共享同一实例。
+///
+/// **并发**：采用 double-checked locking——快路径无锁查缓存；未命中时持
+/// 全局 `INIT_LOCK` 后二次检查再初始化，确保同一模型的并发首次加载串行
+/// （避免 ort 并发初始化同一缓存模型时冲突失败）。运行时 embed 走快路径，
+/// 不受 `INIT_LOCK` 影响。
 pub fn get_or_init_model(
     model_type: EmbeddingType,
     model_input: &str,
@@ -361,31 +372,41 @@ pub fn get_or_init_model(
     let code = resolve_code(model_type, model_input)?;
     let cache_key = (model_type, code.clone());
 
-    // 检查缓存
+    // 快路径：命中缓存（无锁）
     if let Some(existing) = MODEL_CACHE.get(&cache_key) {
         tracing::debug!("Get model from cache: {:?}", cache_key);
         return Ok((existing.clone(), ModelInfo::from_catalog(model_type, &code)));
     }
 
-    // 初始化模型
+    // 慢路径：持初始化锁，序列化同模型的并发首次加载
+    let _guard = INIT_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+    // 二次检查：持锁期间可能已被并发方写入缓存
+    if let Some(existing) = MODEL_CACHE.get(&cache_key) {
+        tracing::debug!("Get model from cache (post-lock): {:?}", cache_key);
+        return Ok((existing.clone(), ModelInfo::from_catalog(model_type, &code)));
+    }
+
     tracing::info!("Initialization model: {:?}, device: {}", cache_key, device);
     let eps = resolve_execution_providers(device);
 
     let initialized = match model_type {
         EmbeddingType::Text => {
             let model = parse_text_model(model_input)?;
-            InitializedModel::Text(init_text(model, cache_dir.clone(), max_length, eps)?)
+            init_text(model, cache_dir.clone(), max_length, eps).map(InitializedModel::Text)
         }
         EmbeddingType::Image => {
             let model = parse_image_model(model_input)?;
             // ImageInitOptions 不支持 max_length
-            InitializedModel::Image(init_image(model, cache_dir.clone(), eps)?)
+            init_image(model, cache_dir.clone(), eps).map(InitializedModel::Image)
         }
         EmbeddingType::Sparse => {
             let model = parse_sparse_model(model_input)?;
-            InitializedModel::Sparse(init_sparse(model, cache_dir.clone(), max_length, eps)?)
+            init_sparse(model, cache_dir.clone(), max_length, eps).map(InitializedModel::Sparse)
         }
-    };
+    }?;
 
     let arc = Arc::new(Mutex::new(initialized));
     MODEL_CACHE.insert(cache_key.clone(), arc.clone());
