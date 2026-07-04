@@ -87,7 +87,7 @@ cargo build --release --bin document-parser
 cp target/release/document-parser scripts/
 
 # 3. 复制配置文件到脚本目录（如果有）
-cp document-parser/config.yml scripts/
+cp crates/document-parser/config.yml scripts/
 
 # 4. 进入脚本目录
 cd scripts/

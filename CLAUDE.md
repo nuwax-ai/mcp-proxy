@@ -61,37 +61,37 @@ make run
 **Document Parser:**
 ```bash
 # Initialize Python environment
-cd document-parser && cargo run --bin document-parser -- uv-init
+cd crates/document-parser && cargo run --bin document-parser -- uv-init
 
 # Check environment status
-cd document-parser && cargo run --bin document-parser -- check
+cd crates/document-parser && cargo run --bin document-parser -- check
 
 # Start server
-cd document-parser && cargo run --bin document-parser -- server
+cd crates/document-parser && cargo run --bin document-parser -- server
 
 # Troubleshoot issues
-cd document-parser && cargo run --bin document-parser -- troubleshoot
+cd crates/document-parser && cargo run --bin document-parser -- troubleshoot
 ```
 
 **Voice CLI:**
 ```bash
 # Initialize server configuration
-cd voice-cli && cargo run --bin voice-cli -- server init
+cd crates/voice-cli && cargo run --bin voice-cli -- server init
 
 # Run voice server
-cd voice-cli && cargo run --bin voice-cli -- server run
+cd crates/voice-cli && cargo run --bin voice-cli -- server run
 
 # List Whisper models
-cd voice-cli && cargo run --bin voice-cli -- model list
+cd crates/voice-cli && cargo run --bin voice-cli -- model list
 
 # Download model
-cd voice-cli && cargo run --bin voice-cli -- model download tiny
+cd crates/voice-cli && cargo run --bin voice-cli -- model download tiny
 ```
 
 **MCP Proxy:**
 ```bash
 # Start MCP proxy server
-cd mcp-proxy && cargo run --bin mcp-proxy
+cd crates/mcp-proxy && cargo run --bin mcp-proxy
 ```
 
 ## Architecture Overview
@@ -321,7 +321,7 @@ cargo test -p mcp-proxy -- --nocapture
 
 ### For Document Parser:
 ```bash
-cd document-parser
+cd crates/document-parser
 # Initialize Python environment (creates ./venv/)
 cargo run --bin document-parser -- uv-init
 
@@ -337,7 +337,7 @@ cargo run --bin document-parser -- troubleshoot
 
 ### For Voice CLI TTS:
 ```bash
-cd voice-cli
+cd crates/voice-cli
 # Install uv package manager
 curl -LsSf https://astral.sh/uv/install.sh | sh
 

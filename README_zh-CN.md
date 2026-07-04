@@ -37,7 +37,7 @@
 ```bash
 # 克隆仓库
 git clone https://github.com/nuwax-ai/mcp-proxy.git
-cd mcp-proxy
+cd crates/mcp-proxy
 
 # 构建所有工作空间成员
 cargo build --release
@@ -69,14 +69,14 @@ mcp-proxy check https://example.com/mcp/sse
 mcp-proxy detect https://example.com/mcp
 ```
 
-**详细文档:** [mcp-proxy/README_zh-CN.md](./mcp-proxy/README_zh-CN.md)
+**详细文档:** [crates/mcp-proxy/README_zh-CN.md](./crates/mcp-proxy/README_zh-CN.md)
 
 ### 文档解析器
 
 支持 PDF、Word、Excel 和 PowerPoint 的高性能文档解析服务。
 
 ```bash
-cd document-parser
+cd crates/document-parser
 
 # 初始化 Python 环境（首次使用）
 document-parser uv-init
@@ -88,14 +88,14 @@ document-parser check
 document-parser server
 ```
 
-**详细文档:** [document-parser/README_zh-CN.md](./document-parser/README_zh-CN.md)
+**详细文档:** [crates/document-parser/README_zh-CN.md](./crates/document-parser/README_zh-CN.md)
 
 ### 语音 CLI
 
 基于 Whisper 模型的语音转文字 HTTP 服务。
 
 ```bash
-cd voice-cli
+cd crates/voice-cli
 
 # 初始化服务器配置
 voice-cli server init
@@ -110,7 +110,7 @@ voice-cli model list
 voice-cli model download tiny
 ```
 
-**详细文档:** [voice-cli/README_zh-CN.md](./voice-cli/README_zh-CN.md)
+**详细文档:** [crates/voice-cli/README_zh-CN.md](./crates/voice-cli/README_zh-CN.md)
 
 ## 架构
 
@@ -213,10 +213,10 @@ make run
 ## 文档
 
 - [CLAUDE.md](./CLAUDE.md) - 贡献者开发指南
-- [mcp-proxy/README_zh-CN.md](./mcp-proxy/README_zh-CN.md) - MCP 代理文档
-- [document-parser/README_zh-CN.md](./document-parser/README_zh-CN.md) - 文档解析器文档
-- [voice-cli/README_zh-CN.md](./voice-cli/README_zh-CN.md) - 语音 CLI 文档
-- [oss-client/README_zh-CN.md](./oss-client/README_zh-CN.md) - OSS 客户端文档
+- [crates/mcp-proxy/README_zh-CN.md](./crates/mcp-proxy/README_zh-CN.md) - MCP 代理文档
+- [crates/document-parser/README_zh-CN.md](./crates/document-parser/README_zh-CN.md) - 文档解析器文档
+- [crates/voice-cli/README_zh-CN.md](./crates/voice-cli/README_zh-CN.md) - 语音 CLI 文档
+- [crates/oss-client/README_zh-CN.md](./crates/oss-client/README_zh-CN.md) - OSS 客户端文档
 
 ## 许可证
 

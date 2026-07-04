@@ -1,19 +1,19 @@
 [workspace]
 # 排除 fastembed（ort-sys 不支持部分平台）
 # run-code-rmcp 为 vendor 的源码（原 run_code_rmcp = "0.0.37"），方便本地维护
-members = ["crates/voice-toolkit", "crates/rs-voice-toolkit-stt", "crates/rs-voice-toolkit-audio", "crates/rs-voice-toolkit-tts", "document-parser", "mcp-common", "mcp-proxy", "mcp-sse-proxy", "mcp-streamable-proxy", "oss-client", "run-code-rmcp", "voice-cli"]
+members = ["crates/voice-toolkit", "crates/rs-voice-toolkit-stt", "crates/rs-voice-toolkit-audio", "crates/rs-voice-toolkit-tts", "crates/document-parser", "crates/mcp-common", "crates/mcp-proxy", "crates/mcp-sse-proxy", "crates/mcp-streamable-proxy", "crates/oss-client", "crates/run-code-rmcp", "crates/voice-cli"]
 # 默认只构建 mcp-proxy（排除 document-parser 等需要特殊环境的包）
-default-members = ["mcp-proxy", "mcp-common", "mcp-sse-proxy", "mcp-streamable-proxy"]
+default-members = ["crates/mcp-proxy", "crates/mcp-common", "crates/mcp-sse-proxy", "crates/mcp-streamable-proxy"]
 resolver = "2"
 exclude = ["fastembed"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [workspace.dependencies]
-mcp-proxy = { path = "mcp-proxy" }
-oss-client = { path = "oss-client" }
-# run_code_rmcp 已 vendor 到本地（run-code-rmcp/），不再从 crates.io 拉取
-run_code_rmcp = { path = "run-code-rmcp" }
+mcp-proxy = { path = "crates/mcp-proxy" }
+oss-client = { path = "crates/oss-client" }
+# run_code_rmcp 已 vendor 到本地（crates/run-code-rmcp/），不再从 crates.io 拉取
+run_code_rmcp = { path = "crates/run-code-rmcp" }
 # voice-toolkit 已 vendor 到本地（crates/voice-toolkit 等 4 个 crate），不再从 crates.io 拉取
 voice-toolkit = { path = "crates/voice-toolkit", features = ["stt", "audio"] }
 # FFmpeg wrapper：统一到 2.5（voice-cli 原 2.2 + voice crates 2.5 → 合并）
