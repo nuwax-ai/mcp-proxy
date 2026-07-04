@@ -145,17 +145,19 @@ fn warmup_model(state: Arc<AppState>, config: AppConfig) -> Result<()> {
     tracing::info!("Start preheating model: {}", config.fastembed.default_model);
     let start = Instant::now();
 
-    let (model_arc, _info) = get_or_init_model(
+    let (pool, _info) = get_or_init_model(
         EmbeddingType::Text,
         &config.fastembed.default_model,
         Some(config.fastembed.cache_dir.clone()),
         None, // 使用模型默认的 max_length
         &config.fastembed.device,
+        config.fastembed.pool_size,
     )?;
 
-    // 执行一次微型嵌入
+    // 执行一次微型嵌入（从池中取一个实例）
     let warmup_text = vec!["passage: warmup".to_string()];
-    let mut model_guard = model_arc
+    let instance = pool.pick();
+    let mut model_guard = instance
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     model_guard.embed(warmup_text, Some(1))?;

@@ -27,9 +27,13 @@ pub struct EmbedRequest {
     #[schema(example = "BGELargeZHV15")]
     pub model: Option<String>,
 
-    /// 输入列表（text/sparse 为文本；image 为本地图片路径）
+    /// 文本输入列表（text/sparse 类型使用）
     #[schema(example = json!(["query: 搜索文本", "passage: 文档内容"]))]
-    pub texts: Vec<String>,
+    pub texts: Option<Vec<String>>,
+
+    /// 图片路径列表（image 类型使用，本地文件路径）
+    #[schema(example = json!(["/path/to/a.jpg", "/path/to/b.png"]))]
+    pub images: Option<Vec<String>>,
 
     /// 批处理大小
     #[schema(example = 256)]
@@ -105,30 +109,6 @@ pub async fn handle_embed(
 ) -> Result<Json<EmbedResponse>, (StatusCode, Json<ErrorResponse>)> {
     let start = Instant::now();
 
-    // 参数验证
-    if req.texts.is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "EMPTY_INPUTS".to_string(),
-                message: "texts 不能为空".to_string(),
-                status: 400,
-            }),
-        ));
-    }
-
-    // 检查输入数量限制（最大 1024）
-    if req.texts.len() > 1024 {
-        return Err((
-            StatusCode::PAYLOAD_TOO_LARGE,
-            Json(ErrorResponse {
-                error: "TOO_MANY_INPUTS".to_string(),
-                message: format!("texts 数量不能超过 1024，当前: {}", req.texts.len()),
-                status: 413,
-            }),
-        ));
-    }
-
     // 解析嵌入类型
     let model_type = EmbeddingType::from_str(&req.r#type).map_err(|e| {
         (
@@ -141,6 +121,36 @@ pub async fn handle_embed(
         )
     })?;
 
+    // 按类型选择输入字段：image 用 images（路径），text/sparse 用 texts
+    let (inputs, field_name): (Vec<String>, &str) = match model_type {
+        EmbeddingType::Image => (req.images.unwrap_or_default(), "images"),
+        EmbeddingType::Text | EmbeddingType::Sparse => (req.texts.unwrap_or_default(), "texts"),
+    };
+
+    // 参数验证：非空
+    if inputs.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "EMPTY_INPUTS".to_string(),
+                message: format!("{} 不能为空", field_name),
+                status: 400,
+            }),
+        ));
+    }
+
+    // 检查输入数量限制（最大 1024）
+    if inputs.len() > 1024 {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(ErrorResponse {
+                error: "TOO_MANY_INPUTS".to_string(),
+                message: format!("{} 数量不能超过 1024，当前: {}", field_name, inputs.len()),
+                status: 413,
+            }),
+        ));
+    }
+
     // 解析模型名称：用户未指定时按类型取配置默认值（owned，便于移入 blocking 任务）
     let model_name = match req.model.as_deref() {
         Some(name) => name.to_string(),
@@ -152,22 +162,30 @@ pub async fn handle_embed(
     };
     let cache_dir = state.config.fastembed.cache_dir.clone();
     let device = state.config.fastembed.device.clone();
+    let pool_size = state.config.fastembed.pool_size;
     let batch_size = req.batch_size.unwrap_or(state.config.fastembed.batch_size);
-    let texts = req.texts;
 
     // 初始化 + 推理均同步阻塞（可能含网络下载、ONNX 推理），放 spawn_blocking
     // 避免阻塞 tokio 异步 worker。嵌套 Result 区分 init / embed 两类错误：
     // 外层 Err = 初始化失败；内层 Err = 推理失败。
     let joined = tokio::task::spawn_blocking(move || -> PipelineResult {
-        let (arc, info) =
-            get_or_init_model(model_type, &model_name, Some(cache_dir), None, &device)?;
+        let (pool, info) = get_or_init_model(
+            model_type,
+            &model_name,
+            Some(cache_dir),
+            None,
+            &device,
+            pool_size,
+        )?;
         let embed_result = {
-            // 推理期持 model Mutex：同一模型的并发请求在此排队（fastembed embed
-            // 要求 &mut self，故必须独占）。不同模型各自独立 Mutex、可并行。
-            // 若未来单模型并发吞吐成为瓶颈，可改为 N 实例池（代价 N× 内存）。
+            // round-robin 取实例（pool_size>1 时允许并发推理）；
+            // 单实例上排队（fastembed embed 需 &mut self）。
             // lock 毒化（某次请求持锁时 panic）时恢复，避免拖垮后续请求
-            let mut guard = arc.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-            guard.embed(texts, Some(batch_size))
+            let instance = pool.pick();
+            let mut guard = instance
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            guard.embed(inputs, Some(batch_size))
         };
         Ok(embed_result.map(|output| (info, output)))
     })

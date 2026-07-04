@@ -57,6 +57,12 @@ pub struct FastEmbedConfig {
     /// 计算设备：auto（按平台自动选 GPU EP）| cpu | coreml | cuda | directml
     #[serde(default = "default_device")]
     pub device: String,
+
+    /// 每个模型的实例池大小（并发推理上限）。
+    /// =1：单实例，并发请求排队（CPU 推理下通常最优，避免线程超订阅）。
+    /// >1：创建 N 个独立 ONNX 会话，允许 N 路并发推理（代价 N× 内存）。
+    #[serde(default = "default_pool_size")]
+    pub pool_size: usize,
 }
 
 fn default_cache_dir() -> String {
@@ -83,6 +89,10 @@ fn default_device() -> String {
     "auto".to_string()
 }
 
+fn default_pool_size() -> usize {
+    1
+}
+
 impl Default for FastEmbedConfig {
     fn default() -> Self {
         Self {
@@ -92,6 +102,7 @@ impl Default for FastEmbedConfig {
             default_sparse_model: default_sparse_model(),
             batch_size: default_batch_size(),
             device: default_device(),
+            pool_size: default_pool_size(),
         }
     }
 }
@@ -180,6 +191,14 @@ impl AppConfig {
                 tracing::warn!("Env FASTEMBED_BATCH_SIZE 非法 ({})，忽略", batch);
             }
         }
+        if let Ok(pool) = std::env::var("FASTEMBED_POOL_SIZE") {
+            if let Ok(pool) = pool.parse::<usize>() {
+                tracing::info!("Env FASTEMBED_POOL_SIZE overrides pool_size: {}", pool);
+                self.fastembed.pool_size = pool;
+            } else {
+                tracing::warn!("Env FASTEMBED_POOL_SIZE 非法 ({})，忽略", pool);
+            }
+        }
     }
 
     /// 加载或生成配置
@@ -238,6 +257,7 @@ mod tests {
         assert_eq!(cfg.default_sparse_model, "SPLADEPPV1");
         assert_eq!(cfg.device, "auto");
         assert_eq!(cfg.batch_size, 256);
+        assert_eq!(cfg.pool_size, 1);
     }
 
     #[test]
@@ -279,6 +299,7 @@ mod tests {
             "FASTEMBED_SPARSE_MODEL",
             "FASTEMBED_DEVICE",
             "FASTEMBED_BATCH_SIZE",
+            "FASTEMBED_POOL_SIZE",
         ];
         // 先清掉可能存在的旧值（CI 环境可能有）
         for k in keys {
@@ -293,6 +314,7 @@ mod tests {
         set_env("FASTEMBED_SPARSE_MODEL", "BGEM3");
         set_env("FASTEMBED_DEVICE", "cpu");
         set_env("FASTEMBED_BATCH_SIZE", "128");
+        set_env("FASTEMBED_POOL_SIZE", "4");
 
         let mut cfg = AppConfig::default();
         cfg.apply_env_overrides();
@@ -305,6 +327,7 @@ mod tests {
         assert_eq!(cfg.fastembed.default_sparse_model, "BGEM3");
         assert_eq!(cfg.fastembed.device, "cpu");
         assert_eq!(cfg.fastembed.batch_size, 128);
+        assert_eq!(cfg.fastembed.pool_size, 4);
 
         // 清理
         for k in keys {

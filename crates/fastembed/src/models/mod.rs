@@ -8,13 +8,46 @@ use fastembed::{
 use once_cell::sync::Lazy;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-/// 缓存的模型实例类型
-type CachedModel = Arc<Mutex<InitializedModel>>;
+/// 单个模型实例（包在 Mutex 里：fastembed embed 需 &mut self）
+type Instance = Arc<Mutex<InitializedModel>>;
 
-/// 全局模型缓存：按 (类型, 模型代码) 索引，避免同名变体/代码重复初始化
-pub static MODEL_CACHE: Lazy<DashMap<(EmbeddingType, String), CachedModel>> =
+/// 模型实例池：N 个独立实例，round-robin 分配。
+/// - pool_size=1：退化为单实例，并发请求排队（CPU 推理下通常最优，避免线程超订阅）
+/// - pool_size>1：允许 N 路并发推理（代价 N× 内存，每个实例独立加载 ONNX 会话）
+pub struct ModelPool {
+    instances: Vec<Instance>,
+    next: AtomicUsize,
+}
+
+impl ModelPool {
+    fn new(instances: Vec<InitializedModel>) -> Self {
+        let instances = instances
+            .into_iter()
+            .map(|m| Arc::new(Mutex::new(m)))
+            .collect();
+        Self {
+            instances,
+            next: AtomicUsize::new(0),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.instances.len()
+    }
+
+    /// round-robin 取一个实例。并发请求被分散到不同实例 → 最多 N 路并行；
+    /// 若恰好命中同一实例则在该实例上排队。
+    pub fn pick(&self) -> Instance {
+        let idx = self.next.fetch_add(1, Ordering::Relaxed) % self.instances.len();
+        self.instances[idx].clone()
+    }
+}
+
+/// 全局模型缓存：按 (类型, 模型代码) 索引；每项是 N 实例池
+pub static MODEL_CACHE: Lazy<DashMap<(EmbeddingType, String), Arc<ModelPool>>> =
     Lazy::new(DashMap::new);
 
 /// 初始化串行锁：用于 double-checked locking。
@@ -214,6 +247,8 @@ fn lookup_entry(t: EmbeddingType, input: &str) -> Option<ModelEntry> {
 
 /// 解析结果：携带类型化模型 + 规范化代码。
 /// 一次解析同时产出两者，避免 get_or_init_model 里「取 code」与「初始化」重复解析。
+/// Clone 用于构建 N 实例池时复用同一解析结果。
+#[derive(Clone)]
 enum Resolved {
     Text(EmbeddingModel, String),
     Image(ImageEmbeddingModel, String),
@@ -366,20 +401,22 @@ fn resolve_auto_providers() -> Vec<ExecutionProviderDispatch> {
 
 /// 获取或初始化模型
 ///
-/// 返回 `(模型句柄, 模型信息)`。缓存键为 `(类型, 规范化模型代码)`，
-/// 因此同名变体名与模型代码共享同一实例。
+/// 返回 `(实例池, 模型信息)`。缓存键为 `(类型, 规范化模型代码)`，
+/// 因此同名变体名与模型代码共享同一池。池内含 `pool_size` 个独立实例。
 ///
 /// **并发**：采用 double-checked locking——快路径无锁查缓存；未命中时持
 /// 全局 `INIT_LOCK` 后二次检查再初始化，确保同一模型的并发首次加载串行
 /// （避免 ort 并发初始化同一缓存模型时冲突失败）。运行时 embed 走快路径，
-/// 不受 `INIT_LOCK` 影响。
+/// 不受 `INIT_LOCK` 影响；推理时从池中 round-robin 取实例，最多 N 路并发。
 pub fn get_or_init_model(
     model_type: EmbeddingType,
     model_input: &str,
     cache_dir: Option<String>,
     max_length: Option<usize>,
     device: &str,
-) -> Result<(Arc<Mutex<InitializedModel>>, ModelInfo)> {
+    pool_size: usize,
+) -> Result<(Arc<ModelPool>, ModelInfo)> {
+    let pool_size = pool_size.max(1); // 0 视为 1
     // 一次解析：得到类型化模型 + 规范化代码（后续不再重复解析）
     let resolved = resolve(model_type, model_input)?;
     let code = resolved.code().to_string();
@@ -402,15 +439,28 @@ pub fn get_or_init_model(
         return Ok((existing.clone(), ModelInfo::from_catalog(model_type, &code)));
     }
 
-    tracing::info!("Initialization model: {:?}, device: {}", cache_key, device);
-    let eps = resolve_execution_providers(device);
-    let initialized = resolved.init(cache_dir, max_length, eps)?;
+    tracing::info!(
+        "Initialization model: {:?}, device: {}, pool_size: {}",
+        cache_key,
+        device,
+        pool_size
+    );
+    // 构建 N 实例池：每个实例独立加载 ONNX 会话（N× 内存），复用同一解析结果
+    let mut instances = Vec::with_capacity(pool_size);
+    for i in 0..pool_size {
+        let eps = resolve_execution_providers(device);
+        instances.push(resolved.clone().init(cache_dir.clone(), max_length, eps)?);
+        tracing::debug!("pool instance {}/{} ready", i + 1, pool_size);
+    }
+    let pool = Arc::new(ModelPool::new(instances));
+    MODEL_CACHE.insert(cache_key.clone(), pool.clone());
 
-    let arc = Arc::new(Mutex::new(initialized));
-    MODEL_CACHE.insert(cache_key.clone(), arc.clone());
-
-    tracing::info!("Model initialization successful: {:?}", cache_key);
-    Ok((arc, ModelInfo::from_catalog(model_type, &code)))
+    tracing::info!(
+        "Model initialization successful: {:?} ({} instance(s))",
+        cache_key,
+        pool.len()
+    );
+    Ok((pool, ModelInfo::from_catalog(model_type, &code)))
 }
 
 fn init_text(
@@ -854,17 +904,20 @@ mod tests {
     fn embed_smoke_text() {
         let tmp = tempfile::tempdir().unwrap();
         let cache = tmp.path().to_str().unwrap().to_string();
-        let (arc, info) = get_or_init_model(
+        let (pool, info) = get_or_init_model(
             EmbeddingType::Text,
             "AllMiniLML6V2",
             Some(cache.clone()),
             None,
             "cpu",
+            1,
         )
         .expect("模型初始化失败（确认网络可用）");
 
         assert_eq!(info.dim, 384);
-        let mut guard = arc.lock().unwrap();
+        assert_eq!(pool.len(), 1);
+        let instance = pool.pick();
+        let mut guard = instance.lock().unwrap();
         let out = guard
             .embed(vec!["hello world".to_string()], Some(1))
             .expect("嵌入失败");

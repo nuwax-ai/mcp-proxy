@@ -62,13 +62,13 @@ curl -X POST http://localhost:8080/api/embeddings \
     "texts": ["query: 你好世界", "passage: 本地向量化"]
   }'
 
-# 图像（texts 字段传本地图片路径）
+# 图像（images 字段传本地图片路径）
 curl -X POST http://localhost:8080/api/embeddings \
   -H "Content-Type: application/json" \
   -d '{
     "type": "image",
     "model": "ClipVitB32",
-    "texts": ["/path/to/a.jpg", "/path/to/b.png"]
+    "images": ["/path/to/a.jpg", "/path/to/b.png"]
   }'
 
 # 稀疏（每条输入返回 {indices, values}）
@@ -85,7 +85,8 @@ curl -X POST http://localhost:8080/api/embeddings \
 |------|------|------|
 | `type` | `text` \| `image` \| `sparse` | 默认 `text` |
 | `model` | string | 变体名或 HF 代码；缺省时按类型取配置默认值 |
-| `texts` | string[] | `text`/`sparse` 为文本，`image` 为**图片路径** |
+| `texts` | string[] | `text`/`sparse` 的文本输入 |
+| `images` | string[] | `image` 类型的本地图片路径 |
 | `batch_size` | int | 可选，缺省取配置 `batch_size` |
 
 响应：`embeddings`（稠密，text/image）**或** `sparse_embeddings`（稀疏），附带 `model` 信息与 `elapsed_ms`。
@@ -111,6 +112,7 @@ fastembed:
   default_sparse_model: SPLADEPPV1    # sparse
   batch_size: 256
   device: auto                        # auto | cpu | coreml | cuda | directml
+  pool_size: 1                        # 实例池大小（并发推理上限；>1 代价 N× 内存）
 ```
 
 ### 环境变量覆盖
@@ -124,6 +126,7 @@ fastembed:
 | `FASTEMBED_SPARSE_MODEL` | 默认稀疏模型 |
 | `FASTEMBED_DEVICE` | 计算设备 |
 | `FASTEMBED_BATCH_SIZE` | 批大小 |
+| `FASTEMBED_POOL_SIZE` | 实例池大小（并发数；>1 = N× 内存） |
 
 ## 支持的模型
 

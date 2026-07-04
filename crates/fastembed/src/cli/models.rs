@@ -32,13 +32,14 @@ pub async fn download_model(args: DownloadArgs) -> Result<()> {
     println!("⬇️ Downloading model files...");
     let start = std::time::Instant::now();
 
-    // 下载阶段不需要 GPU EP（device=cpu），仅触发文件下载与初始化
+    // 下载阶段不需要 GPU EP（device=cpu），单实例（pool_size=1）即可触发文件下载与初始化
     let _ = get_or_init_model(
         model_type,
         &model_input,
         Some(args.cache_dir.to_string_lossy().to_string()),
         None,
         "cpu",
+        1,
     )?;
 
     let elapsed = start.elapsed();

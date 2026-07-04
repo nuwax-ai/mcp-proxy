@@ -62,13 +62,13 @@ curl -X POST http://localhost:8080/api/embeddings \
     "texts": ["query: hello world", "passage: fast embeddings"]
   }'
 
-# Image (texts field holds local image paths)
+# Image (images field holds local image paths)
 curl -X POST http://localhost:8080/api/embeddings \
   -H "Content-Type: application/json" \
   -d '{
     "type": "image",
     "model": "ClipVitB32",
-    "texts": ["/path/to/a.jpg", "/path/to/b.png"]
+    "images": ["/path/to/a.jpg", "/path/to/b.png"]
   }'
 
 # Sparse (returns {indices, values} per input)
@@ -85,7 +85,8 @@ curl -X POST http://localhost:8080/api/embeddings \
 |-------|------|-------|
 | `type` | `text` \| `image` \| `sparse` | default `text` |
 | `model` | string | variant name or HF code; defaults to configured default per type |
-| `texts` | string[] | text for `text`/`sparse`, **image paths** for `image` |
+| `texts` | string[] | text inputs for `text`/`sparse` |
+| `images` | string[] | local image file paths for `image` |
 | `batch_size` | int | optional, defaults to config `batch_size` |
 
 Response: `embeddings` (dense, text/image) **or** `sparse_embeddings` (sparse), plus `model` info and `elapsed_ms`.
@@ -111,6 +112,7 @@ fastembed:
   default_sparse_model: SPLADEPPV1    # sparse
   batch_size: 256
   device: auto                        # auto | cpu | coreml | cuda | directml
+  pool_size: 1                        # 实例池大小（并发推理上限；>1 代价 N× 内存）
 ```
 
 ### Environment variable overrides
@@ -124,6 +126,7 @@ fastembed:
 | `FASTEMBED_SPARSE_MODEL` | default sparse model |
 | `FASTEMBED_DEVICE` | compute device |
 | `FASTEMBED_BATCH_SIZE` | batch size |
+| `FASTEMBED_POOL_SIZE` | instance pool size (concurrency; >1 = N× memory) |
 
 ## Supported Models
 

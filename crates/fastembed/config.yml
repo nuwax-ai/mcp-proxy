@@ -8,3 +8,4 @@ fastembed:
   default_sparse_model: SPLADEPPV1
   batch_size: 256
   device: auto
+  pool_size: 1
