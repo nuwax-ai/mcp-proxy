@@ -203,34 +203,50 @@ pub async fn transcribe_handler(
         }
     };
 
-    // 使用转录引擎处理
-    let transcription_engine = crate::services::TranscriptionEngine::new(state.model_service);
+    // 模型 id（P0 用配置默认；P1 从 request 读取）
+    let model_id = state.config.whisper.default_model.clone();
+    // ensure_model：模型缺失时自动下载（接入 HTTP，修复旧版 auto_download 形同虚设）
+    state.model_service.ensure_model(&model_id).await?;
+    let model_path = state.model_service.get_model_path(&model_id)?;
+    let pool_size = 1usize; // P0 默认单实例；P1 从 config.whisper.engine.pool_size 读
 
-    let result = transcription_engine
-        .transcribe_compatible_audio(
-            transcription_engine.default_model(), // 使用配置中的默认模型
-            &temp_file,
-            transcription_engine.worker_timeout(), // 使用配置中的超时时间
-        )
-        .await?;
+    // 同步推理走 spawn_blocking（transcribe-rs 是同步阻塞 C 调用，不能阻塞 tokio reactor）
+    let temp_file_for_blocking = temp_file.clone();
+    let result =
+        tokio::task::spawn_blocking(move || -> std::result::Result<_, crate::stt::SttError> {
+            // ffmpeg-sidecar 转 16k/mono/s16le → f32 samples
+            let samples = crate::stt::audio::to_whisper_samples(&temp_file_for_blocking)?;
+            // 进程级引擎池：首次加载，后续命中缓存（模型只 load 一次）
+            let key = crate::stt::EngineKey::new(&model_id);
+            let pool = crate::stt::get_or_init_engine(key, model_path, pool_size)?;
+            let inst = pool.pick();
+            let mut guard = inst.lock().unwrap_or_else(|p| p.into_inner());
+            let opts = crate::stt::SttTranscribeOptions::default();
+            let result = guard.transcribe_with(&samples, &opts.to_inference_params())?;
+            Ok(result)
+        })
+        .await
+        .map_err(|e| VoiceCliError::TranscriptionFailed(format!("转录任务 join 失败: {e}")))??;
 
-    // 转换 TranscriptionResult 到 TranscriptionResponse
+    // 转换 TranscriptionResult → TranscriptionResponse
+    // 注意：transcribe-rs 的 segment.start/end 已是秒（whisper.cpp 时间戳 / 100）
     let mut response = TranscriptionResponse {
         text: result.text,
         segments: result
             .segments
+            .unwrap_or_default()
             .into_iter()
             .map(|s| crate::models::Segment {
-                start: s.start_time as f32 / 1000.0, // Convert from ms to seconds
-                end: s.end_time as f32 / 1000.0,     // Convert from ms to seconds
+                start: s.start,
+                end: s.end,
                 text: s.text,
-                confidence: s.confidence,
+                confidence: 0.0, // transcribe-rs 0.3.11 TranscriptionSegment 无 confidence
             })
             .collect(),
-        language: result.language,
-        duration: None,       // 简化版本
-        processing_time: 0.0, // 简化版本
-        metadata: None,       // 稍后设置
+        language: None, // 0.3.11 TranscriptionResult 无 language；P1 从 opts 透传
+        duration: None,
+        processing_time: 0.0,
+        metadata: None,
     };
 
     // 设置元数据和时长

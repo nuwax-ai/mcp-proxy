@@ -109,13 +109,24 @@ winapi = { version = "0.3", features = ["winuser", "processthreadsapi"] }
 [dependencies.voice-toolkit]
 workspace = true
 
+# STT 引擎 transcribe-rs：按平台默认 GPU feature（裸 cargo build 即带平台最优后端）
+# - macOS：默认 whisper-metal（Metal framework 系统自带，编译可靠）
+# - Linux/其他：默认 whisper-cpp（CPU）；GPU 通过 `--features cuda`/`vulkan` 显式启用
+#   （需对应 CUDA toolkit / Vulkan SDK，避免缺 SDK 时默认 build 失败）
+[target.'cfg(target_os = "macos")'.dependencies]
+transcribe-rs = { workspace = true, features = ["whisper-cpp", "whisper-metal"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+transcribe-rs = { workspace = true, features = ["whisper-cpp"] }
+
 [dev-dependencies]
 tempfile = "3.0"
 
 
 [features]
 default = []
-# 方便通过 `-p voice-cli --features <name>` 启用/切换后端
-cuda = ["voice-toolkit/cuda"]
-metal = ["voice-toolkit/metal"]
-vulkan = ["voice-toolkit/vulkan"]
+# STT GPU 加速（transcribe-rs 后端）：
+# - macOS 默认已 whisper-metal（见上方 [target] 段），无需 --features
+# - Linux 用 cuda（NVIDIA + CUDA toolkit）或 vulkan（Vulkan SDK）
+cuda = ["transcribe-rs/whisper-cuda"]
+vulkan = ["transcribe-rs/whisper-vulkan"]

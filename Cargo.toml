@@ -55,6 +55,10 @@ run_code_rmcp = { path = "crates/run-code-rmcp" }
 voice-toolkit = { path = "crates/voice-toolkit", features = ["stt", "audio"] }
 # FFmpeg wrapper：统一到 2.5（voice-cli 原 2.2 + voice crates 2.5 → 合并）
 ffmpeg-sidecar = "2.5"
+# STT 引擎（替代 vendor 的 rs-voice-toolkit-stt）：transcribe-rs 0.3.11 依赖 ort=2.0.0-rc.12，
+# 与 fastembed 的 ort 版本完全一致，共存无冲突。GPU feature（whisper-metal/cuda/vulkan）
+# 由 voice-cli 按平台 [target.'cfg'] 选用，不在此处统一开。
+transcribe-rs = "0.3.11"
 
 # Note: rmcp 依赖由各子项目独立管理（mcp-sse-proxy 用 0.10，mcp-streamable-proxy 用 0.12）
 tokio = { version = "1.52", features = ["macros", "net", "rt", "rt-multi-thread"] }

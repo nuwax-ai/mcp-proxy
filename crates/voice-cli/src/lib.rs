@@ -13,6 +13,7 @@ pub mod models;
 pub mod openapi;
 pub mod server;
 pub mod services;
+pub mod stt;
 pub mod utils;
 
 // Re-export commonly used types

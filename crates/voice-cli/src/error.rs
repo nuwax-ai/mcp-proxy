@@ -283,6 +283,22 @@ impl From<ConfigError> for VoiceCliError {
     }
 }
 
+impl From<crate::stt::SttError> for VoiceCliError {
+    fn from(e: crate::stt::SttError) -> Self {
+        use crate::stt::SttError as E;
+        match e {
+            // 客户端错误（4xx）
+            E::ModelNotFound { .. } => Self::ModelNotFound(e.to_string()),
+            E::InvalidInput(_) => Self::InvalidInput(e.to_string()),
+            E::Audio(_) => Self::AudioProcessing(e.to_string()),
+            // 取消 / 超时
+            E::Cancelled | E::Timeout { .. } => Self::TranscriptionTimeout(e.to_string()),
+            // 服务端错误（5xx）
+            E::InitFailed(_) | E::InferFailed(_) => Self::TranscriptionFailed(e.to_string()),
+        }
+    }
+}
+
 impl IntoResponse for VoiceCliError {
     fn into_response(self) -> Response {
         let (status, error_message) = match self {
