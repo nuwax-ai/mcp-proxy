@@ -785,6 +785,31 @@ impl ExternalIntegrationConfig {
     }
 }
 
+/// 环境变量提供者抽象（依赖注入，避免直接读写全局 std::env）。
+/// 生产用 [`StdEnv`] 读真实环境；测试用 [`MapEnv`] 注入，无全局副作用、可并行。
+pub trait EnvProvider {
+    fn get(&self, key: &str) -> Option<String>;
+}
+
+/// 生产实现：直接读 `std::env::var`
+pub struct StdEnv;
+impl EnvProvider for StdEnv {
+    fn get(&self, key: &str) -> Option<String> {
+        std::env::var(key).ok()
+    }
+}
+
+/// 测试实现：基于 HashMap，零全局态
+#[cfg(test)]
+#[derive(Default)]
+pub struct MapEnv(pub std::collections::HashMap<String, String>);
+#[cfg(test)]
+impl EnvProvider for MapEnv {
+    fn get(&self, key: &str) -> Option<String> {
+        self.0.get(key).cloned()
+    }
+}
+
 impl AppConfig {
     /// 加载配置文件，支持多种配置源和环境变量覆盖
     pub fn load_config() -> Result<Self, ConfigError> {
@@ -792,7 +817,7 @@ impl AppConfig {
         let mut config = Self::load_base_config()?;
 
         // 2. 从环境变量覆盖配置
-        config.load_all_from_env()?;
+        config.load_all_from_env(&StdEnv)?;
 
         // 3. 验证最终配置
         config.validate()?;
@@ -961,56 +986,60 @@ impl AppConfig {
         Ok(())
     }
 
-    /// 从环境变量加载所有配置，支持类型安全的解析和错误处理
-    pub fn load_all_from_env(&mut self) -> Result<(), ConfigError> {
-        self.load_server_config_from_env()?;
-        self.load_log_config_from_env()?;
-        self.load_document_parser_config_from_env()?;
-        self.load_oss_config_from_env()?;
-        self.load_mineru_config_from_env()?;
-        self.load_markitdown_config_from_env()?;
-        self.load_external_integration_config_from_env()?;
+    /// 从环境变量加载所有配置，支持类型安全的解析和错误处理。
+    /// `env` 注入环境变量来源：生产传 [`StdEnv`]，测试传 [`MapEnv`]。
+    pub fn load_all_from_env(&mut self, env: &dyn EnvProvider) -> Result<(), ConfigError> {
+        self.load_server_config_from_env(env)?;
+        self.load_log_config_from_env(env)?;
+        self.load_document_parser_config_from_env(env)?;
+        self.load_oss_config_from_env(env)?;
+        self.load_mineru_config_from_env(env)?;
+        self.load_markitdown_config_from_env(env)?;
+        self.load_external_integration_config_from_env(env)?;
         Ok(())
     }
 
     /// 从环境变量加载服务器配置
-    fn load_server_config_from_env(&mut self) -> Result<(), ConfigError> {
-        if let Ok(port_str) = env::var("SERVER_PORT") {
+    fn load_server_config_from_env(&mut self, env: &dyn EnvProvider) -> Result<(), ConfigError> {
+        if let Some(port_str) = env.get("SERVER_PORT") {
             self.server.port = Self::parse_env_var("SERVER_PORT", &port_str)?;
         }
-        if let Ok(host) = env::var("SERVER_HOST") {
+        if let Some(host) = env.get("SERVER_HOST") {
             self.server.host = host;
         }
         Ok(())
     }
 
     /// 从环境变量加载日志配置
-    fn load_log_config_from_env(&mut self) -> Result<(), ConfigError> {
-        if let Ok(level) = env::var("LOG_LEVEL") {
+    fn load_log_config_from_env(&mut self, env: &dyn EnvProvider) -> Result<(), ConfigError> {
+        if let Some(level) = env.get("LOG_LEVEL") {
             self.log.level = level;
         }
-        if let Ok(path) = env::var("LOG_PATH") {
+        if let Some(path) = env.get("LOG_PATH") {
             self.log.path = path;
         }
         Ok(())
     }
 
     /// 从环境变量加载文档解析器配置
-    fn load_document_parser_config_from_env(&mut self) -> Result<(), ConfigError> {
-        if let Ok(max_concurrent_str) = env::var("DOCUMENT_PARSER_MAX_CONCURRENT") {
+    fn load_document_parser_config_from_env(
+        &mut self,
+        env: &dyn EnvProvider,
+    ) -> Result<(), ConfigError> {
+        if let Some(max_concurrent_str) = env.get("DOCUMENT_PARSER_MAX_CONCURRENT") {
             self.document_parser.max_concurrent =
                 Self::parse_env_var("DOCUMENT_PARSER_MAX_CONCURRENT", &max_concurrent_str)?;
         }
-        if let Ok(queue_size_str) = env::var("DOCUMENT_PARSER_QUEUE_SIZE") {
+        if let Some(queue_size_str) = env.get("DOCUMENT_PARSER_QUEUE_SIZE") {
             self.document_parser.queue_size =
                 Self::parse_env_var("DOCUMENT_PARSER_QUEUE_SIZE", &queue_size_str)?;
         }
         // 文件大小限制现在由全局配置管理
-        if let Ok(download_timeout_str) = env::var("DOCUMENT_PARSER_DOWNLOAD_TIMEOUT") {
+        if let Some(download_timeout_str) = env.get("DOCUMENT_PARSER_DOWNLOAD_TIMEOUT") {
             self.document_parser.download_timeout =
                 Self::parse_env_var("DOCUMENT_PARSER_DOWNLOAD_TIMEOUT", &download_timeout_str)?;
         }
-        if let Ok(processing_timeout_str) = env::var("DOCUMENT_PARSER_PROCESSING_TIMEOUT") {
+        if let Some(processing_timeout_str) = env.get("DOCUMENT_PARSER_PROCESSING_TIMEOUT") {
             self.document_parser.processing_timeout = Self::parse_env_var(
                 "DOCUMENT_PARSER_PROCESSING_TIMEOUT",
                 &processing_timeout_str,
@@ -1020,84 +1049,84 @@ impl AppConfig {
     }
 
     /// 从环境变量加载OSS配置
-    fn load_oss_config_from_env(&mut self) -> Result<(), ConfigError> {
-        if let Ok(endpoint) = env::var("ALIYUN_OSS_ENDPOINT") {
+    fn load_oss_config_from_env(&mut self, env: &dyn EnvProvider) -> Result<(), ConfigError> {
+        if let Some(endpoint) = env.get("ALIYUN_OSS_ENDPOINT") {
             self.storage.oss.endpoint = endpoint;
         }
-        if let Ok(public_bucket) = env::var("ALIYUN_OSS_PUBLIC_BUCKET") {
+        if let Some(public_bucket) = env.get("ALIYUN_OSS_PUBLIC_BUCKET") {
             self.storage.oss.public_bucket = public_bucket;
         }
-        if let Ok(private_bucket) = env::var("ALIYUN_OSS_PRIVATE_BUCKET") {
+        if let Some(private_bucket) = env.get("ALIYUN_OSS_PRIVATE_BUCKET") {
             self.storage.oss.private_bucket = private_bucket;
         }
-        if let Ok(access_key_id) = env::var("OSS_ACCESS_KEY_ID") {
+        if let Some(access_key_id) = env.get("OSS_ACCESS_KEY_ID") {
             self.storage.oss.access_key_id = access_key_id;
         }
-        if let Ok(access_key_secret) = env::var("OSS_ACCESS_KEY_SECRET") {
+        if let Some(access_key_secret) = env.get("OSS_ACCESS_KEY_SECRET") {
             self.storage.oss.access_key_secret = access_key_secret;
         }
         Ok(())
     }
 
     /// 从环境变量加载MinerU配置
-    fn load_mineru_config_from_env(&mut self) -> Result<(), ConfigError> {
-        if let Ok(backend) = env::var("MINERU_BACKEND") {
+    fn load_mineru_config_from_env(&mut self, env: &dyn EnvProvider) -> Result<(), ConfigError> {
+        if let Some(backend) = env.get("MINERU_BACKEND") {
             self.mineru.backend = backend;
         }
-        if let Ok(python_path) = env::var("MINERU_PYTHON_PATH") {
+        if let Some(python_path) = env.get("MINERU_PYTHON_PATH") {
             self.mineru.python_path = python_path;
         }
-        if let Ok(max_concurrent_str) = env::var("MINERU_MAX_CONCURRENT") {
+        if let Some(max_concurrent_str) = env.get("MINERU_MAX_CONCURRENT") {
             self.mineru.max_concurrent =
                 Self::parse_env_var("MINERU_MAX_CONCURRENT", &max_concurrent_str)?;
         }
-        if let Ok(queue_size_str) = env::var("MINERU_QUEUE_SIZE") {
+        if let Some(queue_size_str) = env.get("MINERU_QUEUE_SIZE") {
             self.mineru.queue_size = Self::parse_env_var("MINERU_QUEUE_SIZE", &queue_size_str)?;
         }
-        if let Ok(timeout_str) = env::var("MINERU_TIMEOUT") {
+        if let Some(timeout_str) = env.get("MINERU_TIMEOUT") {
             self.mineru.timeout = Self::parse_env_var("MINERU_TIMEOUT", &timeout_str)?;
         }
-        if let Ok(batch_size_str) = env::var("MINERU_BATCH_SIZE") {
+        if let Some(batch_size_str) = env.get("MINERU_BATCH_SIZE") {
             self.mineru.batch_size = Self::parse_env_var("MINERU_BATCH_SIZE", &batch_size_str)?;
         }
-        if let Ok(device) = env::var("MINERU_DEVICE") {
+        if let Some(device) = env.get("MINERU_DEVICE") {
             self.mineru.device = device;
         }
         Ok(())
     }
 
     /// 从环境变量加载MarkItDown配置
-    fn load_markitdown_config_from_env(&mut self) -> Result<(), ConfigError> {
-        if let Ok(python_path) = env::var("MARKITDOWN_PYTHON_PATH") {
+    fn load_markitdown_config_from_env(&mut self, env: &dyn EnvProvider) -> Result<(), ConfigError> {
+        if let Some(python_path) = env.get("MARKITDOWN_PYTHON_PATH") {
             self.markitdown.python_path = python_path;
         }
-        if let Ok(timeout_str) = env::var("MARKITDOWN_TIMEOUT") {
+        if let Some(timeout_str) = env.get("MARKITDOWN_TIMEOUT") {
             self.markitdown.timeout = Self::parse_env_var("MARKITDOWN_TIMEOUT", &timeout_str)?;
         }
-        if let Ok(enable_plugins_str) = env::var("MARKITDOWN_ENABLE_PLUGINS") {
+        if let Some(enable_plugins_str) = env.get("MARKITDOWN_ENABLE_PLUGINS") {
             self.markitdown.enable_plugins =
                 Self::parse_env_var("MARKITDOWN_ENABLE_PLUGINS", &enable_plugins_str)?;
         }
-        if let Ok(enable_ocr_str) = env::var("MARKITDOWN_ENABLE_OCR") {
+        if let Some(enable_ocr_str) = env.get("MARKITDOWN_ENABLE_OCR") {
             self.markitdown.features.ocr =
                 Self::parse_env_var("MARKITDOWN_ENABLE_OCR", &enable_ocr_str)?;
         }
-        if let Ok(enable_audio_transcription_str) =
-            env::var("MARKITDOWN_ENABLE_AUDIO_TRANSCRIPTION")
+        if let Some(enable_audio_transcription_str) =
+            env.get("MARKITDOWN_ENABLE_AUDIO_TRANSCRIPTION")
         {
             self.markitdown.features.audio_transcription = Self::parse_env_var(
                 "MARKITDOWN_ENABLE_AUDIO_TRANSCRIPTION",
                 &enable_audio_transcription_str,
             )?;
         }
-        if let Ok(enable_azure_doc_intel_str) = env::var("MARKITDOWN_ENABLE_AZURE_DOC_INTEL") {
+        if let Some(enable_azure_doc_intel_str) = env.get("MARKITDOWN_ENABLE_AZURE_DOC_INTEL") {
             self.markitdown.features.azure_doc_intel = Self::parse_env_var(
                 "MARKITDOWN_ENABLE_AZURE_DOC_INTEL",
                 &enable_azure_doc_intel_str,
             )?;
         }
-        if let Ok(enable_youtube_transcription_str) =
-            env::var("MARKITDOWN_ENABLE_YOUTUBE_TRANSCRIPTION")
+        if let Some(enable_youtube_transcription_str) =
+            env.get("MARKITDOWN_ENABLE_YOUTUBE_TRANSCRIPTION")
         {
             self.markitdown.features.youtube_transcription = Self::parse_env_var(
                 "MARKITDOWN_ENABLE_YOUTUBE_TRANSCRIPTION",
@@ -1108,14 +1137,17 @@ impl AppConfig {
     }
 
     /// 从环境变量加载外部集成配置
-    fn load_external_integration_config_from_env(&mut self) -> Result<(), ConfigError> {
-        if let Ok(webhook_url) = env::var("EXTERNAL_INTEGRATION_WEBHOOK_URL") {
+    fn load_external_integration_config_from_env(
+        &mut self,
+        env: &dyn EnvProvider,
+    ) -> Result<(), ConfigError> {
+        if let Some(webhook_url) = env.get("EXTERNAL_INTEGRATION_WEBHOOK_URL") {
             self.external_integration.webhook_url = webhook_url;
         }
-        if let Ok(api_key) = env::var("EXTERNAL_INTEGRATION_API_KEY") {
+        if let Some(api_key) = env.get("EXTERNAL_INTEGRATION_API_KEY") {
             self.external_integration.api_key = api_key;
         }
-        if let Ok(timeout_str) = env::var("EXTERNAL_INTEGRATION_TIMEOUT") {
+        if let Some(timeout_str) = env.get("EXTERNAL_INTEGRATION_TIMEOUT") {
             self.external_integration.timeout =
                 Self::parse_env_var("EXTERNAL_INTEGRATION_TIMEOUT", &timeout_str)?;
         }
@@ -1263,7 +1295,6 @@ pub fn get_global_cuda_status_clone() -> CudaStatus {
 mod tests {
     use super::*;
 
-    use std::env;
     use tempfile::TempDir;
 
     #[test]
@@ -1325,44 +1356,37 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Modifies global environment variables, causes race conditions with parallel tests"]
     fn test_environment_variable_override() {
-        // 设置环境变量
-        unsafe {
-            env::set_var("SERVER_PORT", "9999");
-            env::set_var("LOG_LEVEL", "debug");
-        }
+        // 通过 EnvProvider 注入，不碰全局 env，可并行
+        let env = MapEnv(
+            [
+                ("SERVER_PORT".to_string(), "9999".to_string()),
+                ("LOG_LEVEL".to_string(), "debug".to_string()),
+            ]
+            .into_iter()
+            .collect(),
+        );
 
         let mut config = AppConfig::load_base_config().unwrap();
-        config.load_all_from_env().unwrap();
+        config.load_all_from_env(&env).unwrap();
 
         assert_eq!(config.server.port, 9999);
         assert_eq!(config.log.level, "debug");
-
-        // 清理环境变量
-        unsafe {
-            env::remove_var("SERVER_PORT");
-            env::remove_var("LOG_LEVEL");
-        }
     }
 
     #[test]
-    #[ignore = "Modifies global environment variables, causes race conditions with parallel tests"]
     fn test_invalid_environment_variables() {
-        // 设置无效的环境变量
-        unsafe {
-            env::set_var("SERVER_PORT", "invalid_port");
-        }
+        // 通过 EnvProvider 注入无效值，不碰全局 env
+        let env = MapEnv(
+            [("SERVER_PORT".to_string(), "invalid_port".to_string())]
+                .into_iter()
+                .collect(),
+        );
 
         let mut config = AppConfig::load_base_config().unwrap();
-        let result = config.load_all_from_env();
+        let result = config.load_all_from_env(&env);
 
         assert!(result.is_err());
-
-        // 清理环境变量
-        unsafe {
-            env::remove_var("SERVER_PORT");
-        }
     }
 
     #[test]
