@@ -1,10 +1,39 @@
 [workspace]
-# 排除 fastembed（ort-sys 不支持部分平台）
 # run-code-rmcp 为 vendor 的源码（原 run_code_rmcp = "0.0.37"），方便本地维护
-members = ["crates/voice-toolkit", "crates/rs-voice-toolkit-stt", "crates/rs-voice-toolkit-audio", "crates/rs-voice-toolkit-tts", "crates/document-parser", "crates/mcp-common", "crates/mcp-proxy", "crates/mcp-sse-proxy", "crates/mcp-streamable-proxy", "crates/oss-client", "crates/run-code-rmcp", "crates/voice-cli"]
-# 不设 default-members：裸 cargo build/check/test 默认作用于全部 member（fastembed 仍 exclude，单独任务开发）
+# fastembed 现已纳入 workspace：共享 Cargo.lock / 版本继承 / cargo test --workspace。
+# 但 ort-sys 编译期需联网下载预编译库 + 编译耗时数分钟，故放入 default-members 之外：
+# 裸 cargo build/test/check 默认不碰 fastembed（快、离线友好），
+# 显式 cargo (build|test) -p fastembed-server 或 --workspace 才编译它。
+members = [
+    "crates/voice-toolkit",
+    "crates/rs-voice-toolkit-stt",
+    "crates/rs-voice-toolkit-audio",
+    "crates/rs-voice-toolkit-tts",
+    "crates/document-parser",
+    "crates/mcp-common",
+    "crates/mcp-proxy",
+    "crates/mcp-sse-proxy",
+    "crates/mcp-streamable-proxy",
+    "crates/oss-client",
+    "crates/run-code-rmcp",
+    "crates/voice-cli",
+    "crates/fastembed",
+]
+default-members = [
+    "crates/voice-toolkit",
+    "crates/rs-voice-toolkit-stt",
+    "crates/rs-voice-toolkit-audio",
+    "crates/rs-voice-toolkit-tts",
+    "crates/document-parser",
+    "crates/mcp-common",
+    "crates/mcp-proxy",
+    "crates/mcp-sse-proxy",
+    "crates/mcp-streamable-proxy",
+    "crates/oss-client",
+    "crates/run-code-rmcp",
+    "crates/voice-cli",
+]
 resolver = "2"
-exclude = ["crates/fastembed"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

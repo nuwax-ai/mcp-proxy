@@ -107,12 +107,12 @@ pub async fn start_server(config: AppConfig) -> Result<()> {
 
     let state = Arc::new(AppState::new(config.clone()));
 
-    // 预热模型（异步执行）
+    // 预热模型：init + 推理均同步阻塞，放 spawn_blocking 避免占用 async worker
     let warmup_state = state.clone();
     let warmup_config = config.clone();
-    tokio::spawn(async move {
-        if let Err(e) = warmup_model(warmup_state, warmup_config).await {
-            tracing::warn!("Model warm-up failed: {}", e);
+    tokio::task::spawn_blocking(move || {
+        if let Err(e) = warmup_model(warmup_state, warmup_config) {
+            tracing::warn!("Model warm-up failed: {:?}", e);
         }
     });
 
@@ -138,8 +138,8 @@ pub async fn start_server(config: AppConfig) -> Result<()> {
     Ok(())
 }
 
-/// 模型预热
-async fn warmup_model(state: Arc<AppState>, config: AppConfig) -> Result<()> {
+/// 模型预热（同步：init + 一次微型推理，由调用方放 spawn_blocking）
+fn warmup_model(state: Arc<AppState>, config: AppConfig) -> Result<()> {
     use crate::models::{EmbeddingType, get_or_init_model};
 
     tracing::info!("Start preheating model: {}", config.fastembed.default_model);
@@ -155,13 +155,18 @@ async fn warmup_model(state: Arc<AppState>, config: AppConfig) -> Result<()> {
 
     // 执行一次微型嵌入
     let warmup_text = vec!["passage: warmup".to_string()];
-    let mut model_guard = model_arc.lock().unwrap();
+    let mut model_guard = model_arc
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     model_guard.embed(warmup_text, Some(1))?;
 
     let elapsed = start.elapsed();
 
     // 标记预热完成
-    *state.model_cache_ready.lock().unwrap() = true;
+    *state
+        .model_cache_ready
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = true;
 
     tracing::info!(
         "✅ Model preheating completed, time consuming: {:?}",

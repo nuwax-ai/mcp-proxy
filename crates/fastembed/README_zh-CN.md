@@ -18,10 +18,10 @@
 
 ## 快速开始
 
-> 注意：`crates/fastembed` 已从 workspace 排除（ort 平台隔离），需直接构建/测试：
+> 注意：`crates/fastembed` 已是 workspace 成员，但**不在** `default-members` 中（ort 编译期需联网下载、编译耗时数分钟）。裸 `cargo build`/`test` 不碰它，需显式构建/测试：
 >
 > ```bash
-> cargo build --manifest-path crates/fastembed/Cargo.toml --release
+> cargo build -p fastembed-server --release
 > ```
 
 ```bash
@@ -136,9 +136,9 @@ fastembed:
 ## 开发
 
 ```bash
-cargo build --manifest-path crates/fastembed/Cargo.toml
-cargo test  --manifest-path crates/fastembed/Cargo.toml
-cargo clippy --manifest-path crates/fastembed/Cargo.toml --all-targets
+cargo build -p fastembed-server
+cargo test  -p fastembed-server
+cargo clippy -p fastembed-server --all-targets
 ```
 
 ## 许可证

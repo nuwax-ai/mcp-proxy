@@ -5,12 +5,15 @@ use std::sync::Arc;
 use std::time::Instant;
 use utoipa::ToSchema;
 
-use crate::models::{EmbeddingType, ModelInfo, get_or_init_model};
+use crate::models::{EmbedOutput, EmbeddingType, ModelInfo, get_or_init_model};
 use crate::server::AppState;
 
 fn default_embed_type() -> String {
     "text".to_string()
 }
+
+/// spawn_blocking 内的流水线返回类型：外层 Err = 初始化失败，内层 Err = 推理失败。
+type PipelineResult = Result<Result<(ModelInfo, EmbedOutput), anyhow::Error>, anyhow::Error>;
 
 /// 文本嵌入请求
 #[derive(Debug, Deserialize, ToSchema)]
@@ -138,61 +141,78 @@ pub async fn handle_embed(
         )
     })?;
 
-    // 解析模型名称：用户未指定时按类型取配置默认值
+    // 解析模型名称：用户未指定时按类型取配置默认值（owned，便于移入 blocking 任务）
     let model_name = match req.model.as_deref() {
-        Some(name) => name,
+        Some(name) => name.to_string(),
         None => match model_type {
-            EmbeddingType::Image => &state.config.fastembed.default_image_model,
-            EmbeddingType::Sparse => &state.config.fastembed.default_sparse_model,
-            EmbeddingType::Text => &state.config.fastembed.default_model,
+            EmbeddingType::Image => state.config.fastembed.default_image_model.clone(),
+            EmbeddingType::Sparse => state.config.fastembed.default_sparse_model.clone(),
+            EmbeddingType::Text => state.config.fastembed.default_model.clone(),
         },
     };
-
-    // 获取或初始化模型
-    let (model_arc, model_info) = get_or_init_model(
-        model_type,
-        model_name,
-        Some(state.config.fastembed.cache_dir.clone()),
-        None, // 使用模型默认的 max_length
-        &state.config.fastembed.device,
-    )
-    .map_err(|e| {
-        tracing::error!("Model initialization failed: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "MODEL_INIT_ERROR".to_string(),
-                message: format!("模型初始化失败: {}", e),
-                status: 500,
-            }),
-        )
-    })?;
-
-    // 执行嵌入
+    let cache_dir = state.config.fastembed.cache_dir.clone();
+    let device = state.config.fastembed.device.clone();
     let batch_size = req.batch_size.unwrap_or(state.config.fastembed.batch_size);
+    let texts = req.texts;
 
-    // lock 毒化（某次请求持锁时 panic）时恢复，避免单个请求 panic 拖垮整个服务
-    let output = {
-        let mut model_guard = model_arc
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        model_guard.embed(req.texts, Some(batch_size))
-    }
-    .map_err(|e| {
-        tracing::error!("Embedding calculation failed: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "EMBED_ERROR".to_string(),
-                message: format!("嵌入计算失败: {}", e),
-                status: 500,
-            }),
-        )
-    })?;
+    // 初始化 + 推理均同步阻塞（可能含网络下载、ONNX 推理），放 spawn_blocking
+    // 避免阻塞 tokio 异步 worker。嵌套 Result 区分 init / embed 两类错误：
+    // 外层 Err = 初始化失败；内层 Err = 推理失败。
+    let joined = tokio::task::spawn_blocking(move || -> PipelineResult {
+        let (arc, info) =
+            get_or_init_model(model_type, &model_name, Some(cache_dir), None, &device)?;
+        let embed_result = {
+            // lock 毒化（某次请求持锁时 panic）时恢复，避免拖垮后续请求
+            let mut guard = arc.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            guard.embed(texts, Some(batch_size))
+        };
+        Ok(embed_result.map(|output| (info, output)))
+    })
+    .await;
+
+    let (model_info, output) = match joined {
+        Ok(Ok(Ok(success))) => success,
+        // 推理失败
+        Ok(Ok(Err(e))) => {
+            tracing::error!("Embedding calculation failed: {:?}", e);
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "EMBED_ERROR".to_string(),
+                    message: format!("嵌入计算失败: {}", e),
+                    status: 500,
+                }),
+            ));
+        }
+        // 初始化失败
+        Ok(Err(e)) => {
+            tracing::error!("Model initialization failed: {:?}", e);
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "MODEL_INIT_ERROR".to_string(),
+                    message: format!("模型初始化失败: {}", e),
+                    status: 500,
+                }),
+            ));
+        }
+        // blocking 任务 panic（如 ort 内部 panic）
+        Err(join_err) => {
+            tracing::error!("Embedding blocking task panicked: {:?}", join_err);
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "EMBED_TASK_ERROR".to_string(),
+                    message: format!("嵌入任务异常: {}", join_err),
+                    status: 500,
+                }),
+            ));
+        }
+    };
 
     let (embeddings, sparse_embeddings) = match output {
-        crate::models::EmbedOutput::Dense(vec) => (vec, None),
-        crate::models::EmbedOutput::Sparse(vec) => {
+        EmbedOutput::Dense(vec) => (vec, None),
+        EmbedOutput::Sparse(vec) => {
             let sparse: Vec<SparseEmbeddingDto> = vec
                 .into_iter()
                 .map(|s| SparseEmbeddingDto {

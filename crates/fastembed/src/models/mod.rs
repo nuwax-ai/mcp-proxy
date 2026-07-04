@@ -216,83 +216,98 @@ fn lookup_entry(t: EmbeddingType, input: &str) -> Option<ModelEntry> {
     catalog_for(t).iter().copied().find(|e| e.matches(input))
 }
 
-/// 解析模型标识，返回其规范化的代码字符串
-/// 命中目录 → 目录 code；未命中但 fastembed FromStr 认可 → 用输入本身
-fn resolve_code(t: EmbeddingType, input: &str) -> Result<String> {
+/// 解析结果：携带类型化模型 + 规范化代码。
+/// 一次解析同时产出两者，避免 get_or_init_model 里「取 code」与「初始化」重复解析。
+enum Resolved {
+    Text(EmbeddingModel, String),
+    Image(ImageEmbeddingModel, String),
+    Sparse(SparseModel, String),
+}
+
+impl Resolved {
+    fn code(&self) -> &str {
+        match self {
+            Resolved::Text(_, c) | Resolved::Image(_, c) | Resolved::Sparse(_, c) => c,
+        }
+    }
+
+    /// 用解析好的模型执行初始化（不再重复解析）
+    fn init(
+        self,
+        cache_dir: Option<String>,
+        max_length: Option<usize>,
+        eps: Vec<ExecutionProviderDispatch>,
+    ) -> Result<InitializedModel> {
+        match self {
+            Resolved::Text(m, _) => {
+                init_text(m, cache_dir, max_length, eps).map(InitializedModel::Text)
+            }
+            // ImageInitOptions 不支持 max_length
+            Resolved::Image(m, _) => init_image(m, cache_dir, eps).map(InitializedModel::Image),
+            Resolved::Sparse(m, _) => {
+                init_sparse(m, cache_dir, max_length, eps).map(InitializedModel::Sparse)
+            }
+        }
+    }
+}
+
+/// 一次解析：变体名或模型代码 → 类型化模型 + 规范化代码。
+/// 命中目录 → 变体映射 + 目录 code；目录外 → fastembed FromStr 校验，代码即输入本身。
+fn resolve(t: EmbeddingType, input: &str) -> Result<Resolved> {
     if let Some(entry) = lookup_entry(t, input) {
-        return Ok(entry.code.to_string());
+        return match t {
+            EmbeddingType::Text => {
+                let m = match entry.variant {
+                    "BGELargeZHV15" => EmbeddingModel::BGELargeZHV15,
+                    "BGESmallZHV15" => EmbeddingModel::BGESmallZHV15,
+                    "BGEBaseENV15" => EmbeddingModel::BGEBaseENV15,
+                    "BGESmallENV15" => EmbeddingModel::BGESmallENV15,
+                    "BGELargeENV15" => EmbeddingModel::BGELargeENV15,
+                    "AllMiniLML6V2" => EmbeddingModel::AllMiniLML6V2,
+                    "AllMiniLML12V2" => EmbeddingModel::AllMiniLML12V2,
+                    _ => return Err(anyhow!("文本模型变体未映射: {}", entry.variant)),
+                };
+                Ok(Resolved::Text(m, entry.code.to_string()))
+            }
+            EmbeddingType::Image => {
+                let m = match entry.variant {
+                    "ClipVitB32" => ImageEmbeddingModel::ClipVitB32,
+                    "Resnet50" => ImageEmbeddingModel::Resnet50,
+                    "UnicomVitB16" => ImageEmbeddingModel::UnicomVitB16,
+                    "UnicomVitB32" => ImageEmbeddingModel::UnicomVitB32,
+                    "NomicEmbedVisionV15" => ImageEmbeddingModel::NomicEmbedVisionV15,
+                    _ => return Err(anyhow!("图像模型变体未映射: {}", entry.variant)),
+                };
+                Ok(Resolved::Image(m, entry.code.to_string()))
+            }
+            EmbeddingType::Sparse => {
+                let m = match entry.variant {
+                    "SPLADEPPV1" => SparseModel::SPLADEPPV1,
+                    "BGEM3" => SparseModel::BGEM3,
+                    _ => return Err(anyhow!("稀疏模型变体未映射: {}", entry.variant)),
+                };
+                Ok(Resolved::Sparse(m, entry.code.to_string()))
+            }
+        };
     }
-    // 目录外：交由 fastembed FromStr 校验
-    validate_via_fastembed(t, input)?;
-    Ok(input.to_string())
-}
-
-/// 仅解析规范化的模型代码（不校验、不触发初始化），供 CLI 展示用
-/// 返回 None 表示输入既不在目录、也无法被 fastembed FromStr 接受
-pub(crate) fn resolve_code_for_display(t: EmbeddingType, input: &str) -> Option<String> {
-    resolve_code(t, input).ok()
-}
-
-/// 校验目录外的模型标识是否被 fastembed 接受
-fn validate_via_fastembed(t: EmbeddingType, input: &str) -> Result<()> {
+    // 目录外：用 fastembed FromStr 校验
     match t {
-        EmbeddingType::Text => parse_text_model(input).map(|_| ()),
-        EmbeddingType::Image => parse_image_model(input).map(|_| ()),
-        EmbeddingType::Sparse => parse_sparse_model(input).map(|_| ()),
+        EmbeddingType::Text => EmbeddingModel::from_str(input)
+            .map(|m| Resolved::Text(m, input.to_string()))
+            .map_err(|_| anyhow!("未知文本模型: {}", input)),
+        EmbeddingType::Image => ImageEmbeddingModel::from_str(input)
+            .map(|m| Resolved::Image(m, input.to_string()))
+            .map_err(|_| anyhow!("未知图像模型: {}", input)),
+        EmbeddingType::Sparse => SparseModel::from_str(input)
+            .map(|m| Resolved::Sparse(m, input.to_string()))
+            .map_err(|_| anyhow!("未知稀疏模型: {}", input)),
     }
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// 模型解析（变体名 + FromStr 双路径）
-// ────────────────────────────────────────────────────────────────────────────
-
-/// 解析文本模型标识（支持变体名和模型代码）
-pub fn parse_text_model(user_input: &str) -> Result<EmbeddingModel> {
-    if let Some(entry) = lookup_entry(EmbeddingType::Text, user_input) {
-        // 目录内文本模型，按变体映射
-        let m = match entry.variant {
-            "BGELargeZHV15" => EmbeddingModel::BGELargeZHV15,
-            "BGESmallZHV15" => EmbeddingModel::BGESmallZHV15,
-            "BGEBaseENV15" => EmbeddingModel::BGEBaseENV15,
-            "BGESmallENV15" => EmbeddingModel::BGESmallENV15,
-            "BGELargeENV15" => EmbeddingModel::BGELargeENV15,
-            "AllMiniLML6V2" => EmbeddingModel::AllMiniLML6V2,
-            "AllMiniLML12V2" => EmbeddingModel::AllMiniLML12V2,
-            _ => return Err(anyhow!("文本模型变体未映射: {}", entry.variant)),
-        };
-        return Ok(m);
-    }
-    // 目录外：使用 FromStr 解析模型代码
-    EmbeddingModel::from_str(user_input).map_err(|_| anyhow!("未知文本模型: {}", user_input))
-}
-
-/// 解析图像模型
-pub fn parse_image_model(user_input: &str) -> Result<ImageEmbeddingModel> {
-    if let Some(entry) = lookup_entry(EmbeddingType::Image, user_input) {
-        let m = match entry.variant {
-            "ClipVitB32" => ImageEmbeddingModel::ClipVitB32,
-            "Resnet50" => ImageEmbeddingModel::Resnet50,
-            "UnicomVitB16" => ImageEmbeddingModel::UnicomVitB16,
-            "UnicomVitB32" => ImageEmbeddingModel::UnicomVitB32,
-            "NomicEmbedVisionV15" => ImageEmbeddingModel::NomicEmbedVisionV15,
-            _ => return Err(anyhow!("图像模型变体未映射: {}", entry.variant)),
-        };
-        return Ok(m);
-    }
-    ImageEmbeddingModel::from_str(user_input).map_err(|_| anyhow!("未知图像模型: {}", user_input))
-}
-
-/// 解析稀疏模型
-pub fn parse_sparse_model(user_input: &str) -> Result<SparseModel> {
-    if let Some(entry) = lookup_entry(EmbeddingType::Sparse, user_input) {
-        let m = match entry.variant {
-            "SPLADEPPV1" => SparseModel::SPLADEPPV1,
-            "BGEM3" => SparseModel::BGEM3,
-            _ => return Err(anyhow!("稀疏模型变体未映射: {}", entry.variant)),
-        };
-        return Ok(m);
-    }
-    SparseModel::from_str(user_input).map_err(|_| anyhow!("未知稀疏模型: {}", user_input))
+/// 仅解析规范化的模型代码（不触发初始化），供 CLI 展示用。
+/// 返回 None 表示输入既不在目录、也无法被 fastembed FromStr 接受。
+pub(crate) fn resolve_code_for_display(t: EmbeddingType, input: &str) -> Option<String> {
+    resolve(t, input).ok().map(|r| r.code().to_string())
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -369,7 +384,9 @@ pub fn get_or_init_model(
     max_length: Option<usize>,
     device: &str,
 ) -> Result<(Arc<Mutex<InitializedModel>>, ModelInfo)> {
-    let code = resolve_code(model_type, model_input)?;
+    // 一次解析：得到类型化模型 + 规范化代码（后续不再重复解析）
+    let resolved = resolve(model_type, model_input)?;
+    let code = resolved.code().to_string();
     let cache_key = (model_type, code.clone());
 
     // 快路径：命中缓存（无锁）
@@ -391,22 +408,7 @@ pub fn get_or_init_model(
 
     tracing::info!("Initialization model: {:?}, device: {}", cache_key, device);
     let eps = resolve_execution_providers(device);
-
-    let initialized = match model_type {
-        EmbeddingType::Text => {
-            let model = parse_text_model(model_input)?;
-            init_text(model, cache_dir.clone(), max_length, eps).map(InitializedModel::Text)
-        }
-        EmbeddingType::Image => {
-            let model = parse_image_model(model_input)?;
-            // ImageInitOptions 不支持 max_length
-            init_image(model, cache_dir.clone(), eps).map(InitializedModel::Image)
-        }
-        EmbeddingType::Sparse => {
-            let model = parse_sparse_model(model_input)?;
-            init_sparse(model, cache_dir.clone(), max_length, eps).map(InitializedModel::Sparse)
-        }
-    }?;
+    let initialized = resolved.init(cache_dir, max_length, eps)?;
 
     let arc = Arc::new(Mutex::new(initialized));
     MODEL_CACHE.insert(cache_key.clone(), arc.clone());
@@ -660,52 +662,64 @@ mod tests {
     // ── 模型解析 ─────────────────────────────────────────────────────────────
 
     #[test]
-    fn parse_text_model_variant_and_code() {
-        // 变体名
-        assert_eq!(
-            parse_text_model("AllMiniLML6V2").unwrap(),
-            EmbeddingModel::AllMiniLML6V2
-        );
+    fn resolve_text_variant_and_code() {
+        // 变体名 → 解析出模型 + 规范化代码
+        match resolve(EmbeddingType::Text, "AllMiniLML6V2").unwrap() {
+            Resolved::Text(m, code) => {
+                assert_eq!(m, EmbeddingModel::AllMiniLML6V2);
+                assert_eq!(code, "Qdrant/all-MiniLM-L6-v2-onnx");
+            }
+            other => panic!("期望 Text 变体，得到 {:?}", other.code()),
+        }
         // 模型代码（命中目录；与 fastembed 实际下载仓库一致）
-        assert_eq!(
-            parse_text_model("Qdrant/all-MiniLM-L6-v2-onnx").unwrap(),
-            EmbeddingModel::AllMiniLML6V2
-        );
-        assert_eq!(
-            parse_text_model("Xenova/bge-large-zh-v1.5").unwrap(),
-            EmbeddingModel::BGELargeZHV15
-        );
+        match resolve(EmbeddingType::Text, "Qdrant/all-MiniLM-L6-v2-onnx").unwrap() {
+            Resolved::Text(m, code) => {
+                assert_eq!(m, EmbeddingModel::AllMiniLML6V2);
+                assert_eq!(code, "Qdrant/all-MiniLM-L6-v2-onnx");
+            }
+            other => panic!("期望 Text 变体，得到 {:?}", other.code()),
+        }
+        match resolve(EmbeddingType::Text, "Xenova/bge-large-zh-v1.5").unwrap() {
+            Resolved::Text(m, _) => assert_eq!(m, EmbeddingModel::BGELargeZHV15),
+            other => panic!("期望 Text 变体，得到 {:?}", other.code()),
+        }
     }
 
     #[test]
-    fn parse_text_model_unknown() {
-        assert!(parse_text_model("not-a-real-model").is_err());
+    fn resolve_text_unknown() {
+        assert!(resolve(EmbeddingType::Text, "not-a-real-model").is_err());
     }
 
     #[test]
-    fn parse_image_model_variant_and_code() {
-        assert_eq!(
-            parse_image_model("ClipVitB32").unwrap(),
-            ImageEmbeddingModel::ClipVitB32
-        );
-        assert_eq!(
-            parse_image_model("Qdrant/clip-ViT-B-32-vision").unwrap(),
-            ImageEmbeddingModel::ClipVitB32
-        );
-        assert!(parse_image_model("nope").is_err());
+    fn resolve_image_variant_and_code() {
+        match resolve(EmbeddingType::Image, "ClipVitB32").unwrap() {
+            Resolved::Image(m, code) => {
+                assert_eq!(m, ImageEmbeddingModel::ClipVitB32);
+                assert_eq!(code, "Qdrant/clip-ViT-B-32-vision");
+            }
+            other => panic!("期望 Image 变体，得到 {:?}", other.code()),
+        }
+        match resolve(EmbeddingType::Image, "Qdrant/clip-ViT-B-32-vision").unwrap() {
+            Resolved::Image(m, _) => assert_eq!(m, ImageEmbeddingModel::ClipVitB32),
+            other => panic!("期望 Image 变体，得到 {:?}", other.code()),
+        }
+        assert!(resolve(EmbeddingType::Image, "nope").is_err());
     }
 
     #[test]
-    fn parse_sparse_model_variant_and_code() {
-        assert_eq!(
-            parse_sparse_model("SPLADEPPV1").unwrap(),
-            SparseModel::SPLADEPPV1
-        );
-        assert_eq!(
-            parse_sparse_model("BAAI/bge-m3").unwrap(),
-            SparseModel::BGEM3
-        );
-        assert!(parse_sparse_model("nope").is_err());
+    fn resolve_sparse_variant_and_code() {
+        match resolve(EmbeddingType::Sparse, "SPLADEPPV1").unwrap() {
+            Resolved::Sparse(m, code) => {
+                assert_eq!(m, SparseModel::SPLADEPPV1);
+                assert_eq!(code, "Qdrant/Splade_PP_en_v1");
+            }
+            other => panic!("期望 Sparse 变体，得到 {:?}", other.code()),
+        }
+        match resolve(EmbeddingType::Sparse, "BAAI/bge-m3").unwrap() {
+            Resolved::Sparse(m, _) => assert_eq!(m, SparseModel::BGEM3),
+            other => panic!("期望 Sparse 变体，得到 {:?}", other.code()),
+        }
+        assert!(resolve(EmbeddingType::Sparse, "nope").is_err());
     }
 
     // ── resolve_code ───────────────────────────────────────────────────────

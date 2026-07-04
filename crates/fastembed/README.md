@@ -18,10 +18,10 @@ High-performance local embedding HTTP service built on [fastembed-rs](https://cr
 
 ## Quick Start
 
-> Note: `crates/fastembed` is excluded from the workspace (ort platform isolation). Build/test it directly:
+> Note: `crates/fastembed` is a workspace member but **not** in `default-members` (ort needs network at build time + is slow to compile). A bare `cargo build`/`test` skips it; build/test it explicitly:
 >
 > ```bash
-> cargo build --manifest-path crates/fastembed/Cargo.toml --release
+> cargo build -p fastembed-server --release
 > ```
 
 ```bash
@@ -136,9 +136,9 @@ fastembed:
 ## Development
 
 ```bash
-cargo build --manifest-path crates/fastembed/Cargo.toml
-cargo test  --manifest-path crates/fastembed/Cargo.toml
-cargo clippy --manifest-path crates/fastembed/Cargo.toml --all-targets
+cargo build -p fastembed-server
+cargo test  -p fastembed-server
+cargo clippy -p fastembed-server --all-targets
 ```
 
 ## License
