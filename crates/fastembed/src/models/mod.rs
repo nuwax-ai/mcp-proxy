@@ -1,30 +1,297 @@
 use anyhow::{Context, Result, anyhow};
 use dashmap::DashMap;
-use fastembed::{EmbeddingModel, ExecutionProviderDispatch, TextInitOptions, TextEmbedding};
+use fastembed::{
+    Embedding, EmbeddingModel, ExecutionProviderDispatch, ImageEmbedding, ImageEmbeddingModel,
+    ImageInitOptions, SparseEmbedding, SparseInitOptions, SparseModel, SparseTextEmbedding,
+    TextEmbedding, TextInitOptions,
+};
 use once_cell::sync::Lazy;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
-/// 全局模型缓存
-pub static MODEL_CACHE: Lazy<DashMap<EmbeddingModel, Arc<Mutex<TextEmbedding>>>> =
+/// 缓存的模型实例类型
+type CachedModel = Arc<Mutex<InitializedModel>>;
+
+/// 全局模型缓存：按 (类型, 模型代码) 索引，避免同名变体/代码重复初始化
+pub static MODEL_CACHE: Lazy<DashMap<(EmbeddingType, String), CachedModel>> =
     Lazy::new(DashMap::new);
 
-/// 解析模型标识（支持变体名和模型代码）
-pub fn parse_model(user_input: &str) -> Result<EmbeddingModel> {
-    // 尝试直接匹配变体名
-    match user_input {
-        "BGELargeZHV15" => Ok(EmbeddingModel::BGELargeZHV15),
-        "BGESmallZHV15" => Ok(EmbeddingModel::BGESmallZHV15),
-        "BGEBaseENV15" => Ok(EmbeddingModel::BGEBaseENV15),
-        "BGESmallENV15" => Ok(EmbeddingModel::BGESmallENV15),
-        "BGELargeENV15" => Ok(EmbeddingModel::BGELargeENV15),
-        "AllMiniLML6V2" => Ok(EmbeddingModel::AllMiniLML6V2),
-        "AllMiniLML12V2" => Ok(EmbeddingModel::AllMiniLML12V2),
-        // 如果不是变体名，尝试使用 FromStr 解析模型代码
-        other => EmbeddingModel::from_str(other).map_err(|_| anyhow!("未知模型: {}", other)),
+/// 嵌入类型
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, utoipa::ToSchema,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum EmbeddingType {
+    /// 文本嵌入（稠密）
+    Text,
+    /// 图像嵌入（稠密）
+    Image,
+    /// 稀疏文本嵌入（SPLADE/BGE-M3）
+    Sparse,
+}
+
+impl EmbeddingType {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EmbeddingType::Text => "text",
+            EmbeddingType::Image => "image",
+            EmbeddingType::Sparse => "sparse",
+        }
     }
 }
+
+impl std::fmt::Display for EmbeddingType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for EmbeddingType {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "text" => Ok(EmbeddingType::Text),
+            "image" => Ok(EmbeddingType::Image),
+            "sparse" => Ok(EmbeddingType::Sparse),
+            other => Err(anyhow!("未知嵌入类型: {}（支持 text/image/sparse）", other)),
+        }
+    }
+}
+
+/// 已初始化的模型（屏蔽 fastembed 三种引擎的差异）
+pub enum InitializedModel {
+    Text(TextEmbedding),
+    Image(ImageEmbedding),
+    Sparse(SparseTextEmbedding),
+}
+
+/// 嵌入计算结果：稠密（text/image）或稀疏（sparse）
+pub enum EmbedOutput {
+    /// 稠密向量（text / image）
+    Dense(Vec<Vec<f32>>),
+    /// 稀疏向量（sparse）
+    Sparse(Vec<SparseEmbedding>),
+}
+
+impl InitializedModel {
+    /// 执行嵌入：text/image 输入为文本/路径，sparse 输入为文本
+    pub fn embed(&mut self, inputs: Vec<String>, batch_size: Option<usize>) -> Result<EmbedOutput> {
+        match self {
+            InitializedModel::Text(e) => {
+                let out = e.embed(inputs, batch_size)?;
+                Ok(EmbedOutput::Dense(dense_from(out)))
+            }
+            InitializedModel::Image(e) => {
+                let out = e.embed(inputs, batch_size)?;
+                Ok(EmbedOutput::Dense(dense_from(out)))
+            }
+            InitializedModel::Sparse(e) => {
+                let out = e.embed(inputs, batch_size)?;
+                Ok(EmbedOutput::Sparse(out))
+            }
+        }
+    }
+}
+
+/// fastembed::Embedding（= Vec<f32>）→ Vec<Vec<f32>>
+fn dense_from(embeddings: Vec<Embedding>) -> Vec<Vec<f32>> {
+    embeddings
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 模型目录（变体名 / 模型代码 / 维度）
+// 维度信息仅用于响应展示；解析仍走 fastembed 的 FromStr，支持目录外的模型（dim=0）
+// ────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy)]
+struct ModelEntry {
+    variant: &'static str,
+    code: &'static str,
+    dim: usize,
+}
+
+impl ModelEntry {
+    fn matches(&self, input: &str) -> bool {
+        self.variant == input || self.code.eq_ignore_ascii_case(input)
+    }
+}
+
+const TEXT_CATALOG: &[ModelEntry] = &[
+    ModelEntry {
+        variant: "BGELargeZHV15",
+        code: "Xenova/bge-large-zh-v1.5",
+        dim: 1024,
+    },
+    ModelEntry {
+        variant: "BGESmallZHV15",
+        code: "Xenova/bge-small-zh-v1.5",
+        dim: 512,
+    },
+    ModelEntry {
+        variant: "BGEBaseENV15",
+        code: "Xenova/bge-base-en-v1.5",
+        dim: 768,
+    },
+    ModelEntry {
+        variant: "BGESmallENV15",
+        code: "Xenova/bge-small-en-v1.5",
+        dim: 384,
+    },
+    ModelEntry {
+        variant: "BGELargeENV15",
+        code: "Xenova/bge-large-en-v1.5",
+        dim: 1024,
+    },
+    ModelEntry {
+        variant: "AllMiniLML6V2",
+        code: "sentence-transformers/all-MiniLM-L6-v2",
+        dim: 384,
+    },
+    ModelEntry {
+        variant: "AllMiniLML12V2",
+        code: "sentence-transformers/all-MiniLM-L12-v2",
+        dim: 384,
+    },
+];
+
+const IMAGE_CATALOG: &[ModelEntry] = &[
+    ModelEntry {
+        variant: "ClipVitB32",
+        code: "Qdrant/clip-ViT-B-32-vision",
+        dim: 512,
+    },
+    ModelEntry {
+        variant: "Resnet50",
+        code: "Qdrant/resnet50-onnx",
+        dim: 2048,
+    },
+    ModelEntry {
+        variant: "UnicomVitB16",
+        code: "Qdrant/Unicom-ViT-B-16",
+        dim: 768,
+    },
+    ModelEntry {
+        variant: "UnicomVitB32",
+        code: "Qdrant/Unicom-ViT-B-32",
+        dim: 512,
+    },
+    ModelEntry {
+        variant: "NomicEmbedVisionV15",
+        code: "nomic-ai/nomic-embed-vision-v1.5",
+        dim: 768,
+    },
+];
+
+const SPARSE_CATALOG: &[ModelEntry] = &[
+    ModelEntry {
+        variant: "SPLADEPPV1",
+        code: "Qdrant/Splade_PP_en_v1",
+        dim: 0,
+    },
+    ModelEntry {
+        variant: "BGEM3",
+        code: "BAAI/bge-m3",
+        dim: 0,
+    },
+];
+
+fn catalog_for(t: EmbeddingType) -> &'static [ModelEntry] {
+    match t {
+        EmbeddingType::Text => TEXT_CATALOG,
+        EmbeddingType::Image => IMAGE_CATALOG,
+        EmbeddingType::Sparse => SPARSE_CATALOG,
+    }
+}
+
+/// 在目录中查找（按变体名或模型代码，代码大小写不敏感）
+fn lookup_entry(t: EmbeddingType, input: &str) -> Option<ModelEntry> {
+    catalog_for(t).iter().copied().find(|e| e.matches(input))
+}
+
+/// 解析模型标识，返回其规范化的代码字符串
+/// 命中目录 → 目录 code；未命中但 fastembed FromStr 认可 → 用输入本身
+fn resolve_code(t: EmbeddingType, input: &str) -> Result<String> {
+    if let Some(entry) = lookup_entry(t, input) {
+        return Ok(entry.code.to_string());
+    }
+    // 目录外：交由 fastembed FromStr 校验
+    validate_via_fastembed(t, input)?;
+    Ok(input.to_string())
+}
+
+/// 仅解析规范化的模型代码（不校验、不触发初始化），供 CLI 展示用
+/// 返回 None 表示输入既不在目录、也无法被 fastembed FromStr 接受
+pub(crate) fn resolve_code_for_display(t: EmbeddingType, input: &str) -> Option<String> {
+    resolve_code(t, input).ok()
+}
+
+/// 校验目录外的模型标识是否被 fastembed 接受
+fn validate_via_fastembed(t: EmbeddingType, input: &str) -> Result<()> {
+    match t {
+        EmbeddingType::Text => parse_text_model(input).map(|_| ()),
+        EmbeddingType::Image => parse_image_model(input).map(|_| ()),
+        EmbeddingType::Sparse => parse_sparse_model(input).map(|_| ()),
+    }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 模型解析（变体名 + FromStr 双路径）
+// ────────────────────────────────────────────────────────────────────────────
+
+/// 解析文本模型标识（支持变体名和模型代码）
+pub fn parse_text_model(user_input: &str) -> Result<EmbeddingModel> {
+    if let Some(entry) = lookup_entry(EmbeddingType::Text, user_input) {
+        // 目录内文本模型，按变体映射
+        let m = match entry.variant {
+            "BGELargeZHV15" => EmbeddingModel::BGELargeZHV15,
+            "BGESmallZHV15" => EmbeddingModel::BGESmallZHV15,
+            "BGEBaseENV15" => EmbeddingModel::BGEBaseENV15,
+            "BGESmallENV15" => EmbeddingModel::BGESmallENV15,
+            "BGELargeENV15" => EmbeddingModel::BGELargeENV15,
+            "AllMiniLML6V2" => EmbeddingModel::AllMiniLML6V2,
+            "AllMiniLML12V2" => EmbeddingModel::AllMiniLML12V2,
+            _ => return Err(anyhow!("文本模型变体未映射: {}", entry.variant)),
+        };
+        return Ok(m);
+    }
+    // 目录外：使用 FromStr 解析模型代码
+    EmbeddingModel::from_str(user_input).map_err(|_| anyhow!("未知文本模型: {}", user_input))
+}
+
+/// 解析图像模型
+pub fn parse_image_model(user_input: &str) -> Result<ImageEmbeddingModel> {
+    if let Some(entry) = lookup_entry(EmbeddingType::Image, user_input) {
+        let m = match entry.variant {
+            "ClipVitB32" => ImageEmbeddingModel::ClipVitB32,
+            "Resnet50" => ImageEmbeddingModel::Resnet50,
+            "UnicomVitB16" => ImageEmbeddingModel::UnicomVitB16,
+            "UnicomVitB32" => ImageEmbeddingModel::UnicomVitB32,
+            "NomicEmbedVisionV15" => ImageEmbeddingModel::NomicEmbedVisionV15,
+            _ => return Err(anyhow!("图像模型变体未映射: {}", entry.variant)),
+        };
+        return Ok(m);
+    }
+    ImageEmbeddingModel::from_str(user_input).map_err(|_| anyhow!("未知图像模型: {}", user_input))
+}
+
+/// 解析稀疏模型
+pub fn parse_sparse_model(user_input: &str) -> Result<SparseModel> {
+    if let Some(entry) = lookup_entry(EmbeddingType::Sparse, user_input) {
+        let m = match entry.variant {
+            "SPLADEPPV1" => SparseModel::SPLADEPPV1,
+            "BGEM3" => SparseModel::BGEM3,
+            _ => return Err(anyhow!("稀疏模型变体未映射: {}", entry.variant)),
+        };
+        return Ok(m);
+    }
+    SparseModel::from_str(user_input).map_err(|_| anyhow!("未知稀疏模型: {}", user_input))
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// GPU execution providers
+// ────────────────────────────────────────────────────────────────────────────
 
 /// 按 device 配置解析 ort execution providers（GPU 加速）
 /// device: "auto"（按平台自动选）| "cpu" | "coreml" | "cuda" | "directml"
@@ -44,77 +311,158 @@ pub fn resolve_execution_providers(device: &str) -> Vec<ExecutionProviderDispatc
 
 /// auto 模式：按编译目标平台自动选 GPU execution provider
 fn resolve_auto_providers() -> Vec<ExecutionProviderDispatch> {
-    #[cfg(target_os = "macos")]
-    {
-        tracing::info!("auto → CoreML (macOS Apple GPU)");
-        return vec![ort::ep::CoreML::default().into()];
-    }
-    #[cfg(target_os = "linux")]
-    {
-        tracing::info!("auto → CUDA (Linux NVIDIA GPU, 若不可用 ort 自动回退 CPU)");
-        return vec![ort::ep::CUDA::default().into()];
-    }
-    #[cfg(target_os = "windows")]
-    {
-        tracing::info!("auto → DirectML (Windows GPU)");
-        return vec![ort::ep::DirectML::default().into()];
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-    {
-        tracing::info!("auto → CPU (未知平台)");
-        return vec![];
-    }
+    // 每个 cfg 分支返回 (日志标签, EP 列表)；仅一个分支被编译
+    let (label, eps): (&str, Vec<ExecutionProviderDispatch>) = {
+        #[cfg(target_os = "macos")]
+        {
+            (
+                "CoreML (macOS Apple GPU)",
+                vec![ort::ep::CoreML::default().into()],
+            )
+        }
+        #[cfg(target_os = "linux")]
+        {
+            (
+                "CUDA (Linux NVIDIA GPU, 若不可用 ort 自动回退 CPU)",
+                vec![ort::ep::CUDA::default().into()],
+            )
+        }
+        #[cfg(target_os = "windows")]
+        {
+            (
+                "DirectML (Windows GPU)",
+                vec![ort::ep::DirectML::default().into()],
+            )
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+        {
+            ("CPU (未知平台)", vec![])
+        }
+    };
+    tracing::info!("auto → {}", label);
+    eps
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// 初始化
+// ────────────────────────────────────────────────────────────────────────────
+
 /// 获取或初始化模型
+///
+/// 返回 `(模型句柄, 模型信息)`。缓存键为 `(类型, 规范化模型代码)`，
+/// 因此同名变体名与模型代码共享同一实例。
 pub fn get_or_init_model(
-    model: EmbeddingModel,
+    model_type: EmbeddingType,
+    model_input: &str,
     cache_dir: Option<String>,
     max_length: Option<usize>,
     device: &str,
-) -> Result<Arc<Mutex<TextEmbedding>>> {
+) -> Result<(Arc<Mutex<InitializedModel>>, ModelInfo)> {
+    let code = resolve_code(model_type, model_input)?;
+    let cache_key = (model_type, code.clone());
+
     // 检查缓存
-    if let Some(existing) = MODEL_CACHE.get(&model) {
-        tracing::debug!("Get model from cache: {:?}", model);
-        return Ok(existing.clone());
+    if let Some(existing) = MODEL_CACHE.get(&cache_key) {
+        tracing::debug!("Get model from cache: {:?}", cache_key);
+        return Ok((existing.clone(), ModelInfo::from_catalog(model_type, &code)));
     }
 
     // 初始化模型
-    tracing::info!("Initialization model: {:?}, device: {}", model, device);
-    let mut options = TextInitOptions::new(model.clone());
+    tracing::info!("Initialization model: {:?}, device: {}", cache_key, device);
+    let eps = resolve_execution_providers(device);
 
+    let initialized = match model_type {
+        EmbeddingType::Text => {
+            let model = parse_text_model(model_input)?;
+            InitializedModel::Text(init_text(model, cache_dir.clone(), max_length, eps)?)
+        }
+        EmbeddingType::Image => {
+            let model = parse_image_model(model_input)?;
+            // ImageInitOptions 不支持 max_length
+            InitializedModel::Image(init_image(model, cache_dir.clone(), eps)?)
+        }
+        EmbeddingType::Sparse => {
+            let model = parse_sparse_model(model_input)?;
+            InitializedModel::Sparse(init_sparse(model, cache_dir.clone(), max_length, eps)?)
+        }
+    };
+
+    let arc = Arc::new(Mutex::new(initialized));
+    MODEL_CACHE.insert(cache_key.clone(), arc.clone());
+
+    tracing::info!("Model initialization successful: {:?}", cache_key);
+    Ok((arc, ModelInfo::from_catalog(model_type, &code)))
+}
+
+fn init_text(
+    model: EmbeddingModel,
+    cache_dir: Option<String>,
+    max_length: Option<usize>,
+    eps: Vec<ExecutionProviderDispatch>,
+) -> Result<TextEmbedding> {
+    let mut options = TextInitOptions::new(model.clone());
     if let Some(dir) = cache_dir {
         options = options.with_cache_dir(PathBuf::from(dir));
     }
-
     if let Some(len) = max_length {
         options = options.with_max_length(len);
     }
-
-    // 配置 GPU execution providers（CoreML/CUDA/DirectML）
-    let eps = resolve_execution_providers(device);
     if !eps.is_empty() {
         options = options.with_execution_providers(eps);
     }
-
-    // 显示下载进度
     options = options.with_show_download_progress(true);
-
-    let embedding =
-        TextEmbedding::try_new(options).with_context(|| format!("无法初始化模型: {:?}", model))?;
-
-    let arc = Arc::new(Mutex::new(embedding));
-    let model_key = model.clone();
-    MODEL_CACHE.insert(model_key, arc.clone());
-
-    tracing::info!("Model initialization successful: {:?}", model);
-    Ok(arc)
+    TextEmbedding::try_new(options).with_context(|| format!("无法初始化文本模型: {:?}", model))
 }
+
+fn init_image(
+    model: ImageEmbeddingModel,
+    cache_dir: Option<String>,
+    eps: Vec<ExecutionProviderDispatch>,
+) -> Result<ImageEmbedding> {
+    let mut options = ImageInitOptions::new(model.clone());
+    if let Some(dir) = cache_dir {
+        options = options.with_cache_dir(PathBuf::from(dir));
+    }
+    if !eps.is_empty() {
+        options = options.with_execution_providers(eps);
+    }
+    options = options.with_show_download_progress(true);
+    ImageEmbedding::try_new(options).with_context(|| format!("无法初始化图像模型: {:?}", model))
+}
+
+fn init_sparse(
+    model: SparseModel,
+    cache_dir: Option<String>,
+    max_length: Option<usize>,
+    eps: Vec<ExecutionProviderDispatch>,
+) -> Result<SparseTextEmbedding> {
+    let mut options = SparseInitOptions::new(model.clone());
+    if let Some(dir) = cache_dir {
+        options = options.with_cache_dir(PathBuf::from(dir));
+    }
+    if let Some(len) = max_length {
+        options = options.with_max_length(len);
+    }
+    if !eps.is_empty() {
+        options = options.with_execution_providers(eps);
+    }
+    options = options.with_show_download_progress(true);
+    SparseTextEmbedding::try_new(options)
+        .with_context(|| format!("无法初始化稀疏模型: {:?}", model))
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// ModelInfo
+// ────────────────────────────────────────────────────────────────────────────
 
 /// 模型信息
 #[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
 pub struct ModelInfo {
-    /// 模型变体名称
+    /// 嵌入类型
+    #[schema(example = "text")]
+    pub r#type: String,
+
+    /// 模型变体名称（目录外模型回退为模型代码）
     #[schema(example = "BGELargeZHV15")]
     pub variant: String,
 
@@ -122,42 +470,41 @@ pub struct ModelInfo {
     #[schema(example = "Xenova/bge-large-zh-v1.5")]
     pub code: String,
 
-    /// 向量维度
+    /// 向量维度（稀疏模型为 0）
     #[schema(example = 1024)]
     pub dim: usize,
 }
 
 impl ModelInfo {
-    pub fn from_embedding_model(model: &EmbeddingModel) -> Self {
-        let (variant, code, dim) = match model {
-            EmbeddingModel::BGELargeZHV15 => ("BGELargeZHV15", "Xenova/bge-large-zh-v1.5", 1024),
-            EmbeddingModel::BGESmallZHV15 => ("BGESmallZHV15", "Xenova/bge-small-zh-v1.5", 512),
-            EmbeddingModel::BGEBaseENV15 => ("BGEBaseENV15", "Xenova/bge-base-en-v1.5", 768),
-            EmbeddingModel::BGESmallENV15 => ("BGESmallENV15", "Xenova/bge-small-en-v1.5", 384),
-            EmbeddingModel::BGELargeENV15 => ("BGELargeENV15", "Xenova/bge-large-en-v1.5", 1024),
-            EmbeddingModel::AllMiniLML6V2 => (
-                "AllMiniLML6V2",
-                "sentence-transformers/all-MiniLM-L6-v2",
-                384,
-            ),
-            EmbeddingModel::AllMiniLML12V2 => (
-                "AllMiniLML12V2",
-                "sentence-transformers/all-MiniLM-L12-v2",
-                384,
-            ),
-            _ => ("Unknown", "unknown", 0),
-        };
-
-        Self {
-            variant: variant.to_string(),
-            code: code.to_string(),
-            dim,
+    /// 按类型与规范化代码构造 ModelInfo（从目录取维度，目录外 dim=0）
+    pub fn from_catalog(model_type: EmbeddingType, code: &str) -> Self {
+        let entry = catalog_for(model_type)
+            .iter()
+            .copied()
+            .find(|e| e.code.eq_ignore_ascii_case(code));
+        match entry {
+            Some(e) => Self {
+                r#type: model_type.to_string(),
+                variant: e.variant.to_string(),
+                code: e.code.to_string(),
+                dim: e.dim,
+            },
+            None => Self {
+                r#type: model_type.to_string(),
+                variant: code.to_string(),
+                code: code.to_string(),
+                dim: 0,
+            },
         }
     }
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// 已下载模型列表
+// ────────────────────────────────────────────────────────────────────────────
+
 /// 列出本地已下载的模型（仅离线检查）
-pub fn list_available_models(cache_dir: &str) -> Result<Vec<ModelInfo>> {
+pub fn list_available_models(model_type: EmbeddingType, cache_dir: &str) -> Result<Vec<ModelInfo>> {
     let cache_path = PathBuf::from(cache_dir);
 
     // 如果缓存目录不存在，返回空列表
@@ -165,45 +512,337 @@ pub fn list_available_models(cache_dir: &str) -> Result<Vec<ModelInfo>> {
         return Ok(vec![]);
     }
 
-    let all_models = vec![
-        EmbeddingModel::BGELargeZHV15,
-        EmbeddingModel::BGESmallZHV15,
-        EmbeddingModel::BGEBaseENV15,
-        EmbeddingModel::BGESmallENV15,
-        EmbeddingModel::BGELargeENV15,
-        EmbeddingModel::AllMiniLML6V2,
-        EmbeddingModel::AllMiniLML12V2,
-    ];
-
-    let available: Vec<ModelInfo> = all_models
-        .into_iter()
-        .filter(|model| check_model_files_exist(&cache_path, model))
-        .map(|model| ModelInfo::from_embedding_model(&model))
+    let available: Vec<ModelInfo> = catalog_for(model_type)
+        .iter()
+        .copied()
+        .filter(|entry| check_model_files_exist(&cache_path, entry))
+        .map(|entry| ModelInfo {
+            r#type: model_type.to_string(),
+            variant: entry.variant.to_string(),
+            code: entry.code.to_string(),
+            dim: entry.dim,
+        })
         .collect();
 
     Ok(available)
 }
 
-/// 检查模型文件是否存在（简化版本）
-fn check_model_files_exist(cache_path: &PathBuf, model: &EmbeddingModel) -> bool {
-    // 这是一个简化实现
-    // fastembed 使用 hf-hub 的缓存结构
-    // 例如 "Xenova/bge-large-zh-v1.5" -> "models--Xenova--bge-large-zh-v1.5"
-
-    let model_info = ModelInfo::from_embedding_model(model);
-    let model_code = model_info.code;
-
-    // 从模型代码转换为 hf-hub 缓存目录名
+/// 检查模型文件是否存在
+/// 验证 hf-hub 缓存结构 `models--<ns>--<repo>/snapshots/<hash>/` 下包含 onnx 模型文件
+fn check_model_files_exist(cache_path: &Path, entry: &ModelEntry) -> bool {
     // "Xenova/bge-large-zh-v1.5" -> "models--Xenova--bge-large-zh-v1.5"
-    let model_dir_name = format!("models--{}", model_code.replace('/', "--"));
+    let model_dir_name = format!("models--{}", entry.code.replace('/', "--"));
     let model_dir = cache_path.join(&model_dir_name);
 
-    // 检查目录是否存在且不为空
-    if model_dir.exists() && model_dir.is_dir() {
-        if let Ok(entries) = std::fs::read_dir(&model_dir) {
-            return entries.count() > 0;
+    if !model_dir.exists() || !model_dir.is_dir() {
+        return false;
+    }
+
+    let snapshots = model_dir.join("snapshots");
+    if !snapshots.is_dir() {
+        tracing::debug!("模型目录缺少 snapshots/: {}", model_dir.display());
+        return false;
+    }
+
+    // 至少一个 snapshot 目录下存在 .onnx 文件
+    let snapshots_iter = match std::fs::read_dir(&snapshots) {
+        Ok(it) => it,
+        Err(e) => {
+            tracing::debug!("读取 snapshots 失败 {}: {}", snapshots.display(), e);
+            return false;
+        }
+    };
+
+    for entry_res in snapshots_iter.flatten() {
+        let snapshot_dir = entry_res.path();
+        if !snapshot_dir.is_dir() {
+            continue;
+        }
+        if dir_has_onnx(&snapshot_dir) {
+            return true;
         }
     }
 
     false
+}
+
+/// 递归（一层）检查目录下是否存在 .onnx 文件
+fn dir_has_onnx(dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    for entry_res in entries.flatten() {
+        let path = entry_res.path();
+        if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some("onnx") {
+            return true;
+        }
+        // onnx/ 子目录（部分模型把权重放在 onnx/ 下）
+        if path.is_dir() && dir_has_onnx(&path) {
+            return true;
+        }
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── EmbeddingType ───────────────────────────────────────────────────────
+
+    #[test]
+    fn embedding_type_from_str_valid() {
+        assert_eq!(
+            EmbeddingType::from_str("text").unwrap(),
+            EmbeddingType::Text
+        );
+        assert_eq!(
+            EmbeddingType::from_str("image").unwrap(),
+            EmbeddingType::Image
+        );
+        assert_eq!(
+            EmbeddingType::from_str("sparse").unwrap(),
+            EmbeddingType::Sparse
+        );
+        // 大小写不敏感
+        assert_eq!(
+            EmbeddingType::from_str("TEXT").unwrap(),
+            EmbeddingType::Text
+        );
+        assert_eq!(
+            EmbeddingType::from_str("Image").unwrap(),
+            EmbeddingType::Image
+        );
+    }
+
+    #[test]
+    fn embedding_type_from_str_invalid() {
+        assert!(EmbeddingType::from_str("audio").is_err());
+        assert!(EmbeddingType::from_str("").is_err());
+    }
+
+    #[test]
+    fn embedding_type_serde_lowercase() {
+        let json = serde_json::to_string(&EmbeddingType::Sparse).unwrap();
+        assert_eq!(json, "\"sparse\"");
+        let t: EmbeddingType = serde_json::from_str("\"image\"").unwrap();
+        assert_eq!(t, EmbeddingType::Image);
+    }
+
+    #[test]
+    fn embedding_type_display() {
+        assert_eq!(EmbeddingType::Text.to_string(), "text");
+        assert_eq!(EmbeddingType::Image.to_string(), "image");
+        assert_eq!(EmbeddingType::Sparse.to_string(), "sparse");
+    }
+
+    // ── 模型解析 ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn parse_text_model_variant_and_code() {
+        // 变体名
+        assert_eq!(
+            parse_text_model("AllMiniLML6V2").unwrap(),
+            EmbeddingModel::AllMiniLML6V2
+        );
+        // 模型代码（命中目录）
+        assert_eq!(
+            parse_text_model("sentence-transformers/all-MiniLM-L6-v2").unwrap(),
+            EmbeddingModel::AllMiniLML6V2
+        );
+        assert_eq!(
+            parse_text_model("Xenova/bge-large-zh-v1.5").unwrap(),
+            EmbeddingModel::BGELargeZHV15
+        );
+    }
+
+    #[test]
+    fn parse_text_model_unknown() {
+        assert!(parse_text_model("not-a-real-model").is_err());
+    }
+
+    #[test]
+    fn parse_image_model_variant_and_code() {
+        assert_eq!(
+            parse_image_model("ClipVitB32").unwrap(),
+            ImageEmbeddingModel::ClipVitB32
+        );
+        assert_eq!(
+            parse_image_model("Qdrant/clip-ViT-B-32-vision").unwrap(),
+            ImageEmbeddingModel::ClipVitB32
+        );
+        assert!(parse_image_model("nope").is_err());
+    }
+
+    #[test]
+    fn parse_sparse_model_variant_and_code() {
+        assert_eq!(
+            parse_sparse_model("SPLADEPPV1").unwrap(),
+            SparseModel::SPLADEPPV1
+        );
+        assert_eq!(
+            parse_sparse_model("BAAI/bge-m3").unwrap(),
+            SparseModel::BGEM3
+        );
+        assert!(parse_sparse_model("nope").is_err());
+    }
+
+    // ── resolve_code ───────────────────────────────────────────────────────
+
+    #[test]
+    fn resolve_code_catalog_canonicalizes_variant() {
+        // 变体名 → 规范化代码
+        assert_eq!(
+            resolve_code_for_display(EmbeddingType::Text, "AllMiniLML6V2"),
+            Some("sentence-transformers/all-MiniLM-L6-v2".to_string())
+        );
+        // 代码本身 → 原样返回（命中目录）
+        assert_eq!(
+            resolve_code_for_display(EmbeddingType::Text, "Xenova/bge-large-zh-v1.5"),
+            Some("Xenova/bge-large-zh-v1.5".to_string())
+        );
+        // 目录外、且 fastembed 不识别 → None
+        assert_eq!(
+            resolve_code_for_display(EmbeddingType::Text, "nonsense-xyz"),
+            None
+        );
+    }
+
+    // ── ModelInfo ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn model_info_from_catalog_curated() {
+        let info = ModelInfo::from_catalog(EmbeddingType::Text, "Xenova/bge-large-zh-v1.5");
+        assert_eq!(info.r#type, "text");
+        assert_eq!(info.variant, "BGELargeZHV15");
+        assert_eq!(info.code, "Xenova/bge-large-zh-v1.5");
+        assert_eq!(info.dim, 1024);
+    }
+
+    #[test]
+    fn model_info_from_catalog_fallback() {
+        // 目录外代码：variant=code, dim=0
+        let info = ModelInfo::from_catalog(EmbeddingType::Text, "some-unknown/code");
+        assert_eq!(info.variant, "some-unknown/code");
+        assert_eq!(info.dim, 0);
+    }
+
+    // ── resolve_execution_providers ─────────────────────────────────────────
+
+    #[test]
+    fn execution_providers_mapping() {
+        assert!(resolve_execution_providers("cpu").is_empty());
+        assert!(resolve_execution_providers("").is_empty());
+        assert!(!resolve_execution_providers("coreml").is_empty());
+        assert!(!resolve_execution_providers("cuda").is_empty());
+        assert!(!resolve_execution_providers("directml").is_empty());
+        // 未知 device 回退 CPU
+        assert!(resolve_execution_providers("tpu").is_empty());
+        // auto 的返回值取决于编译目标平台（macos/linux/windows 非空，其他空），
+        // 这里仅确认调用不 panic。
+        let _auto_eps = resolve_execution_providers("auto");
+    }
+
+    // ── check_model_files_exist ─────────────────────────────────────────────
+
+    fn entry(code: &'static str) -> ModelEntry {
+        ModelEntry {
+            variant: "TEST",
+            code,
+            dim: 0,
+        }
+    }
+
+    #[test]
+    fn check_model_files_detects_onnx() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = tmp.path();
+
+        // 构造 hf-hub 缓存结构：models--Xenova--bge-small-en-v1.5/snapshots/abc/model.onnx
+        let code = "Xenova/bge-small-en-v1.5";
+        let dir_name = format!("models--{}", code.replace('/', "--"));
+        let snapshot = cache.join(dir_name).join("snapshots").join("abc123");
+        std::fs::create_dir_all(&snapshot).unwrap();
+        std::fs::write(snapshot.join("model.onnx"), b"fake").unwrap();
+
+        assert!(check_model_files_exist(cache, &entry(code)));
+    }
+
+    #[test]
+    fn check_model_files_missing_onnx() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = tmp.path();
+        let code = "Xenova/bge-small-en-v1.5";
+        let dir_name = format!("models--{}", code.replace('/', "--"));
+        // snapshot 存在但无 onnx
+        let snapshot = cache.join(dir_name).join("snapshots").join("abc");
+        std::fs::create_dir_all(&snapshot).unwrap();
+        std::fs::write(snapshot.join("tokenizer.json"), b"fake").unwrap();
+
+        assert!(!check_model_files_exist(cache, &entry(code)));
+    }
+
+    #[test]
+    fn check_model_files_missing_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(!check_model_files_exist(
+            tmp.path(),
+            &entry("Xenova/none-v1.5")
+        ));
+    }
+
+    #[test]
+    fn list_available_models_empty_when_no_cache() {
+        let tmp = tempfile::tempdir().unwrap();
+        let missing = tmp.path().join("does-not-exist");
+        let models = list_available_models(EmbeddingType::Text, missing.to_str().unwrap()).unwrap();
+        assert!(models.is_empty());
+    }
+
+    #[test]
+    fn list_available_models_finds_present() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = tmp.path();
+        // 为 AllMiniLML6V2（code: sentence-transformers/all-MiniLM-L6-v2）放一个 onnx
+        let code = "sentence-transformers/all-MiniLM-L6-v2";
+        let dir_name = format!("models--{}", code.replace('/', "--"));
+        let snapshot = cache.join(dir_name).join("snapshots").join("h");
+        std::fs::create_dir_all(&snapshot).unwrap();
+        std::fs::write(snapshot.join("model.onnx"), b"x").unwrap();
+
+        let models = list_available_models(EmbeddingType::Text, cache.to_str().unwrap()).unwrap();
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].variant, "AllMiniLML6V2");
+        assert_eq!(models[0].dim, 384);
+    }
+
+    // ── 集成冒烟测试（需联网下载模型；默认忽略） ───────────────────────────────
+
+    #[test]
+    #[ignore = "需要联网下载 AllMiniLML6V2 模型；用 cargo test -- --ignored embed_smoke 运行"]
+    fn embed_smoke_text() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = tmp.path().to_str().unwrap().to_string();
+        let (arc, info) = get_or_init_model(
+            EmbeddingType::Text,
+            "AllMiniLML6V2",
+            Some(cache),
+            None,
+            "cpu",
+        )
+        .expect("模型初始化失败（确认网络可用）");
+
+        assert_eq!(info.dim, 384);
+        let mut guard = arc.lock().unwrap();
+        let out = guard
+            .embed(vec!["hello world".to_string()], Some(1))
+            .expect("嵌入失败");
+        match out {
+            EmbedOutput::Dense(vec) => {
+                assert_eq!(vec.len(), 1);
+                assert_eq!(vec[0].len(), 384);
+            }
+            EmbedOutput::Sparse(_) => panic!("text 模型应返回稠密向量"),
+        }
+    }
 }

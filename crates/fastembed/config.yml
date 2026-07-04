@@ -4,4 +4,7 @@ server:
 fastembed:
   cache_dir: .fastembed_cache
   default_model: BGELargeZHV15
+  default_image_model: ClipVitB32
+  default_sparse_model: SPLADEPPV1
   batch_size: 256
+  device: auto

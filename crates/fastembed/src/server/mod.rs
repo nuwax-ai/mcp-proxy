@@ -40,9 +40,11 @@ use crate::handlers::{
             crate::handlers::health::HealthResponse,
             crate::handlers::embeddings::EmbedRequest,
             crate::handlers::embeddings::EmbedResponse,
+            crate::handlers::embeddings::SparseEmbeddingDto,
             crate::handlers::embeddings::ErrorResponse,
             crate::handlers::models::ModelsResponse,
             crate::models::ModelInfo,
+            crate::models::EmbeddingType,
         )
     ),
     tags(
@@ -138,14 +140,14 @@ pub async fn start_server(config: AppConfig) -> Result<()> {
 
 /// 模型预热
 async fn warmup_model(state: Arc<AppState>, config: AppConfig) -> Result<()> {
-    use crate::models::{get_or_init_model, parse_model};
+    use crate::models::{EmbeddingType, get_or_init_model};
 
     tracing::info!("Start preheating model: {}", config.fastembed.default_model);
     let start = Instant::now();
 
-    let model = parse_model(&config.fastembed.default_model)?;
-    let model_arc = get_or_init_model(
-        model,
+    let (model_arc, _info) = get_or_init_model(
+        EmbeddingType::Text,
+        &config.fastembed.default_model,
         Some(config.fastembed.cache_dir.clone()),
         None, // 使用模型默认的 max_length
         &config.fastembed.device,
@@ -161,7 +163,10 @@ async fn warmup_model(state: Arc<AppState>, config: AppConfig) -> Result<()> {
     // 标记预热完成
     *state.model_cache_ready.lock().unwrap() = true;
 
-    tracing::info!("✅ Model preheating completed, time consuming: {:?}", elapsed);
+    tracing::info!(
+        "✅ Model preheating completed, time consuming: {:?}",
+        elapsed
+    );
 
     Ok(())
 }

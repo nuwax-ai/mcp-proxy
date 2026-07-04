@@ -38,9 +38,17 @@ pub struct FastEmbedConfig {
     #[serde(default = "default_cache_dir")]
     pub cache_dir: String,
 
-    /// 默认模型
+    /// 默认文本模型
     #[serde(default = "default_model")]
     pub default_model: String,
+
+    /// 默认图像模型
+    #[serde(default = "default_image_model")]
+    pub default_image_model: String,
+
+    /// 默认稀疏模型
+    #[serde(default = "default_sparse_model")]
+    pub default_sparse_model: String,
 
     /// 批处理大小
     #[serde(default = "default_batch_size")]
@@ -59,6 +67,14 @@ fn default_model() -> String {
     "BGELargeZHV15".to_string()
 }
 
+fn default_image_model() -> String {
+    "ClipVitB32".to_string()
+}
+
+fn default_sparse_model() -> String {
+    "SPLADEPPV1".to_string()
+}
+
 fn default_batch_size() -> usize {
     256
 }
@@ -72,6 +88,8 @@ impl Default for FastEmbedConfig {
         Self {
             cache_dir: default_cache_dir(),
             default_model: default_model(),
+            default_image_model: default_image_model(),
+            default_sparse_model: default_sparse_model(),
             batch_size: default_batch_size(),
             device: default_device(),
         }
@@ -79,22 +97,13 @@ impl Default for FastEmbedConfig {
 }
 
 /// 应用配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default)]
     pub server: ServerConfig,
 
     #[serde(default)]
     pub fastembed: FastEmbedConfig,
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            server: ServerConfig::default(),
-            fastembed: FastEmbedConfig::default(),
-        }
-    }
 }
 
 impl AppConfig {
@@ -122,10 +131,54 @@ impl AppConfig {
 
     /// 应用环境变量覆盖
     pub fn apply_env_overrides(&mut self) {
-        // FASTEMBED_CACHE_DIR 可以覆盖 cache_dir
+        // 服务器
+        if let Ok(host) = std::env::var("FASTEMBED_HOST") {
+            tracing::info!("Env FASTEMBED_HOST overrides host: {}", host);
+            self.server.host = host;
+        }
+        if let Ok(port) = std::env::var("FASTEMBED_PORT") {
+            if let Ok(port) = port.parse::<u16>() {
+                tracing::info!("Env FASTEMBED_PORT overrides port: {}", port);
+                self.server.port = port;
+            } else {
+                tracing::warn!("Env FASTEMBED_PORT 非法 ({})，忽略", port);
+            }
+        }
+
+        // fastembed
         if let Ok(cache_dir) = std::env::var("FASTEMBED_CACHE_DIR") {
-            tracing::info!("Environment variable FASTEMBED_CACHE_DIR overrides the cache directory: {}", cache_dir);
+            tracing::info!("Env FASTEMBED_CACHE_DIR overrides cache_dir: {}", cache_dir);
             self.fastembed.cache_dir = cache_dir;
+        }
+        if let Ok(model) = std::env::var("FASTEMBED_MODEL") {
+            tracing::info!("Env FASTEMBED_MODEL overrides default_model: {}", model);
+            self.fastembed.default_model = model;
+        }
+        if let Ok(model) = std::env::var("FASTEMBED_IMAGE_MODEL") {
+            tracing::info!(
+                "Env FASTEMBED_IMAGE_MODEL overrides default_image_model: {}",
+                model
+            );
+            self.fastembed.default_image_model = model;
+        }
+        if let Ok(model) = std::env::var("FASTEMBED_SPARSE_MODEL") {
+            tracing::info!(
+                "Env FASTEMBED_SPARSE_MODEL overrides default_sparse_model: {}",
+                model
+            );
+            self.fastembed.default_sparse_model = model;
+        }
+        if let Ok(device) = std::env::var("FASTEMBED_DEVICE") {
+            tracing::info!("Env FASTEMBED_DEVICE overrides device: {}", device);
+            self.fastembed.device = device;
+        }
+        if let Ok(batch) = std::env::var("FASTEMBED_BATCH_SIZE") {
+            if let Ok(batch) = batch.parse::<usize>() {
+                tracing::info!("Env FASTEMBED_BATCH_SIZE overrides batch_size: {}", batch);
+                self.fastembed.batch_size = batch;
+            } else {
+                tracing::warn!("Env FASTEMBED_BATCH_SIZE 非法 ({})，忽略", batch);
+            }
         }
     }
 
@@ -137,7 +190,10 @@ impl AppConfig {
             tracing::info!("Load configuration from file: {:?}", path);
             Self::from_file(&path)?
         } else {
-            tracing::warn!("Configuration file does not exist: {:?}, generate default configuration", path);
+            tracing::warn!(
+                "Configuration file does not exist: {:?}, generate default configuration",
+                path
+            );
             Self::generate_default_config(&path)?;
             Self::default()
         };
@@ -149,5 +205,126 @@ impl AppConfig {
         tracing::info!("Final configuration: {:?}", config);
 
         Ok(config)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    // env 是进程级共享，多个 env 测试并发会互相串值；用此锁串行化所有读改 env 的测试。
+    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    fn env_lock() -> &'static Mutex<()> {
+        ENV_LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    // Rust 2024 起 std::env::set_var/remove_var 为 unsafe（多线程读 env 存在数据竞争）。
+    // 这里仅在持锁的测试内、且为 DI 验证 env 覆盖逻辑使用，集中收口 unsafe。
+    fn set_env(k: &str, v: &str) {
+        // SAFETY: 调用方持有 ENV_LOCK，且其余测试不读 FASTEMBED_* 变量。
+        unsafe { std::env::set_var(k, v) }
+    }
+    fn remove_env(k: &str) {
+        // SAFETY: 同上。
+        unsafe { std::env::remove_var(k) }
+    }
+
+    #[test]
+    fn config_default_values() {
+        let cfg = FastEmbedConfig::default();
+        assert_eq!(cfg.default_model, "BGELargeZHV15");
+        assert_eq!(cfg.default_image_model, "ClipVitB32");
+        assert_eq!(cfg.default_sparse_model, "SPLADEPPV1");
+        assert_eq!(cfg.device, "auto");
+        assert_eq!(cfg.batch_size, 256);
+    }
+
+    #[test]
+    fn config_serde_roundtrip() {
+        let cfg = AppConfig::default();
+        let yaml = serde_yaml::to_string(&cfg).unwrap();
+        // 关键字段都序列化出来
+        assert!(yaml.contains("default_image_model"));
+        assert!(yaml.contains("default_sparse_model"));
+        assert!(yaml.contains("device: auto"));
+        // 反序列化回来等价
+        let back: AppConfig = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(back.fastembed.default_model, cfg.fastembed.default_model);
+        assert_eq!(back.fastembed.device, "auto");
+        assert_eq!(back.server.port, 8080);
+    }
+
+    #[test]
+    fn config_from_file_roundtrip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.yml");
+        AppConfig::generate_default_config(&path).unwrap();
+        assert!(path.exists());
+        let loaded = AppConfig::from_file(&path).unwrap();
+        assert_eq!(loaded.fastembed.default_model, "BGELargeZHV15");
+        assert_eq!(loaded.fastembed.default_image_model, "ClipVitB32");
+    }
+
+    /// env 覆盖集中在一个测试里，避免并行测试间 env 串扰
+    #[test]
+    fn apply_env_overrides_all_vars() {
+        let _guard = env_lock().lock().unwrap();
+        let keys = [
+            "FASTEMBED_HOST",
+            "FASTEMBED_PORT",
+            "FASTEMBED_CACHE_DIR",
+            "FASTEMBED_MODEL",
+            "FASTEMBED_IMAGE_MODEL",
+            "FASTEMBED_SPARSE_MODEL",
+            "FASTEMBED_DEVICE",
+            "FASTEMBED_BATCH_SIZE",
+        ];
+        // 先清掉可能存在的旧值（CI 环境可能有）
+        for k in keys {
+            remove_env(k);
+        }
+
+        set_env("FASTEMBED_HOST", "127.0.0.1");
+        set_env("FASTEMBED_PORT", "9999");
+        set_env("FASTEMBED_CACHE_DIR", "/tmp/cache_x");
+        set_env("FASTEMBED_MODEL", "AllMiniLML6V2");
+        set_env("FASTEMBED_IMAGE_MODEL", "ClipVitB32");
+        set_env("FASTEMBED_SPARSE_MODEL", "BGEM3");
+        set_env("FASTEMBED_DEVICE", "cpu");
+        set_env("FASTEMBED_BATCH_SIZE", "128");
+
+        let mut cfg = AppConfig::default();
+        cfg.apply_env_overrides();
+
+        assert_eq!(cfg.server.host, "127.0.0.1");
+        assert_eq!(cfg.server.port, 9999);
+        assert_eq!(cfg.fastembed.cache_dir, "/tmp/cache_x");
+        assert_eq!(cfg.fastembed.default_model, "AllMiniLML6V2");
+        assert_eq!(cfg.fastembed.default_image_model, "ClipVitB32");
+        assert_eq!(cfg.fastembed.default_sparse_model, "BGEM3");
+        assert_eq!(cfg.fastembed.device, "cpu");
+        assert_eq!(cfg.fastembed.batch_size, 128);
+
+        // 清理
+        for k in keys {
+            remove_env(k);
+        }
+    }
+
+    #[test]
+    fn apply_env_overrides_invalid_port_ignored() {
+        let _guard = env_lock().lock().unwrap();
+        set_env("FASTEMBED_PORT", "not-a-number");
+        set_env("FASTEMBED_BATCH_SIZE", "oops");
+        let mut cfg = AppConfig::default();
+        let orig_port = cfg.server.port;
+        let orig_batch = cfg.fastembed.batch_size;
+        cfg.apply_env_overrides();
+        // 非法值不影响原配置
+        assert_eq!(cfg.server.port, orig_port);
+        assert_eq!(cfg.fastembed.batch_size, orig_batch);
+        remove_env("FASTEMBED_PORT");
+        remove_env("FASTEMBED_BATCH_SIZE");
     }
 }

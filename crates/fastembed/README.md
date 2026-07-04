@@ -6,74 +6,141 @@
 
 # FastEmbed
 
-Text embedding HTTP service using FastEmbed library for efficient text vectorization.
-
-## Overview
-
-`fastembed` is a high-performance text embedding service built with Rust, providing HTTP API for text vectorization using FastEmbed.
+High-performance local embedding HTTP service built on [fastembed-rs](https://crates.io/crates/fastembed) + ONNX Runtime. Runs entirely on-device — text, image, and sparse embeddings with optional GPU acceleration.
 
 ## Features
 
-- **FastEmbed Integration**: Uses FastEmbed 5.0 with ONNX runtime
-- **HTTP API**: RESTful API for text embedding
-- **Concurrent Processing**: DashMap for efficient concurrent operations
-- **OpenAPI Documentation**: Auto-generated API docs
-- **Multiple Models**: Support for various embedding models
+- **Multi-type embeddings**: dense `text`, dense `image`, and `sparse` (SPLADE / BGE-M3) via one endpoint
+- **GPU acceleration**: CoreML (macOS) / CUDA (Linux) / DirectML (Windows), configurable per device
+- **Local-first**: models cached on disk, no data leaves the process
+- **Concurrent caching**: per-(type, model) `DashMap` cache, lazy-initialized
+- **OpenAPI docs**: Swagger UI at `/swagger-ui`
 
 ## Quick Start
 
-### Installation
-
-```bash
-# Build from source
-cargo build --release -p fastembed-server
-
-# Binary location
-ls target/release/fastembed
-```
-
-### Usage
+> Note: `crates/fastembed` is excluded from the workspace (ort platform isolation). Build/test it directly:
+>
+> ```bash
+> cargo build --manifest-path crates/fastembed/Cargo.toml --release
+> ```
 
 ```bash
 # Start server (default port 8080)
 fastembed server
 
-# Specify custom port
+# Custom port
 fastembed server --port 8081
 ```
 
-### API Usage
+### Pre-download a model
 
 ```bash
-# Generate embeddings
-curl -X POST http://localhost:8080/embed \
+# Text model (variant name or HF code)
+fastembed models download --type text --model AllMiniLML6V2
+
+# Image model
+fastembed models download --type image --model ClipVitB32
+
+# Sparse model
+fastembed models download --type sparse --model SPLADEPPV1
+
+# List downloaded models
+fastembed models list --type text
+```
+
+## API
+
+### `POST /api/embeddings`
+
+```bash
+# Text (default)
+curl -X POST http://localhost:8080/api/embeddings \
   -H "Content-Type: application/json" \
   -d '{
-    "texts": ["Hello world", "Fast embedding"],
-    "model": "BAAI/bge-small-en-v1.5"
+    "type": "text",
+    "model": "AllMiniLML6V2",
+    "texts": ["query: hello world", "passage: fast embeddings"]
+  }'
+
+# Image (texts field holds local image paths)
+curl -X POST http://localhost:8080/api/embeddings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "image",
+    "model": "ClipVitB32",
+    "texts": ["/path/to/a.jpg", "/path/to/b.png"]
+  }'
+
+# Sparse (returns {indices, values} per input)
+curl -X POST http://localhost:8080/api/embeddings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "sparse",
+    "model": "SPLADEPPV1",
+    "texts": ["sparse retrieval text"]
   }'
 ```
 
+| Field | Type | Notes |
+|-------|------|-------|
+| `type` | `text` \| `image` \| `sparse` | default `text` |
+| `model` | string | variant name or HF code; defaults to configured default per type |
+| `texts` | string[] | text for `text`/`sparse`, **image paths** for `image` |
+| `batch_size` | int | optional, defaults to config `batch_size` |
+
+Response: `embeddings` (dense, text/image) **or** `sparse_embeddings` (sparse), plus `model` info and `elapsed_ms`.
+
+### Other endpoints
+
+- `GET /health` — service status + warmup readiness
+- `GET /api/models/available?type=text|image|sparse` — locally downloaded models
+- `GET /swagger-ui` — interactive API docs
+
+## Configuration
+
+`config.yml` (auto-generated on first run):
+
+```yaml
+server:
+  host: 0.0.0.0
+  port: 8080
+fastembed:
+  cache_dir: .fastembed_cache
+  default_model: BGELargeZHV15        # text
+  default_image_model: ClipVitB32     # image
+  default_sparse_model: SPLADEPPV1    # sparse
+  batch_size: 256
+  device: auto                        # auto | cpu | coreml | cuda | directml
+```
+
+### Environment variable overrides
+
+| Variable | Overrides |
+|----------|-----------|
+| `FASTEMBED_HOST` / `FASTEMBED_PORT` | server bind |
+| `FASTEMBED_CACHE_DIR` | cache directory |
+| `FASTEMBED_MODEL` | default text model |
+| `FASTEMBED_IMAGE_MODEL` | default image model |
+| `FASTEMBED_SPARSE_MODEL` | default sparse model |
+| `FASTEMBED_DEVICE` | compute device |
+| `FASTEMBED_BATCH_SIZE` | batch size |
+
 ## Supported Models
 
-- `BAAI/bge-small-en-v1.5` - Fast English model (384 dimensions)
-- `BAAI/bge-base-en-v1.5` - Balanced English model (768 dimensions)
-- `BAAI/bge-large-en-v1.5` - High-quality English model (1024 dimensions)
+**Text** (Xenova ONNX namespace): `BGELargeZHV15` (Xenova/bge-large-zh-v1.5, 1024d), `BGESmallZHV15` (512d), `BGEBaseENV15` (768d), `BGESmallENV15` (384d), `BGELargeENV15` (1024d), `AllMiniLML6V2` (384d), `AllMiniLML12V2` (384d). Any model recognized by fastembed's `EmbeddingModel::from_str` is also accepted (dim reported as 0).
+
+**Image**: `ClipVitB32` (512d), `Resnet50` (2048d), `UnicomVitB16` (768d), `UnicomVitB32` (512d), `NomicEmbedVisionV15` (768d).
+
+**Sparse**: `SPLADEPPV1` (Qdrant/Splade_PP_en_v1), `BGEM3` (BAAI/bge-m3).
 
 ## Development
 
 ```bash
-# Build
-cargo build -p fastembed-server
-
-# Test
-cargo test -p fastembed-server
+cargo build --manifest-path crates/fastembed/Cargo.toml
+cargo test  --manifest-path crates/fastembed/Cargo.toml
+cargo clippy --manifest-path crates/fastembed/Cargo.toml --all-targets
 ```
 
 ## License
 
 MIT OR Apache-2.0
-
-## Contributing
-
-Issues and Pull Requests are welcome!

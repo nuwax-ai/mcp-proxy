@@ -6,33 +6,23 @@
 
 # FastEmbed
 
-使用 FastEmbed 库的高性能文本嵌入 HTTP 服务，用于高效的文本向量化。
-
-## 概述
-
-`fastembed` 是一个基于 Rust 构建的高性能文本嵌入服务，提供 HTTP API 用于使用 FastEmbed 进行文本向量化。
+基于 [fastembed-rs](https://crates.io/crates/fastembed) + ONNX Runtime 的高性能**本地**嵌入 HTTP 服务，完全在设备上运行 —— 支持文本、图像、稀疏嵌入，可选 GPU 加速。
 
 ## 功能特性
 
-- **FastEmbed 集成**: 使用 FastEmbed 5.0 和 ONNX 运行时
-- **HTTP API**: 用于文本嵌入的 RESTful API
-- **并发处理**: 使用 DashMap 进行高效的并发操作
-- **OpenAPI 文档**: 自动生成的 API 文档
-- **多种模型**: 支持各种嵌入模型
+- **多类型嵌入**：一个端点支持稠密 `text`、稠密 `image`、`sparse`（SPLADE / BGE-M3）
+- **GPU 加速**：CoreML（macOS）/ CUDA（Linux）/ DirectML（Windows），按 device 配置
+- **本地优先**：模型缓存到磁盘，数据不出进程
+- **并发缓存**：按 (类型, 模型) 的 `DashMap` 缓存，惰性初始化
+- **OpenAPI 文档**：Swagger UI 位于 `/swagger-ui`
 
 ## 快速开始
 
-### 安装
-
-```bash
-# 从源码构建
-cargo build --release -p fastembed-server
-
-# 二进制文件位置
-ls target/release/fastembed
-```
-
-### 使用
+> 注意：`crates/fastembed` 已从 workspace 排除（ort 平台隔离），需直接构建/测试：
+>
+> ```bash
+> cargo build --manifest-path crates/fastembed/Cargo.toml --release
+> ```
 
 ```bash
 # 启动服务器（默认端口 8080）
@@ -42,38 +32,115 @@ fastembed server
 fastembed server --port 8081
 ```
 
-### API 使用
+### 预下载模型
 
 ```bash
-# 生成嵌入向量
-curl -X POST http://localhost:8080/embed \
+# 文本模型（变体名或 HF 代码）
+fastembed models download --type text --model AllMiniLML6V2
+
+# 图像模型
+fastembed models download --type image --model ClipVitB32
+
+# 稀疏模型
+fastembed models download --type sparse --model SPLADEPPV1
+
+# 列出已下载模型
+fastembed models list --type text
+```
+
+## API
+
+### `POST /api/embeddings`
+
+```bash
+# 文本（默认）
+curl -X POST http://localhost:8080/api/embeddings \
   -H "Content-Type: application/json" \
   -d '{
-    "texts": ["Hello world", "Fast embedding"],
-    "model": "BAAI/bge-small-en-v1.5"
+    "type": "text",
+    "model": "AllMiniLML6V2",
+    "texts": ["query: 你好世界", "passage: 本地向量化"]
+  }'
+
+# 图像（texts 字段传本地图片路径）
+curl -X POST http://localhost:8080/api/embeddings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "image",
+    "model": "ClipVitB32",
+    "texts": ["/path/to/a.jpg", "/path/to/b.png"]
+  }'
+
+# 稀疏（每条输入返回 {indices, values}）
+curl -X POST http://localhost:8080/api/embeddings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "sparse",
+    "model": "SPLADEPPV1",
+    "texts": ["稀疏检索文本"]
   }'
 ```
 
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `type` | `text` \| `image` \| `sparse` | 默认 `text` |
+| `model` | string | 变体名或 HF 代码；缺省时按类型取配置默认值 |
+| `texts` | string[] | `text`/`sparse` 为文本，`image` 为**图片路径** |
+| `batch_size` | int | 可选，缺省取配置 `batch_size` |
+
+响应：`embeddings`（稠密，text/image）**或** `sparse_embeddings`（稀疏），附带 `model` 信息与 `elapsed_ms`。
+
+### 其他端点
+
+- `GET /health` —— 服务状态 + 预热就绪
+- `GET /api/models/available?type=text|image|sparse` —— 已下载到本地的模型
+- `GET /swagger-ui` —— 交互式 API 文档
+
+## 配置
+
+`config.yml`（首次运行自动生成）：
+
+```yaml
+server:
+  host: 0.0.0.0
+  port: 8080
+fastembed:
+  cache_dir: .fastembed_cache
+  default_model: BGELargeZHV15        # text
+  default_image_model: ClipVitB32     # image
+  default_sparse_model: SPLADEPPV1    # sparse
+  batch_size: 256
+  device: auto                        # auto | cpu | coreml | cuda | directml
+```
+
+### 环境变量覆盖
+
+| 变量 | 覆盖 |
+|------|------|
+| `FASTEMBED_HOST` / `FASTEMBED_PORT` | 服务监听 |
+| `FASTEMBED_CACHE_DIR` | 缓存目录 |
+| `FASTEMBED_MODEL` | 默认文本模型 |
+| `FASTEMBED_IMAGE_MODEL` | 默认图像模型 |
+| `FASTEMBED_SPARSE_MODEL` | 默认稀疏模型 |
+| `FASTEMBED_DEVICE` | 计算设备 |
+| `FASTEMBED_BATCH_SIZE` | 批大小 |
+
 ## 支持的模型
 
-- `BAAI/bge-small-en-v1.5` - 快速英语模型（384 维）
-- `BAAI/bge-base-en-v1.5` - 平衡英语模型（768 维）
-- `BAAI/bge-large-en-v1.5` - 高质量英语模型（1024 维）
+**文本**（Xenova ONNX 命名空间）：`BGELargeZHV15`（Xenova/bge-large-zh-v1.5，1024 维）、`BGESmallZHV15`（512 维）、`BGEBaseENV15`（768 维）、`BGESmallENV15`（384 维）、`BGELargeENV15`（1024 维）、`AllMiniLML6V2`（384 维）、`AllMiniLML12V2`（384 维）。也接受 fastembed `EmbeddingModel::from_str` 能识别的任何模型（维度报为 0）。
+
+**图像**：`ClipVitB32`（512 维）、`Resnet50`（2048 维）、`UnicomVitB16`（768 维）、`UnicomVitB32`（512 维）、`NomicEmbedVisionV15`（768 维）。
+
+**稀疏**：`SPLADEPPV1`（Qdrant/Splade_PP_en_v1）、`BGEM3`（BAAI/bge-m3）。
 
 ## 开发
 
 ```bash
-# 构建
-cargo build -p fastembed-server
-
-# 测试
-cargo test -p fastembed-server
+cargo build --manifest-path crates/fastembed/Cargo.toml
+cargo test  --manifest-path crates/fastembed/Cargo.toml
+cargo clippy --manifest-path crates/fastembed/Cargo.toml --all-targets
 ```
 
 ## 许可证
 
 MIT OR Apache-2.0
-
-## 贡献
-
-欢迎提交 Issue 和 Pull Request！

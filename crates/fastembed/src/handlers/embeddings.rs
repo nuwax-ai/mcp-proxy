@@ -1,26 +1,48 @@
 use axum::{Json, extract::State, http::StatusCode};
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 use utoipa::ToSchema;
 
-use crate::models::{ModelInfo, get_or_init_model, parse_model};
+use crate::models::{EmbeddingType, ModelInfo, get_or_init_model};
 use crate::server::AppState;
+
+fn default_embed_type() -> String {
+    "text".to_string()
+}
 
 /// 文本嵌入请求
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct EmbedRequest {
+    /// 嵌入类型: text | image | sparse（默认 text）
+    #[serde(default = "default_embed_type")]
+    #[schema(example = "text")]
+    pub r#type: String,
+
     /// 模型名称（变体名或模型代码）
     #[schema(example = "BGELargeZHV15")]
     pub model: Option<String>,
 
-    /// 待嵌入的文本列表
+    /// 输入列表（text/sparse 为文本；image 为本地图片路径）
     #[schema(example = json!(["query: 搜索文本", "passage: 文档内容"]))]
     pub texts: Vec<String>,
 
     /// 批处理大小
     #[schema(example = 256)]
     pub batch_size: Option<usize>,
+}
+
+/// 稀疏向量
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SparseEmbeddingDto {
+    /// 非零维度索引
+    #[schema(example = json!([12, 4587, 9921]))]
+    pub indices: Vec<usize>,
+
+    /// 非零维度值（与 indices 一一对应）
+    #[schema(example = json!([0.123, 1.456, 0.789]))]
+    pub values: Vec<f32>,
 }
 
 /// 文本嵌入响应
@@ -33,9 +55,12 @@ pub struct EmbedResponse {
     #[schema(example = 2)]
     pub count: usize,
 
-    /// 嵌入向量列表
+    /// 稠密向量列表（text/image 类型；sparse 类型为空）
     #[schema(example = json!([[0.00123, -0.00456], [0.00078, 0.00234]]))]
     pub embeddings: Vec<Vec<f32>>,
+
+    /// 稀疏向量列表（仅 sparse 类型返回）
+    pub sparse_embeddings: Option<Vec<SparseEmbeddingDto>>,
 
     /// 耗时（毫秒）
     #[schema(example = 12)]
@@ -82,44 +107,58 @@ pub async fn handle_embed(
         return Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: "EMPTY_TEXTS".to_string(),
+                error: "EMPTY_INPUTS".to_string(),
                 message: "texts 不能为空".to_string(),
                 status: 400,
             }),
         ));
     }
 
-    // 检查文本数量限制（最大 1024）
+    // 检查输入数量限制（最大 1024）
     if req.texts.len() > 1024 {
         return Err((
             StatusCode::PAYLOAD_TOO_LARGE,
             Json(ErrorResponse {
-                error: "TOO_MANY_TEXTS".to_string(),
+                error: "TOO_MANY_INPUTS".to_string(),
                 message: format!("texts 数量不能超过 1024，当前: {}", req.texts.len()),
                 status: 413,
             }),
         ));
     }
 
-    // 解析模型
-    let model_name = req
-        .model
-        .as_deref()
-        .unwrap_or(&state.config.fastembed.default_model);
-    let embedding_model = parse_model(model_name).map_err(|e| {
+    // 解析嵌入类型
+    let model_type = EmbeddingType::from_str(&req.r#type).map_err(|e| {
         (
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: "INVALID_MODEL".to_string(),
-                message: format!("未知模型: {}, 错误: {}", model_name, e),
+                error: "INVALID_TYPE".to_string(),
+                message: e.to_string(),
                 status: 400,
             }),
         )
     })?;
 
+    // 解析模型名称
+    let model_name = req
+        .model
+        .as_deref()
+        .unwrap_or(&state.config.fastembed.default_model);
+
+    // image 类型走独立的默认模型（若用户未指定）
+    let model_name = if req.model.is_none() {
+        match model_type {
+            EmbeddingType::Image => &state.config.fastembed.default_image_model,
+            EmbeddingType::Sparse => &state.config.fastembed.default_sparse_model,
+            EmbeddingType::Text => &state.config.fastembed.default_model,
+        }
+    } else {
+        model_name
+    };
+
     // 获取或初始化模型
-    let model_arc = get_or_init_model(
-        embedding_model.clone(),
+    let (model_arc, model_info) = get_or_init_model(
+        model_type,
+        model_name,
         Some(state.config.fastembed.cache_dir.clone()),
         None, // 使用模型默认的 max_length
         &state.config.fastembed.device,
@@ -139,30 +178,46 @@ pub async fn handle_embed(
     // 执行嵌入
     let batch_size = req.batch_size.unwrap_or(state.config.fastembed.batch_size);
 
-    let mut model_guard = model_arc.lock().unwrap();
-    let embeddings = model_guard
-        .embed(req.texts.clone(), Some(batch_size))
-        .map_err(|e| {
-            tracing::error!("Embedding calculation failed: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "EMBED_ERROR".to_string(),
-                    message: format!("嵌入计算失败: {}", e),
-                    status: 500,
-                }),
-            )
-        })?;
+    let output = {
+        let mut model_guard = model_arc.lock().unwrap();
+        model_guard.embed(req.texts.clone(), Some(batch_size))
+    }
+    .map_err(|e| {
+        tracing::error!("Embedding calculation failed: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "EMBED_ERROR".to_string(),
+                message: format!("嵌入计算失败: {}", e),
+                status: 500,
+            }),
+        )
+    })?;
 
-    // 转换为 Vec<Vec<f32>>
-    let embeddings_vec: Vec<Vec<f32>> = embeddings.into_iter().map(|e| e.to_vec()).collect();
+    let (embeddings, sparse_embeddings) = match output {
+        crate::models::EmbedOutput::Dense(vec) => (vec, None),
+        crate::models::EmbedOutput::Sparse(vec) => {
+            let sparse: Vec<SparseEmbeddingDto> = vec
+                .into_iter()
+                .map(|s| SparseEmbeddingDto {
+                    indices: s.indices,
+                    values: s.values,
+                })
+                .collect();
+            (Vec::new(), Some(sparse))
+        }
+    };
 
+    let count = embeddings
+        .len()
+        .max(sparse_embeddings.as_ref().map(Vec::len).unwrap_or(0));
     let elapsed = start.elapsed();
 
     Ok(Json(EmbedResponse {
-        model: ModelInfo::from_embedding_model(&embedding_model),
-        count: embeddings_vec.len(),
-        embeddings: embeddings_vec,
+        model: model_info,
+        count,
+        embeddings,
+        sparse_embeddings,
         elapsed_ms: elapsed.as_millis(),
     }))
 }

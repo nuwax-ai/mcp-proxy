@@ -4,11 +4,12 @@ use axum::{
     http::StatusCode,
 };
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 use std::sync::Arc;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::handlers::embeddings::ErrorResponse;
-use crate::models::{ModelInfo, list_available_models};
+use crate::models::{EmbeddingType, ModelInfo, list_available_models};
 use crate::server::AppState;
 
 /// 查询参数
@@ -51,33 +52,32 @@ pub async fn handle_list_models(
     State(state): State<Arc<AppState>>,
     Query(query): Query<ModelsQuery>,
 ) -> Result<Json<ModelsResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // 验证类型参数
-    let model_type = query.model_type.as_deref().unwrap_or("text");
-
-    // 目前仅支持 text 类型
-    if model_type != "text" {
-        return Err((
+    // 解析类型参数
+    let model_type_str = query.model_type.as_deref().unwrap_or("text");
+    let model_type = EmbeddingType::from_str(model_type_str).map_err(|e| {
+        (
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
                 error: "INVALID_TYPE".to_string(),
-                message: format!("不支持的模型类型: {}，当前仅支持 text", model_type),
+                message: e.to_string(),
                 status: 400,
-            }),
-        ));
-    }
-
-    // 列出可用模型
-    let models = list_available_models(&state.config.fastembed.cache_dir).map_err(|e| {
-        tracing::error!("Failed to list available models: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: "LIST_ERROR".to_string(),
-                message: format!("列出可用模型失败: {}", e),
-                status: 500,
             }),
         )
     })?;
+
+    // 列出可用模型
+    let models =
+        list_available_models(model_type, &state.config.fastembed.cache_dir).map_err(|e| {
+            tracing::error!("Failed to list available models: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "LIST_ERROR".to_string(),
+                    message: format!("列出可用模型失败: {}", e),
+                    status: 500,
+                }),
+            )
+        })?;
 
     Ok(Json(ModelsResponse {
         r#type: model_type.to_string(),
