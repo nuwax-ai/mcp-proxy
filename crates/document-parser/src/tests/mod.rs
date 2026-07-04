@@ -69,12 +69,17 @@ pub mod test_helpers {
 
     /// 创建测试用的配置，支持自定义覆盖
     pub fn create_test_config_with_overrides(overrides: Option<ConfigOverrideFn>) -> AppConfig {
+        use std::sync::atomic::{AtomicU64, Ordering};
         use std::time::{SystemTime, UNIX_EPOCH};
+        // 进程级单调计数器：确保并行测试拿到各不相同的 sled/log 路径，
+        // 避免纳秒时间戳碰撞 → sled 锁冲突（原 flaky 根因）
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let counter = COUNTER.fetch_add(1, Ordering::SeqCst);
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let unique_id = format!("{timestamp}");
+        let unique_id = format!("{timestamp}_{counter}");
 
         // 尝试从配置文件加载基础配置
         let mut config = match crate::config::AppConfig::load_base_config() {
