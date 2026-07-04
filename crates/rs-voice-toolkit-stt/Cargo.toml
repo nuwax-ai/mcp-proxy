@@ -1,7 +1,7 @@
 [package]
 name = "rs-voice-toolkit-stt"
-version = "0.16.1"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 authors = ["rs-voice-toolkit contributors"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/soddygo/rs-voice-toolkit"

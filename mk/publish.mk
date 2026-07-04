@@ -2,60 +2,37 @@
 # MCP 包发布到 crates.io (mk/publish.mk)
 # ============================================================================
 
-# 自动更新所有 MCP 包的版本号（小版本号加一）
+# 版本统一在根 Cargo.toml 的 [workspace.package]，所有 crate 用 version.workspace = true 继承；
+# 内部依赖版本串集中在 [workspace.dependencies]。bump 只编辑根 Cargo.toml 一处。
+# 更新 workspace 版本号（patch +1）；所有 crate 自动继承
 .PHONY: mcp-version-update
 mcp-version-update:
-	@echo "🔄 开始更新 MCP 包版本号..."
-	@echo ""
-	@# 读取 mcp-common 的当前版本
-	@COMMON_VERSION=$$(grep '^version = ' crates/mcp-common/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/'); \
-	COMMON_MAJOR=$$(echo $$COMMON_VERSION | cut -d. -f1); \
-	COMMON_MINOR=$$(echo $$COMMON_VERSION | cut -d. -f2); \
-	COMMON_PATCH=$$(echo $$COMMON_VERSION | cut -d. -f3); \
-	COMMON_NEW_PATCH=$$((COMMON_PATCH + 1)); \
-	COMMON_NEW_VERSION="$$COMMON_MAJOR.$$COMMON_MINOR.$$COMMON_NEW_PATCH"; \
-	echo "mcp-common: $$COMMON_VERSION -> $$COMMON_NEW_VERSION"; \
-	PROXY_VERSION=$$(grep '^version = ' crates/mcp-proxy/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/'); \
-	PROXY_MAJOR=$$(echo $$PROXY_VERSION | cut -d. -f1); \
-	PROXY_MINOR=$$(echo $$PROXY_VERSION | cut -d. -f2); \
-	PROXY_PATCH=$$(echo $$PROXY_VERSION | cut -d. -f3); \
-	PROXY_NEW_PATCH=$$((PROXY_PATCH + 1)); \
-	PROXY_NEW_VERSION="$$PROXY_MAJOR.$$PROXY_MINOR.$$PROXY_NEW_PATCH"; \
-	echo "mcp-stdio-proxy: $$PROXY_VERSION -> $$PROXY_NEW_VERSION"; \
-	echo ""; \
-	echo "1️⃣  更新 mcp-common 版本..."; \
-	sed -i.bak "s/^version = \"$$COMMON_VERSION\"/version = \"$$COMMON_NEW_VERSION\"/" crates/mcp-common/Cargo.toml && rm crates/mcp-common/Cargo.toml.bak; \
-	echo "2️⃣  更新 mcp-sse-proxy 版本和依赖..."; \
-	sed -i.bak "s/^version = \"$$COMMON_VERSION\"/version = \"$$COMMON_NEW_VERSION\"/" crates/mcp-sse-proxy/Cargo.toml && rm crates/mcp-sse-proxy/Cargo.toml.bak; \
-	sed -i.bak "s/mcp-common = { version = \"$$COMMON_VERSION\"/mcp-common = { version = \"$$COMMON_NEW_VERSION\"/" crates/mcp-sse-proxy/Cargo.toml && rm crates/mcp-sse-proxy/Cargo.toml.bak; \
-	echo "3️⃣  更新 mcp-streamable-proxy 版本和依赖..."; \
-	sed -i.bak "s/^version = \"$$COMMON_VERSION\"/version = \"$$COMMON_NEW_VERSION\"/" crates/mcp-streamable-proxy/Cargo.toml && rm crates/mcp-streamable-proxy/Cargo.toml.bak; \
-	sed -i.bak "s/mcp-common = { version = \"$$COMMON_VERSION\"/mcp-common = { version = \"$$COMMON_NEW_VERSION\"/" crates/mcp-streamable-proxy/Cargo.toml && rm crates/mcp-streamable-proxy/Cargo.toml.bak; \
-	echo "4️⃣  更新 mcp-stdio-proxy 版本和依赖..."; \
-	sed -i.bak "s/^version = \"$$PROXY_VERSION\"/version = \"$$PROXY_NEW_VERSION\"/" crates/mcp-proxy/Cargo.toml && rm crates/mcp-proxy/Cargo.toml.bak; \
-	sed -i.bak "s/mcp-common = { version = \"$$COMMON_VERSION\"/mcp-common = { version = \"$$COMMON_NEW_VERSION\"/" crates/mcp-proxy/Cargo.toml && rm crates/mcp-proxy/Cargo.toml.bak; \
-	sed -i.bak "s/mcp-streamable-proxy = { version = \"$$COMMON_VERSION\"/mcp-streamable-proxy = { version = \"$$COMMON_NEW_VERSION\"/" crates/mcp-proxy/Cargo.toml && rm crates/mcp-proxy/Cargo.toml.bak; \
-	sed -i.bak "s/mcp-sse-proxy = { version = \"$$COMMON_VERSION\"/mcp-sse-proxy = { version = \"$$COMMON_NEW_VERSION\"/" crates/mcp-proxy/Cargo.toml && rm crates/mcp-proxy/Cargo.toml.bak; \
-	echo ""; \
-	echo "✅ 版本号更新完成!"
+	@echo "🔄 更新 workspace 版本号（根 Cargo.toml）..."
+	@VERSION=$$(grep -m1 '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/'); \
+	MAJOR=$$(echo $$VERSION | cut -d. -f1); \
+	MINOR=$$(echo $$VERSION | cut -d. -f2); \
+	PATCH=$$(echo $$VERSION | cut -d. -f3); \
+	NEW_PATCH=$$((PATCH + 1)); \
+	NEW_VERSION="$$MAJOR.$$MINOR.$$NEW_PATCH"; \
+	echo "workspace: $$VERSION -> $$NEW_VERSION"; \
+	sed -i.bak "s/^version = \"$$VERSION\"/version = \"$$NEW_VERSION\"/" Cargo.toml && rm Cargo.toml.bak; \
+	for c in mcp-proxy mcp-common mcp-sse-proxy mcp-streamable-proxy oss-client; do \
+		sed -i.bak "s|$$c = { version = \"$$VERSION\"|$$c = { version = \"$$NEW_VERSION\"|" Cargo.toml && rm Cargo.toml.bak; \
+	done; \
+	echo "✅ workspace 版本更新完成：$$NEW_VERSION（所有 crate 已继承）"
 
-# 显示当前 MCP 包的版本号
+# 显示当前 workspace 版本号 + 内部依赖版本串（全部读根 Cargo.toml）
 .PHONY: mcp-version-show
 mcp-version-show:
-	@echo "📋 当前 MCP 包版本号:"
+	@echo "📋 当前 workspace 版本（根 Cargo.toml）："
 	@echo ""
-	@echo "  mcp-common:            $$(grep '^version = ' crates/mcp-common/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')"
-	@echo "  mcp-sse-proxy:         $$(grep '^version = ' crates/mcp-sse-proxy/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')"
-	@echo "  mcp-streamable-proxy:  $$(grep '^version = ' crates/mcp-streamable-proxy/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')"
-	@echo "  mcp-stdio-proxy:       $$(grep '^version = ' crates/mcp-proxy/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')"
+	@echo "  [workspace.package] version:  $$(grep -m1 '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')"
 	@echo ""
-	@echo "📦 依赖版本号检查:"
-	@echo ""
-	@echo "  mcp-sse-proxy 依赖的 mcp-common:           $$(grep 'mcp-common = { version' crates/mcp-sse-proxy/Cargo.toml | sed 's/.*version = "\([^"]*\)".*/\1/')"
-	@echo "  mcp-streamable-proxy 依赖的 mcp-common:    $$(grep 'mcp-common = { version' crates/mcp-streamable-proxy/Cargo.toml | sed 's/.*version = "\([^"]*\)".*/\1/')"
-	@echo "  mcp-stdio-proxy 依赖的 mcp-common:         $$(grep 'mcp-common = { version' crates/mcp-proxy/Cargo.toml | sed 's/.*version = "\([^"]*\)".*/\1/')"
-	@echo "  mcp-stdio-proxy 依赖的 mcp-sse-proxy:      $$(grep 'mcp-sse-proxy = { version' crates/mcp-proxy/Cargo.toml | sed 's/.*version = "\([^"]*\)".*/\1/')"
-	@echo "  mcp-stdio-proxy 依赖的 mcp-streamable-proxy: $$(grep 'mcp-streamable-proxy = { version' crates/mcp-proxy/Cargo.toml | sed 's/.*version = "\([^"]*\)".*/\1/')"
+	@echo "  [workspace.dependencies] 内部 crate 依赖版本："
+	@for c in mcp-proxy mcp-common mcp-sse-proxy mcp-streamable-proxy oss-client; do \
+		v=$$(grep "$$c = { version" Cargo.toml | sed 's/.*version = "\([^"]*\)".*/\1/' | head -1); \
+		printf "    %-22s %s\n" "$$c" "$$v"; \
+	done
 
 # 发布所有 MCP 相关包（按依赖顺序）
 .PHONY: mcp-publish

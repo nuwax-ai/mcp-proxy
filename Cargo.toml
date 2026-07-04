@@ -9,9 +9,18 @@ exclude = ["fastembed"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+# 统一版本管理：所有 crate 用 version.workspace = true 继承此处版本，bump 只改这一处
+[workspace.package]
+version = "0.2.0"
+edition = "2024"
+
 [workspace.dependencies]
-mcp-proxy = { path = "crates/mcp-proxy" }
-oss-client = { path = "crates/oss-client" }
+# 内部 crate（依赖版本串也集中在此，配合 [workspace.package] 实现根一处维护）
+mcp-proxy = { version = "0.2.0", path = "crates/mcp-proxy" }
+mcp-common = { version = "0.2.0", path = "crates/mcp-common" }
+mcp-sse-proxy = { version = "0.2.0", path = "crates/mcp-sse-proxy" }
+mcp-streamable-proxy = { version = "0.2.0", path = "crates/mcp-streamable-proxy" }
+oss-client = { version = "0.2.0", path = "crates/oss-client" }
 # run_code_rmcp 已 vendor 到本地（crates/run-code-rmcp/），不再从 crates.io 拉取
 run_code_rmcp = { path = "crates/run-code-rmcp" }
 # voice-toolkit 已 vendor 到本地（crates/voice-toolkit 等 4 个 crate），不再从 crates.io 拉取

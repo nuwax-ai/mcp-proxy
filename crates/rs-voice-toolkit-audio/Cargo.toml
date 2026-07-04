@@ -1,12 +1,12 @@
 [package]
 name = "rs-voice-toolkit-audio"
-version = "0.16.1"
+version.workspace = true
 description = "Audio processing utilities for rs-voice-toolkit"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/soddygo/rs-voice-toolkit"
 keywords = ["audio", "processing", "resampling", "wav"]
 categories = ["multimedia::audio"]
-edition = "2024"
+edition.workspace = true
 authors = ["rs-voice-toolkit contributors"]
 
 [package.metadata.docs.rs]

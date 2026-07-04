@@ -31,25 +31,25 @@ jobs:
         run: |
           TAG="${{ github.ref_name }}"
           VERSION="${TAG#v}"
-          echo "==> Updating crates/mcp-proxy/Cargo.toml version to: $VERSION"
+          echo "==> Updating Cargo.toml version to: $VERSION"
           python3 -c "
           import re, sys
           version = sys.argv[1]
-          with open('crates/mcp-proxy/Cargo.toml', 'r', encoding='utf-8') as f:
+          with open('Cargo.toml', 'r', encoding='utf-8') as f:
               content = f.read()
           content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
-          with open('crates/mcp-proxy/Cargo.toml', 'w', encoding='utf-8') as f:
+          with open('Cargo.toml', 'w', encoding='utf-8') as f:
               f.write(content)
           " "$VERSION" || python -c "
           import re, sys
           version = sys.argv[1]
-          with open('crates/mcp-proxy/Cargo.toml', 'r', encoding='utf-8') as f:
+          with open('Cargo.toml', 'r', encoding='utf-8') as f:
               content = f.read()
           content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
-          with open('crates/mcp-proxy/Cargo.toml', 'w', encoding='utf-8') as f:
+          with open('Cargo.toml', 'w', encoding='utf-8') as f:
               f.write(content)
           " "$VERSION"
-          grep '^version' crates/mcp-proxy/Cargo.toml
+          grep '^version' Cargo.toml
           echo "==> Regenerating Cargo.lock"
           cargo generate-lockfile
       - name: Install dist
@@ -98,25 +98,25 @@ jobs:
         run: |
           TAG="${{ github.ref_name }}"
           VERSION="${TAG#v}"
-          echo "==> Updating crates/mcp-proxy/Cargo.toml version to: $VERSION"
+          echo "==> Updating Cargo.toml version to: $VERSION"
           python3 -c "
           import re, sys
           version = sys.argv[1]
-          with open('crates/mcp-proxy/Cargo.toml', 'r', encoding='utf-8') as f:
+          with open('Cargo.toml', 'r', encoding='utf-8') as f:
               content = f.read()
           content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
-          with open('crates/mcp-proxy/Cargo.toml', 'w', encoding='utf-8') as f:
+          with open('Cargo.toml', 'w', encoding='utf-8') as f:
               f.write(content)
           " "$VERSION" || python -c "
           import re, sys
           version = sys.argv[1]
-          with open('crates/mcp-proxy/Cargo.toml', 'r', encoding='utf-8') as f:
+          with open('Cargo.toml', 'r', encoding='utf-8') as f:
               content = f.read()
           content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
-          with open('crates/mcp-proxy/Cargo.toml', 'w', encoding='utf-8') as f:
+          with open('Cargo.toml', 'w', encoding='utf-8') as f:
               f.write(content)
           " "$VERSION"
-          grep '^version' crates/mcp-proxy/Cargo.toml
+          grep '^version' Cargo.toml
           echo "==> Regenerating Cargo.lock"
           cargo generate-lockfile
       - name: Install Rust non-interactively if not already installed
@@ -178,18 +178,18 @@ jobs:
           python3 -c "
           import re, sys
           version = sys.argv[1]
-          with open('crates/mcp-proxy/Cargo.toml', 'r', encoding='utf-8') as f:
+          with open('Cargo.toml', 'r', encoding='utf-8') as f:
               content = f.read()
           content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
-          with open('crates/mcp-proxy/Cargo.toml', 'w', encoding='utf-8') as f:
+          with open('Cargo.toml', 'w', encoding='utf-8') as f:
               f.write(content)
           " "$VERSION" || python -c "
           import re, sys
           version = sys.argv[1]
-          with open('crates/mcp-proxy/Cargo.toml', 'r', encoding='utf-8') as f:
+          with open('Cargo.toml', 'r', encoding='utf-8') as f:
               content = f.read()
           content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
-          with open('crates/mcp-proxy/Cargo.toml', 'w', encoding='utf-8') as f:
+          with open('Cargo.toml', 'w', encoding='utf-8') as f:
               f.write(content)
           " "$VERSION"
           cargo generate-lockfile
@@ -246,18 +246,18 @@ jobs:
           python3 -c "
           import re, sys
           version = sys.argv[1]
-          with open('crates/mcp-proxy/Cargo.toml', 'r', encoding='utf-8') as f:
+          with open('Cargo.toml', 'r', encoding='utf-8') as f:
               content = f.read()
           content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
-          with open('crates/mcp-proxy/Cargo.toml', 'w', encoding='utf-8') as f:
+          with open('Cargo.toml', 'w', encoding='utf-8') as f:
               f.write(content)
           " "$VERSION" || python -c "
           import re, sys
           version = sys.argv[1]
-          with open('crates/mcp-proxy/Cargo.toml', 'r', encoding='utf-8') as f:
+          with open('Cargo.toml', 'r', encoding='utf-8') as f:
               content = f.read()
           content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
-          with open('crates/mcp-proxy/Cargo.toml', 'w', encoding='utf-8') as f:
+          with open('Cargo.toml', 'w', encoding='utf-8') as f:
               f.write(content)
           " "$VERSION"
           cargo generate-lockfile
