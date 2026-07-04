@@ -258,6 +258,31 @@ impl Default for TtsConfig {
     }
 }
 
+/// 环境变量提供者抽象（依赖注入，避免直接读写全局 std::env）。
+/// 生产用 [`StdEnv`]；测试用 [`MapEnv`] 注入，无全局副作用、可并行。
+pub trait EnvProvider {
+    fn get(&self, key: &str) -> Option<String>;
+}
+
+/// 生产实现：直接读 `std::env::var`
+pub struct StdEnv;
+impl EnvProvider for StdEnv {
+    fn get(&self, key: &str) -> Option<String> {
+        std::env::var(key).ok()
+    }
+}
+
+/// 测试实现：基于 HashMap，零全局态
+#[cfg(test)]
+#[derive(Default)]
+pub struct MapEnv(pub std::collections::HashMap<String, String>);
+#[cfg(test)]
+impl EnvProvider for MapEnv {
+    fn get(&self, key: &str) -> Option<String> {
+        self.0.get(key).cloned()
+    }
+}
+
 impl Config {
     pub fn load(config_path: &PathBuf) -> crate::Result<Self> {
         let config_content = std::fs::read_to_string(config_path).map_err(|e| {
@@ -276,11 +301,15 @@ impl Config {
     }
 
     pub fn load_or_create(config_path: &PathBuf) -> crate::Result<Self> {
-        Self::load_with_env_overrides(config_path)
+        Self::load_with_env_overrides(config_path, &StdEnv)
     }
 
-    /// Load configuration with environment variable overrides
-    pub fn load_with_env_overrides(config_path: &PathBuf) -> crate::Result<Self> {
+    /// Load configuration with environment variable overrides.
+    /// `env` 注入环境变量来源：生产传 [`StdEnv`]，测试传 [`MapEnv`]。
+    pub fn load_with_env_overrides(
+        config_path: &PathBuf,
+        env: &dyn EnvProvider,
+    ) -> crate::Result<Self> {
         let mut config = if config_path.exists() {
             let config_content = std::fs::read_to_string(config_path).map_err(|e| {
                 crate::VoiceCliError::Config(format!(
@@ -308,7 +337,7 @@ impl Config {
         };
 
         // Apply environment variable overrides
-        config.apply_env_overrides()?;
+        config.apply_env_overrides(env)?;
 
         // Validate the final configuration
         config.validate()?;
@@ -317,9 +346,9 @@ impl Config {
     }
 
     /// Apply environment variable overrides to the configuration
-    pub fn apply_env_overrides(&mut self) -> crate::Result<()> {
+    pub fn apply_env_overrides(&mut self, env: &dyn EnvProvider) -> crate::Result<()> {
         // Server configuration overrides
-        if let Ok(host) = std::env::var("VOICE_CLI_HOST") {
+        if let Some(host) = env.get("VOICE_CLI_HOST") {
             if host.trim().is_empty() {
                 return Err(crate::VoiceCliError::Config(
                     "VOICE_CLI_HOST environment variable cannot be empty".to_string(),
@@ -329,7 +358,7 @@ impl Config {
             tracing::info!("Applied environment override: VOICE_CLI_HOST = {}", host);
         }
 
-        if let Ok(port_str) = std::env::var("VOICE_CLI_PORT") {
+        if let Some(port_str) = env.get("VOICE_CLI_PORT") {
             let port = port_str.parse::<u16>().map_err(|_| {
                 crate::VoiceCliError::Config(format!(
                     "Invalid VOICE_CLI_PORT value '{}': must be a valid port number (1-65535)",
@@ -341,7 +370,7 @@ impl Config {
         }
 
         // Max file size override
-        if let Ok(size_str) = std::env::var("VOICE_CLI_MAX_FILE_SIZE") {
+        if let Some(size_str) = env.get("VOICE_CLI_MAX_FILE_SIZE") {
             let size = size_str.parse::<usize>().map_err(|_| {
                 crate::VoiceCliError::Config(format!(
                     "Invalid VOICE_CLI_MAX_FILE_SIZE value '{}': must be a valid number in bytes",
@@ -361,7 +390,7 @@ impl Config {
         }
 
         // CORS enabled override
-        if let Ok(cors_str) = std::env::var("VOICE_CLI_CORS_ENABLED") {
+        if let Some(cors_str) = env.get("VOICE_CLI_CORS_ENABLED") {
             let cors_enabled = cors_str.parse::<bool>().map_err(|_| {
                 crate::VoiceCliError::Config(format!(
                     "Invalid VOICE_CLI_CORS_ENABLED value '{}': must be 'true' or 'false'",
@@ -376,7 +405,7 @@ impl Config {
         }
 
         // Logging configuration overrides
-        if let Ok(level) = std::env::var("VOICE_CLI_LOG_LEVEL") {
+        if let Some(level) = env.get("VOICE_CLI_LOG_LEVEL") {
             let level = level.to_lowercase();
             let valid_levels = ["trace", "debug", "info", "warn", "error"];
             if !valid_levels.contains(&level.as_str()) {
@@ -392,7 +421,7 @@ impl Config {
             );
         }
 
-        if let Ok(log_dir) = std::env::var("VOICE_CLI_LOG_DIR") {
+        if let Some(log_dir) = env.get("VOICE_CLI_LOG_DIR") {
             if log_dir.trim().is_empty() {
                 return Err(crate::VoiceCliError::Config(
                     "VOICE_CLI_LOG_DIR environment variable cannot be empty".to_string(),
@@ -405,7 +434,7 @@ impl Config {
             );
         }
 
-        if let Ok(max_files_str) = std::env::var("VOICE_CLI_LOG_MAX_FILES") {
+        if let Some(max_files_str) = env.get("VOICE_CLI_LOG_MAX_FILES") {
             let max_files = max_files_str.parse::<u32>().map_err(|_| {
                 crate::VoiceCliError::Config(format!(
                     "Invalid VOICE_CLI_LOG_MAX_FILES value '{}': must be a valid number",
@@ -425,7 +454,7 @@ impl Config {
         }
 
         // Whisper configuration overrides
-        if let Ok(model) = std::env::var("VOICE_CLI_DEFAULT_MODEL") {
+        if let Some(model) = env.get("VOICE_CLI_DEFAULT_MODEL") {
             if model.trim().is_empty() {
                 return Err(crate::VoiceCliError::Config(
                     "VOICE_CLI_DEFAULT_MODEL environment variable cannot be empty".to_string(),
@@ -438,7 +467,7 @@ impl Config {
             );
         }
 
-        if let Ok(models_dir) = std::env::var("VOICE_CLI_MODELS_DIR") {
+        if let Some(models_dir) = env.get("VOICE_CLI_MODELS_DIR") {
             if models_dir.trim().is_empty() {
                 return Err(crate::VoiceCliError::Config(
                     "VOICE_CLI_MODELS_DIR environment variable cannot be empty".to_string(),
@@ -451,7 +480,7 @@ impl Config {
             );
         }
 
-        if let Ok(auto_download_str) = std::env::var("VOICE_CLI_AUTO_DOWNLOAD") {
+        if let Some(auto_download_str) = env.get("VOICE_CLI_AUTO_DOWNLOAD") {
             let auto_download = auto_download_str.parse::<bool>().map_err(|_| {
                 crate::VoiceCliError::Config(format!(
                     "Invalid VOICE_CLI_AUTO_DOWNLOAD value '{}': must be 'true' or 'false'",
@@ -465,7 +494,7 @@ impl Config {
             );
         }
 
-        if let Ok(workers_str) = std::env::var("VOICE_CLI_TRANSCRIPTION_WORKERS") {
+        if let Some(workers_str) = env.get("VOICE_CLI_TRANSCRIPTION_WORKERS") {
             let workers = workers_str.parse::<usize>().map_err(|_| {
                 crate::VoiceCliError::Config(format!(
                     "Invalid VOICE_CLI_TRANSCRIPTION_WORKERS value '{}': must be a valid number",
@@ -485,7 +514,7 @@ impl Config {
         }
 
         // Daemon configuration overrides
-        if let Ok(work_dir) = std::env::var("VOICE_CLI_WORK_DIR") {
+        if let Some(work_dir) = env.get("VOICE_CLI_WORK_DIR") {
             if work_dir.trim().is_empty() {
                 return Err(crate::VoiceCliError::Config(
                     "VOICE_CLI_WORK_DIR environment variable cannot be empty".to_string(),
@@ -498,7 +527,7 @@ impl Config {
             );
         }
 
-        if let Ok(pid_file) = std::env::var("VOICE_CLI_PID_FILE") {
+        if let Some(pid_file) = env.get("VOICE_CLI_PID_FILE") {
             if pid_file.trim().is_empty() {
                 return Err(crate::VoiceCliError::Config(
                     "VOICE_CLI_PID_FILE environment variable cannot be empty".to_string(),
@@ -511,7 +540,7 @@ impl Config {
             );
         }
 
-        if let Ok(max_tasks_str) = std::env::var("VOICE_CLI_MAX_CONCURRENT_TASKS") {
+        if let Some(max_tasks_str) = env.get("VOICE_CLI_MAX_CONCURRENT_TASKS") {
             let max_tasks = max_tasks_str.parse::<usize>().map_err(|_| {
                 crate::VoiceCliError::Config(format!(
                     "Invalid VOICE_CLI_MAX_CONCURRENT_TASKS value '{}': must be a valid number",
@@ -530,7 +559,7 @@ impl Config {
             );
         }
 
-        if let Ok(db_path) = std::env::var("VOICE_CLI_SQLITE_DB_PATH") {
+        if let Some(db_path) = env.get("VOICE_CLI_SQLITE_DB_PATH") {
             if db_path.trim().is_empty() {
                 return Err(crate::VoiceCliError::Config(
                     "VOICE_CLI_SQLITE_DB_PATH environment variable cannot be empty".to_string(),
@@ -543,7 +572,7 @@ impl Config {
             );
         }
 
-        if let Ok(retention_minutes_str) = std::env::var("VOICE_CLI_TASK_RETENTION_MINUTES") {
+        if let Some(retention_minutes_str) = env.get("VOICE_CLI_TASK_RETENTION_MINUTES") {
             let retention_minutes = retention_minutes_str.parse::<u32>().map_err(|_| {
                 crate::VoiceCliError::Config(format!(
                     "Invalid VOICE_CLI_TASK_RETENTION_MINUTES value '{}': must be a valid number",
@@ -562,7 +591,7 @@ impl Config {
             );
         }
 
-        if let Ok(sled_path) = std::env::var("VOICE_CLI_SLED_DB_PATH") {
+        if let Some(sled_path) = env.get("VOICE_CLI_SLED_DB_PATH") {
             if sled_path.trim().is_empty() {
                 return Err(crate::VoiceCliError::Config(
                     "VOICE_CLI_SLED_DB_PATH environment variable cannot be empty".to_string(),
