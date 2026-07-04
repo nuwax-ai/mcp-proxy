@@ -22,7 +22,12 @@ mod test_helpers {
     /// 编译输出在 target/debug/examples/test_mcp_server
     pub fn get_test_mcp_server_path() -> String {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        let workspace_root = std::path::Path::new(manifest_dir).parent().unwrap();
+        let workspace_root = std::path::Path::new(manifest_dir)
+            .parent()
+            .and_then(|p| p.parent())
+            .expect(
+                "无法定位 workspace 根目录（mcp-proxy 应在 crates/ 下，target/ 在 workspace 根）",
+            );
         workspace_root
             .join("target/debug/examples/test_mcp_server")
             .to_string_lossy()
@@ -32,7 +37,12 @@ mod test_helpers {
     /// 获取预编译的 mcp-proxy 二进制路径
     pub fn get_mcp_proxy_path() -> String {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        let workspace_root = std::path::Path::new(manifest_dir).parent().unwrap();
+        let workspace_root = std::path::Path::new(manifest_dir)
+            .parent()
+            .and_then(|p| p.parent())
+            .expect(
+                "无法定位 workspace 根目录（mcp-proxy 应在 crates/ 下，target/ 在 workspace 根）",
+            );
         workspace_root
             .join("target/debug/mcp-proxy")
             .to_string_lossy()
