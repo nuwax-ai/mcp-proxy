@@ -133,15 +133,16 @@ impl MinerUParser {
         };
 
         // 尝试从全局配置获取MinerU配置，如果失败则使用默认值
-        let (backend, device, vram, gpu_memory_utilization) = match std::panic::catch_unwind(crate::config::get_global_config) {
-            Ok(global_config) => (
-                global_config.mineru.backend.clone(),
-                global_config.mineru.device.clone(),
-                global_config.mineru.vram,
-                global_config.mineru.gpu_memory_utilization,
-            ),
-            Err(_) => ("pipeline".to_string(), "cpu".to_string(), 0, 0.0),
-        };
+        let (backend, device, vram, gpu_memory_utilization) =
+            match std::panic::catch_unwind(crate::config::get_global_config) {
+                Ok(global_config) => (
+                    global_config.mineru.backend.clone(),
+                    global_config.mineru.device.clone(),
+                    global_config.mineru.vram,
+                    global_config.mineru.gpu_memory_utilization,
+                ),
+                Err(_) => ("pipeline".to_string(), "cpu".to_string(), 0, 0.0),
+            };
 
         let config = MinerUConfig {
             python_path: python_path.to_string_lossy().to_string(),

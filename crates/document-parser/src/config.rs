@@ -1096,7 +1096,10 @@ impl AppConfig {
     }
 
     /// 从环境变量加载MarkItDown配置
-    fn load_markitdown_config_from_env(&mut self, env: &dyn EnvProvider) -> Result<(), ConfigError> {
+    fn load_markitdown_config_from_env(
+        &mut self,
+        env: &dyn EnvProvider,
+    ) -> Result<(), ConfigError> {
         if let Some(python_path) = env.get("MARKITDOWN_PYTHON_PATH") {
             self.markitdown.python_path = python_path;
         }

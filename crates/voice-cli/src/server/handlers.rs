@@ -913,9 +913,7 @@ pub async fn tts_sync_handler(
     // TTS 未启用或不可用时直接拒绝（缺 tts_service.py 不影响服务启动，但 TTS 请求返回 503）
     if !state.config.tts.enabled || !state.tts_service.is_available() {
         let msg = "TTS service is disabled or tts_service.py is missing".to_string();
-        return Ok(
-            HttpResult::<String>::from(VoiceCliError::InvalidInput(msg)).into_response(),
-        );
+        return Ok(HttpResult::<String>::from(VoiceCliError::InvalidInput(msg)).into_response());
     }
 
     info!(

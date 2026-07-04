@@ -34,7 +34,10 @@ mod tests {
             let env_manager = EnvironmentManager::for_directory(temp_dir.path())
                 .map_err(|e| format!("Failed to create environment manager: {e}"))?;
 
-            Ok(Self { temp_dir, env_manager })
+            Ok(Self {
+                temp_dir,
+                env_manager,
+            })
         }
 
         /// 获取虚拟环境路径
