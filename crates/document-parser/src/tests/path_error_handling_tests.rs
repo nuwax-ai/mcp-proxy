@@ -4,24 +4,6 @@ use std::path::Path;
 use tempfile::TempDir;
 use tokio;
 
-// 辅助函数用于测试
-impl EnvironmentManager {
-    #[cfg(test)]
-    pub fn for_directory(path: &Path) -> Result<Self, AppError> {
-        let venv_path = path.join("venv");
-        let python_path = if cfg!(windows) {
-            venv_path.join("Scripts").join("python.exe")
-        } else {
-            venv_path.join("bin").join("python")
-        };
-
-        Ok(Self::new(
-            python_path.to_string_lossy().to_string(),
-            path.to_string_lossy().to_string(),
-        ))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

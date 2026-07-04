@@ -849,22 +849,26 @@ impl EnvironmentManager {
         }
     }
 
-    /// 为当前目录创建环境管理器（推荐使用）
-    pub fn for_current_directory() -> Result<Self, AppError> {
-        let current_dir = std::env::current_dir()
-            .map_err(|e| AppError::Environment(format!("无法获取当前目录: {e}")))?;
-
-        let python_path = Self::get_venv_python_path(&current_dir.join("venv"));
-
+    /// 为指定目录创建环境管理器（不读全局 cwd，便于测试注入 / 并行隔离）
+    pub fn for_directory<P: AsRef<Path>>(base_dir: P) -> Result<Self, AppError> {
+        let base_dir = base_dir.as_ref();
+        let python_path = Self::get_venv_python_path(&base_dir.join("venv"));
         Ok(Self {
             python_path: python_path.to_string_lossy().to_string(),
-            base_dir: current_dir.to_string_lossy().to_string(),
+            base_dir: base_dir.to_string_lossy().to_string(),
             progress_sender: None,
             timeout_duration: Duration::from_secs(300), // 5分钟默认超时
             retry_config: RetryConfig::default(),
             environment_cache: Arc::new(RwLock::new(None)),
             cache_ttl: Duration::from_secs(300), // 5分钟缓存
         })
+    }
+
+    /// 为当前目录创建环境管理器（推荐使用；生产入口，读进程 cwd 一次）
+    pub fn for_current_directory() -> Result<Self, AppError> {
+        let current_dir = std::env::current_dir()
+            .map_err(|e| AppError::Environment(format!("无法获取当前目录: {e}")))?;
+        Self::for_directory(current_dir)
     }
 
     /// 获取虚拟环境中的Python可执行文件路径（跨平台）
@@ -1077,24 +1081,21 @@ impl EnvironmentManager {
         }
     }
 
+    /// 为指定目录创建带进度跟踪的环境管理器（不读全局 cwd）
+    pub fn for_directory_with_progress<P: AsRef<Path>>(
+        base_dir: P,
+        progress_sender: mpsc::UnboundedSender<InstallProgress>,
+    ) -> Result<Self, AppError> {
+        Ok(Self::for_directory(base_dir)?.with_progress_sender(progress_sender))
+    }
+
     /// 为当前目录创建带进度跟踪的环境管理器
     pub fn for_current_directory_with_progress(
         progress_sender: mpsc::UnboundedSender<InstallProgress>,
     ) -> Result<Self, AppError> {
         let current_dir = std::env::current_dir()
             .map_err(|e| AppError::Environment(format!("无法获取当前目录: {e}")))?;
-
-        let python_path = Self::get_venv_python_path(&current_dir.join("venv"));
-
-        Ok(Self {
-            python_path: python_path.to_string_lossy().to_string(),
-            base_dir: current_dir.to_string_lossy().to_string(),
-            progress_sender: Some(Arc::new(Mutex::new(progress_sender))),
-            timeout_duration: Duration::from_secs(300),
-            retry_config: RetryConfig::default(),
-            environment_cache: Arc::new(RwLock::new(None)),
-            cache_ttl: Duration::from_secs(300),
-        })
+        Self::for_directory_with_progress(current_dir, progress_sender)
     }
 
     /// 添加进度发送器到现有环境管理器
@@ -1671,7 +1672,7 @@ impl EnvironmentManager {
         } else {
             // 检查虚拟环境路径是否符合预期
             if let Some(ref venv_path) = python_info.virtual_env_path {
-                let expected_venv_path = std::env::current_dir().map(|dir| dir.join("venv")).ok();
+                let expected_venv_path = Some(Path::new(&self.base_dir).join("venv"));
 
                 let is_expected_location = expected_venv_path
                     .as_ref()
@@ -1689,9 +1690,9 @@ impl EnvironmentManager {
             }
 
             // 检查虚拟环境中的Python可执行文件
-            let expected_python_path = std::env::current_dir()
-                .map(|dir| Self::get_venv_python_path(&dir.join("venv")))
-                .ok();
+            let expected_python_path = Some(Self::get_venv_python_path(
+                &Path::new(&self.base_dir).join("venv"),
+            ));
 
             if let Some(expected_path) = expected_python_path
                 && !expected_path.exists()
@@ -1893,8 +1894,7 @@ impl EnvironmentManager {
 
     /// 验证MinerU依赖
     async fn verify_mineru_dependency(&self) -> Result<DependencyStatus, AppError> {
-        let current_dir = std::env::current_dir()
-            .map_err(|e| AppError::Environment(format!("无法获取当前目录: {e}")))?;
+        let current_dir = Path::new(&self.base_dir).to_path_buf();
         let venv_path = current_dir.join("venv");
         let mineru_path = Self::get_venv_executable_path(&venv_path, "mineru");
 
@@ -1935,8 +1935,7 @@ impl EnvironmentManager {
 
     /// 验证MarkItDown依赖
     async fn verify_markitdown_dependency(&self) -> Result<DependencyStatus, AppError> {
-        let current_dir = std::env::current_dir()
-            .map_err(|e| AppError::Environment(format!("无法获取当前目录: {e}")))?;
+        let current_dir = Path::new(&self.base_dir).to_path_buf();
         let venv_path = current_dir.join("venv");
         let python_path = Self::get_venv_python_path(&venv_path);
 
@@ -2404,9 +2403,8 @@ impl EnvironmentManager {
     async fn check_mineru_environment(&self) -> Result<PackageInfo, AppError> {
         debug!("Check MinerU environment");
 
-        // 使用当前目录的虚拟环境中的mineru命令路径
-        let current_dir = std::env::current_dir()
-            .map_err(|e| AppError::Environment(format!("无法获取当前目录: {e}")))?;
+        // 使用 base_dir 虚拟环境中的 mineru 命令路径
+        let current_dir = Path::new(&self.base_dir).to_path_buf();
         let venv_path = current_dir.join("venv");
         let mineru_path = Self::get_venv_executable_path(&venv_path, "mineru");
 
@@ -2487,9 +2485,8 @@ impl EnvironmentManager {
     async fn check_markitdown_environment(&self) -> Result<PackageInfo, AppError> {
         debug!("Check MarkItDown environment");
 
-        // 优先使用虚拟环境中的Python
-        let current_dir = std::env::current_dir()
-            .map_err(|e| AppError::Environment(format!("无法获取当前目录: {e}")))?;
+        // 优先使用虚拟环境中的 Python
+        let current_dir = Path::new(&self.base_dir).to_path_buf();
         let venv_path = current_dir.join("venv");
         let python_executable = if venv_path.exists() {
             Self::get_venv_python_path(&venv_path)
@@ -4547,7 +4544,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Depends on global current directory, fails when other tests change it"]
     async fn test_for_current_directory_factory() {
         // 测试当前目录工厂方法
         let manager = EnvironmentManager::for_current_directory();
@@ -4574,7 +4570,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Depends on global current directory, fails when other tests change it"]
     async fn test_for_current_directory_with_progress_factory() {
         let (tx, _rx) = mpsc::unbounded_channel();
 

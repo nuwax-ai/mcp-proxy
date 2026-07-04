@@ -22,28 +22,19 @@ mod tests {
     /// 测试辅助结构体
     struct CurrentDirectoryTestEnvironment {
         temp_dir: TempDir,
-        original_dir: PathBuf,
         env_manager: EnvironmentManager,
     }
 
     impl CurrentDirectoryTestEnvironment {
-        /// 创建测试环境
+        /// 创建测试环境（不修改全局 cwd，测试可并行）
         async fn new() -> Result<Self, Box<dyn std::error::Error>> {
             let temp_dir = TempDir::new()?;
-            let original_dir = std::env::current_dir()?;
 
-            // 切换到临时目录
-            std::env::set_current_dir(temp_dir.path())?;
-
-            // 创建基于当前目录的环境管理器
-            let env_manager = EnvironmentManager::for_current_directory()
+            // 创建基于临时目录的环境管理器（for_directory 注入，不碰全局 cwd）
+            let env_manager = EnvironmentManager::for_directory(temp_dir.path())
                 .map_err(|e| format!("Failed to create environment manager: {e}"))?;
 
-            Ok(Self {
-                temp_dir,
-                original_dir,
-                env_manager,
-            })
+            Ok(Self { temp_dir, env_manager })
         }
 
         /// 获取虚拟环境路径
@@ -161,12 +152,7 @@ mod tests {
         }
     }
 
-    impl Drop for CurrentDirectoryTestEnvironment {
-        fn drop(&mut self) {
-            // 恢复原始目录
-            let _ = std::env::set_current_dir(&self.original_dir);
-        }
-    }
+    // （原 Drop impl 已移除：helper 不再 set_current_dir，无需恢复全局 cwd）
 
     /// 测试1：uv-init命令在当前目录正确创建venv
     /// 要求：1.1, 1.2
@@ -174,7 +160,6 @@ mod tests {
     /// 注意：此测试被禁用，因为它会改变全局当前目录，导致与其他测试产生竞态条件。
     /// 需要使用 serial_test 或重构测试以避免改变全局状态。
     #[tokio::test]
-    #[ignore = "Changes global current directory, causes race conditions with parallel tests"]
     async fn test_uv_init_creates_venv_in_current_directory() {
         let test_env = CurrentDirectoryTestEnvironment::new()
             .await
@@ -274,7 +259,6 @@ mod tests {
     /// 测试2：验证虚拟环境信息获取
     /// 要求：1.1, 1.2
     #[tokio::test]
-    #[ignore = "Changes global current directory, causes race conditions with parallel tests"]
     async fn test_virtual_environment_info_detection() {
         let test_env = CurrentDirectoryTestEnvironment::new()
             .await
@@ -335,7 +319,6 @@ mod tests {
     /// 测试3：服务器启动时找到并使用正确的虚拟环境
     /// 要求：1.1, 1.2, 4.1, 4.2
     #[tokio::test]
-    #[ignore = "Changes global current directory, causes race conditions with parallel tests"]
     async fn test_server_startup_finds_correct_virtual_environment() {
         let test_env = CurrentDirectoryTestEnvironment::new()
             .await
@@ -403,7 +386,6 @@ mod tests {
     /// 测试4：MinerU命令路径检测
     /// 要求：1.3, 5.5, 6.2
     #[tokio::test]
-    #[ignore = "Changes global current directory, causes race conditions with parallel tests"]
     async fn test_mineru_command_path_detection() {
         let test_env = CurrentDirectoryTestEnvironment::new()
             .await
@@ -452,7 +434,6 @@ mod tests {
     /// 测试5：使用当前目录虚拟环境进行文档解析
     /// 要求：1.3, 1.4, 1.5, 6.2, 6.3
     #[tokio::test]
-    #[ignore = "Changes global current directory, causes race conditions with parallel tests"]
     async fn test_document_parsing_with_current_directory_venv() {
         let test_env = CurrentDirectoryTestEnvironment::new()
             .await
@@ -500,7 +481,6 @@ mod tests {
     /// 测试6：环境状态报告包含当前目录信息
     /// 要求：2.2, 5.1, 5.2
     #[tokio::test]
-    #[ignore = "Changes global current directory, causes race conditions with parallel tests"]
     async fn test_environment_status_includes_current_directory_info() {
         let test_env = CurrentDirectoryTestEnvironment::new()
             .await
@@ -552,7 +532,6 @@ mod tests {
     /// 测试7：跨平台虚拟环境路径处理
     /// 要求：3.1, 8.3
     #[tokio::test]
-    #[ignore = "Changes global current directory, causes race conditions with parallel tests"]
     async fn test_cross_platform_venv_path_handling() {
         let test_env = CurrentDirectoryTestEnvironment::new()
             .await
@@ -604,7 +583,6 @@ mod tests {
     /// 测试8：当前目录验证和清理
     /// 要求：5.3, 6.5
     #[tokio::test]
-    #[ignore = "Changes global current directory, causes race conditions with parallel tests"]
     async fn test_current_directory_validation_and_cleanup() {
         let test_env = CurrentDirectoryTestEnvironment::new()
             .await
@@ -668,7 +646,6 @@ mod tests {
     /// 测试9：完整的当前目录工作流程
     /// 要求：1.1, 1.2, 1.3, 1.4, 1.5
     #[tokio::test]
-    #[ignore = "Changes global current directory, causes race conditions with parallel tests"]
     async fn test_complete_current_directory_workflow() {
         let test_env = CurrentDirectoryTestEnvironment::new()
             .await
@@ -766,7 +743,6 @@ mod tests {
     /// 测试10：环境管理器工厂方法
     /// 要求：1.1, 6.4
     #[tokio::test]
-    #[ignore = "Changes global current directory, causes race conditions with parallel tests"]
     async fn test_environment_manager_factory_methods() {
         let _test_env = CurrentDirectoryTestEnvironment::new()
             .await
