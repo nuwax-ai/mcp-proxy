@@ -2,8 +2,7 @@
 # 排除 fastembed（ort-sys 不支持部分平台）
 # run-code-rmcp 为 vendor 的源码（原 run_code_rmcp = "0.0.37"），方便本地维护
 members = ["crates/voice-toolkit", "crates/rs-voice-toolkit-stt", "crates/rs-voice-toolkit-audio", "crates/rs-voice-toolkit-tts", "crates/document-parser", "crates/mcp-common", "crates/mcp-proxy", "crates/mcp-sse-proxy", "crates/mcp-streamable-proxy", "crates/oss-client", "crates/run-code-rmcp", "crates/voice-cli"]
-# 默认只构建 mcp-proxy（排除 document-parser 等需要特殊环境的包）
-default-members = ["crates/mcp-proxy", "crates/mcp-common", "crates/mcp-sse-proxy", "crates/mcp-streamable-proxy"]
+# 不设 default-members：裸 cargo build/check/test 默认作用于全部 member（fastembed 仍 exclude，单独任务开发）
 resolver = "2"
 exclude = ["crates/fastembed"]
 
