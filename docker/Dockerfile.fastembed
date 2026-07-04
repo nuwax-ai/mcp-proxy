@@ -29,8 +29,8 @@ RUN rustup component add rustfmt
 COPY . .
 
 # 临时将 fastembed 纳入 workspace (仅容器内生效，不改宿主 Cargo.toml)
-RUN sed -i 's/^members = \[/members = ["fastembed", /' Cargo.toml && \
-    sed -i '/^exclude = \["fastembed"\]/d' Cargo.toml && \
+RUN sed -i 's|^members = \[|members = ["crates/fastembed", |' Cargo.toml && \
+    sed -i '\%^exclude = \["crates/fastembed"\]%d' Cargo.toml && \
     echo "=== [workspace] after patch ===" && sed -n '1,8p' Cargo.toml
 
 # 编译 (-p fastembed-server 指定 package；--bin fastembed 会因 fastembed-server 不在 default-members 而找不到)

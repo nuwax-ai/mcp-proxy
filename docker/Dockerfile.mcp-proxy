@@ -40,7 +40,6 @@ ENV LIBCLANG_PATH=/usr/lib/llvm-14/lib
 # 含 vendor 的 run-code-rmcp + voice-toolkit 4 个 crate，否则 workspace 加载不全）
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ ./crates/
-COPY fastembed/ ./fastembed/
 
 # 根据 TARGETARCH 设置交叉编译环境
 RUN echo "=== Starting build process ==="

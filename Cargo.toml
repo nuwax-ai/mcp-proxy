@@ -5,7 +5,7 @@ members = ["crates/voice-toolkit", "crates/rs-voice-toolkit-stt", "crates/rs-voi
 # 默认只构建 mcp-proxy（排除 document-parser 等需要特殊环境的包）
 default-members = ["crates/mcp-proxy", "crates/mcp-common", "crates/mcp-sse-proxy", "crates/mcp-streamable-proxy"]
 resolver = "2"
-exclude = ["fastembed"]
+exclude = ["crates/fastembed"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
