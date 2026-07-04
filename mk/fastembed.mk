@@ -1,5 +1,5 @@
 # ============================================================================
-# FastEmbed 构建目标 (docker/Dockerfile.fastembed) — 开发中，功能待验证
+# FastEmbed 构建目标 (docker/Dockerfile.fastembed) — text/image/sparse 本地向量化服务
 # ============================================================================
 #   make build-fastembed               # 双架构 (amd64+arm64，默认)
 #   make build-fastembed-x86_64        # 仅 x86_64

@@ -17,7 +17,7 @@ help:
 	@echo "    make build-voice-cli-arm64         - 仅 ARM64"
 	@echo "    (GPU cuda: 见 mk/voice-cli.mk 顶部 --build-arg 说明)"
 	@echo ""
-	@echo "  🔎 FastEmbed (mk/fastembed.mk) [开发中]:"
+	@echo "  🔎 FastEmbed (mk/fastembed.mk):"
 	@echo "    make build-fastembed               - 双架构 (默认)"
 	@echo "    make build-fastembed-x86_64        - 仅 x86_64"
 	@echo "    make build-fastembed-arm64         - 仅 ARM64"
