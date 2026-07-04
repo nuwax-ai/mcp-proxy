@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests {
+    use crate::config_rs_integration::{CliOverrides, ConfigRsLoader};
     use crate::models::{
         AudioProcessingConfig, Config, DaemonConfig, LoggingConfig, ServerConfig,
         TaskManagementConfig, TtsConfig, WhisperConfig, WorkersConfig,
@@ -276,7 +277,7 @@ whisper:
         std::fs::write(&config_path, invalid_config_yaml).unwrap();
 
         // Loading should fail due to validation
-        let result = Config::load_or_create(&config_path);
+        let result = ConfigRsLoader::load(Some(&config_path), &CliOverrides::default(), None);
         assert!(result.is_err());
     }
 

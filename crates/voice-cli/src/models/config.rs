@@ -300,51 +300,6 @@ impl Config {
         })
     }
 
-    pub fn load_or_create(config_path: &PathBuf) -> crate::Result<Self> {
-        Self::load_with_env_overrides(config_path, &StdEnv)
-    }
-
-    /// Load configuration with environment variable overrides.
-    /// `env` 注入环境变量来源：生产传 [`StdEnv`]，测试传 [`MapEnv`]。
-    pub fn load_with_env_overrides(
-        config_path: &PathBuf,
-        env: &dyn EnvProvider,
-    ) -> crate::Result<Self> {
-        let mut config = if config_path.exists() {
-            let config_content = std::fs::read_to_string(config_path).map_err(|e| {
-                crate::VoiceCliError::Config(format!(
-                    "Failed to read configuration file {:?}: {}",
-                    config_path, e
-                ))
-            })?;
-
-            serde_yaml::from_str(&config_content).map_err(|e| {
-                crate::VoiceCliError::Config(format!(
-                    "Failed to parse configuration file {:?}: {}",
-                    config_path, e
-                ))
-            })?
-        } else {
-            let default_config = Config::default();
-            default_config.save(config_path).map_err(|e| {
-                crate::VoiceCliError::Config(format!(
-                    "Failed to create default configuration file {:?}: {}",
-                    config_path, e
-                ))
-            })?;
-            tracing::info!("Created default configuration file at {:?}", config_path);
-            default_config
-        };
-
-        // Apply environment variable overrides
-        config.apply_env_overrides(env)?;
-
-        // Validate the final configuration
-        config.validate()?;
-
-        Ok(config)
-    }
-
     /// Apply environment variable overrides to the configuration
     pub fn apply_env_overrides(&mut self, env: &dyn EnvProvider) -> crate::Result<()> {
         // Server configuration overrides

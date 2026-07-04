@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::models::Config;
+    use crate::config_rs_integration::{CliOverrides, ConfigRsLoader};
     use crate::models::config::MapEnv;
     use tempfile::TempDir;
 
@@ -14,7 +14,7 @@ mod tests {
         )
     }
 
-    /// 临时目录里不存在的 config_path —— load_with_env_overrides 会创建默认配置后再应用 env 覆盖
+    /// 临时目录里不存在的 config_path —— ConfigRsLoader 会用默认配置后再应用 env 覆盖
     fn fresh_config_path() -> PathBuf {
         let temp_dir = TempDir::new().unwrap();
         temp_dir.path().join("config.yml")
@@ -25,14 +25,25 @@ mod tests {
     #[test]
     fn test_http_port_environment_override() {
         let env = map_env(&[("VOICE_CLI_PORT", "9090")]);
-        let config = Config::load_with_env_overrides(&fresh_config_path(), &env).unwrap();
+        let config = ConfigRsLoader::load_with_env(
+            Some(&fresh_config_path()),
+            &CliOverrides::default(),
+            None,
+            &env,
+        )
+        .unwrap();
         assert_eq!(config.server.port, 9090);
     }
 
     #[test]
     fn test_invalid_port_environment_variable() {
         let env = map_env(&[("VOICE_CLI_PORT", "invalid_port")]);
-        let result = Config::load_with_env_overrides(&fresh_config_path(), &env);
+        let result = ConfigRsLoader::load_with_env(
+            Some(&fresh_config_path()),
+            &CliOverrides::default(),
+            None,
+            &env,
+        );
         assert!(result.is_err());
         let error_msg = result.unwrap_err().to_string();
         assert!(error_msg.contains("Invalid VOICE_CLI_PORT value 'invalid_port'"));
@@ -41,7 +52,13 @@ mod tests {
     #[test]
     fn test_log_level_environment_override() {
         let env = map_env(&[("VOICE_CLI_LOG_LEVEL", "DEBUG")]);
-        let config = Config::load_with_env_overrides(&fresh_config_path(), &env).unwrap();
+        let config = ConfigRsLoader::load_with_env(
+            Some(&fresh_config_path()),
+            &CliOverrides::default(),
+            None,
+            &env,
+        )
+        .unwrap();
         // Verify log level was overridden and normalized to lowercase
         assert_eq!(config.logging.level, "debug");
     }
@@ -49,7 +66,12 @@ mod tests {
     #[test]
     fn test_invalid_log_level_environment_variable() {
         let env = map_env(&[("VOICE_CLI_LOG_LEVEL", "invalid_level")]);
-        let result = Config::load_with_env_overrides(&fresh_config_path(), &env);
+        let result = ConfigRsLoader::load_with_env(
+            Some(&fresh_config_path()),
+            &CliOverrides::default(),
+            None,
+            &env,
+        );
         assert!(result.is_err());
         let error_msg = result.unwrap_err().to_string();
         assert!(error_msg.contains("Invalid VOICE_CLI_LOG_LEVEL"));
@@ -64,7 +86,13 @@ mod tests {
             ("VOICE_CLI_LOG_LEVEL", "warn"),
             ("VOICE_CLI_DEFAULT_MODEL", "large-v3"),
         ]);
-        let config = Config::load_with_env_overrides(&fresh_config_path(), &env).unwrap();
+        let config = ConfigRsLoader::load_with_env(
+            Some(&fresh_config_path()),
+            &CliOverrides::default(),
+            None,
+            &env,
+        )
+        .unwrap();
         assert_eq!(config.server.port, 8081);
         assert_eq!(config.logging.level, "warn");
         assert_eq!(config.whisper.default_model, "large-v3");
@@ -75,7 +103,12 @@ mod tests {
     fn test_empty_environment_variable_validation() {
         // VOICE_CLI_HOST 为空白 → 应报错
         let env = map_env(&[("VOICE_CLI_HOST", "   ")]);
-        let result = Config::load_with_env_overrides(&fresh_config_path(), &env);
+        let result = ConfigRsLoader::load_with_env(
+            Some(&fresh_config_path()),
+            &CliOverrides::default(),
+            None,
+            &env,
+        );
         assert!(result.is_err());
         let error_msg = result.unwrap_err().to_string();
         assert!(error_msg.contains("VOICE_CLI_HOST environment variable cannot be empty"));

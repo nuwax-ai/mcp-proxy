@@ -1,5 +1,6 @@
 use crate::VoiceCliError;
 use crate::models::Config;
+use crate::models::config::{EnvProvider, StdEnv};
 use config::{Config as ConfigRs, Environment, File};
 use serde::Deserialize;
 use std::path::PathBuf;
@@ -47,6 +48,18 @@ impl ConfigRsLoader {
         cli_overrides: &CliOverrides,
         service_type: Option<crate::config::ServiceType>,
     ) -> Result<Config, VoiceCliError> {
+        Self::load_with_env(config_path, cli_overrides, service_type, &StdEnv)
+    }
+
+    /// Load configuration with an injected env source（生产传 [`StdEnv`]；测试传 MapEnv）。
+    /// 在 config-rs 加载后，额外应用文档约定的扁平 `VOICE_CLI_*` 变量（与 README 一致），
+    /// 修复生产里 `VOICE_CLI_PORT` 等扁平变量不生效的 gap。
+    pub fn load_with_env(
+        config_path: Option<&PathBuf>,
+        cli_overrides: &CliOverrides,
+        service_type: Option<crate::config::ServiceType>,
+        env: &dyn EnvProvider,
+    ) -> Result<Config, VoiceCliError> {
         let mut config_rs = ConfigRs::builder();
 
         // 1. Load default configuration (built-in defaults)
@@ -67,7 +80,7 @@ impl ConfigRsLoader {
             }
         }
 
-        // 3. Load environment variables (with proper prefix)
+        // 3. Load environment variables (config-rs 嵌套约定 VOICE_CLI_SERVER__PORT 等)
         config_rs = config_rs.add_source(
             Environment::with_prefix("VOICE_CLI")
                 .prefix_separator("_")
@@ -76,21 +89,22 @@ impl ConfigRsLoader {
                 .ignore_empty(true),
         );
 
-        // 4. Build the config and debug what's being loaded
+        // 4. Build + deserialize
         let built_config = config_rs.build()?;
-
-        // 5. Deserialize the built config
         let mut config: Config = built_config.try_deserialize()?;
+
+        // 5. 应用文档约定的扁平 VOICE_CLI_* 变量（env 注入）
+        config.apply_env_overrides(env)?;
 
         // 6. Apply CLI overrides (highest priority)
         Self::apply_cli_overrides(&mut config, cli_overrides);
 
-        // 9. Apply service-specific settings
+        // 7. Apply service-specific settings
         if let Some(service_type) = service_type {
             Self::apply_service_specific_settings(&mut config, service_type)?;
         }
 
-        // 6. Validate configuration
+        // 8. Validate configuration
         config.validate()?;
 
         Ok(config)
