@@ -21,17 +21,23 @@ fi
 
 echo
 echo "=== 2) 创建 venv (Python 3.12) ==="
-# 用绝对路径 /usr/bin/python3 避免 anaconda 的旧版本污染（ mineru 要求 >=3.10）
+# Linux 上优先用绝对路径 /usr/bin/python3.12（避开 anaconda 旧版本污染）；
+# 其它平台（macOS 等）交给 uv 自解析/下载 3.12（uv 会找到系统的 3.12 或自动装一个）。
+# 注意：不能用裸 /usr/bin/python3 —— macOS 上那是 Xcode 的 3.9.x，不满足 mineru >=3.10。
 if [ -x /usr/bin/python3.12 ]; then
   uv venv --python /usr/bin/python3.12 "$VENV"
-elif [ -x /usr/bin/python3 ]; then
-  uv venv --python /usr/bin/python3 "$VENV"
 else
   uv venv --python 3.12 "$VENV"
 fi
 
 PY="$VENV/bin/python"
-echo "Python: $($PY --version)"
+PY_VERSION=$("$PY" --version | awk '{print $2}')
+echo "Python: $PY_VERSION"
+# mineru 要求 >=3.10,<3.14；不满足直接退出（Fail Fast，避免后面装包才报错）
+case "$PY_VERSION" in
+  3.1[0-3]) ;;
+  *) echo "❌ Python $PY_VERSION 不满足 mineru 要求（需 3.10–3.13）。请先装 3.12：uv python install 3.12" ; exit 1 ;;
+esac
 
 echo
 echo "=== 3) 装 mineru[core]==3.4.2（锁版本避 PageChars bug）==="
