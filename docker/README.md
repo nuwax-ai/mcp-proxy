@@ -8,12 +8,12 @@
 mcp-proxy 的 Docker 构建文件，采用多阶段构建：
 
 **构建阶段：**
-- 基础镜像：`rust:1.90`
+- 基础镜像：`rust:1.92`
 - 设置时区：`Asia/Shanghai`
 - 构建命令：`cargo build --release --bin mcp-proxy`
 
 **运行阶段：**
-- 基础镜像：`rust:1.90`
+- 基础镜像：`rust:1.92`
 - 包含完整的运行时环境（与线上环境一致）
 - 支持 Node.js 22.x、Python 3、Deno、Go 1.24.3
 
@@ -21,7 +21,7 @@ mcp-proxy 的 Docker 构建文件，采用多阶段构建：
 document-parser 和 voice-cli 的 Docker 构建文件，采用多阶段构建：
 
 **构建阶段：**
-- 基础镜像：`rust:1.90`
+- 基础镜像：`rust:1.92`
 - 构建命令：`cargo build --release`
 
 **运行阶段：**
@@ -57,7 +57,7 @@ trusted-host = pypi.tuna.tsinghua.edu.cn
 
 | 环境 | 版本 | 用途 |
 |------|------|------|
-| Rust | 1.90 | 基础运行时 |
+| Rust | 1.92 | 基础运行时 |
 | Node.js | 22.x | run_code 功能执行 Node.js 代码 |
 | Python | 3.x + uv | run_code 功能执行 Python 代码 |
 | Deno | 最新版 | run_code 功能执行 TypeScript/JavaScript 代码 |

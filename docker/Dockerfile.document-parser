@@ -7,7 +7,7 @@
 #
 # 原理: docker buildx --platform 指定目标架构，orbstack 用 Rosetta 2 转译 amd64，
 #       容器内 native 编译，产物在 target/release/。无需交叉工具链。
-FROM rust:1.90 AS builder
+FROM rust:1.92 AS builder
 
 # 安装必要的构建依赖
 RUN apt-get update && apt-get install -y \

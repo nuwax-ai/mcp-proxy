@@ -10,7 +10,7 @@
 #     --build-arg VOICE_FEATURES=cuda --output type=local,dest=./dist/voice-cli-x86_64-cuda \
 #     -f docker/Dockerfile.voice-cli .
 #   注意: cuda 需 CUDA Toolkit，建议直接在 NVIDIA 服务器上 cargo build --features cuda。
-FROM rust:1.90 AS builder
+FROM rust:1.92 AS builder
 
 RUN apt-get update && apt-get install -y \
     pkg-config \
