@@ -146,12 +146,12 @@ const TEXT_CATALOG: &[ModelEntry] = &[
     },
     ModelEntry {
         variant: "AllMiniLML6V2",
-        code: "sentence-transformers/all-MiniLM-L6-v2",
+        code: "Qdrant/all-MiniLM-L6-v2-onnx",
         dim: 384,
     },
     ModelEntry {
         variant: "AllMiniLML12V2",
-        code: "sentence-transformers/all-MiniLM-L12-v2",
+        code: "Xenova/all-MiniLM-L12-v2",
         dim: 384,
     },
 ];
@@ -645,9 +645,9 @@ mod tests {
             parse_text_model("AllMiniLML6V2").unwrap(),
             EmbeddingModel::AllMiniLML6V2
         );
-        // 模型代码（命中目录）
+        // 模型代码（命中目录；与 fastembed 实际下载仓库一致）
         assert_eq!(
-            parse_text_model("sentence-transformers/all-MiniLM-L6-v2").unwrap(),
+            parse_text_model("Qdrant/all-MiniLM-L6-v2-onnx").unwrap(),
             EmbeddingModel::AllMiniLML6V2
         );
         assert_eq!(
@@ -694,7 +694,7 @@ mod tests {
         // 变体名 → 规范化代码
         assert_eq!(
             resolve_code_for_display(EmbeddingType::Text, "AllMiniLML6V2"),
-            Some("sentence-transformers/all-MiniLM-L6-v2".to_string())
+            Some("Qdrant/all-MiniLM-L6-v2-onnx".to_string())
         );
         // 代码本身 → 原样返回（命中目录）
         assert_eq!(
@@ -803,8 +803,8 @@ mod tests {
     fn list_available_models_finds_present() {
         let tmp = tempfile::tempdir().unwrap();
         let cache = tmp.path();
-        // 为 AllMiniLML6V2（code: sentence-transformers/all-MiniLM-L6-v2）放一个 onnx
-        let code = "sentence-transformers/all-MiniLM-L6-v2";
+        // 为 AllMiniLML6V2（code: Qdrant/all-MiniLM-L6-v2-onnx）放一个 onnx
+        let code = "Qdrant/all-MiniLM-L6-v2-onnx";
         let dir_name = format!("models--{}", code.replace('/', "--"));
         let snapshot = cache.join(dir_name).join("snapshots").join("h");
         std::fs::create_dir_all(&snapshot).unwrap();
@@ -826,7 +826,7 @@ mod tests {
         let (arc, info) = get_or_init_model(
             EmbeddingType::Text,
             "AllMiniLML6V2",
-            Some(cache),
+            Some(cache.clone()),
             None,
             "cpu",
         )
@@ -844,5 +844,15 @@ mod tests {
             }
             EmbedOutput::Sparse(_) => panic!("text 模型应返回稠密向量"),
         }
+        drop(guard);
+
+        // 回归保护：下载后 list_available_models 必须能识别该模型。
+        // 若目录 code 与 fastembed 实际下载仓库不一致，这里会失败。
+        let listed = list_available_models(EmbeddingType::Text, &cache).unwrap();
+        assert!(
+            listed.iter().any(|m| m.variant == "AllMiniLML6V2"),
+            "list_available_models 未识别已下载的 AllMiniLML6V2，目录 code 可能与 fastembed 实际仓库不一致: {:?}",
+            listed
+        );
     }
 }
