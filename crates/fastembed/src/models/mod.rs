@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 use dashmap::DashMap;
 use fastembed::{
-    Embedding, EmbeddingModel, ExecutionProviderDispatch, ImageEmbedding, ImageEmbeddingModel,
+    EmbeddingModel, ExecutionProviderDispatch, ImageEmbedding, ImageEmbeddingModel,
     ImageInitOptions, SparseEmbedding, SparseInitOptions, SparseModel, SparseTextEmbedding,
     TextEmbedding, TextInitOptions,
 };
@@ -85,13 +85,14 @@ impl InitializedModel {
     /// 执行嵌入：text/image 输入为文本/路径，sparse 输入为文本
     pub fn embed(&mut self, inputs: Vec<String>, batch_size: Option<usize>) -> Result<EmbedOutput> {
         match self {
+            // fastembed::Embedding 是 Vec<f32> 的类型别名，故 out 即 Vec<Vec<f32>>
             InitializedModel::Text(e) => {
                 let out = e.embed(inputs, batch_size)?;
-                Ok(EmbedOutput::Dense(dense_from(out)))
+                Ok(EmbedOutput::Dense(out))
             }
             InitializedModel::Image(e) => {
                 let out = e.embed(inputs, batch_size)?;
-                Ok(EmbedOutput::Dense(dense_from(out)))
+                Ok(EmbedOutput::Dense(out))
             }
             InitializedModel::Sparse(e) => {
                 let out = e.embed(inputs, batch_size)?;
@@ -99,11 +100,6 @@ impl InitializedModel {
             }
         }
     }
-}
-
-/// fastembed::Embedding（= Vec<f32>）→ Vec<Vec<f32>>
-fn dense_from(embeddings: Vec<Embedding>) -> Vec<Vec<f32>> {
-    embeddings
 }
 
 // ────────────────────────────────────────────────────────────────────────────
