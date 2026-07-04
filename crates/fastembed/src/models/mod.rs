@@ -263,21 +263,24 @@ impl Resolved {
     }
 
     /// 用解析好的模型执行初始化（不再重复解析）
+    /// `show_progress` 控制是否打印下载进度（CLI 下载用 true；server 请求触发的懒加载用 false，避免污染日志）
     fn init(
         self,
         cache_dir: Option<String>,
         max_length: Option<usize>,
         eps: Vec<ExecutionProviderDispatch>,
+        show_progress: bool,
     ) -> Result<InitializedModel> {
         match self {
             Resolved::Text(m, _) => {
-                init_text(m, cache_dir, max_length, eps).map(InitializedModel::Text)
+                init_text(m, cache_dir, max_length, eps, show_progress).map(InitializedModel::Text)
             }
             // ImageInitOptions 不支持 max_length
-            Resolved::Image(m, _) => init_image(m, cache_dir, eps).map(InitializedModel::Image),
-            Resolved::Sparse(m, _) => {
-                init_sparse(m, cache_dir, max_length, eps).map(InitializedModel::Sparse)
+            Resolved::Image(m, _) => {
+                init_image(m, cache_dir, eps, show_progress).map(InitializedModel::Image)
             }
+            Resolved::Sparse(m, _) => init_sparse(m, cache_dir, max_length, eps, show_progress)
+                .map(InitializedModel::Sparse),
         }
     }
 }
@@ -415,6 +418,7 @@ pub fn get_or_init_model(
     max_length: Option<usize>,
     device: &str,
     pool_size: usize,
+    show_progress: bool,
 ) -> Result<(Arc<ModelPool>, ModelInfo)> {
     let pool_size = pool_size.max(1); // 0 视为 1
     // 一次解析：得到类型化模型 + 规范化代码（后续不再重复解析）
@@ -449,7 +453,11 @@ pub fn get_or_init_model(
     let mut instances = Vec::with_capacity(pool_size);
     for i in 0..pool_size {
         let eps = resolve_execution_providers(device);
-        instances.push(resolved.clone().init(cache_dir.clone(), max_length, eps)?);
+        instances.push(
+            resolved
+                .clone()
+                .init(cache_dir.clone(), max_length, eps, show_progress)?,
+        );
         tracing::debug!("pool instance {}/{} ready", i + 1, pool_size);
     }
     let pool = Arc::new(ModelPool::new(instances));
@@ -468,6 +476,7 @@ fn init_text(
     cache_dir: Option<String>,
     max_length: Option<usize>,
     eps: Vec<ExecutionProviderDispatch>,
+    show_progress: bool,
 ) -> Result<TextEmbedding> {
     let mut options = TextInitOptions::new(model.clone());
     if let Some(dir) = cache_dir {
@@ -479,7 +488,9 @@ fn init_text(
     if !eps.is_empty() {
         options = options.with_execution_providers(eps);
     }
-    options = options.with_show_download_progress(true);
+    if show_progress {
+        options = options.with_show_download_progress(true);
+    }
     TextEmbedding::try_new(options).with_context(|| format!("无法初始化文本模型: {:?}", model))
 }
 
@@ -487,6 +498,7 @@ fn init_image(
     model: ImageEmbeddingModel,
     cache_dir: Option<String>,
     eps: Vec<ExecutionProviderDispatch>,
+    show_progress: bool,
 ) -> Result<ImageEmbedding> {
     let mut options = ImageInitOptions::new(model.clone());
     if let Some(dir) = cache_dir {
@@ -495,7 +507,9 @@ fn init_image(
     if !eps.is_empty() {
         options = options.with_execution_providers(eps);
     }
-    options = options.with_show_download_progress(true);
+    if show_progress {
+        options = options.with_show_download_progress(true);
+    }
     ImageEmbedding::try_new(options).with_context(|| format!("无法初始化图像模型: {:?}", model))
 }
 
@@ -504,6 +518,7 @@ fn init_sparse(
     cache_dir: Option<String>,
     max_length: Option<usize>,
     eps: Vec<ExecutionProviderDispatch>,
+    show_progress: bool,
 ) -> Result<SparseTextEmbedding> {
     let mut options = SparseInitOptions::new(model.clone());
     if let Some(dir) = cache_dir {
@@ -515,7 +530,9 @@ fn init_sparse(
     if !eps.is_empty() {
         options = options.with_execution_providers(eps);
     }
-    options = options.with_show_download_progress(true);
+    if show_progress {
+        options = options.with_show_download_progress(true);
+    }
     SparseTextEmbedding::try_new(options)
         .with_context(|| format!("无法初始化稀疏模型: {:?}", model))
 }
@@ -911,6 +928,7 @@ mod tests {
             None,
             "cpu",
             1,
+            true,
         )
         .expect("模型初始化失败（确认网络可用）");
 

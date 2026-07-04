@@ -9,6 +9,18 @@ pub async fn download_model(args: DownloadArgs) -> Result<()> {
 
     let model_type = EmbeddingType::from_str(&args.r#type)?;
 
+    // BYO（自带 ONNX/tokenizer 文件）模式尚未接线：显式拒绝，避免参数被静默忽略
+    if args.onnx.is_some()
+        || args.tokenizer.is_some()
+        || args.config.is_some()
+        || args.special_tokens_map.is_some()
+        || args.tokenizer_config.is_some()
+    {
+        anyhow::bail!(
+            "BYO 模式（--onnx/--tokenizer/--config/--special-tokens-map/--tokenizer-config）暂未实现，请使用 --model 或 --code"
+        );
+    }
+
     // 解析模型标识，复用 get_or_init_model 的解析+初始化逻辑
     let model_input = if let Some(model_name) = args.model {
         model_name
@@ -32,7 +44,8 @@ pub async fn download_model(args: DownloadArgs) -> Result<()> {
     println!("⬇️ Downloading model files...");
     let start = std::time::Instant::now();
 
-    // 下载阶段不需要 GPU EP（device=cpu），单实例（pool_size=1）即可触发文件下载与初始化
+    // 下载阶段不需要 GPU EP（device=cpu），单实例（pool_size=1）即可触发文件下载与初始化；
+    // show_progress 取 --progress（默认 true）
     let _ = get_or_init_model(
         model_type,
         &model_input,
@@ -40,6 +53,7 @@ pub async fn download_model(args: DownloadArgs) -> Result<()> {
         None,
         "cpu",
         1,
+        args.progress,
     )?;
 
     let elapsed = start.elapsed();

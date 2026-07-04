@@ -128,6 +128,18 @@ fastembed:
 | `FASTEMBED_BATCH_SIZE` | batch size |
 | `FASTEMBED_POOL_SIZE` | instance pool size (concurrency; >1 = N× memory) |
 
+## Design Notes
+
+- **Warmup scope**: only the text default model (`default_model`) is pre-warmed at startup; image / sparse models lazy-load on first request (slow first hit, cached thereafter). Pre-download with `fastembed models download` to be ready sooner.
+- **Concurrent init**: first loads of all models share one global lock (serialized) to avoid ort conflicts when initializing the same cached model concurrently. Only the slow first-load path is affected; runtime inference is lock-free.
+- **Instance pool**: `pool_size` caps per-model concurrent inference. `=1` (default) serializes on a single instance (usually optimal on CPU); `>1` spins up N independent ONNX sessions for concurrency (costs N× memory).
+- **Error classification**: a non-existent image path returns **400** (client error); model init / inference failures return **500**.
+- **Out-of-catalog models**: `/api/models/available` and `models list` scan the built-in catalog only; out-of-catalog models downloaded via HF code are not listed (the CLI prints a WARNING on completion).
+- **Dimension semantics**: `dim=0` in responses means sparse model or unknown out-of-catalog model (in-catalog dense models carry the real dimension).
+- **Config location**: defaults to `./config.yml` in the working directory (the repo's `crates/fastembed/config.yml` is just an example). For production, prefer env overrides or a mounted config. Precedence: CLI > env > file > defaults.
+- **Progress bar**: only `models download` shows download progress; lazy loads triggered by runtime requests do not print a progress bar (keeps logs clean).
+- **BYO mode**: the CLI flags `--onnx/--tokenizer/...` are retained but **not yet implemented**; passing them fails fast (never silently ignored).
+
 ## Supported Models
 
 **Text** (Xenova ONNX namespace): `BGELargeZHV15` (Xenova/bge-large-zh-v1.5, 1024d), `BGESmallZHV15` (512d), `BGEBaseENV15` (768d), `BGESmallENV15` (384d), `BGELargeENV15` (1024d), `AllMiniLML6V2` (384d), `AllMiniLML12V2` (384d). Any model recognized by fastembed's `EmbeddingModel::from_str` is also accepted (dim reported as 0).

@@ -24,9 +24,9 @@ pub enum Commands {
 /// HTTP 服务启动参数
 #[derive(Parser, Debug)]
 pub struct ServerArgs {
-    /// 监听端口
-    #[arg(short, long, default_value = "8080")]
-    pub port: u16,
+    /// 监听端口（未指定时取配置文件 / FASTEMBED_PORT / 默认 8080）
+    #[arg(short, long)]
+    pub port: Option<u16>,
 
     /// 配置文件路径
     #[arg(short, long)]
@@ -64,23 +64,23 @@ pub struct DownloadArgs {
     #[arg(long)]
     pub code: Option<String>,
 
-    /// BYO 模式：ONNX 文件名
+    /// BYO 模式：ONNX 文件名（暂未实现，传了会报错）
     #[arg(long)]
     pub onnx: Option<String>,
 
-    /// BYO 模式：Tokenizer 文件名
+    /// BYO 模式：Tokenizer 文件名（暂未实现，传了会报错）
     #[arg(long)]
     pub tokenizer: Option<String>,
 
-    /// BYO 模式：Config 文件名
+    /// BYO 模式：Config 文件名（暂未实现，传了会报错）
     #[arg(long)]
     pub config: Option<String>,
 
-    /// BYO 模式：Special tokens map 文件名
+    /// BYO 模式：Special tokens map 文件名（暂未实现，传了会报错）
     #[arg(long, alias = "special_tokens")]
     pub special_tokens_map: Option<String>,
 
-    /// BYO 模式：Tokenizer config 文件名
+    /// BYO 模式：Tokenizer config 文件名（暂未实现，传了会报错）
     #[arg(long)]
     pub tokenizer_config: Option<String>,
 
@@ -88,7 +88,7 @@ pub struct DownloadArgs {
     #[arg(long, default_value = ".fastembed_cache")]
     pub cache_dir: PathBuf,
 
-    /// 显示下载进度
+    /// 显示下载进度（传 --progress=false 关闭）
     #[arg(long, default_value_t = true)]
     pub progress: bool,
 }

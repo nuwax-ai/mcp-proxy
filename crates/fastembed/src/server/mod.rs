@@ -152,6 +152,7 @@ fn warmup_model(state: Arc<AppState>, config: AppConfig) -> Result<()> {
         None, // 使用模型默认的 max_length
         &config.fastembed.device,
         config.fastembed.pool_size,
+        true, // 启动期预热允许显示下载进度
     )?;
 
     // 执行一次微型嵌入（从池中取一个实例）

@@ -8,7 +8,7 @@
 #
 # 用法:
 #   make build-fastembed-x86_64
-FROM rust:1.90 AS builder
+FROM rust:1.92 AS builder
 
 RUN apt-get update && apt-get install -y \
     pkg-config \

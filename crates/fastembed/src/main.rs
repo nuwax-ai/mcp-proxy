@@ -29,9 +29,9 @@ async fn main() -> Result<()> {
             // 加载或生成配置
             let mut config = AppConfig::load_or_generate(args.config)?;
 
-            // 命令行端口覆盖配置文件
-            if args.port != 8080 {
-                config.server.port = args.port;
+            // 命令行端口优先级最高：显式指定时覆盖配置文件 / env
+            if let Some(port) = args.port {
+                config.server.port = port;
             }
 
             // 启动服务器

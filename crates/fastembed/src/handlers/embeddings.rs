@@ -12,8 +12,18 @@ fn default_embed_type() -> String {
     "text".to_string()
 }
 
-/// spawn_blocking 内的流水线返回类型：外层 Err = 初始化失败，内层 Err = 推理失败。
-type PipelineResult = Result<Result<(ModelInfo, EmbedOutput), anyhow::Error>, anyhow::Error>;
+/// spawn_blocking 流水线结果：区分客户端错误（400）与服务端错误（500），
+/// 便于 handler 精确映射 HTTP 状态码（坏路径属客户端责任，不应记为 5xx）。
+enum PipelineOutcome {
+    /// 成功：模型信息 + 嵌入结果
+    Success(ModelInfo, EmbedOutput),
+    /// 客户端错误（如图片路径不存在）→ 400
+    BadRequest(String),
+    /// 模型初始化失败 → 500
+    InitFailed(anyhow::Error),
+    /// 嵌入推理失败 → 500
+    InferFailed(anyhow::Error),
+}
 
 /// 文本嵌入请求
 #[derive(Debug, Deserialize, ToSchema)]
@@ -121,11 +131,28 @@ pub async fn handle_embed(
         )
     })?;
 
-    // 按类型选择输入字段：image 用 images（路径），text/sparse 用 texts
-    let (inputs, field_name): (Vec<String>, &str) = match model_type {
-        EmbeddingType::Image => (req.images.unwrap_or_default(), "images"),
-        EmbeddingType::Text | EmbeddingType::Sparse => (req.texts.unwrap_or_default(), "texts"),
-    };
+    // 按类型选择输入字段：image 用 images（路径），text/sparse 用 texts。
+    // 同时检测是否误传了不匹配的字段（type=text 却传了 images 等），warn 提示其被忽略。
+    let (inputs, field_name, other_field, other_len): (Vec<String>, &str, &str, usize) =
+        match model_type {
+            EmbeddingType::Image => {
+                let other = req.texts.as_ref().map(Vec::len).unwrap_or(0);
+                (req.images.unwrap_or_default(), "images", "texts", other)
+            }
+            EmbeddingType::Text | EmbeddingType::Sparse => {
+                let other = req.images.as_ref().map(Vec::len).unwrap_or(0);
+                (req.texts.unwrap_or_default(), "texts", "images", other)
+            }
+        };
+    if other_len > 0 {
+        tracing::warn!(
+            "type={} 仅使用 {} 字段；忽略了 {} 个不匹配的 {} 输入",
+            model_type,
+            field_name,
+            other_len,
+            other_field
+        );
+    }
 
     // 参数验证：非空
     if inputs.is_empty() {
@@ -165,54 +192,76 @@ pub async fn handle_embed(
     let pool_size = state.config.fastembed.pool_size;
     let batch_size = req.batch_size.unwrap_or(state.config.fastembed.batch_size);
 
-    // 初始化 + 推理均同步阻塞（可能含网络下载、ONNX 推理），放 spawn_blocking
-    // 避免阻塞 tokio 异步 worker。嵌套 Result 区分 init / embed 两类错误：
-    // 外层 Err = 初始化失败；内层 Err = 推理失败。
-    let joined = tokio::task::spawn_blocking(move || -> PipelineResult {
-        let (pool, info) = get_or_init_model(
+    // 初始化 + 推理均同步阻塞（可能含网络下载、ONNX 推理），放 spawn_blocking 避免阻塞 async worker。
+    // 闭包返回 PipelineOutcome：把 init / 路径校验 / 推理 三类结果显式分类，
+    // 便于 handler 映射到正确的 HTTP 状态码（坏路径→400，init/推理失败→500）。
+    let joined = tokio::task::spawn_blocking(move || -> PipelineOutcome {
+        let (pool, info) = match get_or_init_model(
             model_type,
             &model_name,
             Some(cache_dir),
             None,
             &device,
             pool_size,
-        )?;
-        let embed_result = {
-            // round-robin 取实例（pool_size>1 时允许并发推理）；
-            // 单实例上排队（fastembed embed 需 &mut self）。
-            // lock 毒化（某次请求持锁时 panic）时恢复，避免拖垮后续请求
-            let instance = pool.pick();
-            let mut guard = instance
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            guard.embed(inputs, Some(batch_size))
+            false, // 请求触发的懒加载：不刷下载进度条到日志
+        ) {
+            Ok(x) => x,
+            Err(e) => return PipelineOutcome::InitFailed(e),
         };
-        Ok(embed_result.map(|output| (info, output)))
+
+        // image 类型：embed 前校验路径存在。坏路径属客户端错误（400）而非服务端 500。
+        if model_type == EmbeddingType::Image {
+            for p in &inputs {
+                if !std::path::Path::new(p).exists() {
+                    return PipelineOutcome::BadRequest(format!("图片路径不存在: {}", p));
+                }
+            }
+        }
+
+        // round-robin 取实例（pool_size>1 时允许并发推理）；单实例上排队（fastembed embed 需 &mut self）。
+        // lock 毒化（某次请求持锁时 panic）时恢复，避免拖垮后续请求。
+        let instance = pool.pick();
+        let mut guard = instance
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match guard.embed(inputs, Some(batch_size)) {
+            Ok(output) => PipelineOutcome::Success(info, output),
+            Err(e) => PipelineOutcome::InferFailed(e),
+        }
     })
     .await;
 
     let (model_info, output) = match joined {
-        Ok(Ok(Ok(success))) => success,
-        // 推理失败
-        Ok(Ok(Err(e))) => {
-            tracing::error!("Embedding calculation failed: {:?}", e);
+        Ok(PipelineOutcome::Success(info, out)) => (info, out),
+        Ok(PipelineOutcome::BadRequest(msg)) => {
+            tracing::warn!("Embedding bad request: {}", msg);
             return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
+                StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
-                    error: "EMBED_ERROR".to_string(),
-                    message: format!("嵌入计算失败: {}", e),
-                    status: 500,
+                    error: "INVALID_INPUT".to_string(),
+                    message: msg,
+                    status: 400,
                 }),
             ));
         }
-        // 初始化失败
-        Ok(Err(e)) => {
+        Ok(PipelineOutcome::InitFailed(e)) => {
             tracing::error!("Model initialization failed: {:?}", e);
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
                     error: "MODEL_INIT_ERROR".to_string(),
                     message: format!("模型初始化失败: {}", e),
+                    status: 500,
+                }),
+            ));
+        }
+        Ok(PipelineOutcome::InferFailed(e)) => {
+            tracing::error!("Embedding calculation failed: {:?}", e);
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "EMBED_ERROR".to_string(),
+                    message: format!("嵌入计算失败: {}", e),
                     status: 500,
                 }),
             ));

@@ -128,6 +128,18 @@ fastembed:
 | `FASTEMBED_BATCH_SIZE` | 批大小 |
 | `FASTEMBED_POOL_SIZE` | 实例池大小（并发数；>1 = N× 内存） |
 
+## 设计说明
+
+- **预热范围**：启动时仅预热文本默认模型（`default_model`）；image / sparse 模型在首次请求时懒加载（首次较慢，后续走缓存）。需启动即就绪可用 `fastembed models download` 预下载。
+- **并发初始化**：所有模型的首次加载共用一把全局锁串行化，避免 ort 在并发初始化同一缓存模型时冲突。仅影响「首次加载」慢路径，运行时推理无锁。
+- **实例池**：`pool_size` 控制单模型并发推理上限。`=1`（默认）单实例串行（CPU 推理通常最优）；`>1` 创建 N 个独立 ONNX 会话允许并发（代价 N× 内存）。
+- **错误分类**：image 类型传入不存在的图片路径返回 **400**（客户端错误）；模型初始化 / 推理失败返回 **500**。
+- **目录外模型**：`/api/models/available` 与 `models list` 仅扫描内置目录；用 HF 代码下载的目录外模型不会被列出（下载完成时 CLI 给出 WARNING）。
+- **维度语义**：响应中 `dim=0` 表示稀疏模型或目录外未知模型（稠密目录内模型才有真实维度）。
+- **配置文件位置**：默认读取工作目录下的 `./config.yml`（仓库内 `crates/fastembed/config.yml` 仅为示例）。生产部署建议用环境变量覆盖或挂载配置文件。优先级：命令行 > 环境变量 > 配置文件 > 默认值。
+- **进度条**：仅 `models download` 显示下载进度；服务运行时请求触发的懒加载不打印进度条，避免污染日志。
+- **BYO 模式**：CLI 的 `--onnx/--tokenizer/...` 参数已保留但**暂未实现**，传了会立即报错（避免被静默忽略）。
+
 ## 支持的模型
 
 **文本**（Xenova ONNX 命名空间）：`BGELargeZHV15`（Xenova/bge-large-zh-v1.5，1024 维）、`BGESmallZHV15`（512 维）、`BGEBaseENV15`（768 维）、`BGESmallENV15`（384 维）、`BGELargeENV15`（1024 维）、`AllMiniLML6V2`（384 维）、`AllMiniLML12V2`（384 维）。也接受 fastembed `EmbeddingModel::from_str` 能识别的任何模型（维度报为 0）。
