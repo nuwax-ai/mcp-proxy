@@ -17,7 +17,7 @@ use reqwest;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use sqlx::sqlite::SqlitePoolOptions;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -93,6 +93,8 @@ pub struct StepContext {
     pub transcription_engine: Arc<TranscriptionEngine>,
     pub audio_file_manager: Arc<AudioFileManager>,
     pub pool: sqlx::SqlitePool,
+    /// STT 模型管理（P0-async：transcription_step 改用 stt 引擎池；transcription_engine 字段 P1 删）
+    pub model_service: Arc<ModelService>,
 }
 
 impl StepContext {
@@ -336,7 +338,8 @@ impl LockFreeApalisManager {
             return Ok(());
         }
         // 创建服务
-        let transcription_engine = Arc::new(TranscriptionEngine::new(model_service));
+        // P1 删 transcription_engine：保留仅为 P0 过渡；transcription_step 已改用 stt 引擎池
+        let transcription_engine = Arc::new(TranscriptionEngine::new(model_service.clone()));
         let audio_file_manager = Arc::new(
             AudioFileManager::new("./data/audio")
                 .map_err(|e| VoiceCliError::Storage(format!("创建音频文件管理器失败: {}", e)))?,
@@ -347,6 +350,7 @@ impl LockFreeApalisManager {
             transcription_engine,
             audio_file_manager,
             pool: self.pool.clone(),
+            model_service,
         };
 
         // 创建普通 worker，内部使用步骤化逻辑
@@ -1402,53 +1406,74 @@ async fn transcription_step(
         }
     };
 
-    // 执行转录，使用配置中的默认模型
-    let default_model = ctx.transcription_engine.default_model();
-    let model = task.model.as_deref().unwrap_or(default_model);
+    // 模型 id（P0 用配置默认；P1 从 task 透传 language/beam_size/temperature/initial_prompt）
+    let default_model = ctx.model_service.default_model();
+    let model = task.model.as_deref().unwrap_or(default_model).to_string();
 
-    // 首先检查文件是否有音频流
-    let has_audio = check_file_has_audio_stream(&task.processed_audio_path)
+    // ensure_model：模型缺失时自动下载（接入 HTTP，修复旧版 auto_download 形同虚设）
+    ctx.model_service
+        .ensure_model(&model)
+        .await
+        .map_err(|e| -> Error {
+            Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
+                format!("模型准备失败: {e}"),
+            ))))
+        })?;
+    let model_path = ctx
+        .model_service
+        .get_model_path(&model)
+        .map_err(|e| -> Error {
+            Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
+                format!("获取模型路径失败: {e}"),
+            ))))
+        })?;
+    let pool_size = 1usize; // P0 默认单实例；P1 从 config.whisper.engine.pool_size 读
+
+    // 同步推理走 spawn_blocking（transcribe-rs 是同步阻塞 C 调用，不能阻塞 tokio reactor）。
+    // 修复旧版反模式：transcribe_with_conversion 内 spawn_blocking 再 block_on 新 current-thread runtime。
+    // 无音频流时 ffmpeg-sidecar 转码自然报错 → SttError::Audio（替代旧 ffprobe 系统依赖）。
+    let audio_path_for_blocking = task.processed_audio_path.clone();
+    let model_id_for_blocking = model.clone();
+    let transcription_result =
+        tokio::task::spawn_blocking(move || -> std::result::Result<_, crate::stt::SttError> {
+            let samples = crate::stt::audio::to_whisper_samples(&audio_path_for_blocking)?;
+            let key = crate::stt::EngineKey::new(&model_id_for_blocking);
+            let pool = crate::stt::get_or_init_engine(key, model_path, pool_size)?;
+            let inst = pool.pick();
+            let mut guard = inst.lock().unwrap_or_else(|p| p.into_inner());
+            let opts = crate::stt::SttTranscribeOptions::default();
+            let result = guard.transcribe_with(&samples, &opts.to_inference_params())?;
+            Ok(result)
+        })
         .await
         .map_err(|e| {
             Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
-                format!("检查音频流失败: {}", e),
+                format!("转录任务 join 失败: {e}"),
             ))))
-        })?;
-
-    if !has_audio {
-        return Err(Error::Abort(std::sync::Arc::new(Box::new(
-            std::io::Error::other("文件不包含音频流，无法进行转录".to_string()),
-        ))));
-    }
-
-    let transcription_result = ctx
-        .transcription_engine
-        .transcribe_with_conversion(
-            model,
-            &task.processed_audio_path,
-            ctx.transcription_engine.worker_timeout(), // 使用配置中的超时时间
-        )
-        .await
+        })?
         .map_err(|e| {
             Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
                 format!("转录失败: {}", e),
             ))))
         })?;
 
-    // 转换为 TranscriptionResponse
+    // 转换 transcribe-rs TranscriptionResult → TranscriptionResponse。
+    // 注意：transcribe-rs 的 segment.start/end 已是秒（whisper.cpp 时间戳 / 100），
+    // 旧 voice_toolkit 是 start_time/end_time 毫秒。
     let mut response = TranscriptionResponse {
         text: transcription_result.text,
         segments: transcription_result
             .segments
+            .unwrap_or_default()
             .into_iter()
             .map(|s| crate::models::Segment {
-                start: s.start_time as f32 / 1000.0,
-                end: s.end_time as f32 / 1000.0,
+                start: s.start,
+                end: s.end,
                 text: s.text,
-                confidence: s.confidence,
+                confidence: 0.0, // transcribe-rs 0.3.11 TranscriptionSegment 无 confidence
             })
             .collect(),
-        language: transcription_result.language,
+        language: None, // 0.3.11 TranscriptionResult 无 language；P1 从 opts 透传
         duration: None,
         processing_time: 0.0,
         metadata: None,
@@ -1474,29 +1499,6 @@ async fn transcription_step(
         completed_task.transcription_result.text.len()
     );
     Ok(completed_task)
-}
-
-/// 检查文件是否包含音频流
-async fn check_file_has_audio_stream(file_path: &Path) -> Result<bool, VoiceCliError> {
-    use std::process::Command;
-
-    // 使用 ffprobe 检查文件是否有音频流
-    let output = Command::new("ffprobe")
-        .args([
-            "-v",
-            "quiet",
-            "-show_streams",
-            "-select_streams",
-            "a",
-            "-of",
-            "csv=p=0",
-            file_path.to_str().unwrap_or("invalid_path"),
-        ])
-        .output()
-        .map_err(|e| VoiceCliError::AudioConversionFailed(format!("执行 ffprobe 失败: {}", e)))?;
-
-    // 如果输出为空，则没有音频流
-    Ok(!output.stdout.is_empty())
 }
 
 /// 步骤 3: 结果格式化和存储
