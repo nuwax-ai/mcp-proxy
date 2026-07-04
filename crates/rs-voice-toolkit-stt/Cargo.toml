@@ -1,0 +1,49 @@
+[package]
+name = "rs-voice-toolkit-stt"
+version = "0.16.1"
+edition = "2024"
+authors = ["rs-voice-toolkit contributors"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/soddygo/rs-voice-toolkit"
+homepage = "https://github.com/soddygo/rs-voice-toolkit"
+documentation = "https://docs.rs/voice-toolkit"
+categories = ["multimedia::audio", "api-bindings"]
+rust-version = "1.85"
+description = "A Rust library for speech-to-text processing using Whisper"
+keywords = ["speech", "whisper", "audio", "transcription", "stt"]
+
+[dependencies]
+# voice 专属依赖（workspace 未集中管理）
+whisper-rs = "0.16"
+hound = "3.5"
+ffmpeg-sidecar = { workspace = true }
+rubato = "3"
+audioadapter-buffers = "3.0"
+sysinfo = "0.30"
+# 与 workspace 统一版本的依赖
+tokio = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+# 内部 crate（vendor 后改为本地 path）
+rs-voice-toolkit-audio = { path = "../rs-voice-toolkit-audio" }
+
+[features]
+default = []
+streaming = []
+
+# 核心后端特性（透传到 whisper-rs）
+cuda = ["whisper-rs/cuda"]
+vulkan = ["whisper-rs/vulkan"]
+metal = ["whisper-rs/metal", "whisper-rs/coreml"]
+
+[dev-dependencies]
+env_logger = "0.11"
+rand = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+
+[lib]
+name = "rs_voice_toolkit_stt"
+path = "src/lib.rs"

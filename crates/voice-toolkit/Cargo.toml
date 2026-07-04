@@ -1,0 +1,31 @@
+[package]
+name = "voice-toolkit"
+version = "0.16.1"
+description = "A comprehensive Rust toolkit for voice processing including STT, TTS, and audio utilities"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/soddygo/rs-voice-toolkit"
+keywords = ["voice", "speech", "audio", "stt", "tts"]
+categories = ["multimedia::audio"]
+edition = "2024"
+authors = ["rs-voice-toolkit contributors"]
+
+[features]
+default = ["stt", "audio"]
+stt = ["dep:rs-voice-toolkit-stt"]
+tts = ["dep:rs-voice-toolkit-tts"]
+audio = ["dep:rs-voice-toolkit-audio"]
+streaming = ["stt", "rs-voice-toolkit-stt/streaming"]
+# GPU 加速特性（透传到 stt -> whisper-rs）
+cuda = ["stt", "rs-voice-toolkit-stt/cuda"]
+vulkan = ["stt", "rs-voice-toolkit-stt/vulkan"]
+metal = ["stt", "rs-voice-toolkit-stt/metal"]
+
+[dependencies]
+# 内部 crate（vendor 后改为本地 path，保留 optional + feature 门控）
+rs-voice-toolkit-stt = { path = "../rs-voice-toolkit-stt", optional = true }
+rs-voice-toolkit-tts = { path = "../rs-voice-toolkit-tts", optional = true }
+rs-voice-toolkit-audio = { path = "../rs-voice-toolkit-audio", optional = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

@@ -4478,8 +4478,6 @@ dependencies = [
 [[package]]
 name = "rs-voice-toolkit-audio"
 version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62b33e6437fce833752836568202d74d53a6dbf0065391e3af91c1905f35cef3"
 dependencies = [
  "audioadapter-buffers",
  "ffmpeg-sidecar",
@@ -4494,14 +4492,14 @@ dependencies = [
 [[package]]
 name = "rs-voice-toolkit-stt"
 version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a5bbcdf61110119dff08b8adf2f6ed0229674db714a53a350a2d7047d63921c"
 dependencies = [
  "anyhow",
  "audioadapter-buffers",
+ "env_logger",
  "ffmpeg-sidecar",
  "hound",
  "log",
+ "rand 0.10.1",
  "rs-voice-toolkit-audio",
  "rubato",
  "serde",
@@ -4510,6 +4508,18 @@ dependencies = [
  "tokio",
  "tracing",
  "whisper-rs",
+]
+
+[[package]]
+name = "rs-voice-toolkit-tts"
+version = "0.16.1"
+dependencies = [
+ "async-trait",
+ "log",
+ "serde",
+ "thiserror 2.0.18",
+ "tokio",
+ "which",
 ]
 
 [[package]]
@@ -6717,12 +6727,12 @@ dependencies = [
 [[package]]
 name = "voice-toolkit"
 version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e2683ea292fff11df0be2b864b98fbc943b51493f2be8b3d8fec6aa67feae53"
 dependencies = [
  "rs-voice-toolkit-audio",
  "rs-voice-toolkit-stt",
+ "rs-voice-toolkit-tts",
  "thiserror 2.0.18",
+ "tokio",
 ]
 
 [[package]]
