@@ -162,6 +162,9 @@ pub async fn handle_embed(
         let (arc, info) =
             get_or_init_model(model_type, &model_name, Some(cache_dir), None, &device)?;
         let embed_result = {
+            // 推理期持 model Mutex：同一模型的并发请求在此排队（fastembed embed
+            // 要求 &mut self，故必须独占）。不同模型各自独立 Mutex、可并行。
+            // 若未来单模型并发吞吐成为瓶颈，可改为 N 实例池（代价 N× 内存）。
             // lock 毒化（某次请求持锁时 panic）时恢复，避免拖垮后续请求
             let mut guard = arc.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
             guard.embed(texts, Some(batch_size))
