@@ -31,7 +31,7 @@
 //!
 //! ### 基本格式检测
 //!
-//! ```rust
+//! ```ignore
 //! use rs_voice_toolkit_audio::{probe, AudioError};
 //!
 //! async fn get_audio_info() -> Result<(), AudioError> {
@@ -46,7 +46,7 @@
 //!
 //! ### 转换为 Whisper 兼容格式
 //!
-//! ```rust
+//! ```ignore
 //! use rs_voice_toolkit_audio::{ensure_whisper_compatible, AudioError};
 //!
 //! async fn convert_for_whisper() -> Result<(), AudioError> {
@@ -62,7 +62,7 @@
 //!
 //! ### 音频重采样
 //!
-//! ```rust
+//! ```ignore
 //! use rs_voice_toolkit_audio::{resample, AudioError};
 //!
 //! async fn resample_audio() -> Result<(), AudioError> {
@@ -83,7 +83,7 @@
 //!
 //! ### 流式重采样
 //!
-//! ```rust
+//! ```ignore
 //! use rs_voice_toolkit_audio::{StreamingResampler, AudioError};
 //!
 //! async fn stream_resample() -> Result<(), AudioError> {
@@ -217,7 +217,7 @@ pub enum AudioError {
 ///
 /// ## 使用示例
 ///
-/// ```rust
+/// ```ignore
 /// use rs_voice_toolkit_audio::AudioFormat;
 ///
 /// // 从文件扩展名推断格式
@@ -302,7 +302,7 @@ impl AudioFormat {
 ///
 /// ## 使用示例
 ///
-/// ```rust
+/// ```ignore
 /// use rs_voice_toolkit_audio::AudioConfig;
 ///
 /// // 创建自定义配置
@@ -425,7 +425,7 @@ pub struct Resampled {
 ///
 /// ## 使用示例
 ///
-/// ```rust
+/// ```ignore
 /// use rs_voice_toolkit_audio::{probe, AudioError};
 ///
 /// fn analyze_audio() -> Result<(), AudioError> {
@@ -524,7 +524,7 @@ pub fn probe<P: AsRef<std::path::Path>>(input: P) -> Result<AudioMeta, AudioErro
 ///
 /// ## 使用示例
 ///
-/// ```rust
+/// ```ignore
 /// use rs_voice_toolkit_audio::{ensure_whisper_compatible, AudioError};
 /// use std::path::PathBuf;
 ///

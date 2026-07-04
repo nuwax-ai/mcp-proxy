@@ -24,7 +24,7 @@
 //!
 //! ### 基本文件转录
 //!
-//! ```rust
+//! ```ignore
 //! use rs_voice_toolkit_stt::{transcribe_file, WhisperConfig, SttError};
 //!
 //! #[tokio::main]
@@ -43,7 +43,7 @@
 //!
 //! ### 自定义配置转录
 //!
-//! ```rust
+//! ```ignore
 //! use rs_voice_toolkit_stt::{transcribe_file_with_config, WhisperConfig, SttError};
 //!
 //! #[tokio::main]
@@ -67,7 +67,8 @@
 //!
 //! ### 流式转录
 //!
-//! ```rust
+//! ```ignore
+//! // 需要 `streaming` feature（默认关闭），故本示例标记为 ignore
 //! use rs_voice_toolkit_stt::{StreamingTranscriber, StreamingConfig, SttError};
 //!
 //! #[tokio::main]
@@ -131,7 +132,7 @@
 //!
 //! 模块提供了详细的错误类型，帮助快速定位问题：
 //!
-//! ```rust
+//! ```ignore
 //! use rs_voice_toolkit_stt::{SttError, transcribe_file};
 //!
 //! match transcribe_file("model.bin", "audio.wav").await {

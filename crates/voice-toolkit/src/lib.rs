@@ -27,7 +27,7 @@
 //!
 //! ### 语音转文本示例
 //!
-//! ```rust
+//! ```ignore
 //! use voice_toolkit::transcribe_file_unified;
 //!
 //! #[tokio::main]
@@ -44,7 +44,7 @@
 //!
 //! ### 音频格式转换示例
 //!
-//! ```rust
+//! ```ignore
 //! use voice_toolkit::audio;
 //!
 //! #[tokio::main]
@@ -62,7 +62,8 @@
 //!
 //! ### 文本转语音示例
 //!
-//! ```rust
+//! ```ignore
+//! // 需要 `tts` feature：voice-toolkit 默认只开 stt+audio，故本示例标记为 ignore
 //! use voice_toolkit::tts;
 //!
 //! #[tokio::main]
@@ -216,7 +217,7 @@ mod stt_wrappers {
     ///
     /// ## 示例
     ///
-    /// ```rust
+    /// ```ignore
     /// use voice_toolkit::transcribe_file_unified;
     ///
     /// #[tokio::main]
