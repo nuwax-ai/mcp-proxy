@@ -127,6 +127,8 @@ mod tests {
 
     #[test]
     fn test_error_creation() {
+        // 断言依赖中文翻译，显式设定 locale（默认 en 会得到英文 "Configuration error:"）
+        rust_i18n::set_locale("zh-CN");
         let config_err = OssError::config("test config error");
         assert!(config_err.is_config_error());
         assert_eq!(config_err.to_string(), "配置错误: test config error");
@@ -157,16 +159,18 @@ mod tests {
 
     #[test]
     fn test_error_display() {
-        let err = OssError::FileSizeExceeded("文件大小超过100MB".to_string());
+        // 通过 helper 构造（helper 内部走 t! 加 i18n 前缀），并设定中文 locale 让输出确定
+        rust_i18n::set_locale("zh-CN");
+        let err = OssError::file_size_exceeded("文件大小超过100MB");
         assert_eq!(err.to_string(), "文件大小超出限制: 文件大小超过100MB");
 
-        let err = OssError::UnsupportedFileType("不支持.xyz格式".to_string());
+        let err = OssError::unsupported_file_type("不支持.xyz格式");
         assert_eq!(err.to_string(), "不支持的文件类型: 不支持.xyz格式");
 
-        let err = OssError::Timeout("操作超时30秒".to_string());
+        let err = OssError::timeout("操作超时30秒");
         assert_eq!(err.to_string(), "操作超时: 操作超时30秒");
 
-        let err = OssError::InvalidParameter("object_key不能为空".to_string());
+        let err = OssError::invalid_parameter("object_key不能为空");
         assert_eq!(err.to_string(), "无效的参数: object_key不能为空");
     }
 
