@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::sync::RwLock;
 use tracing::{info, instrument, warn};
+use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
 
@@ -450,6 +451,9 @@ pub struct EnhancedLoggingSystem {
     config: LoggingConfig,
     correlation_context: Arc<RwLock<CorrelationContext>>,
     _guards: Vec<tracing_appender::non_blocking::WorkerGuard>,
+    // 线程局部 subscriber guard（set_default 返回；持有它以保持当前线程的 subscriber 生效）。
+    // 用线程局部而非全局 set_global_default，避免并行测试互相 poison。
+    _dispatcher_guard: Option<tracing::subscriber::DefaultGuard>,
 }
 
 impl EnhancedLoggingSystem {
@@ -479,14 +483,14 @@ impl EnhancedLoggingSystem {
             // 在实际实现中，这里需要更复杂的配置
         }
 
-        // 简化的订阅者初始化
-        tracing_subscriber::fmt()
+        // 简化的订阅者初始化（线程局部 set_default，避免并行测试抢全局 subscriber）
+        let subscriber = tracing_subscriber::fmt()
             .with_env_filter(env_filter)
             .with_target(true)
             .with_thread_ids(true)
             .with_file(true)
-            .with_line_number(true)
-            .init();
+            .with_line_number(true);
+        let dispatcher_guard = subscriber.set_default();
 
         info!(
             service_name = %config.service_name,
@@ -500,6 +504,7 @@ impl EnhancedLoggingSystem {
             config,
             correlation_context: Arc::new(RwLock::new(CorrelationContext::default())),
             _guards: guards,
+            _dispatcher_guard: Some(dispatcher_guard),
         })
     }
 

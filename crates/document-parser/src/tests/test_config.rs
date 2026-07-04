@@ -3,24 +3,7 @@
 //! This module provides comprehensive test configuration and setup utilities
 //! for running tests with proper isolation and cleanup.
 
-use std::sync::Once;
 use tempfile::TempDir;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-
-static INIT: Once = Once::new();
-
-/// Initialize test logging (call once per test run)
-pub fn init_test_logging() {
-    INIT.call_once(|| {
-        tracing_subscriber::registry()
-            .with(
-                tracing_subscriber::EnvFilter::try_from_default_env()
-                    .unwrap_or_else(|_| "document_parser=debug,tower_http=debug".into()),
-            )
-            .with(tracing_subscriber::fmt::layer().with_test_writer())
-            .init();
-    });
-}
 
 /// Test environment configuration
 pub struct TestEnvironment {
@@ -32,8 +15,6 @@ pub struct TestEnvironment {
 impl TestEnvironment {
     /// Create a new isolated test environment
     pub fn new() -> Self {
-        init_test_logging();
-
         let temp_dir = TempDir::new().expect("Failed to create temp directory");
         let db_path = temp_dir
             .path()
@@ -366,7 +347,6 @@ mod test_config_tests {
     use crate::models::*;
 
     #[test]
-    #[ignore = "Uses global Once instance for tracing, fails when other tests poison it"]
     fn test_environment_creation() {
         let env = TestEnvironment::new();
 
@@ -377,7 +357,6 @@ mod test_config_tests {
     }
 
     #[test]
-    #[ignore = "Uses global Once instance for tracing, fails when other tests poison it"]
     fn test_file_creation() {
         let env = TestEnvironment::new();
 
@@ -389,7 +368,6 @@ mod test_config_tests {
     }
 
     #[test]
-    #[ignore = "Uses global Once instance for tracing, fails when other tests poison it"]
     fn test_pdf_creation() {
         let env = TestEnvironment::new();
 
@@ -401,7 +379,6 @@ mod test_config_tests {
     }
 
     #[test]
-    #[ignore = "Uses global Once instance for tracing, fails when other tests poison it"]
     fn test_markdown_creation() {
         let env = TestEnvironment::new();
 
