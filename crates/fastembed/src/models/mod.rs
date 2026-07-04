@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, anyhow};
 use dashmap::DashMap;
-use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
+use fastembed::{EmbeddingModel, ExecutionProviderDispatch, TextInitOptions, TextEmbedding};
 use once_cell::sync::Lazy;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -26,11 +26,52 @@ pub fn parse_model(user_input: &str) -> Result<EmbeddingModel> {
     }
 }
 
+/// 按 device 配置解析 ort execution providers（GPU 加速）
+/// device: "auto"（按平台自动选）| "cpu" | "coreml" | "cuda" | "directml"
+pub fn resolve_execution_providers(device: &str) -> Vec<ExecutionProviderDispatch> {
+    match device {
+        "cpu" | "" => vec![],
+        "coreml" => vec![ort::ep::CoreML::default().into()],
+        "cuda" => vec![ort::ep::CUDA::default().into()],
+        "directml" => vec![ort::ep::DirectML::default().into()],
+        "auto" => resolve_auto_providers(),
+        other => {
+            tracing::warn!("未知 device '{}', 回退 CPU", other);
+            vec![]
+        }
+    }
+}
+
+/// auto 模式：按编译目标平台自动选 GPU execution provider
+fn resolve_auto_providers() -> Vec<ExecutionProviderDispatch> {
+    #[cfg(target_os = "macos")]
+    {
+        tracing::info!("auto → CoreML (macOS Apple GPU)");
+        return vec![ort::ep::CoreML::default().into()];
+    }
+    #[cfg(target_os = "linux")]
+    {
+        tracing::info!("auto → CUDA (Linux NVIDIA GPU, 若不可用 ort 自动回退 CPU)");
+        return vec![ort::ep::CUDA::default().into()];
+    }
+    #[cfg(target_os = "windows")]
+    {
+        tracing::info!("auto → DirectML (Windows GPU)");
+        return vec![ort::ep::DirectML::default().into()];
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    {
+        tracing::info!("auto → CPU (未知平台)");
+        return vec![];
+    }
+}
+
 /// 获取或初始化模型
 pub fn get_or_init_model(
     model: EmbeddingModel,
     cache_dir: Option<String>,
     max_length: Option<usize>,
+    device: &str,
 ) -> Result<Arc<Mutex<TextEmbedding>>> {
     // 检查缓存
     if let Some(existing) = MODEL_CACHE.get(&model) {
@@ -39,8 +80,8 @@ pub fn get_or_init_model(
     }
 
     // 初始化模型
-    tracing::info!("Initialization model: {:?}", model);
-    let mut options = InitOptions::new(model.clone());
+    tracing::info!("Initialization model: {:?}, device: {}", model, device);
+    let mut options = TextInitOptions::new(model.clone());
 
     if let Some(dir) = cache_dir {
         options = options.with_cache_dir(PathBuf::from(dir));
@@ -48,6 +89,12 @@ pub fn get_or_init_model(
 
     if let Some(len) = max_length {
         options = options.with_max_length(len);
+    }
+
+    // 配置 GPU execution providers（CoreML/CUDA/DirectML）
+    let eps = resolve_execution_providers(device);
+    if !eps.is_empty() {
+        options = options.with_execution_providers(eps);
     }
 
     // 显示下载进度

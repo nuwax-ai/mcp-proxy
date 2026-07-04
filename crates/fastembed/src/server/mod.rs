@@ -148,6 +148,7 @@ async fn warmup_model(state: Arc<AppState>, config: AppConfig) -> Result<()> {
         model,
         Some(config.fastembed.cache_dir.clone()),
         None, // 使用模型默认的 max_length
+        &config.fastembed.device,
     )?;
 
     // 执行一次微型嵌入

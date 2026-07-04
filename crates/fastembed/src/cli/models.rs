@@ -4,7 +4,7 @@ use anyhow::Result;
 
 /// 执行模型下载
 pub async fn download_model(args: DownloadArgs) -> Result<()> {
-    use fastembed::{InitOptions, TextEmbedding};
+    use fastembed::{TextEmbedding, TextInitOptions};
 
     tracing::info!("Start downloading the model...");
 
@@ -28,8 +28,8 @@ pub async fn download_model(args: DownloadArgs) -> Result<()> {
     println!("Cache directory: {}", args.cache_dir.display());
     println!();
 
-    // 初始化模型（会自动下载）
-    let mut options = InitOptions::new(model.clone());
+    // 初始化模型（会自动下载；下载阶段不需 GPU EP，用 CPU 即可）
+    let mut options = TextInitOptions::new(model.clone());
     options = options.with_cache_dir(args.cache_dir.clone());
     options = options.with_show_download_progress(args.progress);
 

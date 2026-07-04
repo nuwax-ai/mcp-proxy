@@ -122,6 +122,7 @@ pub async fn handle_embed(
         embedding_model.clone(),
         Some(state.config.fastembed.cache_dir.clone()),
         None, // 使用模型默认的 max_length
+        &state.config.fastembed.device,
     )
     .map_err(|e| {
         tracing::error!("Model initialization failed: {}", e);

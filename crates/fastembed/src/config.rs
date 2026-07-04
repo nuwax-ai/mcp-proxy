@@ -45,6 +45,10 @@ pub struct FastEmbedConfig {
     /// 批处理大小
     #[serde(default = "default_batch_size")]
     pub batch_size: usize,
+
+    /// 计算设备：auto（按平台自动选 GPU EP）| cpu | coreml | cuda | directml
+    #[serde(default = "default_device")]
+    pub device: String,
 }
 
 fn default_cache_dir() -> String {
@@ -59,12 +63,17 @@ fn default_batch_size() -> usize {
     256
 }
 
+fn default_device() -> String {
+    "auto".to_string()
+}
+
 impl Default for FastEmbedConfig {
     fn default() -> Self {
         Self {
             cache_dir: default_cache_dir(),
             default_model: default_model(),
             batch_size: default_batch_size(),
+            device: default_device(),
         }
     }
 }

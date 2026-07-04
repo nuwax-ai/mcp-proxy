@@ -33,6 +33,9 @@ tracing-subscriber = { workspace = true }
 
 # Embedding library
 fastembed = { version = "5", features = ["ort-download-binaries", "hf-hub-native-tls"] }
+# ort 直接依赖：拿 ort::ep::{CoreML,Cuda,DirectML} 配 GPU execution provider
+# 版本须与 fastembed-rs 锁的 ort 一致（=2.0.0-rc.12）
+ort = "2.0.0-rc.12"
 
 # Concurrency and caching
 dashmap = { workspace = true }
