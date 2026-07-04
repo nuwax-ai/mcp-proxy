@@ -31,7 +31,7 @@
 //!
 //! ### 基本格式检测
 //!
-//! ```ignore
+//! ```no_run
 //! use rs_voice_toolkit_audio::{probe, AudioError};
 //!
 //! async fn get_audio_info() -> Result<(), AudioError> {
@@ -46,7 +46,7 @@
 //!
 //! ### 转换为 Whisper 兼容格式
 //!
-//! ```ignore
+//! ```no_run
 //! use rs_voice_toolkit_audio::{ensure_whisper_compatible, AudioError};
 //!
 //! async fn convert_for_whisper() -> Result<(), AudioError> {
@@ -62,11 +62,11 @@
 //!
 //! ### 音频重采样
 //!
-//! ```ignore
+//! ```no_run
 //! use rs_voice_toolkit_audio::{resample, AudioError};
 //!
 //! async fn resample_audio() -> Result<(), AudioError> {
-//!     let input_samples: Vec<f32> = vec/*[音频数据]*/;
+//!     let input_samples: Vec<f32> = vec![0.0f32; 1024]; // 占位：真实音频样本
 //!     
 //!     // 从 44100Hz 重采样到 16000Hz
 //!     let resampled = resample(&input_samples, 44100, 16000)?;
@@ -83,14 +83,14 @@
 //!
 //! ### 流式重采样
 //!
-//! ```ignore
+//! ```no_run
 //! use rs_voice_toolkit_audio::{StreamingResampler, AudioError};
 //!
 //! async fn stream_resample() -> Result<(), AudioError> {
 //!     let mut resampler = StreamingResampler::new(44100, 16000)?;
 //!     
 //!     // 分块处理音频数据
-//!     let chunks: Vec<Vec<f32>> = vec/*[音频块]*/;
+//!     let chunks: Vec<Vec<f32>> = vec![vec![0.0f32; 1024]]; // 占位：真实音频分块
 //!     let mut all_output = Vec::new();
 //!     
 //!     for chunk in chunks {
@@ -217,7 +217,7 @@ pub enum AudioError {
 ///
 /// ## 使用示例
 ///
-/// ```ignore
+/// ```no_run
 /// use rs_voice_toolkit_audio::AudioFormat;
 ///
 /// // 从文件扩展名推断格式
@@ -302,7 +302,7 @@ impl AudioFormat {
 ///
 /// ## 使用示例
 ///
-/// ```ignore
+/// ```no_run
 /// use rs_voice_toolkit_audio::AudioConfig;
 ///
 /// // 创建自定义配置
@@ -425,7 +425,7 @@ pub struct Resampled {
 ///
 /// ## 使用示例
 ///
-/// ```ignore
+/// ```no_run
 /// use rs_voice_toolkit_audio::{probe, AudioError};
 ///
 /// fn analyze_audio() -> Result<(), AudioError> {
@@ -524,7 +524,7 @@ pub fn probe<P: AsRef<std::path::Path>>(input: P) -> Result<AudioMeta, AudioErro
 ///
 /// ## 使用示例
 ///
-/// ```ignore
+/// ```no_run
 /// use rs_voice_toolkit_audio::{ensure_whisper_compatible, AudioError};
 /// use std::path::PathBuf;
 ///

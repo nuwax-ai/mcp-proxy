@@ -24,7 +24,7 @@
 //!
 //! ### 基本文件转录
 //!
-//! ```ignore
+//! ```no_run
 //! use rs_voice_toolkit_stt::{transcribe_file, WhisperConfig, SttError};
 //!
 //! #[tokio::main]
@@ -43,7 +43,7 @@
 //!
 //! ### 自定义配置转录
 //!
-//! ```ignore
+//! ```no_run
 //! use rs_voice_toolkit_stt::{transcribe_file_with_config, WhisperConfig, SttError};
 //!
 //! #[tokio::main]
@@ -132,16 +132,20 @@
 //!
 //! 模块提供了详细的错误类型，帮助快速定位问题：
 //!
-//! ```ignore
+//! ```no_run
 //! use rs_voice_toolkit_stt::{SttError, transcribe_file};
 //!
-//! match transcribe_file("model.bin", "audio.wav").await {
-//!     Ok(result) => println!("转录成功: {}", result.text),
-//!     Err(SttError::ModelLoadError(e)) => println!("模型加载失败: {}", e),
-//!     Err(SttError::AudioProcessingError(e)) => println!("音频处理失败: {}", e),
-//!     Err(SttError::WhisperError(e)) => println!("Whisper 处理失败: {}", e),
-//!     Err(SttError::IoError(e)) => println!("IO 错误: {}", e),
-//!     Err(e) => println!("其他错误: {}", e),
+//! #[tokio::main]
+//! async fn main() -> Result<(), SttError> {
+//!     match transcribe_file("model.bin", "audio.wav").await {
+//!         Ok(result) => println!("转录成功: {}", result.text),
+//!         Err(SttError::ModelLoadError(e)) => println!("模型加载失败: {}", e),
+//!         Err(SttError::AudioProcessingError(e)) => println!("音频处理失败: {}", e),
+//!         Err(SttError::WhisperError(e)) => println!("Whisper 处理失败: {}", e),
+//!         Err(SttError::IoError(e)) => println!("IO 错误: {}", e),
+//!         Err(e) => println!("其他错误: {}", e),
+//!     }
+//!     Ok(())
 //! }
 //! ```
 //!

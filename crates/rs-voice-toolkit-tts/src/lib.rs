@@ -28,7 +28,7 @@
 //!
 //! ### 基本语音合成
 //!
-//! ```ignore
+//! ```no_run
 //! use rs_voice_toolkit_tts::{TtsService, TtsConfig};
 //!
 //! #[tokio::main]
@@ -56,7 +56,7 @@
 //!
 //! ### 自定义配置语音合成
 //!
-//! ```ignore
+//! ```no_run
 //! use rs_voice_toolkit_tts::{TtsService, TtsConfig, TtsEngineType};
 //!
 //! #[tokio::main]
@@ -88,7 +88,7 @@
 //!
 //! ### 批量语音合成
 //!
-//! ```ignore
+//! ```no_run
 //! use rs_voice_toolkit_tts::{TtsService, TtsConfig};
 //!
 //! #[tokio::main]
@@ -167,18 +167,22 @@
 //!
 //! 模块提供了详细的错误类型，帮助快速定位问题：
 //!
-//! ```ignore
+//! ```no_run
 //! use rs_voice_toolkit_tts::{TtsService, TtsConfig, TtsError};
 //!
-//! let service = TtsService::new(TtsConfig::default());
+//! #[tokio::main]
+//! async fn main() -> Result<(), TtsError> {
+//!     let service = TtsService::new(TtsConfig::default());
 //!
-//! match service.text_to_speech("测试文本").await {
-//!     Ok(audio_data) => println!("合成成功，音频大小: {} 字节", audio_data.len()),
-//!     Err(TtsError::NotImplemented) => println!("功能尚未实现"),
-//!     Err(TtsError::ConfigError(msg)) => println!("配置错误: {}", msg),
-//!     Err(TtsError::AudioGenerationError(msg)) => println!("音频生成错误: {}", msg),
-//!     Err(TtsError::EngineExecutionError(msg)) => println!("引擎执行错误: {}", msg),
-//!     Err(e) => println!("其他错误: {}", e),
+//!     match service.text_to_speech("测试文本").await {
+//!         Ok(audio_data) => println!("合成成功，音频大小: {} 字节", audio_data.len()),
+//!         Err(TtsError::NotImplemented) => println!("功能尚未实现"),
+//!         Err(TtsError::ConfigError(msg)) => println!("配置错误: {}", msg),
+//!         Err(TtsError::AudioGenerationError(msg)) => println!("音频生成错误: {}", msg),
+//!         Err(TtsError::EngineExecutionError(msg)) => println!("引擎执行错误: {}", msg),
+//!         Err(e) => println!("其他错误: {}", e),
+//!     }
+//!     Ok(())
 //! }
 //! ```
 //!
@@ -222,10 +226,15 @@ use tokio::process::Command;
 ///
 /// # 使用示例
 ///
-/// ```ignore
+/// ```no_run
 /// use rs_voice_toolkit_tts::TtsError;
 ///
-/// match some_tts_operation() {
+/// // 示例：一个返回 TtsError 的操作
+/// fn do_something() -> Result<String, TtsError> {
+///     Err(TtsError::ConfigError("演示".to_string()))
+/// }
+///
+/// match do_something() {
 ///     Ok(result) => println!("操作成功: {:?}", result),
 ///     Err(TtsError::NotImplemented) => println!("该功能尚未实现"),
 ///     Err(TtsError::ConfigError(msg)) => println!("配置错误: {}", msg),
@@ -251,7 +260,7 @@ pub enum TtsError {
     ///
     /// # 示例
     ///
-    /// ```ignore
+    /// ```no_run
     /// # use rs_voice_toolkit_tts::TtsError;
     /// let error = TtsError::ConfigError("找不到 index-tts 可执行文件".to_string());
     /// println!("配置错误: {}", error);
@@ -269,7 +278,7 @@ pub enum TtsError {
     ///
     /// # 示例
     ///
-    /// ```ignore
+    /// ```no_run
     /// # use rs_voice_toolkit_tts::TtsError;
     /// let error = TtsError::AudioGenerationError("内存不足，无法生成音频数据".to_string());
     /// println!("音频生成错误: {}", error);
@@ -287,7 +296,7 @@ pub enum TtsError {
     ///
     /// # 示例
     ///
-    /// ```ignore
+    /// ```no_run
     /// # use rs_voice_toolkit_tts::TtsError;
     /// let error = TtsError::EngineExecutionError("index-tts 进程异常退出".to_string());
     /// println!("引擎执行错误: {}", error);
@@ -314,7 +323,7 @@ pub enum TtsError {
 ///
 /// ## 基本配置
 ///
-/// ```ignore
+/// ```no_run
 /// use rs_voice_toolkit_tts::TtsConfig;
 ///
 /// // 使用默认配置
@@ -333,7 +342,7 @@ pub enum TtsError {
 ///
 /// ## 链式配置
 ///
-/// ```ignore
+/// ```no_run
 /// use rs_voice_toolkit_tts::TtsConfig;
 ///
 /// let config = TtsConfig {
@@ -379,7 +388,7 @@ pub struct TtsConfig {
     ///
     /// # 示例
     ///
-    /// ```ignore
+    /// ```no_run
     /// # use rs_voice_toolkit_tts::TtsConfig;
     /// // 使用系统PATH中的引擎
     /// let config1 = TtsConfig { executable_path: None, ..Default::default() };
@@ -403,7 +412,7 @@ pub struct TtsConfig {
     ///
     /// # 示例
     ///
-    /// ```ignore
+    /// ```no_run
     /// # use rs_voice_toolkit_tts::TtsConfig;
     /// let config = TtsConfig {
     ///     language: Some("zh".to_string()),
@@ -424,7 +433,7 @@ pub struct TtsConfig {
     ///
     /// # 示例
     ///
-    /// ```ignore
+    /// ```no_run
     /// # use rs_voice_toolkit_tts::TtsConfig;
     /// let config = TtsConfig {
     ///     speaker: Some("female".to_string()),
@@ -446,7 +455,7 @@ pub struct TtsConfig {
     ///
     /// # 示例
     ///
-    /// ```ignore
+    /// ```no_run
     /// # use rs_voice_toolkit_tts::TtsConfig;
     /// let config = TtsConfig {
     ///     sample_rate: 22050,
@@ -470,7 +479,7 @@ pub struct TtsConfig {
     ///
     /// # 示例
     ///
-    /// ```ignore
+    /// ```no_run
     /// # use rs_voice_toolkit_tts::TtsConfig;
     /// let config = TtsConfig {
     ///     speed: 1.2,
@@ -493,7 +502,7 @@ pub struct TtsConfig {
     ///
     /// # 示例
     ///
-    /// ```ignore
+    /// ```no_run
     /// # use rs_voice_toolkit_tts::TtsConfig;
     /// let config = TtsConfig {
     ///     pitch: 5.0,
@@ -543,7 +552,7 @@ impl Default for TtsConfig {
 ///
 /// # 使用示例
 ///
-/// ```ignore
+/// ```no_run
 /// use rs_voice_toolkit_tts::{TtsService, TtsConfig, TtsEngineType};
 ///
 /// // 使用默认引擎（Index-TTS）
@@ -627,7 +636,7 @@ pub enum TtsEngineType {
 ///
 /// # 使用示例
 ///
-/// ```ignore
+/// ```no_run
 /// use rs_voice_toolkit_tts::{TtsEngine, TtsError, TtsEngineType};
 /// use std::path::Path;
 ///
@@ -694,7 +703,7 @@ pub trait TtsEngine {
     ///
     /// # 示例
     ///
-    /// ```ignore
+    /// ```no_run
     /// # use rs_voice_toolkit_tts::{TtsEngine, TtsError};
     /// # struct MockEngine;
     /// # #[async_trait::async_trait]
@@ -745,7 +754,7 @@ pub trait TtsEngine {
     ///
     /// # 示例
     ///
-    /// ```ignore
+    /// ```no_run
     /// use rs_voice_toolkit_tts::{TtsEngine, TtsError};
     /// use std::path::Path;
     ///
@@ -795,7 +804,7 @@ pub trait TtsEngine {
     ///
     /// # 示例
     ///
-    /// ```ignore
+    /// ```no_run
     /// use rs_voice_toolkit_tts::{TtsEngine, TtsError};
     ///
     /// # struct MockEngine;
@@ -835,8 +844,9 @@ pub trait TtsEngine {
     ///
     /// # 示例
     ///
-    /// ```ignore
+    /// ```no_run
     /// use rs_voice_toolkit_tts::{TtsEngine, TtsEngineType};
+    /// # use rs_voice_toolkit_tts::TtsError;
     ///
     /// # struct MockEngine;
     /// # #[async_trait::async_trait]
@@ -876,8 +886,9 @@ pub trait TtsEngine {
     ///
     /// # 示例
     ///
-    /// ```ignore
+    /// ```no_run
     /// use rs_voice_toolkit_tts::{TtsEngine, TtsEngineType};
+    /// # use rs_voice_toolkit_tts::TtsError;
     ///
     /// # struct MockEngine;
     /// # #[async_trait::async_trait]
@@ -918,8 +929,8 @@ pub trait TtsEngine {
 ///
 /// ## 基本使用
 ///
-/// ```ignore
-/// use rs_voice_toolkit_tts::{IndexTtsEngine, TtsConfig};
+/// ```no_run
+/// use rs_voice_toolkit_tts::{IndexTtsEngine, TtsConfig, TtsEngine};
 ///
 /// #[tokio::main]
 /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -944,7 +955,7 @@ pub trait TtsEngine {
 ///
 /// ## 文件输出
 ///
-/// ```ignore
+/// ```no_run
 /// use rs_voice_toolkit_tts::{IndexTtsEngine, TtsConfig};
 /// use std::path::Path;
 ///
@@ -1157,7 +1168,7 @@ impl TtsEngine for IndexTtsEngine {
 ///
 /// ## 基本使用
 ///
-/// ```ignore
+/// ```no_run
 /// use rs_voice_toolkit_tts::{TtsService, TtsConfig};
 ///
 /// #[tokio::main]
@@ -1188,7 +1199,7 @@ impl TtsEngine for IndexTtsEngine {
 ///
 /// ## 自定义配置
 ///
-/// ```ignore
+/// ```no_run
 /// use rs_voice_toolkit_tts::{TtsService, TtsConfig, TtsEngineType};
 ///
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -1213,7 +1224,7 @@ impl TtsEngine for IndexTtsEngine {
 ///
 /// ## 批量处理
 ///
-/// ```ignore
+/// ```no_run
 /// use rs_voice_toolkit_tts::{TtsService, TtsConfig};
 ///
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {

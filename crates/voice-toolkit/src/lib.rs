@@ -27,7 +27,7 @@
 //!
 //! ### 语音转文本示例
 //!
-//! ```ignore
+//! ```no_run
 //! use voice_toolkit::transcribe_file_unified;
 //!
 //! #[tokio::main]
@@ -44,7 +44,7 @@
 //!
 //! ### 音频格式转换示例
 //!
-//! ```ignore
+//! ```no_run
 //! use voice_toolkit::audio;
 //!
 //! #[tokio::main]
@@ -53,7 +53,8 @@
 //!     let output_path = "audio/output.wav";
 //!     
 //!     // 将 MP3 转换为 Whisper 兼容的 WAV 格式
-//!     audio::convert_to_whisper_format(input_path, output_path).await?;
+//!     let wav = audio::ensure_whisper_compatible(input_path, Some(output_path.into()))?;
+//!     println!("转换完成: {}", wav.path.display());
 //!     println!("转换完成: {}", output_path);
 //!     
 //!     Ok(())
@@ -217,7 +218,7 @@ mod stt_wrappers {
     ///
     /// ## 示例
     ///
-    /// ```ignore
+    /// ```no_run
     /// use voice_toolkit::transcribe_file_unified;
     ///
     /// #[tokio::main]
