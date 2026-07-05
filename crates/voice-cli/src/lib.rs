@@ -11,6 +11,7 @@ pub mod config_rs_integration;
 pub mod error;
 pub mod models;
 pub mod openapi;
+pub mod pool;
 pub mod server;
 pub mod services;
 pub mod stt;

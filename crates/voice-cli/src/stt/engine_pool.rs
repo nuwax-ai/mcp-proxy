@@ -8,7 +8,6 @@
 //! - `pool_size>1` → N 个独立实例 round-robin，允许 N 路并发（代价 N× 内存）
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 
 use dashmap::DashMap;
@@ -19,33 +18,12 @@ use crate::stt::error::SttError;
 /// 单个 Whisper 引擎实例（Mutex：transcribe_with 需 &mut self）。
 pub type EngineInstance = Arc<Mutex<WhisperEngine>>;
 
-/// Whisper 引擎池：N 个独立实例，round-robin 分配。
+/// Whisper 引擎池（N 个独立实例，round-robin 分配）。
+/// 复用 [`crate::pool::Pool`]：`Pool<WhisperEngine>` 的 `pick` 返回 `EngineInstance`。
 ///
 /// - `pool_size = 1`：单实例串行（CPU 推理通常最优，避免线程超订阅）
 /// - `pool_size > 1`：N 路并发（每实例独立 context+state，N× 内存）
-pub struct EnginePool {
-    instances: Vec<EngineInstance>,
-    next: AtomicUsize,
-}
-
-impl EnginePool {
-    pub fn len(&self) -> usize {
-        self.instances.len()
-    }
-
-    /// 池是否为空（实际不会发生：`pool_size` 被 clamp 到 `>= 1`）。
-    /// 仅为满足 clippy `len_without_is_empty` 约定。
-    pub fn is_empty(&self) -> bool {
-        self.instances.is_empty()
-    }
-
-    /// round-robin 取实例。并发请求分散到不同实例 → 最多 N 路并行；
-    /// 命中同一实例则在该实例上排队。
-    pub fn pick(&self) -> EngineInstance {
-        let idx = self.next.fetch_add(1, Ordering::Relaxed) % self.instances.len();
-        self.instances[idx].clone()
-    }
-}
+pub type EnginePool = crate::pool::Pool<WhisperEngine>;
 
 /// 引擎缓存键：模型 id（对应 `ggml-{model_id}.bin`）。
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -112,10 +90,7 @@ pub fn get_or_init_engine(
         );
         instances.push(Arc::new(Mutex::new(engine)));
     }
-    let pool = Arc::new(EnginePool {
-        instances,
-        next: AtomicUsize::new(0),
-    });
+    let pool = Arc::new(EnginePool::new(instances));
     ENGINE_CACHE.insert(key, pool.clone());
     Ok(pool)
 }
