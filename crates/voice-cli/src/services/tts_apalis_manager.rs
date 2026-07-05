@@ -319,6 +319,7 @@ pub async fn tts_pipeline_worker(task: TtsTask, ctx: Data<TtsStepContext>) -> Re
                     provider: ctx_cfg.provider.clone(),
                     pool_size: ctx_cfg.pool_size,
                     debug: ctx_cfg.debug,
+                    lang: ctx_cfg.default_language.clone(),
                 };
                 let pool = get_or_init_tts(TtsKey::new(&model_id_for_closure), load_params)
                     .map_err(|e| e.to_string())?;

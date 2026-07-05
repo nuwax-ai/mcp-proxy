@@ -5,6 +5,7 @@ pub mod middleware;
 pub mod middleware_config;
 pub mod routes;
 pub mod stt_stream;
+pub mod tts_stream;
 
 use crate::models::Config;
 use std::net::SocketAddr;

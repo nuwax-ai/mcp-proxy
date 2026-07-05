@@ -97,6 +97,7 @@ pub async fn handle_tts_test(config: &crate::Config, params: TtsTestParams) -> a
         provider: config.tts.engine.provider.clone(),
         pool_size: config.tts.engine.pool_size,
         debug: config.tts.engine.debug,
+        lang: config.tts.engine.default_language.clone(),
     };
 
     // 同步合成走 spawn_blocking

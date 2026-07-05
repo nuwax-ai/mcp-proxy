@@ -1050,6 +1050,7 @@ pub async fn tts_sync_handler(
         provider: engine.provider.clone(),
         pool_size: engine.pool_size,
         debug: engine.debug,
+        lang: engine.default_language.clone(),
     };
     // 合成参数（per-request）
     let opts = TtsOptions {
@@ -1128,6 +1129,7 @@ pub async fn tts_voices_handler(
         provider: engine.provider.clone(),
         pool_size: engine.pool_size,
         debug: engine.debug,
+        lang: engine.default_language.clone(),
     };
 
     // 加载引擎取 num_speakers（spawn_blocking：create 是阻塞 IO）

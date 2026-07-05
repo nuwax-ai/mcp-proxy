@@ -3,6 +3,7 @@ use crate::openapi;
 use crate::server::handlers;
 use crate::server::middleware_config::set_layer;
 use crate::server::stt_stream;
+use crate::server::tts_stream;
 use axum::{
     Router,
     routing::{delete, get, post},
@@ -34,6 +35,8 @@ pub async fn create_routes_with_state(shared_state: handlers::AppState) -> crate
             "/api/v1/stream/transcribe",
             get(stt_stream::ws_transcribe_handler),
         )
+        // TTS 流式 WebSocket（sherpa-onnx callback → 增量 PCM）
+        .route("/api/v1/stream/tts", get(tts_stream::ws_tts_handler))
         // Task management endpoints under /api/v1/tasks
         .nest("/api/v1/tasks", task_routes())
         // Add shared state

@@ -86,6 +86,8 @@ pub struct TtsLoadParams {
     pub pool_size: usize,
     /// debug 模式（sherpa-onnx C 端 verbose 日志）
     pub debug: bool,
+    /// Kokoro 语种（多语 v1.0 必需，如 `"mixed"`/`"zh"`/`"en"`；None 时 C 端可能 std::exit）
+    pub lang: Option<String>,
 }
 
 /// 获取或初始化 TTS 引擎池（幂等；同 key 首次调用加载模型，后续命中缓存）。
@@ -155,9 +157,10 @@ fn build_tts(model_id: &str, params: TtsLoadParams) -> Result<OfflineTts, TtsErr
         data_dir: path_to_opt_string(&paths.data_dir),
         length_scale: params.length_scale,
         dict_dir: paths.dict_dir.as_ref().and_then(|p| path_to_opt_string(p)),
-        lexicon: paths.lexicon.as_ref().and_then(|p| path_to_opt_string(p)),
-        // lang=None：kokoro-multi-lang 自动按文本检测语种（不强制）
-        lang: None,
+        // lexicon 已在 resolve_paths 拼成逗号分隔字符串（多语 Kokoro v1.0 必需，否则 C 端 exit）
+        lexicon: paths.lexicon.clone(),
+        // lang：多语 Kokoro v1.0 必需（None 时 C 端 std::exit，整个进程挂）
+        lang: params.lang.clone(),
     };
     let model_cfg = OfflineTtsModelConfig {
         kokoro,

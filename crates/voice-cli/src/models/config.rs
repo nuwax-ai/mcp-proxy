@@ -162,6 +162,9 @@ pub struct TtsEngineConfig {
     /// 默认时长缩放（model-level；1.0 = 原速）
     #[serde(default = "default_tts_length_scale")]
     pub default_length_scale: f32,
+    /// 默认语种（多语 Kokoro v1.0 必需，如 `"mixed"`/`"zh"`/`"en"`；None 时若模型要求 lang 会 C 端 std::exit）
+    #[serde(default = "default_tts_lang")]
+    pub default_language: Option<String>,
     /// ONNX runtime 线程数（0 = sherpa-onnx 默认）
     #[serde(default = "default_tts_num_threads")]
     pub num_threads: i32,
@@ -412,6 +415,7 @@ impl Default for TtsEngineConfig {
             default_sid: 0,
             default_speed: default_tts_speed(),
             default_length_scale: default_tts_length_scale(),
+            default_language: default_tts_lang(),
             num_threads: default_tts_num_threads(),
             provider: None,
             models_dir: default_tts_models_dir(),
@@ -453,6 +457,11 @@ fn default_tts_length_scale() -> f32 {
 }
 fn default_tts_num_threads() -> i32 {
     4
+}
+fn default_tts_lang() -> Option<String> {
+    // None：对齐官方 run-kokoro-zh-en.sh（不传 --kokoro-lang；lexicon 提供后 lang 非必需）。
+    // 多语 Kokoro v1.0 由 lexicon + 文本自动判定语种。
+    None
 }
 fn default_tts_models_dir() -> String {
     "./models/tts".to_string()

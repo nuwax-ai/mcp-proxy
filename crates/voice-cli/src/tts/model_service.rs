@@ -32,8 +32,8 @@ pub struct TtsModelPaths {
     pub data_dir: PathBuf,
     /// `dict/`（中文分词词典；非中文模型可为 None）
     pub dict_dir: Option<PathBuf>,
-    /// `lexicon.txt`（可选，部分模型需要）
-    pub lexicon: Option<PathBuf>,
+    /// lexicon：单语 = `lexicon.txt` 路径；多语 Kokoro v1.0 = 多个 `lexicon-*.txt` 逗号拼接（C 端约定）
+    pub lexicon: Option<String>,
 }
 
 /// TTS 模型服务：按 model_id 解析模型目录 + 校验必备文件。
@@ -90,17 +90,62 @@ impl TtsModelService {
     }
 
     /// 解析模型目录下的标准文件路径（不校验存在性，由 [`ensure_model`] 负责）。
+    ///
+    /// `lexicon` 探测规则：
+    /// - 若 `lexicon.txt` 存在（单语模型）→ 单路径
+    /// - 否则收集所有 `lexicon-*.txt`（多语 Kokoro v1.0）→ 逗号分隔（sherpa-onnx 约定）
     pub fn resolve_paths(&self, model_id: &str) -> Result<TtsModelPaths, TtsError> {
         let root = self.model_root(model_id);
         let dict_dir = root.join("dict");
-        let lexicon = root.join("lexicon.txt");
+
+        // lexicon 探测（对齐 sherpa-onnx 官方 kokoro-multi-lang 示例）：
+        // - 单语 `lexicon.txt` → 单路径
+        // - 多语优先 `lexicon-us-en.txt,lexicon-zh.txt`（官方 run-kokoro-zh-en.sh 用的 2 文件组合；
+        //   不含 gb-en：gb-en 与 us-en 词表重叠会触发 C++ 异常）
+        // - 兜底：所有 `lexicon-*.txt` 排序后逗号拼接
+        let single = root.join("lexicon.txt");
+        let lexicon = if single.is_file() {
+            Some(single.to_string_lossy().into_owned())
+        } else {
+            let prefer = ["lexicon-us-en.txt", "lexicon-zh.txt"]
+                .into_iter()
+                .map(|n| root.join(n))
+                .filter(|p| p.is_file())
+                .map(|p| p.to_string_lossy().into_owned())
+                .collect::<Vec<_>>();
+            if prefer.len() == 2 {
+                Some(prefer.join(","))
+            } else {
+                let mut files: Vec<String> = std::fs::read_dir(&root)
+                    .map_err(|e| TtsError::ModelNotFound {
+                        model: format!("读取模型目录失败 {}: {e}", root.display()),
+                    })?
+                    .filter_map(Result::ok)
+                    .map(|e| e.path())
+                    .filter(|p| {
+                        p.file_name()
+                            .and_then(|n| n.to_str())
+                            .map(|n| n.starts_with("lexicon-") && n.ends_with(".txt"))
+                            .unwrap_or(false)
+                    })
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .collect();
+                files.sort();
+                if files.is_empty() {
+                    None
+                } else {
+                    Some(files.join(","))
+                }
+            }
+        };
+
         Ok(TtsModelPaths {
             model: root.join("model.onnx"),
             voices: root.join("voices.bin"),
             tokens: root.join("tokens.txt"),
             data_dir: root.join("espeak-ng-data"),
             dict_dir: dict_dir.is_dir().then_some(dict_dir),
-            lexicon: lexicon.is_file().then_some(lexicon),
+            lexicon,
         })
     }
 

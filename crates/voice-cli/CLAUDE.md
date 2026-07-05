@@ -25,19 +25,31 @@ cargo run --bin voice-cli -- --help
 cargo run --bin voice-cli -- server run
 ```
 
-### Python Dependencies (TTS)
-> TTS 默认禁用（`TtsConfig.enabled=false`）。以下命令仅在启用 TTS 时需要。缺 `tts_service.py` 不阻塞 STT 启动，`TtsService::new` 返回 `available=false` 实例，`/tts/*` 返回 503。
+### TTS (sherpa-onnx Kokoro)
+> TTS 默认禁用（`config.tts.enabled=false`）。启用需在 `config.yml` 置 `tts.enabled: true`
+> 并放置 Kokoro 模型目录（见下）。缺模型时 `/api/v1/tts*` 返回明确错误，不阻塞 STT。
 
+**模型放置**（HuggingFace 阻断时用 gh-proxy 或 modelscope）：
 ```bash
-# Install uv package manager
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Install Python dependencies for TTS
-uv sync
-
-# Run TTS service directly
-python3 tts_service.py --help
+mkdir -p ./models/tts
+curl -SL https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2 \
+  -o /tmp/kokoro.tar.bz2
+tar xjf /tmp/kokoro.tar.bz2 -C ./models/tts
+# 目录布局：./models/tts/kokoro-multi-lang-v1_0/{model.onnx,voices.bin,tokens.txt,espeak-ng-data/,dict/,lexicon-*.txt}
 ```
+
+**编译**（sherpa-onnx-sys 需预编译 C 库；github 阻断时设 `SHERPA_ONNX_ARCHIVE_DIR`）：
+```bash
+export SHERPA_ONNX_ARCHIVE_DIR="$HOME/.cache/sherpa-onnx-prebuilt"  # 预下载的 tar.bz2 所在目录
+cargo build -p voice-cli
+```
+
+**TTS 接口**（重新设计的 `/api/v1/` 风格，旧 `/tts/sync` 已移除）：
+- `POST /api/v1/tts`：同步合成，返回 wav/pcm_s16le 二进制
+- `GET  /api/v1/tts/voices`：查询音色数（`num_speakers`）
+- `POST /api/v1/tasks/tts` + `GET /{id}` + `GET /{id}/audio`：异步任务管线
+- `GET   /api/v1/stream/tts`（WebSocket）：流式合成，客户端发 `{type:"start",text,...}`，
+  服务端推 `ready` → 二进制 PCM s16le 增量帧 → `done`
 
 ### Model Management
 ```bash
@@ -59,18 +71,24 @@ This is a Rust-based speech-to-text HTTP service with CLI interface, built using
 - **Speech Recognition**: Whisper models via voice-toolkit workspace dependency
 - **Task Processing**: Apalis for async task queue with SQLite persistence
 - **FFmpeg Integration**: ffmpeg-sidecar for lightweight media metadata extraction
-- **TTS Support**: Python-based text-to-speech with uv dependency management
+- **TTS Support**: sherpa-onnx Kokoro text-to-speech (CPU, v1)
 - **Configuration**: Multi-format config (YAML/JSON/TOML) with environment overrides
 
 ### Core Components
 
 **Service Layer** (`src/services/`):
 - `model_service.rs`: Whisper model management and downloading
-- `transcription_engine.rs`: Core speech-to-text processing
 - `metadata_extractor.rs`: Audio/video metadata extraction using ffmpeg-sidecar
-- `tts_service.rs`: Python TTS service integration
-- `apalis_manager.rs`: Async task queue management
+- `tts_apalis_manager.rs`: TTS async task queue (apalis + SQLite, mirrors `apalis_manager.rs`)
+- `apalis_manager.rs`: STT async task queue management
 - `audio_file_manager.rs`: File storage and management
+
+**TTS Library** (`src/tts/`): sherpa-onnx Kokoro 引擎池 + 合成（镜像 STT `src/stt/` + fastembed ModelPool）
+- `engine_pool.rs`: 进程级 OfflineTts 引擎池（DashMap + double-checked + round-robin）
+- `synthesizer.rs`: generate_with_config 封装（NUL 预清洗 + Option→TtsError）
+- `streaming.rs`: 流式合成（callback → mpsc 增量 PCM）
+- `audio_encode.rs`: f32 → WAV / PCM s16le
+- `model_service.rs`: Kokoro 模型目录解析（lexicon 多文件逗号拼接，对齐官方）
 
 **Server Layer** (`src/server/`):
 - `handlers.rs`: HTTP request handlers for transcription and TTS
