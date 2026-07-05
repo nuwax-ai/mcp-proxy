@@ -128,9 +128,17 @@ pub async fn health_handler(State(state): State<AppState>) -> HttpResult<HealthR
         .duration_since(state.start_time)
         .unwrap_or_default();
 
+    // 真实已加载模型：STT + TTS 引擎池缓存（首次请求后才加载，故可能为空）
+    let mut models_loaded = crate::stt::engine_pool::loaded_model_ids();
+    models_loaded.extend(
+        crate::tts::engine_pool::loaded_model_ids()
+            .into_iter()
+            .map(|m| format!("tts:{m}")),
+    );
+
     HttpResult::success(HealthResponse {
         status: "healthy".to_string(),
-        models_loaded: vec![],
+        models_loaded,
         uptime: uptime.as_secs(),
         version: env!("CARGO_PKG_VERSION").to_string(),
     })
@@ -153,8 +161,8 @@ pub async fn models_list_handler(State(state): State<AppState>) -> HttpResult<Mo
     // 使用配置中的支持模型列表
     let available_models = state.config.whisper.supported_models.clone();
 
-    // 简化版本，假设默认模型已加载
-    let loaded_models = vec![state.config.whisper.default_model.clone()];
+    // 已加载 = STT 引擎池缓存实际存在的模型（首次请求后才加载，可能为空）
+    let loaded_models = crate::stt::engine_pool::loaded_model_ids();
 
     HttpResult::success(ModelsResponse {
         available_models,

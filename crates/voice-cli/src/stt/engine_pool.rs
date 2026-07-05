@@ -42,6 +42,14 @@ impl EngineKey {
 /// 全局引擎缓存：按 model_id 索引，每项是 N 实例池。
 static ENGINE_CACHE: LazyLock<DashMap<EngineKey, Arc<EnginePool>>> = LazyLock::new(DashMap::new);
 
+/// 已加载的 STT 引擎 model_id 列表（按缓存实际状态，供 /health、/models 查询）
+pub fn loaded_model_ids() -> Vec<String> {
+    ENGINE_CACHE
+        .iter()
+        .map(|kv| kv.key().model_id.clone())
+        .collect()
+}
+
 /// 初始化串行锁（double-checked locking 用）。
 static INIT_LOCK: Mutex<()> = Mutex::new(());
 
