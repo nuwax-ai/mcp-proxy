@@ -4,6 +4,7 @@ pub mod http_tracing;
 pub mod middleware;
 pub mod middleware_config;
 pub mod routes;
+pub mod stt_stream;
 
 use crate::models::Config;
 use std::net::SocketAddr;

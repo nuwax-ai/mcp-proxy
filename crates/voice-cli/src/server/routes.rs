@@ -2,6 +2,7 @@ use crate::models::Config;
 use crate::openapi;
 use crate::server::handlers;
 use crate::server::middleware_config::set_layer;
+use crate::server::stt_stream;
 use axum::{
     Router,
     routing::{delete, get, post},
@@ -27,6 +28,11 @@ pub async fn create_routes_with_state(shared_state: handlers::AppState) -> crate
         .route("/transcribe", post(handlers::transcribe_handler))
         // TTS endpoints
         .route("/tts/sync", post(handlers::tts_sync_handler))
+        // STT 流式 WebSocket（LocalAgreement 2）
+        .route(
+            "/api/v1/stream/transcribe",
+            get(stt_stream::ws_transcribe_handler),
+        )
         // Task management endpoints under /api/v1/tasks
         .nest("/api/v1/tasks", task_routes())
         // Add shared state

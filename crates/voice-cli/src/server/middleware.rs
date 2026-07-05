@@ -1,7 +1,7 @@
 use axum::{
     body::Body,
     extract::Request,
-    http::{HeaderMap, HeaderValue, Method, Uri, header::CONNECTION},
+    http::{HeaderMap, HeaderValue, Method, StatusCode, Uri, header::CONNECTION},
     middleware::Next,
     response::Response,
 };
@@ -14,10 +14,13 @@ use tracing::{error, info, warn};
 pub async fn connection_close_middleware(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
 
-    // 设置 Connection: close 响应头（使用框架常量）
-    response
-        .headers_mut()
-        .insert(CONNECTION, HeaderValue::from_static("close"));
+    // WS 升级（101 Switching Protocols）保留 Connection: upgrade，跳过 close
+    // （否则破坏 WebSocket 握手）
+    if response.status() != StatusCode::SWITCHING_PROTOCOLS {
+        response
+            .headers_mut()
+            .insert(CONNECTION, HeaderValue::from_static("close"));
+    }
 
     response
 }
