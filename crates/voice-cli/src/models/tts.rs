@@ -87,6 +87,56 @@ impl TtsTask {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn task_with_text(text: &str) -> TtsTask {
+        TtsTask {
+            task_id: "t1".into(),
+            text: text.into(),
+            sid: 0,
+            speed: 1.0,
+            length_scale: 1.0,
+            language: None,
+            format: "wav".into(),
+            model: "kokoro".into(),
+            created_at: DateTime::parse_from_rfc3339("2026-07-05T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+        }
+    }
+
+    #[test]
+    fn estimate_at_least_one_second() {
+        // 即使很短的文本也至少 1s（clamp 下界）
+        assert_eq!(task_with_text("hi").estimate_duration_secs(), 1);
+        assert_eq!(task_with_text("a").estimate_duration_secs(), 1);
+    }
+
+    #[test]
+    fn estimate_grows_with_text_length() {
+        let short = task_with_text("hello").estimate_duration_secs();
+        let long = task_with_text(&"a".repeat(1200)).estimate_duration_secs();
+        assert!(long > short, "{long} should > {short}");
+    }
+
+    #[test]
+    fn estimate_clamps_to_max_300() {
+        // 超长文本不应超过 300s 上界
+        let huge = task_with_text(&"a".repeat(100_000)).estimate_duration_secs();
+        assert_eq!(huge, 300);
+    }
+
+    #[test]
+    fn estimate_counts_chars_not_bytes() {
+        // 中文多字节：按字符数算（"你好" = 2 chars，不是 6 bytes）
+        let zh = task_with_text("你好").estimate_duration_secs();
+        let en = task_with_text("ab").estimate_duration_secs();
+        assert_eq!(zh, en, "等字符数应等时长");
+    }
+}
+
 /// TTS处理阶段
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
 pub enum TtsProcessingStage {

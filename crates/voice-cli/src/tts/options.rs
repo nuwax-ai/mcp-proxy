@@ -70,3 +70,122 @@ impl TtsOptions {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_accepts_default() {
+        assert!(TtsOptions::default().validate().is_ok());
+    }
+
+    #[test]
+    fn validate_accepts_positive_speed() {
+        assert!(
+            TtsOptions {
+                speed: 2.0,
+                ..Default::default()
+            }
+            .validate()
+            .is_ok()
+        );
+        assert!(
+            TtsOptions {
+                speed: 0.5,
+                ..Default::default()
+            }
+            .validate()
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn validate_rejects_non_positive_speed() {
+        assert!(
+            TtsOptions {
+                speed: 0.0,
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            TtsOptions {
+                speed: -1.0,
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn validate_rejects_nan_and_infinity() {
+        assert!(
+            TtsOptions {
+                speed: f32::NAN,
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            TtsOptions {
+                speed: f32::INFINITY,
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn validate_rejects_negative_sid() {
+        assert!(
+            TtsOptions {
+                sid: -1,
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn validate_rejects_negative_silence_scale() {
+        assert!(
+            TtsOptions {
+                silence_scale: -0.1,
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
+        );
+        // 0 应合法（无静音）
+        assert!(
+            TtsOptions {
+                silence_scale: 0.0,
+                ..Default::default()
+            }
+            .validate()
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn to_generation_config_maps_fields() {
+        let o = TtsOptions {
+            sid: 7,
+            speed: 1.5,
+            silence_scale: 0.3,
+        };
+        let g = o.to_generation_config();
+        assert_eq!(g.sid, 7);
+        assert!((g.speed - 1.5).abs() < f32::EPSILON);
+        assert!((g.silence_scale - 0.3).abs() < f32::EPSILON);
+        // 未设置的 reference_audio 等应为默认（None/0）
+        assert!(g.reference_audio.is_none());
+        assert_eq!(g.reference_sample_rate, 0);
+    }
+}

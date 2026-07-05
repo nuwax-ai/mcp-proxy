@@ -164,3 +164,124 @@ pub fn path_to_opt_string(p: &Path) -> Option<String> {
         Some(s.into_owned())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    /// 在 tmp/<model_id>/ 下造一份"完整模型"（必备文件 + 可选 dict/lexicon）。
+    /// 返回 (svc, root, _guard)；**调用方必须保活 guard**（drop 会删目录）。
+    fn fixture(
+        model_id: &str,
+        lexicon_files: &[&str],
+        with_dict: bool,
+    ) -> (TtsModelService, PathBuf, TempDir) {
+        let tmp = TempDir::new().expect("tmp");
+        let root = tmp.path().join(model_id);
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("model.onnx"), b"dummy").unwrap();
+        fs::write(root.join("voices.bin"), b"dummy").unwrap();
+        fs::write(root.join("tokens.txt"), b"dummy").unwrap();
+        fs::create_dir_all(root.join("espeak-ng-data")).unwrap();
+        if with_dict {
+            fs::create_dir_all(root.join("dict")).unwrap();
+        }
+        for name in lexicon_files {
+            fs::write(root.join(name), b"dummy").unwrap();
+        }
+        let svc = TtsModelService::new(tmp.path());
+        (svc, root, tmp)
+    }
+
+    #[test]
+    fn resolve_paths_single_lexicon() {
+        let (svc, root, _g) = fixture("kokoro", &["lexicon.txt"], true);
+        let p = svc.resolve_paths("kokoro").unwrap();
+        assert_eq!(p.model, root.join("model.onnx"));
+        assert_eq!(p.voices, root.join("voices.bin"));
+        assert_eq!(p.tokens, root.join("tokens.txt"));
+        assert_eq!(p.data_dir, root.join("espeak-ng-data"));
+        assert_eq!(p.dict_dir.as_deref(), Some(root.join("dict").as_path()));
+        assert_eq!(
+            p.lexicon.as_deref(),
+            Some(root.join("lexicon.txt").to_str().unwrap())
+        );
+    }
+
+    #[test]
+    fn resolve_paths_multi_lang_prefers_us_en_zh_combo() {
+        // 三文件齐全时，必须选 us-en+zh 组合（不含 gb-en，避免 C++ 异常）
+        let (svc, _root, _g) = fixture(
+            "kokoro",
+            &["lexicon-gb-en.txt", "lexicon-us-en.txt", "lexicon-zh.txt"],
+            false,
+        );
+        let p = svc.resolve_paths("kokoro").unwrap();
+        let lex = p.lexicon.expect("lexicon");
+        let parts: Vec<&str> = lex.split(',').collect();
+        assert_eq!(parts.len(), 2, "应只选 2 文件组合，实际: {lex}");
+        assert!(parts.iter().any(|s| s.ends_with("lexicon-us-en.txt")));
+        assert!(parts.iter().any(|s| s.ends_with("lexicon-zh.txt")));
+        assert!(!lex.contains("gb-en"), "不应包含 gb-en: {lex}");
+        assert!(p.dict_dir.is_none());
+    }
+
+    #[test]
+    fn resolve_paths_fallback_glob_when_no_preferred_combo() {
+        // 只有 zh（凑不齐 us-en+zh 两件套）→ fallback glob
+        let (svc, root, _g) = fixture("kokoro", &["lexicon-zh.txt"], false);
+        let p = svc.resolve_paths("kokoro").unwrap();
+        assert_eq!(
+            p.lexicon.as_deref(),
+            Some(root.join("lexicon-zh.txt").to_str().unwrap())
+        );
+    }
+
+    #[test]
+    fn resolve_paths_no_lexicon() {
+        let (svc, _root, _g) = fixture("kokoro", &[], false);
+        let p = svc.resolve_paths("kokoro").unwrap();
+        assert!(p.lexicon.is_none());
+    }
+
+    #[test]
+    fn ensure_model_ok_when_complete() {
+        let (svc, _root, _g) = fixture("kokoro", &["lexicon.txt"], true);
+        assert!(svc.ensure_model("kokoro").is_ok());
+    }
+
+    #[test]
+    fn ensure_model_missing_dir() {
+        let tmp = TempDir::new().unwrap();
+        let svc = TtsModelService::new(tmp.path());
+        let err = svc.ensure_model("nope").unwrap_err();
+        assert!(matches!(err, TtsError::ModelNotFound { .. }));
+        assert!(err.to_string().contains("下载") || err.to_string().contains("不存在"));
+    }
+
+    #[test]
+    fn ensure_model_missing_required_file() {
+        let (svc, root, _g) = fixture("kokoro", &["lexicon.txt"], true);
+        fs::remove_file(root.join("voices.bin")).unwrap();
+        let err = svc.ensure_model("kokoro").unwrap_err();
+        assert!(matches!(err, TtsError::ModelNotFound { .. }));
+        assert!(err.to_string().contains("voices.bin"));
+    }
+
+    #[test]
+    fn ensure_model_missing_data_dir() {
+        let (svc, root, _g) = fixture("kokoro", &["lexicon.txt"], true);
+        fs::remove_dir_all(root.join("espeak-ng-data")).unwrap();
+        let err = svc.ensure_model("kokoro").unwrap_err();
+        assert!(err.to_string().contains("espeak-ng-data"));
+    }
+
+    #[test]
+    fn model_exists_lightweight_probe() {
+        let (svc, _root, _g) = fixture("kokoro", &[], false);
+        assert!(svc.model_exists("kokoro"));
+        assert!(!svc.model_exists("missing"));
+    }
+}
