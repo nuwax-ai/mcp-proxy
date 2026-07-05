@@ -20,8 +20,12 @@ pub mod engine_pool;
 pub mod error;
 pub mod local_agreement;
 pub mod options;
+pub mod streaming_session;
 
 pub use engine_pool::{EngineInstance, EngineKey, EnginePool, get_or_init_engine};
 pub use error::SttError;
 pub use local_agreement::{CompareGranularity, LaConfig, LaDecision, LocalAgreement};
 pub use options::SttTranscribeOptions;
+pub use streaming_session::{
+    Decoder, SessionConfig, SessionError, StreamEvent, StreamingSession, WhisperDecoder,
+};
