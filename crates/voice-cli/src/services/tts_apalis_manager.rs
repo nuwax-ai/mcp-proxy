@@ -176,28 +176,28 @@ impl TtsApalisManager {
         });
         self.worker_running.store(true, Ordering::Release);
         *self.monitor_handle.lock().await = Some(handle);
+        // 启动过期任务清理调度器（对齐 STT；防 ./data/tts/ 无限增长）
+        if let Err(e) = self.start_cleanup_scheduler().await {
+            warn!("TTS cleanup scheduler 启动失败: {e}");
+        }
         info!("TTS apalis worker started");
         Ok(())
     }
 
     /// 提交 TTS 任务。
+    ///
+    /// 顺序：**先写 Pending 行，再 storage.push**。若反过来（先 push 再写 Pending），
+    /// worker 可能在 push 后立即取走任务并写 Processing，随后本方法的 Pending `INSERT OR REPLACE`
+    /// 会把 Processing 覆盖回 Pending → 任务状态卡死。先写 Pending 后，worker 的 Processing
+    /// 才是合法的后写覆盖。
     pub async fn submit_task(
         &self,
         storage: &mut SqliteStorage<TtsTask>,
         task: TtsTask,
     ) -> Result<String, VoiceCliError> {
         let task_id = task.task_id.clone();
-        let push = tokio::time::timeout(Duration::from_secs(10), storage.push(task.clone())).await;
-        match push {
-            Ok(Ok(_)) => debug!(%task_id, "TTS task pushed"),
-            Ok(Err(e)) => {
-                return Err(VoiceCliError::Storage(format!("推送 TTS 任务失败: {e}")));
-            }
-            Err(_) => {
-                return Err(VoiceCliError::Storage("推送 TTS 任务超时".to_string()));
-            }
-        }
-        // 初始状态 Pending
+
+        // 1. 先写 Pending 行（worker 后续的 Processing/Completed 会覆盖它，合法）
         let status = TtsTaskStatus::Pending {
             queued_at: Utc::now(),
         };
@@ -215,6 +215,27 @@ impl TtsApalisManager {
         .execute(&self.pool)
         .await
         .map_err(|e| VoiceCliError::Storage(format!("保存 TTS 初始状态失败: {e}")))?;
+
+        // 2. 再 push 到 apalis 队列
+        let push = tokio::time::timeout(Duration::from_secs(10), storage.push(task)).await;
+        match push {
+            Ok(Ok(_)) => debug!(%task_id, "TTS task pushed"),
+            Ok(Err(e)) => {
+                // push 失败：尽量回滚刚写的 Pending 行（best-effort，避免遗留卡死状态）
+                let _ = sqlx::query("DELETE FROM tts_task_info WHERE task_id = ?")
+                    .bind(&task_id)
+                    .execute(&self.pool)
+                    .await;
+                return Err(VoiceCliError::Storage(format!("推送 TTS 任务失败: {e}")));
+            }
+            Err(_) => {
+                let _ = sqlx::query("DELETE FROM tts_task_info WHERE task_id = ?")
+                    .bind(&task_id)
+                    .execute(&self.pool)
+                    .await;
+                return Err(VoiceCliError::Storage("推送 TTS 任务超时".to_string()));
+            }
+        }
         Ok(task_id)
     }
 
@@ -240,15 +261,118 @@ impl TtsApalisManager {
         }
     }
 
-    /// 删除任务（apalis storage + 自定义表）。
-    pub async fn delete_task(&self, _task_id: &str) -> Result<bool, VoiceCliError> {
-        // apalis 0.7 storage 没暴露按 id 删除的稳定 API；仅清理自定义表
+    /// 删除任务：删 tts_task_info 行 + 关联音频文件（避免磁盘泄漏）。
+    pub async fn delete_task(&self, task_id: &str) -> Result<bool, VoiceCliError> {
+        // 先取状态（拿 audio_file_path），再删行
+        let status_json: Option<String> =
+            sqlx::query("SELECT status FROM tts_task_info WHERE task_id = ?")
+                .bind(task_id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| VoiceCliError::Storage(format!("查询 TTS 任务失败: {e}")))?
+                .map(|r| r.try_get::<String, _>("status"))
+                .transpose()
+                .map_err(|e| VoiceCliError::Storage(format!("读取 status 失败: {e}")))?;
+        // 删行（apalis 0.7 storage 无按 id 删除的稳定 API；仅清自定义表）
         let res = sqlx::query("DELETE FROM tts_task_info WHERE task_id = ?")
-            .bind(_task_id)
+            .bind(task_id)
             .execute(&self.pool)
             .await
             .map_err(|e| VoiceCliError::Storage(format!("删除 TTS 任务失败: {e}")))?;
+        // 删音频文件（best-effort）
+        if let Some(s) = status_json
+            && let Ok(status) = serde_json::from_str::<TtsTaskStatus>(&s)
+            && let TtsTaskStatus::Completed {
+                audio_file_path, ..
+            } = status
+        {
+            let _ = tokio::fs::remove_file(&audio_file_path).await;
+        }
         Ok(res.rows_affected() > 0)
+    }
+
+    /// 清理过期任务（含音频文件）。对齐 STT 的 cleanup_expired_tasks。
+    ///
+    /// 删除 `tts_task_info` 中 updated_at 早于 `retention_minutes` 的行，
+    /// 并删除其 Completed 状态里的音频文件。返回清理的行数。
+    pub async fn cleanup_expired_tasks(
+        &self,
+        retention_minutes: u32,
+    ) -> Result<usize, VoiceCliError> {
+        let cutoff = Utc::now().timestamp() - (retention_minutes as i64) * 60;
+        // 取过期行（status + audio 路径）
+        let rows = sqlx::query("SELECT task_id, status FROM tts_task_info WHERE updated_at < ?")
+            .bind(cutoff)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| VoiceCliError::Storage(format!("查询过期 TTS 任务失败: {e}")))?;
+        let count = rows.len();
+        for row in rows {
+            let task_id: String = row
+                .try_get("task_id")
+                .map_err(|e| VoiceCliError::Storage(format!("读取 task_id 失败: {e}")))?;
+            if let Ok(status_json) = row.try_get::<String, _>("status")
+                && let Ok(TtsTaskStatus::Completed {
+                    audio_file_path, ..
+                }) = serde_json::from_str::<TtsTaskStatus>(&status_json)
+            {
+                let _ = tokio::fs::remove_file(&audio_file_path).await;
+            }
+            let _ = sqlx::query("DELETE FROM tts_task_info WHERE task_id = ?")
+                .bind(&task_id)
+                .execute(&self.pool)
+                .await;
+        }
+        if count > 0 {
+            info!(count, retention_minutes, "TTS 过期任务清理完成");
+        }
+        Ok(count)
+    }
+
+    /// 启动定时清理调度器（每 60s 跑一次 cleanup_expired_tasks）。
+    pub async fn start_cleanup_scheduler(&self) -> Result<(), VoiceCliError> {
+        let pool = self.pool.clone();
+        let retention = self.config.task_retention_minutes;
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(60));
+            interval.tick().await; // 跳过立即触发
+            loop {
+                interval.tick().await;
+                // 内联 cleanup 逻辑（避免 &self 跨 'static；复用 pool）
+                let cutoff = Utc::now().timestamp() - (retention as i64) * 60;
+                let rows = match sqlx::query(
+                    "SELECT task_id, status FROM tts_task_info WHERE updated_at < ?",
+                )
+                .bind(cutoff)
+                .fetch_all(&pool)
+                .await
+                {
+                    Ok(r) => r,
+                    Err(e) => {
+                        warn!("TTS cleanup 查询失败: {e}");
+                        continue;
+                    }
+                };
+                for row in rows {
+                    let task_id: String = match row.try_get("task_id") {
+                        Ok(s) => s,
+                        Err(_) => continue,
+                    };
+                    if let Ok(status_json) = row.try_get::<String, _>("status")
+                        && let Ok(TtsTaskStatus::Completed {
+                            audio_file_path, ..
+                        }) = serde_json::from_str::<TtsTaskStatus>(&status_json)
+                    {
+                        let _ = tokio::fs::remove_file(&audio_file_path).await;
+                    }
+                    let _ = sqlx::query("DELETE FROM tts_task_info WHERE task_id = ?")
+                        .bind(&task_id)
+                        .execute(&pool)
+                        .await;
+                }
+            }
+        });
+        Ok(())
     }
 
     pub fn is_worker_running(&self) -> bool {
@@ -309,7 +433,6 @@ pub async fn tts_pipeline_worker(task: TtsTask, ctx: Data<TtsStepContext>) -> Re
                 let opts = TtsOptions {
                     sid,
                     speed,
-                    length_scale,
                     ..Default::default()
                 };
                 let load_params = TtsLoadParams {
@@ -377,18 +500,42 @@ pub async fn tts_pipeline_worker(task: TtsTask, ctx: Data<TtsStepContext>) -> Re
         }
     };
 
-    // 落盘 ./data/tts/tts_{id}.{ext}
+    // 落盘 ./data/tts/tts_{id}.{ext}（fs 失败也写 Failed 状态，避免任务卡 Processing）
     let ext = fmt.ext();
     let out_dir = PathBuf::from("./data/tts");
     if let Err(e) = tokio::fs::create_dir_all(&out_dir).await {
+        let msg = format!("创建输出目录失败: {e}");
+        warn!(task_id = %task.task_id, %msg, "TTS 落盘失败");
+        let failed = TtsTaskStatus::Failed {
+            error: TtsTaskError::StorageError {
+                operation: "create_dir_all".to_string(),
+                message: msg.clone(),
+            },
+            failed_at: Utc::now(),
+            retry_count: 0,
+            is_recoverable: true, // 磁盘满 / 临时 IO 故障可重试
+        };
+        let _ = ctx.save_task_status(&task.task_id, &failed).await;
         return Err(Error::from(
-            Box::new(e) as Box<dyn std::error::Error + Send + Sync>
+            Box::new(std::io::Error::other(msg)) as Box<dyn std::error::Error + Send + Sync>
         ));
     }
     let out_path = out_dir.join(format!("tts_{}.{ext}", task.task_id));
     if let Err(e) = tokio::fs::write(&out_path, &bytes).await {
+        let msg = format!("写入音频文件失败: {e}");
+        warn!(task_id = %task.task_id, %msg, "TTS 落盘失败");
+        let failed = TtsTaskStatus::Failed {
+            error: TtsTaskError::StorageError {
+                operation: "write_audio".to_string(),
+                message: msg.clone(),
+            },
+            failed_at: Utc::now(),
+            retry_count: 0,
+            is_recoverable: true,
+        };
+        let _ = ctx.save_task_status(&task.task_id, &failed).await;
         return Err(Error::from(
-            Box::new(e) as Box<dyn std::error::Error + Send + Sync>
+            Box::new(std::io::Error::other(msg)) as Box<dyn std::error::Error + Send + Sync>
         ));
     }
 

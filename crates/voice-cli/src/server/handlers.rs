@@ -1057,7 +1057,6 @@ pub async fn tts_sync_handler(
         sid: request.sid.unwrap_or(engine.default_sid),
         speed: request.speed.unwrap_or(engine.default_speed),
         silence_scale: 0.2,
-        length_scale: request.length_scale.unwrap_or(engine.default_length_scale),
     };
 
     // 同步合成走 spawn_blocking（sherpa-onnx 是同步阻塞 C 调用）

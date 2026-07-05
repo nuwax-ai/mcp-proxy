@@ -49,7 +49,6 @@ pub struct TtsStreamConfig {
     pub text: String,
     pub sid: i32,
     pub speed: f32,
-    pub length_scale: f32,
     pub language: Option<String>,
     pub model: String,
 }
@@ -58,21 +57,17 @@ pub struct TtsStreamConfig {
 ///
 /// `tx` 推事件给 WS forwarder；`cancel` 外部置位时 callback 中断 C 端合成。
 /// 错误映射到 `TtsStreamEvent::Error` 后返回（不向上传播，便于 forwarder 收尾）。
+///
+/// `load_params.paths` 由调用方解析（已 ensure_model）；本函数不再重复 resolve
+///（避免冗余 IO + 静默覆盖调用方参数）。`get_or_init_tts` 内部对必备文件有二次校验。
 pub fn synthesize_streaming(
-    tts_model_service: &TtsModelService,
+    _tts_model_service: &TtsModelService,
     load_params: TtsLoadParams,
     opts: TtsOptions,
     cfg: TtsStreamConfig,
     tx: mpsc::Sender<TtsStreamEvent>,
     cancel: Arc<AtomicBool>,
 ) -> Result<(), TtsError> {
-    // 模型校验已在调用方 ensure_model 完成；这里再 resolve paths（防竞态）
-    let paths = tts_model_service.resolve_paths(&cfg.model)?;
-    let load_params = TtsLoadParams {
-        paths,
-        ..load_params
-    };
-
     let pool = get_or_init_tts(TtsKey::new(&cfg.model), load_params)?;
     let inst = pool.pick();
     let guard = inst.lock().unwrap_or_else(|p| p.into_inner());

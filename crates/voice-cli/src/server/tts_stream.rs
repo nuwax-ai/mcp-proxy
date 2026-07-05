@@ -101,16 +101,15 @@ async fn run_tts_stream_session(socket: WebSocket, state: AppState) {
         sid: start.sid.unwrap_or(engine.default_sid),
         speed: start.speed.unwrap_or(engine.default_speed),
         silence_scale: 0.2,
-        length_scale: start.length_scale.unwrap_or(engine.default_length_scale),
     };
     let stream_cfg = TtsStreamConfig {
         text,
         sid: opts.sid,
         speed: opts.speed,
-        length_scale: opts.length_scale,
         language: start.language,
         model: model_id.clone(),
     };
+    let length_scale = start.length_scale.unwrap_or(engine.default_length_scale);
     let paths = match state.tts_model_service.resolve_paths(&model_id) {
         Ok(p) => p,
         Err(e) => {
@@ -127,7 +126,7 @@ async fn run_tts_stream_session(socket: WebSocket, state: AppState) {
     let load_params = TtsLoadParams {
         paths: paths.clone(),
         num_threads: engine.num_threads,
-        length_scale: opts.length_scale,
+        length_scale,
         provider: engine.provider.clone(),
         pool_size: engine.pool_size,
         debug: engine.debug,
@@ -188,13 +187,24 @@ async fn run_tts_stream_session(socket: WebSocket, state: AppState) {
         }
     });
 
-    // 3. 合成完成（forward 退出）→ 兜底 cancel + 清理两个任务
-    let _ = forward_handle.await;
-    cancel.store(true, Ordering::Release); // 兜底：确保 synth 退出（若尚未）
-    let _ = synth_handle.await;
+    // 3. 合成完成（forward 退出）→ 兜底 cancel + 清理两个任务。
+    // forward_handle.await 必须有超时兜底：若 OfflineTts::create 在模型加载阶段挂住
+    // （callback 尚未注册，cancel 标志无效），forward 会永远阻塞在 rx.recv()。
+    // 注意：超时后 spawn_blocking 任务无法真正取消（blocking 线程不能被中断），
+    // 但至少让 WS 会话能结束、客户端拿到关闭，而不是无限挂起。
+    let synth_timeout = Duration::from_secs(state.config.tts.streaming.synth_timeout_sec.max(1));
+    let forward_timed_out = tokio::time::timeout(synth_timeout, forward_handle)
+        .await
+        .is_err();
+    if forward_timed_out {
+        warn!(model = %model_id, timeout_sec = %synth_timeout.as_secs(), "tts stream forward 超时（模型加载挂死？）");
+    }
+    cancel.store(true, Ordering::Release); // 兜底：让 callback（若已注册）尽快退出
+    // 给 synth 一个短窗口响应 cancel 后自然结束；不无限等（blocking 任务不可强杀）
+    let _ = tokio::time::timeout(Duration::from_secs(5), synth_handle).await;
     watcher_handle.abort();
 
-    info!(model = %model_id, "tts stream session end");
+    info!(model = %model_id, timed_out = forward_timed_out, "tts stream session end");
 }
 
 async fn send_event(
