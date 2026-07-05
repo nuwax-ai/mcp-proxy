@@ -117,7 +117,7 @@ pub async fn handle_tts_test(config: &crate::Config, params: TtsTestParams) -> a
     tokio::fs::create_dir_all("./data/tts")
         .await
         .map_err(|e| anyhow::anyhow!("创建输出目录失败: {e}"))?;
-    let out = output.unwrap_or_else(|| PathBuf::from("./data/tts/tts_test.").join(fmt.ext()));
+    let out = output.unwrap_or_else(|| PathBuf::from(format!("./data/tts/tts_test.{}", fmt.ext())));
     tokio::fs::write(&out, &bytes)
         .await
         .map_err(|e| anyhow::anyhow!("写入输出文件失败: {e}"))?;

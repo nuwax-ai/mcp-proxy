@@ -1290,10 +1290,16 @@ pub async fn tts_task_audio_handler(
             audio_file_path, ..
         } => audio_file_path,
         other => {
+            let stage = match &other {
+                crate::models::TtsTaskStatus::Pending { .. } => "Pending",
+                crate::models::TtsTaskStatus::Processing { .. } => "Processing",
+                crate::models::TtsTaskStatus::Failed { .. } => "Failed",
+                crate::models::TtsTaskStatus::Cancelled { .. } => "Cancelled",
+                crate::models::TtsTaskStatus::Completed { .. } => "Completed",
+            };
             return Ok(
                 HttpResult::<String>::from(VoiceCliError::InvalidInput(format!(
-                    "TTS 任务尚未完成（当前状态: {:?}）",
-                    std::mem::discriminant(&other)
+                    "TTS 任务尚未完成（当前状态: {stage}）"
                 )))
                 .into_response(),
             );
