@@ -26,9 +26,7 @@ use tracing::{debug, info, warn};
 use crate::VoiceCliError;
 use crate::models::tts::TtsProcessingStage;
 use crate::models::{TaskManagementConfig, TtsConfig, TtsTask, TtsTaskError, TtsTaskStatus};
-use crate::tts::{
-    AudioFormat, EngineKey, EngineLoadParams, TtsModelService, TtsOptions, get_or_init_engine,
-};
+use crate::tts::{AudioFormat, TtsModelService, TtsOptions};
 
 /// TTS 任务 DB 路径（独立于 STT 的 `tasks.db`，隔离 apalis storage）。
 const TTS_DB_PATH: &str = "./data/tts_tasks.db";
@@ -426,34 +424,22 @@ pub async fn tts_pipeline_worker(task: TtsTask, ctx: Data<TtsStepContext>) -> Re
         let model_id_for_closure = model_id.clone();
         tokio::task::spawn_blocking(
             move || -> Result<(Vec<u8>, AudioFormat, i32, usize), String> {
-                let paths = model_svc
-                    .resolve_paths(&model_id_for_closure)
-                    .map_err(|e| e.to_string())?;
                 let fmt = AudioFormat::parse(&format_str);
                 let opts = TtsOptions {
                     sid,
                     speed,
                     ..Default::default()
                 };
-                let load_params = EngineLoadParams {
-                    paths: paths.clone(),
-                    num_threads: ctx_cfg.num_threads,
+                let (bytes, sr, n_samples) = crate::tts::synth_to_bytes(
+                    &model_svc,
+                    &model_id_for_closure,
+                    &ctx_cfg,
+                    &text,
+                    &opts,
                     length_scale,
-                    provider: ctx_cfg.provider.clone(),
-                    pool_size: ctx_cfg.pool_size,
-                    debug: ctx_cfg.debug,
-                    lang: ctx_cfg.default_language.clone(),
-                };
-                let pool = get_or_init_engine(EngineKey::new(&model_id_for_closure), load_params)
-                    .map_err(|e| e.to_string())?;
-                let inst = pool.pick();
-                let guard = inst.lock().unwrap_or_else(|p| p.into_inner());
-                let audio =
-                    crate::tts::synthesize(&guard, &text, &opts).map_err(|e| e.to_string())?;
-                let n_samples = audio.samples.len();
-                let sr = audio.sample_rate;
-                let bytes =
-                    crate::tts::encode(&audio.samples, sr, fmt).map_err(|e| e.to_string())?;
+                    fmt,
+                )
+                .map_err(|e| e.to_string())?;
                 Ok((bytes, fmt, sr, n_samples))
             },
         )

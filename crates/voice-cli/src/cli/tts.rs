@@ -1,9 +1,7 @@
 use clap::Subcommand;
 use std::path::PathBuf;
 
-use crate::tts::{
-    AudioFormat, EngineKey, EngineLoadParams, TtsModelService, TtsOptions, get_or_init_engine,
-};
+use crate::tts::{AudioFormat, TtsModelService, TtsOptions};
 
 #[derive(Subcommand)]
 pub enum TtsAction {
@@ -80,9 +78,6 @@ pub async fn handle_tts_test(config: &crate::Config, params: TtsTestParams) -> a
     let svc = TtsModelService::new(&config.tts.engine.models_dir);
     svc.ensure_model(&model_id)
         .map_err(|e| anyhow::anyhow!("TTS 模型未就绪: {e}"))?;
-    let paths = svc
-        .resolve_paths(&model_id)
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     let fmt = AudioFormat::parse(&format);
     let opts = TtsOptions {
@@ -90,24 +85,22 @@ pub async fn handle_tts_test(config: &crate::Config, params: TtsTestParams) -> a
         speed,
         ..Default::default()
     };
-    let load_params = EngineLoadParams {
-        paths: paths.clone(),
-        num_threads: config.tts.engine.num_threads,
-        length_scale: config.tts.engine.default_length_scale,
-        provider: config.tts.engine.provider.clone(),
-        pool_size: config.tts.engine.pool_size,
-        debug: config.tts.engine.debug,
-        lang: config.tts.engine.default_language.clone(),
-    };
+    let engine_cfg = config.tts.engine.clone();
+    let length_scale = engine_cfg.default_length_scale;
 
     // 同步合成走 spawn_blocking
     let text_owned = text.clone();
+    let svc_for_closure = TtsModelService::new(&config.tts.engine.models_dir);
     let result = tokio::task::spawn_blocking(move || -> anyhow::Result<(Vec<u8>, AudioFormat)> {
-        let pool = get_or_init_engine(EngineKey::new(&model_id), load_params)?;
-        let inst = pool.pick();
-        let guard = inst.lock().unwrap_or_else(|p| p.into_inner());
-        let audio = crate::tts::synthesize(&guard, &text_owned, &opts)?;
-        let bytes = crate::tts::encode(&audio.samples, audio.sample_rate, fmt)?;
+        let (bytes, _sr, _n) = crate::tts::synth_to_bytes(
+            &svc_for_closure,
+            &model_id,
+            &engine_cfg,
+            &text_owned,
+            &opts,
+            length_scale,
+            fmt,
+        )?;
         Ok((bytes, fmt))
     })
     .await

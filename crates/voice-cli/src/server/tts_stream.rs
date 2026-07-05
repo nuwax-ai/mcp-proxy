@@ -22,9 +22,7 @@ use serde::Deserialize;
 use tracing::{info, warn};
 
 use crate::server::handlers::AppState;
-use crate::tts::{
-    EngineLoadParams, TtsOptions, TtsStreamConfig, TtsStreamEvent, synthesize_streaming,
-};
+use crate::tts::{TtsOptions, TtsStreamConfig, TtsStreamEvent, synthesize_streaming};
 
 /// 客户端 start 帧（未知字段 serde 默认忽略）。
 #[derive(Debug, Deserialize, Default)]
@@ -110,40 +108,36 @@ async fn run_tts_stream_session(socket: WebSocket, state: AppState) {
         model: model_id.clone(),
     };
     let length_scale = start.length_scale.unwrap_or(engine.default_length_scale);
-    let paths = match state.tts_model_service.resolve_paths(&model_id) {
-        Ok(p) => p,
-        Err(e) => {
-            let _ = send_event(
-                &mut sink,
-                TtsStreamEvent::Error {
-                    message: format!("解析模型路径失败: {e}"),
-                },
-            )
-            .await;
-            return;
-        }
-    };
-    let load_params = EngineLoadParams {
-        paths: paths.clone(),
-        num_threads: engine.num_threads,
-        length_scale,
-        provider: engine.provider.clone(),
-        pool_size: engine.pool_size,
-        debug: engine.debug,
-        lang: engine.default_language.clone(),
-    };
 
     // 2. mpsc 通道 + 取消标志。三个并发任务：
-    //    - synth（spawn_blocking）：合成 + 推事件
+    //    - synth（spawn_blocking）：acquire_instance + 合成 + 推事件
     //    - forward：mpsc rx → WS sink（owns sink），Done/Error 时自然退出
     //    - watcher：读客户端 cancel/close → 置 cancel → callback 中断合成
     let (event_tx, event_rx) = tokio::sync::mpsc::channel::<TtsStreamEvent>(32);
     let cancel = Arc::new(AtomicBool::new(false));
 
+    let model_svc = state.tts_model_service.clone();
+    let engine_cfg = state.config.tts.engine.clone();
+    let model_id_for_closure = model_id.clone();
     let cancel_for_synth = cancel.clone();
     let synth_handle = tokio::task::spawn_blocking(move || {
+        // acquire_instance 失败 → 推 Error 事件（不向上传播，便于 forward 收尾）
+        let inst = match crate::tts::acquire_instance(
+            &model_svc,
+            &model_id_for_closure,
+            &engine_cfg,
+            length_scale,
+        ) {
+            Ok(i) => i,
+            Err(e) => {
+                let _ = event_tx.blocking_send(TtsStreamEvent::Error {
+                    message: format!("引擎初始化失败: {e}"),
+                });
+                return;
+            }
+        };
         // 错误已在内部映射成 TtsStreamEvent::Error 推给 forward；此处忽略返回
-        let _ = synthesize_streaming(load_params, opts, stream_cfg, event_tx, cancel_for_synth);
+        let _ = synthesize_streaming(inst, opts, stream_cfg, event_tx, cancel_for_synth);
     });
 
     // forward：owns sink，收到 Done 退出

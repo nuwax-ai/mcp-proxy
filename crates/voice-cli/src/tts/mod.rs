@@ -22,6 +22,7 @@ pub mod engine_pool;
 pub mod error;
 pub mod model_service;
 pub mod options;
+pub mod pipeline;
 pub mod streaming;
 pub mod synthesizer;
 
@@ -32,5 +33,6 @@ pub use engine_pool::{
 pub use error::TtsError;
 pub use model_service::{TtsModelPaths, TtsModelService};
 pub use options::TtsOptions;
+pub use pipeline::{acquire_instance, synth_to_bytes};
 pub use streaming::{TtsStreamConfig, TtsStreamEvent, synthesize_streaming};
 pub use synthesizer::{SynthesizedAudio, synthesize};
