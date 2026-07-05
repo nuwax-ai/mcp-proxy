@@ -107,10 +107,10 @@ This is a Rust-based speech-to-text HTTP service with CLI interface, built using
 - Extracts audio/video metadata (duration, sample rate, codecs, etc.)
 - Falls back to basic metadata extraction if FFmpeg unavailable
 
-**TTS Integration**:
-- Python-based TTS service using `tts_service.py`
-- Manages Python dependencies via uv package manager
-- Supports both sync and async TTS processing
+**TTS Integration** (sherpa-onnx Kokoro, CPU v1):
+- `OfflineTts` 引擎池 + 合成（`src/tts/`），Kokoro multi-lang v1.0（53 音色）
+- 同步 `/api/v1/tts` + 异步 `/api/v1/tasks/tts` + 流式 WS `/api/v1/stream/tts`
+- 编译需 `SHERPA_ONNX_ARCHIVE_DIR`（sherpa-onnx-sys 预编译 C 库，见 docs/DEPLOYMENT.md）
 
 **Task Queue**:
 - Apalis-based async processing for transcription and TTS tasks

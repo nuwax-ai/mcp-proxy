@@ -12,7 +12,7 @@ High-performance speech-to-text HTTP service built with Rust, leveraging Whisper
 
 ### Speech Processing Capabilities
 - **Multi-Format Support**: MP3, WAV, FLAC, M4A, AAC, OGG and other mainstream audio formats
-- **Automatic Format Conversion**: Intelligent audio processing via rs-voice-toolkit
+- **Automatic Format Conversion**: Intelligent audio processing via ffmpeg-sidecar (voice-toolkit audio)
 - **Whisper Models**: Support for tiny/base/small/medium/large model series
 - **Automatic Model Management**: On-demand Whisper model download and management
 
@@ -24,7 +24,7 @@ High-performance speech-to-text HTTP service built with Rust, leveraging Whisper
 - **Real-time Monitoring**: Service status, health checks
 - **Task Processing**: Efficient audio processing pipeline
 
-> **Note**: TTS (Text-to-Speech) 默认禁用（`tts.enabled: false`）。缺 `tts_service.py` 不阻塞 STT 启动，`/tts/*` 请求返回 503。启用步骤见 [TTS_README.md](TTS_README.md) 和 [deploy/enable-tts.md](deploy/enable-tts.md)。
+> **Note**: TTS (Text-to-Speech, sherpa-onnx Kokoro) 默认禁用（`tts.enabled: false`）。启用后 `/api/v1/tts*` 可用，不阻塞 STT。部署/启用详见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) 与 [docs/API.md](docs/API.md)。
 
 ## System Requirements
 

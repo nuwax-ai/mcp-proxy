@@ -12,7 +12,7 @@
 
 ### 语音处理能力
 - **多格式支持**: MP3, WAV, FLAC, M4A, AAC, OGG 等主流音频格式
-- **自动格式转换**: 基于 rs-voice-toolkit 的智能音频处理
+- **自动格式转换**: 基于 ffmpeg-sidecar（voice-toolkit audio）的智能音频处理
 - **Whisper 模型**: 支持 tiny/base/small/medium/large 系列模型
 - **自动模型管理**: 按需下载和管理 Whisper 模型
 
@@ -24,7 +24,7 @@
 - **实时监控**: 服务状态、健康检查
 - **任务处理**: 高效的音频处理流水线
 
-> **注意**: TTS（文本转语音）默认禁用（`tts.enabled: false`）。缺 `tts_service.py` 不阻塞 STT 启动，`/tts/*` 请求返回 503。启用步骤见 [TTS_README.md](TTS_README.md) 和 [deploy/enable-tts.md](deploy/enable-tts.md)。
+> **注意**: TTS（文本转语音，sherpa-onnx Kokoro）默认禁用（`tts.enabled: false`）。启用后 `/api/v1/tts*` 可用，不阻塞 STT。部署/启用详见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) 与 [docs/API.md](docs/API.md)。
 
 ## 系统要求
 

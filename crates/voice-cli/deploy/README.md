@@ -17,7 +17,6 @@
 | `config.example.yml` | 配置模板（端口 8087、`tts.enabled: false`、删了死字段 `script_path`） |
 | `.env.example` | 环境变量模板 |
 | `install-libssl1.1-ubuntu2404.sh` | Ubuntu 24.04 装 libssl1.1（cuda 编译版链接 OpenSSL 1.1） |
-| `enable-tts.md` | TTS 启用步骤（默认禁用） |
 
 ## 快速部署（Ubuntu）
 
@@ -44,7 +43,7 @@ cp deploy/config.example.yml config.yml     # 按需改端口/模型
 1. **Ubuntu 24.04 + cuda 编译版必须装 libssl1.1**：24.04 只带 OpenSSL 3，而 cuda 编译版链接了 OpenSSL 1.1，运行报 `error while loading shared libraries: libssl.so.1.1`。跑 `install-libssl1.1-ubuntu2404.sh`。
 2. **`server run --config` 位置坑**：`--config` 必须放在 `server run` **后面**（`voice-cli server run --config config.yml`）；全局的 `-c config.yml server run` 在 `server run` 子命令下**会被代码忽略**（见 `src/main.rs:get_config_path_for_server_action`）。`server-manager.sh` 已正确处理。
 3. **端口**：由 config.yml 的 `server.port` 决定（默认 8087）。改端口改配置，别在命令行传。
-4. **TTS 默认禁用**：缺 `tts_service.py` 不再崩，`/tts/*` 请求返回 503，STT 正常。要 TTS 见 `enable-tts.md`。
+4. **TTS 默认禁用**：sherpa-onnx Kokoro，启用见 `../docs/DEPLOYMENT.md`（置 `tts.enabled: true` + 放 Kokoro 模型到 `./models/tts/`）。
 5. **WorkingDirectory 必须设对**：`./models` `./logs` `./data/tasks.db` 都是相对路径。`server-manager.sh` 启动前会 `cd $PROJECT_ROOT`；systemd unit 的 `WorkingDirectory=` 也要设（否则落到 `/`）。
 
 ## Mac 本地验证
