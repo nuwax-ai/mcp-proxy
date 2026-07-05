@@ -136,8 +136,10 @@ async fn run_tts_stream_session(socket: WebSocket, state: AppState) {
                 return;
             }
         };
+        // lock 引擎取 &OfflineTts（impl Synthesizer），交给 synthesize_streaming
+        let guard = inst.lock().unwrap_or_else(|p| p.into_inner());
         // 错误已在内部映射成 TtsStreamEvent::Error 推给 forward；此处忽略返回
-        let _ = synthesize_streaming(inst, opts, stream_cfg, event_tx, cancel_for_synth);
+        let _ = synthesize_streaming(&*guard, opts, stream_cfg, event_tx, cancel_for_synth);
     });
 
     // forward：owns sink，收到 Done 退出

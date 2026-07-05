@@ -136,6 +136,9 @@ pub struct TtsConfig {
     /// TTS 流式配置（P5 WS 用；P3/P4 仅占位）
     #[serde(default)]
     pub streaming: TtsStreamingConfig,
+    /// TTS 异步任务 SQLite DB 路径（独立于 STT 的 tasks.db，隔离 apalis storage）
+    #[serde(default = "default_tts_tasks_db_path")]
+    pub tasks_db_path: String,
 }
 
 /// TTS 引擎配置（sherpa-onnx Kokoro）。
@@ -402,6 +405,7 @@ impl Default for TtsConfig {
             supported_formats: default_tts_supported_formats(),
             engine: TtsEngineConfig::default(),
             streaming: TtsStreamingConfig::default(),
+            tasks_db_path: default_tts_tasks_db_path(),
         }
     }
 }
@@ -474,6 +478,9 @@ fn default_tts_synth_timeout() -> u64 {
 }
 fn default_tts_format() -> String {
     "wav".to_string()
+}
+fn default_tts_tasks_db_path() -> String {
+    "./data/tts_tasks.db".to_string()
 }
 
 /// 环境变量提供者抽象（依赖注入，避免直接读写全局 std::env）。

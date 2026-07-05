@@ -10,8 +10,8 @@
 //! 合成走 `spawn_blocking`（sherpa-onnx 同步 C 调用），不阻塞 tokio reactor。
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use apalis::layers::WorkerBuilderExt;
@@ -27,9 +27,6 @@ use crate::VoiceCliError;
 use crate::models::tts::TtsProcessingStage;
 use crate::models::{TaskManagementConfig, TtsConfig, TtsTask, TtsTaskError, TtsTaskStatus};
 use crate::tts::{AudioFormat, TtsModelService, TtsOptions};
-
-/// TTS 任务 DB 路径（独立于 STT 的 `tasks.db`，隔离 apalis storage）。
-const TTS_DB_PATH: &str = "./data/tts_tasks.db";
 
 /// worker 注入的共享上下文。
 #[derive(Clone)]
@@ -60,9 +57,6 @@ impl TtsStepContext {
     }
 }
 
-/// 全局 TTS apalis 管理器实例。
-static GLOBAL_TTS_APALIS_MANAGER: OnceLock<Arc<TtsApalisManager>> = OnceLock::new();
-
 /// TTS apalis 管理器（独立 worker + 独立 SQLite pool）。
 pub struct TtsApalisManager {
     pool: sqlx::SqlitePool,
@@ -84,11 +78,15 @@ impl std::fmt::Debug for TtsApalisManager {
 
 impl TtsApalisManager {
     /// 创建管理器，返回 `(TtsApalisManager, SqliteStorage<TtsTask>)`。
+    ///
+    /// `db_path`：SQLite 文件路径（来自 `config.tts.tasks_db_path`）。注入式以便测试。
     pub async fn new(
         config: TaskManagementConfig,
+        db_path: impl AsRef<str>,
     ) -> Result<(Self, SqliteStorage<TtsTask>), VoiceCliError> {
+        let db_path_str = db_path.as_ref();
         // 确保 DB 目录 + 空文件
-        let db_path = std::path::Path::new(TTS_DB_PATH);
+        let db_path = std::path::Path::new(db_path_str);
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| VoiceCliError::Storage(format!("创建 TTS DB 目录失败: {e}")))?;
@@ -98,7 +96,7 @@ impl TtsApalisManager {
                 .map_err(|e| VoiceCliError::Storage(format!("创建 TTS DB 文件失败: {e}")))?;
         }
 
-        let database_url = format!("sqlite://{TTS_DB_PATH}");
+        let database_url = format!("sqlite://{db_path_str}");
         info!(%database_url, "Initialize TtsApalisManager");
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
@@ -388,16 +386,6 @@ impl TtsApalisManager {
     }
 }
 
-/// 初始化全局 TTS apalis 管理器。
-pub async fn init_global_tts_apalis_manager(
-    config: TaskManagementConfig,
-) -> Result<(Arc<TtsApalisManager>, SqliteStorage<TtsTask>), VoiceCliError> {
-    let (manager, storage) = TtsApalisManager::new(config).await?;
-    let arc = Arc::new(manager);
-    let _ = GLOBAL_TTS_APALIS_MANAGER.set(arc.clone());
-    Ok((arc, storage))
-}
-
 /// TTS pipeline worker：合成 → 落盘 → 更新状态。
 pub async fn tts_pipeline_worker(task: TtsTask, ctx: Data<TtsStepContext>) -> Result<(), Error> {
     info!(task_id = %task.task_id, "TTS pipeline start");
@@ -531,4 +519,73 @@ pub async fn tts_pipeline_worker(task: TtsTask, ctx: Data<TtsStepContext>) -> Re
     let _ = ctx.save_task_status(&task.task_id, &completed).await;
     info!(task_id = %task.task_id, bytes = bytes.len(), %duration_seconds, "TTS pipeline done");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::TaskManagementConfig;
+    use chrono::Utc;
+    use tempfile::TempDir;
+
+    fn sample_task(id: &str) -> TtsTask {
+        TtsTask {
+            task_id: id.into(),
+            text: "hello".into(),
+            sid: 0,
+            speed: 1.0,
+            length_scale: 1.0,
+            language: None,
+            format: "wav".into(),
+            model: "mock".into(),
+            created_at: Utc::now(),
+        }
+    }
+
+    /// submit→get_status 往返：验证 tasks_db_path 注入 + submit 顺序（Pending 先于 push 写入）。
+    /// 不 start_worker → 任务停在 Pending，正好校验初始状态写入正确。
+    #[tokio::test]
+    async fn submit_task_persists_pending_status() {
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("tts_tasks.db");
+        let cfg = TaskManagementConfig::default();
+        let (mgr, mut storage) = TtsApalisManager::new(cfg, db_path.to_str().unwrap())
+            .await
+            .unwrap();
+
+        let task_id = mgr
+            .submit_task(&mut storage, sample_task("task-1"))
+            .await
+            .unwrap();
+
+        let status = mgr.get_task_status(&task_id).await.unwrap();
+        assert!(matches!(status, Some(TtsTaskStatus::Pending { .. })));
+    }
+
+    #[tokio::test]
+    async fn get_status_unknown_task_returns_none() {
+        let tmp = TempDir::new().unwrap();
+        let cfg = TaskManagementConfig::default();
+        let (mgr, _storage) = TtsApalisManager::new(cfg, tmp.path().join("x.db").to_str().unwrap())
+            .await
+            .unwrap();
+        assert!(mgr.get_task_status("nonexistent").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn delete_task_returns_true_only_when_existed() {
+        let tmp = TempDir::new().unwrap();
+        let cfg = TaskManagementConfig::default();
+        let (mgr, mut storage) =
+            TtsApalisManager::new(cfg, tmp.path().join("x.db").to_str().unwrap())
+                .await
+                .unwrap();
+        let id = mgr
+            .submit_task(&mut storage, sample_task("task-2"))
+            .await
+            .unwrap();
+        assert!(mgr.delete_task(&id).await.unwrap());
+        assert!(!mgr.delete_task(&id).await.unwrap()); // 二次删 → false
+        assert!(mgr.get_task_status(&id).await.unwrap().is_none());
+    }
 }

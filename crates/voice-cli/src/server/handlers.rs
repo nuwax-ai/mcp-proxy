@@ -64,10 +64,13 @@ impl AppState {
         let tts_model_service =
             Arc::new(TtsModelService::new(config.tts.engine.models_dir.clone()));
 
-        // 初始化 TTS apalis 管理器（独立 DB ./data/tts_tasks.db）
+        // 初始化 TTS apalis 管理器（独立 DB，路径来自 config.tts.tasks_db_path）
         info!("Initializing TTS Apalis manager");
-        let (tts_apalis_manager, tts_apalis_storage) =
-            TtsApalisManager::new(config.task_management.clone()).await?;
+        let (tts_apalis_manager, tts_apalis_storage) = TtsApalisManager::new(
+            config.task_management.clone(),
+            config.tts.tasks_db_path.clone(),
+        )
+        .await?;
         let tts_apalis_manager = Arc::new(tts_apalis_manager);
         tts_apalis_manager
             .start_worker(

@@ -17,6 +17,4 @@ pub use audio_format_detector::AudioFormatDetector;
 pub use audio_processor::AudioProcessor;
 pub use metadata_extractor::{AudioVideoMetadata, MetadataExtractor};
 pub use model_service::ModelService;
-pub use tts_apalis_manager::{
-    TtsApalisManager, TtsStepContext, init_global_tts_apalis_manager, tts_pipeline_worker,
-};
+pub use tts_apalis_manager::{TtsApalisManager, TtsStepContext, tts_pipeline_worker};

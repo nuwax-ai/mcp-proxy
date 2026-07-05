@@ -35,4 +35,4 @@ pub use model_service::{TtsModelPaths, TtsModelService};
 pub use options::TtsOptions;
 pub use pipeline::{acquire_instance, synth_to_bytes};
 pub use streaming::{TtsStreamConfig, TtsStreamEvent, synthesize_streaming};
-pub use synthesizer::{SynthesizedAudio, synthesize};
+pub use synthesizer::{SynthesizedAudio, Synthesizer, synthesize};

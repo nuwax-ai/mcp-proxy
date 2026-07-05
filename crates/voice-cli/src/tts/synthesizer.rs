@@ -5,11 +5,41 @@
 //! - 把 `Option<GeneratedAudio>` 错误映射成 `TtsError::SynthFailed`（带上下文）
 //! - **必须 `samples.to_vec()`**：`GeneratedAudio` 借用 C 内存且 `!Send`，跨 await / spawn_blocking
 //!   之前必须拷贝出所有权数据
+//!
+//! [`Synthesizer`] trait 抽象引擎（对称 STT `Decoder` trait），使 [`crate::tts::synthesize_streaming`]
+//! 的 callback/event 编排可用 `MockSynthesizer` 单测，不必拉起真实 sherpa-onnx。
 
-use sherpa_onnx::{GeneratedAudio, OfflineTts};
+use sherpa_onnx::{GeneratedAudio, GenerationConfig, OfflineTts};
 
 use crate::tts::error::TtsError;
 use crate::tts::options::TtsOptions;
+
+/// 合成引擎抽象（对称 STT `stt::Decoder` trait）。
+///
+/// 生产实现 `OfflineTts`；测试用 `MockSynthesizer` 验证 streaming 的 callback/event 编排。
+/// trait 方法 `generate` 返回总样本数（非 `GeneratedAudio`——后者持 C 指针不可在测试构造）。
+pub trait Synthesizer: Send + Sync {
+    /// 输出采样率（Hz）
+    fn sample_rate(&self) -> i32;
+    /// 合成：对每个样本 chunk 调 `callback(samples, progress)`；callback 返回 `false` 中断。
+    /// 返回总样本数（用于 Done 事件）；`None` = 失败/取消。
+    fn generate<F>(&self, text: &str, cfg: &GenerationConfig, callback: Option<F>) -> Option<usize>
+    where
+        F: FnMut(&[f32], f32) -> bool + 'static;
+}
+
+impl Synthesizer for OfflineTts {
+    fn sample_rate(&self) -> i32 {
+        OfflineTts::sample_rate(self)
+    }
+    fn generate<F>(&self, text: &str, cfg: &GenerationConfig, callback: Option<F>) -> Option<usize>
+    where
+        F: FnMut(&[f32], f32) -> bool + 'static,
+    {
+        self.generate_with_config(text, cfg, callback)
+            .map(|a| a.samples().len())
+    }
+}
 
 /// 合成结果（所有权数据，Send 安全）。
 #[derive(Debug, Clone)]
