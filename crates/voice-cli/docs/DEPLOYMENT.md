@@ -155,6 +155,14 @@ whisper:
     transcription_workers: 3
     channel_buffer_size: 100
     worker_timeout: 3600
+  # streaming:                     # STT 流式（可选，全部有默认值）
+  #   decode_interval_sec: 0.5     # 解码触发间隔
+  #   tail_trim_sec: 0.3           # B 解码尾部裁剪
+  #   min_agree_count: 2           # LA2 前缀稳定阈值
+  #   buffer_max_sec: 30           # ★ 长会话 utterance 切分阈值（超时 flush+reset，封顶 O(n²)；详见 API.md §4）
+  #   idle_timeout_sec: 30
+  #   decode_timeout_sec: 30
+  #   compare_granularity: "auto"  # auto（按 language 推断）/ char / word
 
 tts:
   enabled: true                  # ⚠️ 必须 true，否则 /api/v1/tts* 返回 403

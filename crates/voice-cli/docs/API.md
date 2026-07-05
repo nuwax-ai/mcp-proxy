@@ -30,7 +30,8 @@
 | 任务 | GET/DELETE | `/api/v1/tasks/{id}` | 查询/删除 |
 | 任务 | POST | `/api/v1/tasks/{id}/cancel` | 取消 |
 | 任务 | POST | `/api/v1/tasks/{id}/retry` | 重试 |
-| 任务 | GET | `/api/v1/tasks/stats` | 统计 |
+| 任务 | GET | `/api/v1/tasks/stats` | STT 任务统计 |
+| 任务 | GET | `/api/v1/tasks/tts/stats` | TTS 任务统计 |
 
 > STT 接口**向后兼容**（旧客户端无感知，新字段全可选）。TTS 接口**全新设计**（无旧 `/tts/sync`）。
 
@@ -89,7 +90,10 @@ curl -s "http://localhost:8080/api/v1/tasks/$TID/result" | python3 -m json.tool
 
 协议：
 - 客户端 → 服务端：首帧 JSON `{type:"start", sample_rate:16000, language:"en", model:"base"}` → 二进制 PCM s16le 帧（100-500ms）→ `{type:"stop"}` / `{type:"cancel"}`
-- 服务端 → 客户端：`{type:"ready"}` → `{type:"partial",text}` / `{type:"committed",text}`（增量）→ `{type:"done",committed_total}`
+- 服务端 → 客户端：`{type:"ready"}` → `{type:"partial",text,committed}` / `{type:"committed",text,committed}`（增量）→ `{type:"done",committed_total}`
+
+> **控制帧精确匹配**：`{type:"stop"}` / `{type:"cancel"}` 按 JSON `type` 字段精确匹配（非子串），含 "stop"/"cancel" 子串的任意文本不会误触发。
+> **长会话 utterance 切分**：音频累积超 `buffer_max_sec`（默认 30s）时自动 flush + 切分（封顶 O(n²) 全量重解码）。此时 `done.committed_total` **仅含最后一段**，完整转录需客户端累加所有 `committed` 事件文本。短会话（<30s）不受影响，`done.committed_total` 即完整结果。
 
 Python 客户端（`ws_stt_test.py`）：
 
@@ -162,6 +166,7 @@ open /tmp/tts.wav       # macOS 播放
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `text` | string | 要合成的文本（≤`tts.max_text_length`） |
+| `model` | string | 模型 id（不传=`default_model`；多模型并存时指定，如 `kokoro-multi-lang-v1_0`） |
 | `sid` | i32 | 音色 id（0-52；不传=`default_sid`） |
 | `voice` | string | 音色别名（v1 暂不解析，保留接口） |
 | `speed` | f32 | 语速（1.0 原速；不传=`default_speed`） |
@@ -185,7 +190,7 @@ curl -s http://localhost:8080/api/v1/tts/voices | python3 -m json.tool
 ## 7. TTS — 异步合成
 
 ```bash
-# 提交
+# 提交（请求体字段同同步接口：text 必填，model/sid/speed/length_scale/language/format 可选）
 TID=$(curl -s -X POST http://localhost:8080/api/v1/tasks/tts \
   -H 'Content-Type: application/json' \
   -d '{"text":"异步语音合成测试，使用 sherpa-onnx Kokoro 模型。","format":"wav"}' \
@@ -277,8 +282,11 @@ curl -s -X POST "http://localhost:8080/api/v1/tasks/<task_id>/retry"
 # 删除（TTS 会一并删音频文件）
 curl -s -X DELETE "http://localhost:8080/api/v1/tasks/<task_id>"
 
-# 统计
+# STT 任务统计
 curl -s "http://localhost:8080/api/v1/tasks/stats" | python3 -m json.tool
+
+# TTS 任务统计（对称 STT，查 tts_task_info 表）
+curl -s "http://localhost:8080/api/v1/tasks/tts/stats" | python3 -m json.tool
 ```
 
 ---
