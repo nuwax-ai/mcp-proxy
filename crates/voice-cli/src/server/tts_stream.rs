@@ -98,7 +98,7 @@ async fn run_tts_stream_session(socket: WebSocket, state: AppState) {
     let opts = TtsOptions {
         sid: start.sid.unwrap_or(engine.default_sid),
         speed: start.speed.unwrap_or(engine.default_speed),
-        silence_scale: 0.2,
+        ..Default::default()
     };
     let stream_cfg = TtsStreamConfig {
         text,

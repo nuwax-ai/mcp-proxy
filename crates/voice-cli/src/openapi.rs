@@ -1,7 +1,8 @@
 use crate::models::{
     AsyncTaskResponse, CancelResponse, DeleteResponse, HealthResponse, ModelInfo, ModelsResponse,
     RetryResponse, Segment, TaskPriority, TaskStatsResponse, TaskStatus, TaskStatusResponse,
-    TranscriptionResponse, TtsAsyncRequest, TtsSyncRequest, TtsTaskResponse, TtsTaskStatus,
+    TranscriptionResponse, TtsAsyncRequest, TtsSyncRequest, TtsTaskError, TtsTaskResponse,
+    TtsTaskStatus,
 };
 use crate::server::handlers;
 use utoipa::OpenApi;
@@ -62,7 +63,8 @@ use utoipa_swagger_ui::SwaggerUi;
             TtsSyncRequest,
             TtsAsyncRequest,
             TtsTaskResponse,
-            TtsTaskStatus
+            TtsTaskStatus,
+            TtsTaskError
         )
     ),
     tags(

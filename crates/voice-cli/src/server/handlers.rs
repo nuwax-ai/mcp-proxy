@@ -1040,11 +1040,11 @@ pub async fn tts_sync_handler(
     };
     // 池化参数（model-level；length_scale 仅首次加载生效）
     let length_scale = request.length_scale.unwrap_or(engine.default_length_scale);
-    // 合成参数（per-request）
+    // 合成参数（per-request）；silence_scale 走 TtsOptions::default 单一来源
     let opts = TtsOptions {
         sid: request.sid.unwrap_or(engine.default_sid),
         speed: request.speed.unwrap_or(engine.default_speed),
-        silence_scale: 0.2,
+        ..Default::default()
     };
 
     // 同步合成走 spawn_blocking（sherpa-onnx 是同步阻塞 C 调用）

@@ -223,13 +223,13 @@ pub enum TtsTaskError {
 impl std::fmt::Display for TtsTaskError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TtsTaskError::TextProcessingFailed { message, .. } => {
+            TtsTaskError::TextProcessingFailed { message } => {
                 write!(f, "文本处理失败: {}", message)
             }
-            TtsTaskError::SynthesisFailed { model, message, .. } => {
+            TtsTaskError::SynthesisFailed { model, message } => {
                 write!(f, "语音合成失败 ({}): {}", model, message)
             }
-            TtsTaskError::AudioProcessingFailed { stage, message, .. } => {
+            TtsTaskError::AudioProcessingFailed { stage, message } => {
                 write!(f, "音频处理失败 ({}): {}", stage.step_name(), message)
             }
             TtsTaskError::StorageError { operation, message } => {
