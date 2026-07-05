@@ -26,7 +26,9 @@ pub mod streaming;
 pub mod synthesizer;
 
 pub use audio_encode::{AudioFormat, encode, to_pcm_s16le as to_pcm_bytes};
-pub use engine_pool::{TtsEnginePool, TtsInstance, TtsKey, TtsLoadParams, get_or_init_tts};
+pub use engine_pool::{
+    EngineInstance, EngineKey, EngineLoadParams, EnginePool, get_or_init_engine,
+};
 pub use error::TtsError;
 pub use model_service::{TtsModelPaths, TtsModelService};
 pub use options::TtsOptions;

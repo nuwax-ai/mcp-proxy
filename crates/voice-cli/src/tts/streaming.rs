@@ -25,7 +25,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc;
 
 use crate::tts::error::TtsError;
-use crate::tts::{TtsKey, TtsLoadParams, TtsModelService, TtsOptions, get_or_init_tts};
+use crate::tts::{EngineKey, EngineLoadParams, TtsOptions, get_or_init_engine};
 
 /// 流式合成事件（WS handler 转成 WS 帧）。
 #[derive(Debug)]
@@ -59,16 +59,15 @@ pub struct TtsStreamConfig {
 /// 错误映射到 `TtsStreamEvent::Error` 后返回（不向上传播，便于 forwarder 收尾）。
 ///
 /// `load_params.paths` 由调用方解析（已 ensure_model）；本函数不再重复 resolve
-///（避免冗余 IO + 静默覆盖调用方参数）。`get_or_init_tts` 内部对必备文件有二次校验。
+///（避免冗余 IO + 静默覆盖调用方参数）。`get_or_init_engine` 内部对必备文件有二次校验。
 pub fn synthesize_streaming(
-    _tts_model_service: &TtsModelService,
-    load_params: TtsLoadParams,
+    load_params: EngineLoadParams,
     opts: TtsOptions,
     cfg: TtsStreamConfig,
     tx: mpsc::Sender<TtsStreamEvent>,
     cancel: Arc<AtomicBool>,
 ) -> Result<(), TtsError> {
-    let pool = get_or_init_tts(TtsKey::new(&cfg.model), load_params)?;
+    let pool = get_or_init_engine(EngineKey::new(&cfg.model), load_params)?;
     let inst = pool.pick();
     let guard = inst.lock().unwrap_or_else(|p| p.into_inner());
 

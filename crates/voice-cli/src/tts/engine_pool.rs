@@ -1,7 +1,7 @@
 //! sherpa-onnx `OfflineTts` 引擎池（镜像 STT `engine_pool` + fastembed `ModelPool` 模式）。
 //!
 //! 设计要点：
-//! - 全局 `LazyLock<DashMap<TtsKey, Arc<TtsEnginePool>>>` 按 model_id 缓存
+//! - 全局 `LazyLock<DashMap<EngineKey, Arc<EnginePool>>>` 按 model_id 缓存
 //! - double-checked `INIT_LOCK`：序列化同一模型的并发首次加载（ OfflineTts::create 阻塞 IO）
 //! - **不用** DashMap entry api：entry 闭包持 shard 锁期间不能再拿 `INIT_LOCK`（嵌套死锁，
 //!   正是 CLAUDE.md 警告）。用 get→lock→get→insert 的 double-checked
@@ -22,18 +22,18 @@ use crate::tts::error::TtsError;
 use crate::tts::model_service::{TtsModelPaths, path_to_opt_string};
 
 /// 单个 sherpa-onnx TTS 引擎实例。
-pub type TtsInstance = Arc<Mutex<OfflineTts>>;
+pub type EngineInstance = Arc<Mutex<OfflineTts>>;
 
 /// TTS 引擎池：N 个独立实例，round-robin 分配。
 ///
 /// - `pool_size = 1`：单实例串行（CPU 推理通常最优）
 /// - `pool_size > 1`：N 路并发（每实例独立加载一份模型，N× 内存）
-pub struct TtsEnginePool {
-    instances: Vec<TtsInstance>,
+pub struct EnginePool {
+    instances: Vec<EngineInstance>,
     next: AtomicUsize,
 }
 
-impl TtsEnginePool {
+impl EnginePool {
     pub fn len(&self) -> usize {
         self.instances.len()
     }
@@ -45,7 +45,7 @@ impl TtsEnginePool {
     }
 
     /// round-robin 取实例。
-    pub fn pick(&self) -> TtsInstance {
+    pub fn pick(&self) -> EngineInstance {
         let idx = self.next.fetch_add(1, Ordering::Relaxed) % self.instances.len();
         self.instances[idx].clone()
     }
@@ -53,11 +53,11 @@ impl TtsEnginePool {
 
 /// 引擎缓存键：模型 id（对应 `{models_dir}/{model_id}/`）。
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct TtsKey {
+pub struct EngineKey {
     pub model_id: String,
 }
 
-impl TtsKey {
+impl EngineKey {
     pub fn new(model_id: impl Into<String>) -> Self {
         Self {
             model_id: model_id.into(),
@@ -66,14 +66,14 @@ impl TtsKey {
 }
 
 /// 全局引擎缓存：按 model_id 索引，每项是 N 实例池。
-static TTS_CACHE: LazyLock<DashMap<TtsKey, Arc<TtsEnginePool>>> = LazyLock::new(DashMap::new);
+static TTS_CACHE: LazyLock<DashMap<EngineKey, Arc<EnginePool>>> = LazyLock::new(DashMap::new);
 
 /// 初始化串行锁（double-checked locking 用）。
 static INIT_LOCK: Mutex<()> = Mutex::new(());
 
 /// TTS 引擎加载参数（model-level；per-request 参数走 `TtsOptions`）。
 #[derive(Debug, Clone)]
-pub struct TtsLoadParams {
+pub struct EngineLoadParams {
     /// 模型文件路径集合（来自 `TtsModelService::resolve_paths`）
     pub paths: TtsModelPaths,
     /// ONNX runtime 线程数（0 = sherpa-onnx 默认）
@@ -93,7 +93,10 @@ pub struct TtsLoadParams {
 /// 获取或初始化 TTS 引擎池（幂等；同 key 首次调用加载模型，后续命中缓存）。
 ///
 /// 模型加载是阻塞 IO（数百 ms ~ 数秒），调用方应在 `spawn_blocking` 中调用。
-pub fn get_or_init_tts(key: TtsKey, params: TtsLoadParams) -> Result<Arc<TtsEnginePool>, TtsError> {
+pub fn get_or_init_engine(
+    key: EngineKey,
+    params: EngineLoadParams,
+) -> Result<Arc<EnginePool>, TtsError> {
     // 快路径：命中缓存
     if let Some(p) = TTS_CACHE.get(&key) {
         return Ok(p.clone());
@@ -127,7 +130,7 @@ pub fn get_or_init_tts(key: TtsKey, params: TtsLoadParams) -> Result<Arc<TtsEngi
     let pool_size = params.pool_size.max(1);
     let mut instances = Vec::with_capacity(pool_size);
     for i in 0..pool_size {
-        let tts = build_tts(&key.model_id, params.clone())?;
+        let tts = build_engine(&key.model_id, params.clone())?;
         tracing::debug!(
             "TTS engine pool {}/{} ready (model={})",
             i + 1,
@@ -136,7 +139,7 @@ pub fn get_or_init_tts(key: TtsKey, params: TtsLoadParams) -> Result<Arc<TtsEngi
         );
         instances.push(Arc::new(Mutex::new(tts)));
     }
-    let pool = Arc::new(TtsEnginePool {
+    let pool = Arc::new(EnginePool {
         instances,
         next: AtomicUsize::new(0),
     });
@@ -148,7 +151,7 @@ pub fn get_or_init_tts(key: TtsKey, params: TtsLoadParams) -> Result<Arc<TtsEngi
 ///
 /// sherpa-onnx `OfflineTts::create` 返回 `Option`（C 端错误打 stderr 拿不到），
 /// 这里映射成 `TtsError::InitFailed` 带模型 / 路径上下文。
-fn build_tts(model_id: &str, params: TtsLoadParams) -> Result<OfflineTts, TtsError> {
+fn build_engine(model_id: &str, params: EngineLoadParams) -> Result<OfflineTts, TtsError> {
     let paths = params.paths;
     let kokoro = OfflineTtsKokoroModelConfig {
         model: path_to_opt_string(&paths.model),

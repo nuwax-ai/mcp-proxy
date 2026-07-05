@@ -23,7 +23,7 @@ use tracing::{info, warn};
 
 use crate::server::handlers::AppState;
 use crate::tts::{
-    TtsLoadParams, TtsOptions, TtsStreamConfig, TtsStreamEvent, synthesize_streaming,
+    EngineLoadParams, TtsOptions, TtsStreamConfig, TtsStreamEvent, synthesize_streaming,
 };
 
 /// 客户端 start 帧（未知字段 serde 默认忽略）。
@@ -123,7 +123,7 @@ async fn run_tts_stream_session(socket: WebSocket, state: AppState) {
             return;
         }
     };
-    let load_params = TtsLoadParams {
+    let load_params = EngineLoadParams {
         paths: paths.clone(),
         num_threads: engine.num_threads,
         length_scale,
@@ -140,18 +140,10 @@ async fn run_tts_stream_session(socket: WebSocket, state: AppState) {
     let (event_tx, event_rx) = tokio::sync::mpsc::channel::<TtsStreamEvent>(32);
     let cancel = Arc::new(AtomicBool::new(false));
 
-    let tts_model_service = state.tts_model_service.clone();
     let cancel_for_synth = cancel.clone();
     let synth_handle = tokio::task::spawn_blocking(move || {
         // 错误已在内部映射成 TtsStreamEvent::Error 推给 forward；此处忽略返回
-        let _ = synthesize_streaming(
-            &tts_model_service,
-            load_params,
-            opts,
-            stream_cfg,
-            event_tx,
-            cancel_for_synth,
-        );
+        let _ = synthesize_streaming(load_params, opts, stream_cfg, event_tx, cancel_for_synth);
     });
 
     // forward：owns sink，收到 Done 退出

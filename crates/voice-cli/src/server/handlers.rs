@@ -9,7 +9,7 @@ use crate::services::{
     AudioFileManager, AudioFormatDetector, LockFreeApalisManager, MetadataExtractor, ModelService,
     TranscriptionTask, TtsApalisManager,
 };
-use crate::tts::{AudioFormat, TtsKey, TtsLoadParams, TtsModelService, TtsOptions};
+use crate::tts::{AudioFormat, EngineKey, EngineLoadParams, TtsModelService, TtsOptions};
 use apalis_sql::sqlite::SqliteStorage;
 use axum::extract::{Json, Multipart, Path as AxumPath, State};
 use axum::response::IntoResponse;
@@ -1043,7 +1043,7 @@ pub async fn tts_sync_handler(
         None => AudioFormat::parse(&state.config.tts.streaming.default_format),
     };
     // 池化参数（model-level；length_scale 仅首次加载生效）
-    let load_params = TtsLoadParams {
+    let load_params = EngineLoadParams {
         paths: paths.clone(),
         num_threads: engine.num_threads,
         length_scale: request.length_scale.unwrap_or(engine.default_length_scale),
@@ -1061,7 +1061,7 @@ pub async fn tts_sync_handler(
 
     // 同步合成走 spawn_blocking（sherpa-onnx 是同步阻塞 C 调用）
     let result = tokio::task::spawn_blocking(move || -> std::result::Result<_, VoiceCliError> {
-        let pool = crate::tts::get_or_init_tts(TtsKey::new(&model_id), load_params)?;
+        let pool = crate::tts::get_or_init_engine(EngineKey::new(&model_id), load_params)?;
         let inst = pool.pick();
         let guard = inst.lock().unwrap_or_else(|p| p.into_inner());
         let audio = crate::tts::synthesize(&guard, &text, &opts)?;
@@ -1121,7 +1121,7 @@ pub async fn tts_voices_handler(
         }
     };
     let engine = &state.config.tts.engine;
-    let load_params = TtsLoadParams {
+    let load_params = EngineLoadParams {
         paths: paths.clone(),
         num_threads: engine.num_threads,
         length_scale: engine.default_length_scale,
@@ -1133,7 +1133,7 @@ pub async fn tts_voices_handler(
 
     // 加载引擎取 num_speakers（spawn_blocking：create 是阻塞 IO）
     let num = tokio::task::spawn_blocking(move || -> std::result::Result<i32, VoiceCliError> {
-        let pool = crate::tts::get_or_init_tts(TtsKey::new(&model_id), load_params)?;
+        let pool = crate::tts::get_or_init_engine(EngineKey::new(&model_id), load_params)?;
         let inst = pool.pick();
         let guard = inst.lock().unwrap_or_else(|p| p.into_inner());
         Ok(guard.num_speakers())

@@ -1,7 +1,7 @@
 //! TTS 合成参数 DTO，映射到 sherpa-onnx 的 `GenerationConfig`（per-request）。
 //!
 //! model-level 参数（`length_scale` / `noise_scale`）走 `OfflineTtsKokoroModelConfig`，
-//! 在 `TtsLoadParams` + `engine_pool::build_tts` 中设置，不在本 DTO 内（避免
+//! 在 `EngineLoadParams` + `engine_pool::build_engine` 中设置，不在本 DTO 内（避免
 //! "接受 per-request 输入但只能 model-level 生效"的静默忽略——Fail Fast）。
 
 use sherpa_onnx::GenerationConfig;
@@ -13,7 +13,7 @@ use sherpa_onnx::GenerationConfig;
 ///
 /// `length_scale` 等 model-level 参数**故意不在本结构**：它们只在引擎首次加载时
 /// 生效（池化实例共享），放在 per-request DTO 会让客户端误以为可逐请求调整。
-/// 走 `TtsLoadParams.length_scale`（来自 `config.tts.engine.default_length_scale`）。
+/// 走 `EngineLoadParams.length_scale`（来自 `config.tts.engine.default_length_scale`）。
 ///
 /// `noise_scale` / `noise_scale_w` 是 VITS 专属，Kokoro 不用；首版只支持 Kokoro。
 #[derive(Debug, Clone)]

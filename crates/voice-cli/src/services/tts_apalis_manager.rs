@@ -27,7 +27,7 @@ use crate::VoiceCliError;
 use crate::models::tts::TtsProcessingStage;
 use crate::models::{TaskManagementConfig, TtsConfig, TtsTask, TtsTaskError, TtsTaskStatus};
 use crate::tts::{
-    AudioFormat, TtsKey, TtsLoadParams, TtsModelService, TtsOptions, get_or_init_tts,
+    AudioFormat, EngineKey, EngineLoadParams, TtsModelService, TtsOptions, get_or_init_engine,
 };
 
 /// TTS 任务 DB 路径（独立于 STT 的 `tasks.db`，隔离 apalis storage）。
@@ -435,7 +435,7 @@ pub async fn tts_pipeline_worker(task: TtsTask, ctx: Data<TtsStepContext>) -> Re
                     speed,
                     ..Default::default()
                 };
-                let load_params = TtsLoadParams {
+                let load_params = EngineLoadParams {
                     paths: paths.clone(),
                     num_threads: ctx_cfg.num_threads,
                     length_scale,
@@ -444,7 +444,7 @@ pub async fn tts_pipeline_worker(task: TtsTask, ctx: Data<TtsStepContext>) -> Re
                     debug: ctx_cfg.debug,
                     lang: ctx_cfg.default_language.clone(),
                 };
-                let pool = get_or_init_tts(TtsKey::new(&model_id_for_closure), load_params)
+                let pool = get_or_init_engine(EngineKey::new(&model_id_for_closure), load_params)
                     .map_err(|e| e.to_string())?;
                 let inst = pool.pick();
                 let guard = inst.lock().unwrap_or_else(|p| p.into_inner());
@@ -468,11 +468,8 @@ pub async fn tts_pipeline_worker(task: TtsTask, ctx: Data<TtsStepContext>) -> Re
                 error: TtsTaskError::SynthesisFailed {
                     model: model_id,
                     message: msg,
-                    is_recoverable: false,
                 },
                 failed_at: Utc::now(),
-                retry_count: 0,
-                is_recoverable: false,
             };
             let _ = ctx.save_task_status(&task.task_id, &failed).await;
             return Err(Error::from(
@@ -486,11 +483,8 @@ pub async fn tts_pipeline_worker(task: TtsTask, ctx: Data<TtsStepContext>) -> Re
                 error: TtsTaskError::SynthesisFailed {
                     model: model_id,
                     message: format!("join 失败: {join_e}"),
-                    is_recoverable: false,
                 },
                 failed_at: Utc::now(),
-                retry_count: 0,
-                is_recoverable: false,
             };
             let _ = ctx.save_task_status(&task.task_id, &failed).await;
             return Err(Error::from(
@@ -512,8 +506,6 @@ pub async fn tts_pipeline_worker(task: TtsTask, ctx: Data<TtsStepContext>) -> Re
                 message: msg.clone(),
             },
             failed_at: Utc::now(),
-            retry_count: 0,
-            is_recoverable: true, // 磁盘满 / 临时 IO 故障可重试
         };
         let _ = ctx.save_task_status(&task.task_id, &failed).await;
         return Err(Error::from(
@@ -530,8 +522,6 @@ pub async fn tts_pipeline_worker(task: TtsTask, ctx: Data<TtsStepContext>) -> Re
                 message: msg.clone(),
             },
             failed_at: Utc::now(),
-            retry_count: 0,
-            is_recoverable: true,
         };
         let _ = ctx.save_task_status(&task.task_id, &failed).await;
         return Err(Error::from(

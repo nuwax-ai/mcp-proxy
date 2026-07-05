@@ -178,8 +178,6 @@ pub enum TtsTaskStatus {
     Failed {
         error: TtsTaskError,
         failed_at: DateTime<Utc>,
-        retry_count: u32,
-        is_recoverable: bool,
     },
     Cancelled {
         cancelled_at: DateTime<Utc>,
@@ -202,17 +200,14 @@ pub struct TtsProgressDetails {
 pub enum TtsTaskError {
     TextProcessingFailed {
         message: String,
-        is_recoverable: bool,
     },
     SynthesisFailed {
         model: String,
         message: String,
-        is_recoverable: bool,
     },
     AudioProcessingFailed {
         stage: TtsProcessingStage,
         message: String,
-        is_recoverable: bool,
     },
     StorageError {
         operation: String,
@@ -223,19 +218,6 @@ pub enum TtsTaskError {
         timeout_duration: chrono::Duration,
     },
     CancellationRequested,
-}
-
-impl TtsTaskError {
-    pub fn is_recoverable(&self) -> bool {
-        match self {
-            TtsTaskError::TextProcessingFailed { is_recoverable, .. } => *is_recoverable,
-            TtsTaskError::SynthesisFailed { is_recoverable, .. } => *is_recoverable,
-            TtsTaskError::AudioProcessingFailed { is_recoverable, .. } => *is_recoverable,
-            TtsTaskError::StorageError { .. } => true,
-            TtsTaskError::TimeoutError { .. } => true,
-            TtsTaskError::CancellationRequested => false,
-        }
-    }
 }
 
 impl std::fmt::Display for TtsTaskError {

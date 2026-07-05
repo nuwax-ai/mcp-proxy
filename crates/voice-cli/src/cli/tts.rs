@@ -2,7 +2,7 @@ use clap::Subcommand;
 use std::path::PathBuf;
 
 use crate::tts::{
-    AudioFormat, TtsKey, TtsLoadParams, TtsModelService, TtsOptions, get_or_init_tts,
+    AudioFormat, EngineKey, EngineLoadParams, TtsModelService, TtsOptions, get_or_init_engine,
 };
 
 #[derive(Subcommand)]
@@ -90,7 +90,7 @@ pub async fn handle_tts_test(config: &crate::Config, params: TtsTestParams) -> a
         speed,
         ..Default::default()
     };
-    let load_params = TtsLoadParams {
+    let load_params = EngineLoadParams {
         paths: paths.clone(),
         num_threads: config.tts.engine.num_threads,
         length_scale: config.tts.engine.default_length_scale,
@@ -103,7 +103,7 @@ pub async fn handle_tts_test(config: &crate::Config, params: TtsTestParams) -> a
     // 同步合成走 spawn_blocking
     let text_owned = text.clone();
     let result = tokio::task::spawn_blocking(move || -> anyhow::Result<(Vec<u8>, AudioFormat)> {
-        let pool = get_or_init_tts(TtsKey::new(&model_id), load_params)?;
+        let pool = get_or_init_engine(EngineKey::new(&model_id), load_params)?;
         let inst = pool.pick();
         let guard = inst.lock().unwrap_or_else(|p| p.into_inner());
         let audio = crate::tts::synthesize(&guard, &text_owned, &opts)?;
