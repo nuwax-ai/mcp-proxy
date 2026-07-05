@@ -738,6 +738,25 @@ pub async fn get_tasks_stats_handler(
     Ok(HttpResult::success(stats))
 }
 
+/// GET /api/v1/tasks/tts/stats — TTS 任务统计（对称 STT /api/v1/tasks/stats）
+#[utoipa::path(
+    get,
+    path = "/api/v1/tasks/tts/stats",
+    tag = "任务管理",
+    summary = "TTS 任务统计",
+    description = "返回 TTS 异步任务的总数/各状态计数/失败 task_id/平均处理时间",
+    responses(
+        (status = 200, description = "TTS 任务统计", body = HttpResult<TaskStatsResponse>),
+        (status = 500, description = "服务器错误", body = String)
+    )
+)]
+pub async fn tts_tasks_stats_handler(
+    State(state): State<AppState>,
+) -> Result<HttpResult<TaskStatsResponse>, VoiceCliError> {
+    let stats = state.tts_apalis_manager.get_tasks_stats().await?;
+    Ok(HttpResult::success(stats))
+}
+
 // ===== 辅助函数 =====
 
 /// 转录请求数据

@@ -39,6 +39,7 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::delete_task_handler,
         handlers::retry_task_handler,
         handlers::get_tasks_stats_handler,
+        handlers::tts_tasks_stats_handler,
         handlers::tts_sync_handler,
         handlers::tts_voices_handler,
         handlers::tts_async_handler,

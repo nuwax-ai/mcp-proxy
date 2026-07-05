@@ -25,7 +25,9 @@ use tracing::{debug, info, warn};
 
 use crate::VoiceCliError;
 use crate::models::tts::TtsProcessingStage;
-use crate::models::{TaskManagementConfig, TtsConfig, TtsTask, TtsTaskError, TtsTaskStatus};
+use crate::models::{
+    TaskManagementConfig, TaskStatsResponse, TtsConfig, TtsTask, TtsTaskError, TtsTaskStatus,
+};
 use crate::tts::{AudioFormat, TtsModelService, TtsOptions};
 
 /// worker 注入的共享上下文。
@@ -369,6 +371,64 @@ impl TtsApalisManager {
             }
         });
         Ok(())
+    }
+
+    /// TTS 任务统计（对称 STT `get_tasks_stats`，查 tts_task_info 表）
+    pub async fn get_tasks_stats(&self) -> Result<TaskStatsResponse, VoiceCliError> {
+        let mut total_tasks = 0u32;
+        let mut pending_tasks = 0u32;
+        let mut processing_tasks = 0u32;
+        let mut completed_tasks = 0u32;
+        let mut failed_tasks = 0u32;
+        let mut cancelled_tasks = 0u32;
+        let mut failed_task_ids = Vec::new();
+        let mut processing_times = Vec::new();
+
+        let rows = sqlx::query("SELECT task_id, status FROM tts_task_info")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| VoiceCliError::Storage(format!("查询 TTS 任务统计失败: {e}")))?;
+        for row in rows {
+            let task_id: String = row
+                .try_get("task_id")
+                .map_err(|e| VoiceCliError::Storage(format!("获取任务ID失败: {e}")))?;
+            let status_json: String = row
+                .try_get("status")
+                .map_err(|e| VoiceCliError::Storage(format!("获取状态失败: {e}")))?;
+            let status: TtsTaskStatus = serde_json::from_str(&status_json)
+                .map_err(|e| VoiceCliError::Storage(format!("解析 TTS 状态失败: {e}")))?;
+            total_tasks += 1;
+            match status {
+                TtsTaskStatus::Pending { .. } => pending_tasks += 1,
+                TtsTaskStatus::Processing { .. } => processing_tasks += 1,
+                TtsTaskStatus::Completed {
+                    processing_time, ..
+                } => {
+                    completed_tasks += 1;
+                    processing_times.push(processing_time.num_milliseconds() as f64);
+                }
+                TtsTaskStatus::Failed { .. } => {
+                    failed_tasks += 1;
+                    failed_task_ids.push(task_id);
+                }
+                TtsTaskStatus::Cancelled { .. } => cancelled_tasks += 1,
+            }
+        }
+        let average_processing_time_ms = if !processing_times.is_empty() {
+            Some(processing_times.iter().sum::<f64>() / processing_times.len() as f64)
+        } else {
+            None
+        };
+        Ok(TaskStatsResponse {
+            total_tasks,
+            pending_tasks,
+            processing_tasks,
+            completed_tasks,
+            failed_tasks,
+            cancelled_tasks,
+            average_processing_time_ms,
+            failed_task_ids,
+        })
     }
 
     pub fn is_worker_running(&self) -> bool {

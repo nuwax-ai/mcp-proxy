@@ -72,6 +72,7 @@ fn task_routes() -> Router<handlers::AppState> {
             "/tts/{task_id}/audio",
             get(handlers::tts_task_audio_handler),
         )
+        .route("/tts/stats", get(handlers::tts_tasks_stats_handler))
         // Task status and management
         .route("/{task_id}", get(handlers::get_task_handler))
         .route("/{task_id}", delete(handlers::delete_task_handler))
