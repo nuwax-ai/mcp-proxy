@@ -104,6 +104,9 @@ async fn run_stream_session(socket: WebSocket, state: AppState) {
         ..Default::default()
     };
     let streaming_cfg = state.config.whisper.streaming.clone();
+    // 提前 clone：opts 下方 move 进 decoder，session_cfg 仍需 language（granularity auto 推断依赖）
+    let session_language = opts.language.clone();
+    let session_initial_prompt = opts.initial_prompt.clone();
 
     let decoder = Arc::new(WhisperDecoder {
         model_id: model_id.clone(),
@@ -113,8 +116,8 @@ async fn run_stream_session(socket: WebSocket, state: AppState) {
     });
     let session_cfg = SessionConfig {
         sample_rate: 16000,
-        language: None,
-        initial_prompt: None,
+        language: session_language,
+        initial_prompt: session_initial_prompt,
         model_id,
         model_path,
         pool_size,

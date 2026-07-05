@@ -288,7 +288,7 @@ pub struct StreamingConfig {
     /// 单次解码超时（秒）：兜底防止同步 C 调用挂死
     #[serde(default = "default_decode_timeout")]
     pub decode_timeout_sec: u64,
-    /// 比较粒度：`char`(中日韩，按字) / `word`(空格分隔语种，按词)
+    /// 比较粒度：`auto`(按 language 推断：CJK→char，其余→word) / `char` / `word`
     #[serde(default = "default_granularity")]
     pub compare_granularity: String,
 }
@@ -331,7 +331,7 @@ fn default_decode_timeout() -> u64 {
     30
 }
 fn default_granularity() -> String {
-    "char".to_string()
+    "auto".to_string()
 }
 
 impl Default for AudioProcessingConfig {
