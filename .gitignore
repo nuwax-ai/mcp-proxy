@@ -34,7 +34,7 @@ cluster_metadata
 crates/voice-cli/build/*
 crates/voice-cli/data/*
 crates/voice-cli/server-config.yml
-crates/voice-cli/server_debug.log
+crates/voice-cli/server*.log
 crates/voice-cli/test_audio.txt
 crates/voice-cli/checkpoints/*
 crates/mcp-proxy/tmp/*
