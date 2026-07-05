@@ -14,6 +14,7 @@ pub mod openapi;
 pub mod server;
 pub mod services;
 pub mod stt;
+pub mod tts;
 pub mod utils;
 
 // Re-export commonly used types

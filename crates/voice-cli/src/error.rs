@@ -299,6 +299,23 @@ impl From<crate::stt::SttError> for VoiceCliError {
     }
 }
 
+impl From<crate::tts::TtsError> for VoiceCliError {
+    fn from(e: crate::tts::TtsError) -> Self {
+        use crate::tts::TtsError as E;
+        match e {
+            // 客户端错误（4xx）：模型未找到 / 非法输入
+            E::ModelNotFound { .. } => Self::ModelNotFound(e.to_string()),
+            E::InvalidInput(_) => Self::InvalidInput(e.to_string()),
+            // 取消 / 超时
+            E::Cancelled | E::Timeout { .. } => Self::TranscriptionTimeout(e.to_string()),
+            // 服务端错误（5xx）：初始化 / 合成 / 编码
+            E::InitFailed(_) | E::SynthFailed(_) | E::EncodeFailed(_) => {
+                Self::TtsError(e.to_string())
+            }
+        }
+    }
+}
+
 impl IntoResponse for VoiceCliError {
     fn into_response(self) -> Response {
         let (status, error_message) = match self {

@@ -119,6 +119,11 @@ transcribe-rs = { workspace = true, features = ["whisper-cpp", "whisper-metal"] 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 transcribe-rs = { workspace = true, features = ["whisper-cpp"] }
 
+# TTS 引擎 sherpa-onnx（v1 CPU，默认 static feature）。
+# 编译期需 sherpa-onnx 预编译 C 库：设 SHERPA_ONNX_ARCHIVE_DIR 指向本地缓存（github 阻断时）。
+[dependencies.sherpa-onnx]
+workspace = true
+
 [dev-dependencies]
 tempfile = "3.0"
 

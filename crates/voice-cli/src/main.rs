@@ -210,17 +210,15 @@ async fn handle_tts_command(action: TtsAction, config: &voice_cli::Config) -> Re
     match action {
         TtsAction::Init { force } => {
             info!("Initializing TTS environment");
-            tts::handle_tts_init(force)
+            tts::handle_tts_init(force, config)
                 .await
                 .context("Failed to initialize TTS environment")
         }
         TtsAction::Test {
             text,
             output,
-            model,
+            sid,
             speed,
-            pitch,
-            volume,
             format,
         } => {
             info!("Testing TTS functionality");
@@ -229,10 +227,8 @@ async fn handle_tts_command(action: TtsAction, config: &voice_cli::Config) -> Re
                 tts::TtsTestParams {
                     text,
                     output,
-                    model,
+                    sid,
                     speed,
-                    pitch,
-                    volume,
                     format,
                 },
             )

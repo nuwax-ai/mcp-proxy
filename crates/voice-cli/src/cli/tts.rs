@@ -1,9 +1,13 @@
 use clap::Subcommand;
 use std::path::PathBuf;
 
+use crate::tts::{
+    AudioFormat, TtsKey, TtsLoadParams, TtsModelService, TtsOptions, get_or_init_tts,
+};
+
 #[derive(Subcommand)]
 pub enum TtsAction {
-    /// Initialize TTS environment
+    /// 准备 TTS 运行环境（v1 = 检查 Kokoro 模型是否就绪；Python 已移除）
     Init {
         /// Force overwrite existing environment
         #[arg(long)]
@@ -15,124 +19,122 @@ pub enum TtsAction {
         #[arg(short, long, default_value = "Hello, world!")]
         text: String,
 
-        /// Output file path
+        /// Output file path（默认 ./data/tts/tts_test.wav）
         #[arg(short, long)]
         output: Option<PathBuf>,
 
-        /// Model to use
-        #[arg(short, long)]
-        model: Option<String>,
+        /// Speaker id（Kokoro voices.bin 索引）
+        #[arg(short = 'S', long, default_value = "0")]
+        sid: i32,
 
-        /// Speech speed (0.5-2.0)
+        /// Speech speed (1.0 = 原速)
         #[arg(short, long, default_value = "1.0")]
         speed: f32,
 
-        /// Pitch adjustment (-20 to 20)
-        #[arg(short, long, default_value = "0")]
-        pitch: i32,
-
-        /// Volume adjustment (0.5-2.0)
-        #[arg(short, long, default_value = "1.0")]
-        volume: f32,
-
-        /// Output format
-        #[arg(short, long, default_value = "mp3")]
+        /// Output format（wav / pcm_s16le）
+        #[arg(short = 'f', long, default_value = "wav")]
         format: String,
     },
 }
 
-/// Initialize TTS environment
-pub async fn handle_tts_init(_force: bool) -> anyhow::Result<()> {
-    println!("🎤 Initializing TTS environment...");
+/// 准备 TTS 运行环境（v1：检查 Kokoro 模型就绪；不再有 Python 依赖）。
+pub async fn handle_tts_init(_force: bool, config: &crate::Config) -> anyhow::Result<()> {
+    println!("🎤 Checking TTS (sherpa-onnx Kokoro) environment...");
 
-    // Reuse the server init logic for Python environment
-    crate::server::init_python_tts_environment()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to initialize TTS environment: {}", e))?;
-
-    println!("✅ TTS environment initialized successfully");
+    let svc = TtsModelService::new(&config.tts.engine.models_dir);
+    let model_id = &config.tts.engine.default_model;
+    match svc.ensure_model(model_id) {
+        Ok(()) => println!("✅ TTS model ready: {model_id}"),
+        Err(e) => {
+            println!("⚠️  TTS 模型未就绪：{e}");
+            println!(
+                "💡 提示：从 https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models 下载 Kokoro 模型，解压到 {}/{}",
+                config.tts.engine.models_dir, model_id
+            );
+        }
+    }
     Ok(())
 }
 
 /// TTS 测试参数
 pub struct TtsTestParams {
     pub text: String,
-    pub output: Option<std::path::PathBuf>,
-    pub model: Option<String>,
+    pub output: Option<PathBuf>,
+    pub sid: i32,
     pub speed: f32,
-    pub pitch: i32,
-    pub volume: f32,
     pub format: String,
 }
 
-/// Test TTS functionality
+/// 同步合成并落盘（CLI 路径，不经 HTTP）。
 pub async fn handle_tts_test(config: &crate::Config, params: TtsTestParams) -> anyhow::Result<()> {
     let TtsTestParams {
         text,
         output,
-        model,
+        sid,
         speed,
-        pitch,
-        volume,
         format,
     } = params;
-    println!("🎤 Testing TTS functionality...");
+    println!("🎤 Testing TTS (sherpa-onnx Kokoro)...");
 
-    // Create TTS service（缺 tts_service.py 时给出明确提示并优雅退出，不报错）
-    let tts_service = crate::services::TtsService::new(
-        config.tts.python_path.clone(),
-        config.tts.model_path.clone(),
-    )?;
-    if !tts_service.is_available() {
-        println!(
-            "⚠️  TTS 未启用：找不到 tts_service.py。\n\
-             如需 TTS，请先运行 `voice-cli tts init`，并在 config.yml 中设置 tts.enabled: true。"
-        );
-        return Ok(());
-    }
+    let model_id = config.tts.engine.default_model.clone();
+    let svc = TtsModelService::new(&config.tts.engine.models_dir);
+    svc.ensure_model(&model_id)
+        .map_err(|e| anyhow::anyhow!("TTS 模型未就绪: {e}"))?;
+    let paths = svc
+        .resolve_paths(&model_id)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-    // Create request
-    let request = crate::models::TtsSyncRequest {
-        text,
-        model,
-        speed: Some(speed),
-        pitch: Some(pitch),
-        volume: Some(volume),
-        format: Some(format),
+    let fmt = AudioFormat::parse(&format);
+    let opts = TtsOptions {
+        sid,
+        speed,
+        ..Default::default()
+    };
+    let load_params = TtsLoadParams {
+        paths: paths.clone(),
+        num_threads: config.tts.engine.num_threads,
+        length_scale: config.tts.engine.default_length_scale,
+        provider: config.tts.engine.provider.clone(),
+        pool_size: config.tts.engine.pool_size,
+        debug: config.tts.engine.debug,
     };
 
-    // Test synthesis
-    let result_path = tts_service
-        .synthesize_sync(request)
+    // 同步合成走 spawn_blocking
+    let text_owned = text.clone();
+    let result = tokio::task::spawn_blocking(move || -> anyhow::Result<(Vec<u8>, AudioFormat)> {
+        let pool = get_or_init_tts(TtsKey::new(&model_id), load_params)?;
+        let inst = pool.pick();
+        let guard = inst.lock().unwrap_or_else(|p| p.into_inner());
+        let audio = crate::tts::synthesize(&guard, &text_owned, &opts)?;
+        let bytes = crate::tts::encode(&audio.samples, audio.sample_rate, fmt)?;
+        Ok((bytes, fmt))
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("TTS join 失败: {e}"))??;
+
+    let (bytes, fmt) = result;
+    tokio::fs::create_dir_all("./data/tts")
         .await
-        .map_err(|e| anyhow::anyhow!("TTS synthesis failed: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("创建输出目录失败: {e}"))?;
+    let out = output.unwrap_or_else(|| PathBuf::from("./data/tts/tts_test.").join(fmt.ext()));
+    tokio::fs::write(&out, &bytes)
+        .await
+        .map_err(|e| anyhow::anyhow!("写入输出文件失败: {e}"))?;
 
-    println!("✅ TTS test successful!");
-    println!("📁 Output file: {}", result_path.display());
-
-    // Copy to specified output path if provided
-    if let Some(output_path) = output {
-        tokio::fs::copy(&result_path, &output_path)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to copy output file: {}", e))?;
-        println!("📁 Copied to: {}", output_path.display());
-    }
-
+    println!("✅ TTS test successful! {} bytes", bytes.len());
+    println!("📁 Output file: {}", out.display());
     Ok(())
 }
 
 /// Handle TTS-related commands
 pub async fn handle_tts_command(action: TtsAction, config: &crate::Config) -> anyhow::Result<()> {
     match action {
-        TtsAction::Init { force } => handle_tts_init(force).await,
-
+        TtsAction::Init { force } => handle_tts_init(force, config).await,
         TtsAction::Test {
             text,
             output,
-            model,
+            sid,
             speed,
-            pitch,
-            volume,
             format,
         } => {
             handle_tts_test(
@@ -140,10 +142,8 @@ pub async fn handle_tts_command(action: TtsAction, config: &crate::Config) -> an
                 TtsTestParams {
                     text,
                     output,
-                    model,
+                    sid,
                     speed,
-                    pitch,
-                    volume,
                     format,
                 },
             )

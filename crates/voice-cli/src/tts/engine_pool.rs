@@ -1,0 +1,182 @@
+//! sherpa-onnx `OfflineTts` 引擎池（镜像 STT `engine_pool` + fastembed `ModelPool` 模式）。
+//!
+//! 设计要点：
+//! - 全局 `LazyLock<DashMap<TtsKey, Arc<TtsEnginePool>>>` 按 model_id 缓存
+//! - double-checked `INIT_LOCK`：序列化同一模型的并发首次加载（ OfflineTts::create 阻塞 IO）
+//! - **不用** DashMap entry api：entry 闭包持 shard 锁期间不能再拿 `INIT_LOCK`（嵌套死锁，
+//!   正是 CLAUDE.md 警告）。用 get→lock→get→insert 的 double-checked
+//! - 单实例 `Arc<Mutex<OfflineTts>>` 串行。`OfflineTts: Send+Sync`（官方手动 unsafe impl），
+//!   `generate_with_config(&self)` 取 `&self`（非 `&mut`），但仍用 `Mutex`：合成语义上是写，
+//!   并发调同实例收益小风险大
+//! - `pool_size > 1` → N 个独立实例 round-robin，允许 N 路并发（代价 N× 内存）
+
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, LazyLock, Mutex};
+
+use dashmap::DashMap;
+use sherpa_onnx::{
+    OfflineTts, OfflineTtsConfig, OfflineTtsKokoroModelConfig, OfflineTtsModelConfig,
+};
+
+use crate::tts::error::TtsError;
+use crate::tts::model_service::{TtsModelPaths, path_to_opt_string};
+
+/// 单个 sherpa-onnx TTS 引擎实例。
+pub type TtsInstance = Arc<Mutex<OfflineTts>>;
+
+/// TTS 引擎池：N 个独立实例，round-robin 分配。
+///
+/// - `pool_size = 1`：单实例串行（CPU 推理通常最优）
+/// - `pool_size > 1`：N 路并发（每实例独立加载一份模型，N× 内存）
+pub struct TtsEnginePool {
+    instances: Vec<TtsInstance>,
+    next: AtomicUsize,
+}
+
+impl TtsEnginePool {
+    pub fn len(&self) -> usize {
+        self.instances.len()
+    }
+
+    /// 池是否为空（实际不会发生：`pool_size` 被 clamp 到 `>= 1`）。
+    /// 仅为满足 clippy `len_without_is_empty` 约定。
+    pub fn is_empty(&self) -> bool {
+        self.instances.is_empty()
+    }
+
+    /// round-robin 取实例。
+    pub fn pick(&self) -> TtsInstance {
+        let idx = self.next.fetch_add(1, Ordering::Relaxed) % self.instances.len();
+        self.instances[idx].clone()
+    }
+}
+
+/// 引擎缓存键：模型 id（对应 `{models_dir}/{model_id}/`）。
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct TtsKey {
+    pub model_id: String,
+}
+
+impl TtsKey {
+    pub fn new(model_id: impl Into<String>) -> Self {
+        Self {
+            model_id: model_id.into(),
+        }
+    }
+}
+
+/// 全局引擎缓存：按 model_id 索引，每项是 N 实例池。
+static TTS_CACHE: LazyLock<DashMap<TtsKey, Arc<TtsEnginePool>>> = LazyLock::new(DashMap::new);
+
+/// 初始化串行锁（double-checked locking 用）。
+static INIT_LOCK: Mutex<()> = Mutex::new(());
+
+/// TTS 引擎加载参数（model-level；per-request 参数走 `TtsOptions`）。
+#[derive(Debug, Clone)]
+pub struct TtsLoadParams {
+    /// 模型文件路径集合（来自 `TtsModelService::resolve_paths`）
+    pub paths: TtsModelPaths,
+    /// ONNX runtime 线程数（0 = sherpa-onnx 默认）
+    pub num_threads: i32,
+    /// 时长缩放（model-level；per-request 不覆盖）
+    pub length_scale: f32,
+    /// ONNX EP provider（v1 CPU = `None`；v2 GPU 走 `"coreml"`/`"cuda"`/`"vulkan"`）
+    pub provider: Option<String>,
+    /// 引擎池大小
+    pub pool_size: usize,
+    /// debug 模式（sherpa-onnx C 端 verbose 日志）
+    pub debug: bool,
+}
+
+/// 获取或初始化 TTS 引擎池（幂等；同 key 首次调用加载模型，后续命中缓存）。
+///
+/// 模型加载是阻塞 IO（数百 ms ~ 数秒），调用方应在 `spawn_blocking` 中调用。
+pub fn get_or_init_tts(key: TtsKey, params: TtsLoadParams) -> Result<Arc<TtsEnginePool>, TtsError> {
+    // 快路径：命中缓存
+    if let Some(p) = TTS_CACHE.get(&key) {
+        return Ok(p.clone());
+    }
+
+    // 慢路径：double-checked locking
+    let _g = INIT_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    if let Some(p) = TTS_CACHE.get(&key) {
+        return Ok(p.clone());
+    }
+
+    // Fail Fast：加载前再校验必备文件（避免在 sherpa-onnx C 端才失败，错误不可读）
+    let paths = &params.paths;
+    for (name, p) in [
+        ("model.onnx", &paths.model),
+        ("voices.bin", &paths.voices),
+        ("tokens.txt", &paths.tokens),
+    ] {
+        if !p.is_file() {
+            return Err(TtsError::ModelNotFound {
+                model: format!("{name} 缺失：{}", p.display()),
+            });
+        }
+    }
+    if !paths.data_dir.is_dir() {
+        return Err(TtsError::ModelNotFound {
+            model: format!("espeak-ng-data/ 缺失：{}", paths.data_dir.display()),
+        });
+    }
+
+    let pool_size = params.pool_size.max(1);
+    let mut instances = Vec::with_capacity(pool_size);
+    for i in 0..pool_size {
+        let tts = build_tts(&key.model_id, params.clone())?;
+        tracing::debug!(
+            "TTS engine pool {}/{} ready (model={})",
+            i + 1,
+            pool_size,
+            key.model_id
+        );
+        instances.push(Arc::new(Mutex::new(tts)));
+    }
+    let pool = Arc::new(TtsEnginePool {
+        instances,
+        next: AtomicUsize::new(0),
+    });
+    TTS_CACHE.insert(key, pool.clone());
+    Ok(pool)
+}
+
+/// 构造单个 `OfflineTts` 实例（集中所有 sherpa-onnx 调用，隔离版本 breaking）。
+///
+/// sherpa-onnx `OfflineTts::create` 返回 `Option`（C 端错误打 stderr 拿不到），
+/// 这里映射成 `TtsError::InitFailed` 带模型 / 路径上下文。
+fn build_tts(model_id: &str, params: TtsLoadParams) -> Result<OfflineTts, TtsError> {
+    let paths = params.paths;
+    let kokoro = OfflineTtsKokoroModelConfig {
+        model: path_to_opt_string(&paths.model),
+        voices: path_to_opt_string(&paths.voices),
+        tokens: path_to_opt_string(&paths.tokens),
+        data_dir: path_to_opt_string(&paths.data_dir),
+        length_scale: params.length_scale,
+        dict_dir: paths.dict_dir.as_ref().and_then(|p| path_to_opt_string(p)),
+        lexicon: paths.lexicon.as_ref().and_then(|p| path_to_opt_string(p)),
+        // lang=None：kokoro-multi-lang 自动按文本检测语种（不强制）
+        lang: None,
+    };
+    let model_cfg = OfflineTtsModelConfig {
+        kokoro,
+        num_threads: params.num_threads,
+        debug: params.debug,
+        provider: params.provider,
+        ..Default::default()
+    };
+    let config = OfflineTtsConfig {
+        model: model_cfg,
+        ..Default::default()
+    };
+
+    OfflineTts::create(&config).ok_or_else(|| {
+        TtsError::InitFailed(format!(
+            "OfflineTts::create 返回 None（model={}, paths.model={}）。\
+             常见原因：模型文件损坏 / onnxruntime 版本不匹配 / espeak-ng-data 缺失",
+            model_id,
+            paths.model.display()
+        ))
+    })
+}

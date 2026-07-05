@@ -2,43 +2,34 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-/// TTS同步请求
+/// TTS 同步合成请求（sherpa-onnx Kokoro）。
+///
+/// 重新设计的 `/api/v1/tts` 请求体（旧 Python IndexTTS 的 pitch/volume/reference_audio 砍掉）。
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TtsSyncRequest {
-    /// 要合成的文本
+    /// 要合成的文本（必填）
     pub text: String,
-    /// 语音模型 (可选)
-    pub model: Option<String>,
-    /// 语速 (0.5-2.0, 默认1.0)
+    /// 音色 id（Kokoro voices.bin 多 speaker 索引；`None` = 用 `tts.engine.default_sid`）
+    #[serde(default)]
+    pub sid: Option<i32>,
+    /// 音色名（可选别名，v1 暂不解析名字→sid，保留接口）
+    #[serde(default)]
+    pub voice: Option<String>,
+    /// 语速（1.0 = 原速；`None` = 用 `tts.engine.default_speed`）
+    #[serde(default)]
     pub speed: Option<f32>,
-    /// 音调 (-20到20, 默认0)
-    pub pitch: Option<i32>,
-    /// 音量 (0.5-2.0, 默认1.0)
-    pub volume: Option<f32>,
-    /// 输出音频格式 (mp3, wav, etc.)
+    /// 时长缩放（model-level，仅引擎首次加载生效；`None` = 用 `tts.engine.default_length_scale`）
+    #[serde(default)]
+    pub length_scale: Option<f32>,
+    /// 语言提示（kokoro-multi-lang 自动检测时可选，如 `"zh"`/`"en"`）
+    #[serde(default)]
+    pub language: Option<String>,
+    /// 输出格式：`wav`（默认，含 RIFF 头）/ `pcm_s16le`（裸 PCM）
+    #[serde(default)]
     pub format: Option<String>,
 }
 
-/// TTS异步请求
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct TtsAsyncRequest {
-    /// 要合成的文本
-    pub text: String,
-    /// 语音模型 (可选)
-    pub model: Option<String>,
-    /// 语速 (0.5-2.0, 默认1.0)
-    pub speed: Option<f32>,
-    /// 音调 (-20到20, 默认0)
-    pub pitch: Option<i32>,
-    /// 音量 (0.5-2.0, 默认1.0)
-    pub volume: Option<f32>,
-    /// 输出音频格式 (mp3, wav, etc.)
-    pub format: Option<String>,
-    /// 任务优先级
-    pub priority: Option<TaskPriority>,
-}
-
-/// TTS任务响应
+/// TTS 任务响应（P4 异步任务用；P3 同步接口不返回此结构）。
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TtsTaskResponse {
     pub task_id: String,

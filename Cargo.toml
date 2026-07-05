@@ -59,6 +59,11 @@ ffmpeg-sidecar = "2.5"
 # 与 fastembed 的 ort 版本完全一致，共存无冲突。GPU feature（whisper-metal/cuda/vulkan）
 # 由 voice-cli 按平台 [target.'cfg'] 选用，不在此处统一开。
 transcribe-rs = "0.3.11"
+# TTS 引擎（替代 Python IndexTTS）：sherpa-onnx 官方 crate 1.13.3，自带 onnxruntime C 库
+# （静态链入，与 fastembed/transcribe-rs 的 ort 隔离，三套引擎同属 ONNX 生态）。
+# -sys 编译期从 github releases 下载预编译库（或 SHERPA_ONNX_ARCHIVE_DIR 本地缓存）。
+# v1 默认 `static` feature = CPU-only；GPU 需自编 C++ 库（v2，见 plan §GPU 加速策略）。
+sherpa-onnx = "1.13.3"
 
 # Note: rmcp 依赖由各子项目独立管理（mcp-sse-proxy 用 0.10，mcp-streamable-proxy 用 0.12）
 tokio = { version = "1.52", features = ["macros", "net", "rt", "rt-multi-thread"] }

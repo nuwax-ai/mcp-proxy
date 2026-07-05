@@ -26,8 +26,9 @@ pub async fn create_routes_with_state(shared_state: handlers::AppState) -> crate
         .route("/models", get(handlers::models_list_handler))
         // Transcription endpoint (synchronous)
         .route("/transcribe", post(handlers::transcribe_handler))
-        // TTS endpoints
-        .route("/tts/sync", post(handlers::tts_sync_handler))
+        // TTS 同步合成 + 音色查询（sherpa-onnx Kokoro，重新设计的 /api/v1/ 风格）
+        .route("/api/v1/tts", post(handlers::tts_sync_handler))
+        .route("/api/v1/tts/voices", get(handlers::tts_voices_handler))
         // STT 流式 WebSocket（LocalAgreement 2）
         .route(
             "/api/v1/stream/transcribe",
@@ -61,8 +62,6 @@ fn task_routes() -> Router<handlers::AppState> {
             "/transcribeFromUrl",
             post(handlers::transcribe_from_url_handler),
         )
-        // TTS task submission
-        .route("/tts", post(handlers::tts_async_handler))
         // Task status and management
         .route("/{task_id}", get(handlers::get_task_handler))
         .route("/{task_id}", delete(handlers::delete_task_handler))

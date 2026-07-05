@@ -121,27 +121,73 @@ pub struct TaskManagementConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TtsConfig {
-    /// 是否启用 TTS（默认 false；缺 tts_service.py 时也自动禁用，不影响 STT 启动）
+    /// 是否启用 TTS（默认 false；模型未放置时启用也会在请求时返回明确错误）
     #[serde(default)]
     pub enabled: bool,
-    /// Python解释器路径
-    pub python_path: Option<PathBuf>,
-    /// TTS模型路径
-    pub model_path: Option<PathBuf>,
-    /// 默认语音模型
-    pub default_model: String,
-    /// 支持的音频格式
-    pub supported_formats: Vec<String>,
     /// 最大文本长度
+    #[serde(default = "default_tts_max_text_length")]
     pub max_text_length: usize,
-    /// 默认语速
+    /// 支持的音频格式（仅文档/校验用；实际由 sherpa-onnx 合成 + audio_encode 编码）
+    #[serde(default = "default_tts_supported_formats")]
+    pub supported_formats: Vec<String>,
+    /// TTS 引擎配置（sherpa-onnx 引擎池）
+    #[serde(default)]
+    pub engine: TtsEngineConfig,
+    /// TTS 流式配置（P5 WS 用；P3/P4 仅占位）
+    #[serde(default)]
+    pub streaming: TtsStreamingConfig,
+}
+
+/// TTS 引擎配置（sherpa-onnx Kokoro）。
+///
+/// v1 走 CPU（`provider=None`，sherpa-onnx 默认预编译库 CPU-only）；
+/// v2 升 GPU 需自编 C++ 库 + 设 `provider="coreml"/"cuda"/"vulkan"`（见 plan §GPU 加速策略）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TtsEngineConfig {
+    /// 引擎池大小：1=单实例串行（CPU 通常最优），>1=N 实例并发（N× 内存）
+    #[serde(default = "default_tts_pool_size")]
+    pub pool_size: usize,
+    /// 加速设备：`cpu`(v1 默认) / `coreml` / `cuda` / `vulkan`（v2 自编库后生效）
+    #[serde(default = "default_tts_device")]
+    pub device: String,
+    /// 默认模型 id（对应 `{models_dir}/{model_id}/`）
+    #[serde(default = "default_tts_model")]
+    pub default_model: String,
+    /// 默认音色 id（Kokoro voices.bin 多 speaker 索引）
+    #[serde(default)]
+    pub default_sid: i32,
+    /// 默认语速（1.0 = 原速）
+    #[serde(default = "default_tts_speed")]
     pub default_speed: f32,
-    /// 默认音调
-    pub default_pitch: i32,
-    /// 默认音量
-    pub default_volume: f32,
-    /// TTS任务超时时间（秒）
-    pub timeout_seconds: u64,
+    /// 默认时长缩放（model-level；1.0 = 原速）
+    #[serde(default = "default_tts_length_scale")]
+    pub default_length_scale: f32,
+    /// ONNX runtime 线程数（0 = sherpa-onnx 默认）
+    #[serde(default = "default_tts_num_threads")]
+    pub num_threads: i32,
+    /// ONNX EP provider（`None`=CPU；v2 GPU 走 `"coreml"`/`"cuda"`/`"vulkan"`）
+    #[serde(default)]
+    pub provider: Option<String>,
+    /// 模型根目录（`{models_dir}/{model_id}/`）
+    #[serde(default = "default_tts_models_dir")]
+    pub models_dir: String,
+    /// sherpa-onnx C 端 verbose 日志
+    #[serde(default)]
+    pub debug: bool,
+}
+
+/// TTS 流式配置（P5 WS 流式合成用；P3/P4 仅占位）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TtsStreamingConfig {
+    /// WS 空闲超时（秒）
+    #[serde(default = "default_tts_idle_timeout")]
+    pub idle_timeout_sec: u64,
+    /// 单次合成超时（秒，兜底防止 C 调用挂死）
+    #[serde(default = "default_tts_synth_timeout")]
+    pub synth_timeout_sec: u64,
+    /// 默认输出格式（`wav` / `pcm_s16le`）
+    #[serde(default = "default_tts_format")]
+    pub default_format: String,
 }
 
 impl Default for ServerConfig {
@@ -349,21 +395,76 @@ impl Default for TtsConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            python_path: Some(if cfg!(windows) {
-                PathBuf::from(".venv/Scripts/python.exe")
-            } else {
-                PathBuf::from(".venv/bin/python")
-            }),
-            model_path: None,
-            default_model: "default".to_string(),
-            supported_formats: vec!["mp3".to_string(), "wav".to_string()],
-            max_text_length: 5000,
-            default_speed: 1.0,
-            default_pitch: 0,
-            default_volume: 1.0,
-            timeout_seconds: 300,
+            max_text_length: default_tts_max_text_length(),
+            supported_formats: default_tts_supported_formats(),
+            engine: TtsEngineConfig::default(),
+            streaming: TtsStreamingConfig::default(),
         }
     }
+}
+
+impl Default for TtsEngineConfig {
+    fn default() -> Self {
+        Self {
+            pool_size: default_tts_pool_size(),
+            device: default_tts_device(),
+            default_model: default_tts_model(),
+            default_sid: 0,
+            default_speed: default_tts_speed(),
+            default_length_scale: default_tts_length_scale(),
+            num_threads: default_tts_num_threads(),
+            provider: None,
+            models_dir: default_tts_models_dir(),
+            debug: false,
+        }
+    }
+}
+
+impl Default for TtsStreamingConfig {
+    fn default() -> Self {
+        Self {
+            idle_timeout_sec: default_tts_idle_timeout(),
+            synth_timeout_sec: default_tts_synth_timeout(),
+            default_format: default_tts_format(),
+        }
+    }
+}
+
+fn default_tts_max_text_length() -> usize {
+    5000
+}
+fn default_tts_supported_formats() -> Vec<String> {
+    vec!["wav".to_string(), "pcm".to_string()]
+}
+fn default_tts_pool_size() -> usize {
+    1
+}
+fn default_tts_device() -> String {
+    "cpu".to_string()
+}
+fn default_tts_model() -> String {
+    "kokoro-multi-lang-v1_0".to_string()
+}
+fn default_tts_speed() -> f32 {
+    1.0
+}
+fn default_tts_length_scale() -> f32 {
+    1.0
+}
+fn default_tts_num_threads() -> i32 {
+    4
+}
+fn default_tts_models_dir() -> String {
+    "./models/tts".to_string()
+}
+fn default_tts_idle_timeout() -> u64 {
+    30
+}
+fn default_tts_synth_timeout() -> u64 {
+    120
+}
+fn default_tts_format() -> String {
+    "wav".to_string()
 }
 
 /// 环境变量提供者抽象（依赖注入，避免直接读写全局 std::env）。
