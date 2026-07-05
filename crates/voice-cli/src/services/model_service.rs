@@ -360,17 +360,6 @@ impl ModelService {
         })
     }
 
-    /// List models that are currently loaded in memory
-    pub async fn list_loaded_models(&self) -> Result<Vec<String>, VoiceCliError> {
-        // TODO: This should track actually loaded models in transcription service
-        // For now, return empty list as this is not a core business feature
-        // Real implementation would require:
-        // 1. Integration with voice-toolkit to track loaded models
-        // 2. Memory usage monitoring of loaded model instances
-        // 3. Reference counting for multiple concurrent uses
-        Ok(Vec::new())
-    }
-
     /// Format file size in human-readable format
     fn format_size(size: u64) -> String {
         const UNITS: &[&str] = &["B", "KB", "MB", "GB"];
