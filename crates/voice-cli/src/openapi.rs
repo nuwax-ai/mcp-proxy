@@ -1,7 +1,7 @@
 use crate::models::{
     AsyncTaskResponse, CancelResponse, DeleteResponse, HealthResponse, ModelInfo, ModelsResponse,
     RetryResponse, Segment, TaskPriority, TaskStatsResponse, TaskStatus, TaskStatusResponse,
-    TranscriptionResponse,
+    TranscriptionResponse, TtsAsyncRequest, TtsSyncRequest, TtsTaskResponse, TtsTaskStatus,
 };
 use crate::server::handlers;
 use utoipa::OpenApi;
@@ -40,6 +40,9 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::get_tasks_stats_handler,
         handlers::tts_sync_handler,
         handlers::tts_voices_handler,
+        handlers::tts_async_handler,
+        handlers::tts_task_status_handler,
+        handlers::tts_task_audio_handler,
     ),
     components(
         schemas(
@@ -55,7 +58,11 @@ use utoipa_swagger_ui::SwaggerUi;
             CancelResponse,
             DeleteResponse,
             RetryResponse,
-            TaskStatsResponse
+            TaskStatsResponse,
+            TtsSyncRequest,
+            TtsAsyncRequest,
+            TtsTaskResponse,
+            TtsTaskStatus
         )
     ),
     tags(

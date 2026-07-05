@@ -62,6 +62,13 @@ fn task_routes() -> Router<handlers::AppState> {
             "/transcribeFromUrl",
             post(handlers::transcribe_from_url_handler),
         )
+        // TTS 异步任务（literal /tts 前缀，与 /{task_id} 共存：matchit 静态段优先于参数段）
+        .route("/tts", post(handlers::tts_async_handler))
+        .route("/tts/{task_id}", get(handlers::tts_task_status_handler))
+        .route(
+            "/tts/{task_id}/audio",
+            get(handlers::tts_task_audio_handler),
+        )
         // Task status and management
         .route("/{task_id}", get(handlers::get_task_handler))
         .route("/{task_id}", delete(handlers::delete_task_handler))

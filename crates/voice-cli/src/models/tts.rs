@@ -37,6 +37,56 @@ pub struct TtsTaskResponse {
     pub estimated_duration: Option<u32>, // 预估处理时间（秒）
 }
 
+/// TTS 异步合成请求（`POST /api/v1/tasks/tts`）。
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TtsAsyncRequest {
+    /// 要合成的文本（必填）
+    pub text: String,
+    /// 音色 id（`None` = 用 `tts.engine.default_sid`）
+    #[serde(default)]
+    pub sid: Option<i32>,
+    /// 语速（`None` = 用 `tts.engine.default_speed`）
+    #[serde(default)]
+    pub speed: Option<f32>,
+    /// 时长缩放（model-level；`None` = 用 `tts.engine.default_length_scale`）
+    #[serde(default)]
+    pub length_scale: Option<f32>,
+    /// 语言提示（可选）
+    #[serde(default)]
+    pub language: Option<String>,
+    /// 输出格式：`wav` / `pcm_s16le`
+    #[serde(default)]
+    pub format: Option<String>,
+}
+
+/// TTS 异步任务（apalis `Job`，序列化存 SQLite `tts_tasks`）。
+///
+/// 注意：`task_id` 唯一；apalis worker 取出后调 `tts_pipeline_worker` 合成。
+/// 字段都 `Serialize + Deserialize` 以便 apalis 持久化 + 重启恢复。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TtsTask {
+    pub task_id: String,
+    pub text: String,
+    pub sid: i32,
+    pub speed: f32,
+    pub length_scale: f32,
+    pub language: Option<String>,
+    /// 输出格式：`wav` / `pcm_s16le`
+    pub format: String,
+    /// 模型 id（对应 `{models_dir}/{model_id}/`）
+    pub model: String,
+    pub created_at: DateTime<Utc>,
+}
+
+impl TtsTask {
+    /// 估算处理时长（秒）：Kokoro CPU RTF≈0.3，按文本字数粗估（仅用于响应，非真实）。
+    pub fn estimate_duration_secs(&self) -> u32 {
+        let chars = self.text.chars().count() as f32;
+        // 假设 ~12 字符/秒语音 + RTF 0.3 → 合成耗时 ≈ chars/12 * 0.3
+        ((chars / 12.0) * 0.3).ceil().clamp(1.0, 300.0) as u32
+    }
+}
+
 /// TTS处理阶段
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, ToSchema)]
 pub enum TtsProcessingStage {

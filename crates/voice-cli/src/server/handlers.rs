@@ -2,16 +2,18 @@ use crate::VoiceCliError;
 use crate::models::{
     AsyncTaskResponse, CancelResponse, Config, DeleteResponse, HealthResponse, HttpResult,
     ModelsResponse, RetryResponse, SimpleTaskStatus, TaskStatsResponse, TaskStatus,
-    TaskStatusResponse, TranscriptionResponse, TtsSyncRequest,
+    TaskStatusResponse, TranscriptionResponse, TtsAsyncRequest, TtsSyncRequest, TtsTaskResponse,
+    TtsTaskStatus,
 };
 use crate::services::{
     AudioFileManager, AudioFormatDetector, LockFreeApalisManager, MetadataExtractor, ModelService,
-    TranscriptionTask,
+    TranscriptionTask, TtsApalisManager,
 };
 use crate::tts::{AudioFormat, TtsKey, TtsLoadParams, TtsModelService, TtsOptions};
 use apalis_sql::sqlite::SqliteStorage;
-use axum::extract::{Json, Multipart, State};
+use axum::extract::{Json, Multipart, Path as AxumPath, State};
 use axum::response::IntoResponse;
+use chrono::Utc;
 use futures::TryStreamExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -29,6 +31,8 @@ pub struct AppState {
     pub apalis_storage: SqliteStorage<TranscriptionTask>,
     pub audio_file_manager: Arc<AudioFileManager>,
     pub tts_model_service: Arc<TtsModelService>,
+    pub tts_apalis_manager: Arc<TtsApalisManager>,
+    pub tts_apalis_storage: SqliteStorage<crate::models::TtsTask>,
     pub start_time: SystemTime,
 }
 
@@ -60,6 +64,19 @@ impl AppState {
         let tts_model_service =
             Arc::new(TtsModelService::new(config.tts.engine.models_dir.clone()));
 
+        // 初始化 TTS apalis 管理器（独立 DB ./data/tts_tasks.db）
+        info!("Initializing TTS Apalis manager");
+        let (tts_apalis_manager, tts_apalis_storage) =
+            TtsApalisManager::new(config.task_management.clone()).await?;
+        let tts_apalis_manager = Arc::new(tts_apalis_manager);
+        tts_apalis_manager
+            .start_worker(
+                tts_apalis_storage.clone(),
+                config.tts.clone(),
+                tts_model_service.clone(),
+            )
+            .await?;
+
         Ok(Self {
             config,
             model_service,
@@ -67,6 +84,8 @@ impl AppState {
             apalis_storage,
             audio_file_manager,
             tts_model_service,
+            tts_apalis_manager,
+            tts_apalis_storage,
             start_time: SystemTime::now(),
         })
     }
@@ -78,6 +97,10 @@ impl AppState {
         // 优雅关闭 Apalis 管理器
         if let Err(e) = self.lock_free_apalis_manager.shutdown().await {
             warn!("Failed to close Apalis Manager: {}", e);
+        }
+        // 优雅关闭 TTS apalis 管理器
+        if let Err(e) = self.tts_apalis_manager.shutdown().await {
+            warn!("Failed to close TTS Apalis Manager: {}", e);
         }
 
         info!("Application status closed completed");
@@ -1125,4 +1148,173 @@ pub async fn tts_voices_handler(
         .body(axum::body::Body::from(body.to_string()))
         .map_err(|e| VoiceCliError::TtsError(format!("构建响应失败: {e}")))?;
     Ok(response)
+}
+
+/// TTS 异步任务提交端点。
+/// POST /api/v1/tasks/tts
+#[utoipa::path(
+    post,
+    path = "/api/v1/tasks/tts",
+    tag = "TTS",
+    summary = "异步文本转语音（提交任务）",
+    request_body = TtsAsyncRequest,
+    responses(
+        (status = 202, description = "任务已接受", body = TtsTaskResponse),
+        (status = 400, description = "请求参数错误 / 模型未找到", body = HttpResult<String>),
+        (status = 503, description = "TTS 未启用", body = HttpResult<String>)
+    ),
+)]
+pub async fn tts_async_handler(
+    State(state): State<AppState>,
+    Json(request): Json<TtsAsyncRequest>,
+) -> HttpResult<TtsTaskResponse> {
+    if !state.config.tts.enabled {
+        return HttpResult::<TtsTaskResponse>::from(VoiceCliError::InvalidInput(
+            "TTS service is disabled".to_string(),
+        ));
+    }
+    let text = request.text.trim().to_string();
+    if text.is_empty() {
+        return HttpResult::<TtsTaskResponse>::from(VoiceCliError::InvalidInput(
+            "text 不能为空".to_string(),
+        ));
+    }
+    if text.len() > state.config.tts.max_text_length {
+        return HttpResult::<TtsTaskResponse>::from(VoiceCliError::InvalidInput(format!(
+            "文本长度超限 ({} > {})",
+            text.len(),
+            state.config.tts.max_text_length
+        )));
+    }
+
+    let engine = &state.config.tts.engine;
+    // ensure_model：缺失即拒（Fail Fast，不进队列空跑）
+    if let Err(e) = state.tts_model_service.ensure_model(&engine.default_model) {
+        return HttpResult::<TtsTaskResponse>::from(VoiceCliError::from(e));
+    }
+
+    let format = request
+        .format
+        .as_deref()
+        .unwrap_or(&state.config.tts.streaming.default_format)
+        .to_string();
+    let task = crate::models::TtsTask {
+        task_id: crate::utils::generate_task_id(),
+        text,
+        sid: request.sid.unwrap_or(engine.default_sid),
+        speed: request.speed.unwrap_or(engine.default_speed),
+        length_scale: request.length_scale.unwrap_or(engine.default_length_scale),
+        language: request.language,
+        format: format.clone(),
+        model: engine.default_model.clone(),
+        created_at: Utc::now(),
+    };
+    let estimated = task.estimate_duration_secs();
+    let task_id = task.task_id.clone();
+
+    let mut storage = state.tts_apalis_storage.clone();
+    if let Err(e) = state
+        .tts_apalis_manager
+        .submit_task(&mut storage, task)
+        .await
+    {
+        return HttpResult::<TtsTaskResponse>::from(e);
+    }
+    info!(%task_id, "TTS async task submitted");
+    HttpResult::success(crate::models::TtsTaskResponse {
+        task_id,
+        message: "TTS 任务已提交".to_string(),
+        estimated_duration: Some(estimated),
+    })
+}
+
+/// TTS 异步任务状态查询。
+/// GET /api/v1/tasks/tts/{task_id}
+#[utoipa::path(
+    get,
+    path = "/api/v1/tasks/tts/{task_id}",
+    tag = "TTS",
+    summary = "查询 TTS 任务状态",
+    params(("task_id" = String, Path, description = "任务 id")),
+    responses(
+        (status = 200, description = "任务状态", body = TtsTaskStatus),
+        (status = 404, description = "任务不存在", body = HttpResult<String>)
+    ),
+)]
+pub async fn tts_task_status_handler(
+    State(state): State<AppState>,
+    AxumPath(task_id): AxumPath<String>,
+) -> HttpResult<crate::models::TtsTaskStatus> {
+    match state.tts_apalis_manager.get_task_status(&task_id).await {
+        Ok(Some(s)) => HttpResult::success(s),
+        Ok(None) => HttpResult::<crate::models::TtsTaskStatus>::from(VoiceCliError::ModelNotFound(
+            format!("TTS 任务不存在: {task_id}"),
+        )),
+        Err(e) => HttpResult::<crate::models::TtsTaskStatus>::from(e),
+    }
+}
+
+/// TTS 异步任务音频下载。
+/// GET /api/v1/tasks/tts/{task_id}/audio
+#[utoipa::path(
+    get,
+    path = "/api/v1/tasks/tts/{task_id}/audio",
+    tag = "TTS",
+    summary = "下载 TTS 任务音频（Completed 状态可下载）",
+    params(("task_id" = String, Path, description = "任务 id")),
+    responses(
+        (status = 200, description = "音频二进制", content_type = "audio/wav"),
+        (status = 404, description = "任务不存在 / 音频未就绪", body = HttpResult<String>)
+    ),
+)]
+pub async fn tts_task_audio_handler(
+    State(state): State<AppState>,
+    AxumPath(task_id): AxumPath<String>,
+) -> Result<axum::response::Response, HttpResult<String>> {
+    let status = match state.tts_apalis_manager.get_task_status(&task_id).await {
+        Ok(Some(s)) => s,
+        Ok(None) => {
+            return Ok(
+                HttpResult::<String>::from(VoiceCliError::ModelNotFound(format!(
+                    "TTS 任务不存在: {task_id}"
+                )))
+                .into_response(),
+            );
+        }
+        Err(e) => return Ok(HttpResult::<String>::from(e).into_response()),
+    };
+    let path = match status {
+        crate::models::TtsTaskStatus::Completed {
+            audio_file_path, ..
+        } => audio_file_path,
+        other => {
+            return Ok(
+                HttpResult::<String>::from(VoiceCliError::InvalidInput(format!(
+                    "TTS 任务尚未完成（当前状态: {:?}）",
+                    std::mem::discriminant(&other)
+                )))
+                .into_response(),
+            );
+        }
+    };
+    let path = PathBuf::from(path);
+    match tokio::fs::read(&path).await {
+        Ok(bytes) => {
+            let content_type = match path.extension().and_then(|e| e.to_str()).unwrap_or("wav") {
+                "pcm" => "audio/pcm",
+                _ => "audio/wav",
+            };
+            let resp = axum::response::Response::builder()
+                .status(200)
+                .header("Content-Type", content_type)
+                .header("Content-Length", bytes.len())
+                .body(axum::body::Body::from(bytes))
+                .map_err(|e| VoiceCliError::TtsError(format!("构建音频响应失败: {e}")))?;
+            Ok(resp)
+        }
+        Err(e) => Ok(HttpResult::<String>::from(VoiceCliError::TtsError(format!(
+            "读取音频文件失败: {e}"
+        )))
+        .into_response()),
+    }
 }

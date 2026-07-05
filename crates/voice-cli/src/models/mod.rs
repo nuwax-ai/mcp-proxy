@@ -26,8 +26,8 @@ pub use stepped_task::{
 
 // TTS module exports
 pub use tts::{
-    TaskPriority as TtsTaskPriority, TtsProcessingStage, TtsProgressDetails, TtsSyncRequest,
-    TtsTaskError, TtsTaskResponse, TtsTaskStatus,
+    TaskPriority as TtsTaskPriority, TtsAsyncRequest, TtsProcessingStage, TtsProgressDetails,
+    TtsSyncRequest, TtsTask, TtsTaskError, TtsTaskResponse, TtsTaskStatus,
 };
 
 // 简化的任务响应类型
