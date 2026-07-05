@@ -3,9 +3,7 @@ use crate::models::{
     AsyncTranscriptionTask, ProcessingStage, TaskError, TaskManagementConfig, TaskStatsResponse,
     TaskStatus, TranscriptionResponse,
 };
-use crate::services::{
-    AudioFileManager, AudioFormatDetector, MetadataExtractor, ModelService, TranscriptionEngine,
-};
+use crate::services::{AudioFileManager, AudioFormatDetector, MetadataExtractor, ModelService};
 use crate::utils::{get_file_extension, is_supported_media_format};
 use apalis::layers::WorkerBuilderExt;
 use apalis::layers::retry::RetryPolicy;
@@ -44,6 +42,12 @@ pub struct TranscriptionTask {
     pub original_filename: String,
     pub model: Option<String>,
     pub response_format: Option<String>,
+    /// 目标语种（`None` = 自动检测）。P1 透传到 STT 引擎
+    #[serde(default)]
+    pub language: Option<String>,
+    /// 初始提示。P1 透传到 STT 引擎
+    #[serde(default)]
+    pub initial_prompt: Option<String>,
     pub created_at: DateTime<Utc>,
     /// 任务类型
     pub task_type: TaskType,
@@ -59,6 +63,12 @@ pub struct AudioProcessedTask {
     pub original_filename: String,
     pub model: Option<String>,
     pub response_format: Option<String>,
+    /// 目标语种（`None` = 自动检测）。P1 透传到 STT 引擎
+    #[serde(default)]
+    pub language: Option<String>,
+    /// 初始提示。P1 透传到 STT 引擎
+    #[serde(default)]
+    pub initial_prompt: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -80,6 +90,8 @@ impl From<AsyncTranscriptionTask> for TranscriptionTask {
             original_filename: task.original_filename,
             model: task.model,
             response_format: task.response_format,
+            language: task.language,
+            initial_prompt: task.initial_prompt,
             created_at: task.created_at,
             task_type: TaskType::FileUpload,
             url: None,
@@ -90,10 +102,9 @@ impl From<AsyncTranscriptionTask> for TranscriptionTask {
 /// 步骤共享上下文
 #[derive(Debug, Clone)]
 pub struct StepContext {
-    pub transcription_engine: Arc<TranscriptionEngine>,
     pub audio_file_manager: Arc<AudioFileManager>,
     pub pool: sqlx::SqlitePool,
-    /// STT 模型管理（P0-async：transcription_step 改用 stt 引擎池；transcription_engine 字段 P1 删）
+    /// STT 模型管理（transcribe-rs 引擎池的模型加载/下载）
     pub model_service: Arc<ModelService>,
 }
 
@@ -338,8 +349,6 @@ impl LockFreeApalisManager {
             return Ok(());
         }
         // 创建服务
-        // P1 删 transcription_engine：保留仅为 P0 过渡；transcription_step 已改用 stt 引擎池
-        let transcription_engine = Arc::new(TranscriptionEngine::new(model_service.clone()));
         let audio_file_manager = Arc::new(
             AudioFileManager::new("./data/audio")
                 .map_err(|e| VoiceCliError::Storage(format!("创建音频文件管理器失败: {}", e)))?,
@@ -347,7 +356,6 @@ impl LockFreeApalisManager {
 
         // 创建步骤上下文
         let step_context = StepContext {
-            transcription_engine,
             audio_file_manager,
             pool: self.pool.clone(),
             model_service,
@@ -396,6 +404,7 @@ impl LockFreeApalisManager {
     }
 
     /// 提交任务
+    #[allow(clippy::too_many_arguments)]
     pub async fn submit_task(
         &self,
         storage: &mut SqliteStorage<TranscriptionTask>,
@@ -403,6 +412,8 @@ impl LockFreeApalisManager {
         original_filename: String,
         model: Option<String>,
         response_format: Option<String>,
+        language: Option<String>,
+        initial_prompt: Option<String>,
     ) -> Result<String, VoiceCliError> {
         info!("submit_task: Start creating task...");
         let task = AsyncTranscriptionTask::new(
@@ -411,6 +422,8 @@ impl LockFreeApalisManager {
             original_filename.clone(),
             model.clone(),
             response_format.clone(),
+            language.clone(),
+            initial_prompt.clone(),
         );
 
         info!("submit_task: Task creation completed: {}", task.task_id);
@@ -468,6 +481,7 @@ impl LockFreeApalisManager {
     }
 
     /// 提交URL转录任务
+    #[allow(clippy::too_many_arguments)]
     pub async fn submit_task_for_url(
         &self,
         storage: &mut SqliteStorage<TranscriptionTask>,
@@ -475,6 +489,8 @@ impl LockFreeApalisManager {
         filename: String,
         model: Option<String>,
         response_format: Option<String>,
+        language: Option<String>,
+        initial_prompt: Option<String>,
     ) -> Result<String, VoiceCliError> {
         info!("submit_task_for_url: Start creating URL task...");
 
@@ -491,6 +507,8 @@ impl LockFreeApalisManager {
             filename.clone(),
             model.clone(),
             response_format.clone(),
+            language.clone(),
+            initial_prompt.clone(),
         );
 
         info!(
@@ -505,6 +523,8 @@ impl LockFreeApalisManager {
             original_filename: filename.clone(),
             model: task.model,
             response_format: task.response_format,
+            language: task.language,
+            initial_prompt: task.initial_prompt,
             created_at: task.created_at,
             task_type: TaskType::UrlDownload,
             url: Some(url),
@@ -782,6 +802,10 @@ impl LockFreeApalisManager {
                                     original_filename.unwrap_or_else(|| "unknown".to_string()),
                                     model,
                                     response_format,
+                                    // 重试/恢复场景：task_info 表未持久化 language/initial_prompt，
+                                    // 重新提交时丢失原参数（回退自动检测）。
+                                    None,
+                                    None,
                                 )
                                 .await;
 
@@ -1347,6 +1371,8 @@ async fn audio_preprocessing_step(
         original_filename: task.original_filename,
         model: task.model,
         response_format: task.response_format,
+        language: task.language,
+        initial_prompt: task.initial_prompt,
         created_at: task.created_at,
     };
 
@@ -1434,6 +1460,9 @@ async fn transcription_step(
     // 无音频流时 ffmpeg-sidecar 转码自然报错 → SttError::Audio（替代旧 ffprobe 系统依赖）。
     let audio_path_for_blocking = task.processed_audio_path.clone();
     let model_id_for_blocking = model.clone();
+    // STT 参数（config 默认已在提交时合并进 task.language/initial_prompt）
+    let opt_language = task.language.clone();
+    let opt_initial_prompt = task.initial_prompt.clone();
     let transcription_result =
         tokio::task::spawn_blocking(move || -> std::result::Result<_, crate::stt::SttError> {
             let samples = crate::stt::audio::to_whisper_samples(&audio_path_for_blocking)?;
@@ -1441,7 +1470,11 @@ async fn transcription_step(
             let pool = crate::stt::get_or_init_engine(key, model_path, pool_size)?;
             let inst = pool.pick();
             let mut guard = inst.lock().unwrap_or_else(|p| p.into_inner());
-            let opts = crate::stt::SttTranscribeOptions::default();
+            let opts = crate::stt::SttTranscribeOptions {
+                language: opt_language,
+                initial_prompt: opt_initial_prompt,
+                ..Default::default()
+            };
             let result = guard.transcribe_with(&samples, &opts.to_inference_params())?;
             Ok(result)
         })

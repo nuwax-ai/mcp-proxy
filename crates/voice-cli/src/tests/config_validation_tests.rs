@@ -28,6 +28,8 @@ mod tests {
                     channel_buffer_size: 100,
                     worker_timeout: 3600,
                 },
+                engine: crate::models::config::SttEngineConfig::default(),
+                streaming: crate::models::config::StreamingConfig::default(),
             },
             logging: LoggingConfig {
                 level: "info".to_string(),

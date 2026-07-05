@@ -10,7 +10,7 @@ edition.workspace = true
 authors = ["rs-voice-toolkit contributors"]
 
 [features]
-default = ["stt", "audio"]
+default = ["audio"]
 stt = ["dep:rs-voice-toolkit-stt"]
 tts = ["dep:rs-voice-toolkit-tts"]
 audio = ["dep:rs-voice-toolkit-audio"]

@@ -47,6 +47,12 @@ pub struct WhisperConfig {
     pub audio_processing: AudioProcessingConfig,
     /// Worker 配置
     pub workers: WorkersConfig,
+    /// STT 引擎配置（P1：transcribe-rs 引擎池 / GPU 加速）
+    #[serde(default)]
+    pub engine: SttEngineConfig,
+    /// 流式配置（P2 LocalAgreement 2 用，P1 仅占位）
+    #[serde(default)]
+    pub streaming: StreamingConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -170,8 +176,110 @@ impl Default for WhisperConfig {
             ],
             audio_processing: AudioProcessingConfig::default(),
             workers: WorkersConfig::default(),
+            engine: SttEngineConfig::default(),
+            streaming: StreamingConfig::default(),
         }
     }
+}
+
+/// STT 引擎配置（transcribe-rs 引擎池 + GPU 加速）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SttEngineConfig {
+    /// 引擎池大小：1=单实例串行（CPU 通常最优，避免线程超订阅），>1=N 实例并发（N× 内存）
+    #[serde(default = "default_stt_pool_size")]
+    pub pool_size: usize,
+    /// 加速设备：`auto`(默认,平台 GPU) / `cpu` / `gpu` / `metal` / `cuda` / `vulkan`
+    #[serde(default = "default_stt_device")]
+    pub device: String,
+    /// flash attention（默认 true，GPU 下加速；CPU 忽略）
+    #[serde(default = "default_bool_true")]
+    pub flash_attn: bool,
+    /// 解码线程数（0 = whisper.cpp 默认 `min(4, num_cores)`）
+    #[serde(default)]
+    pub n_threads: i32,
+    /// 默认目标语种（BCP-47，如 `"en"`/`"zh"`；`None` = 自动检测）
+    #[serde(default)]
+    pub default_language: Option<String>,
+    /// 默认初始提示（领域上下文，提升专有词 / 风格准确率）
+    #[serde(default)]
+    pub default_initial_prompt: Option<String>,
+}
+
+impl Default for SttEngineConfig {
+    fn default() -> Self {
+        Self {
+            pool_size: default_stt_pool_size(),
+            device: default_stt_device(),
+            flash_attn: default_bool_true(),
+            n_threads: 0,
+            default_language: None,
+            default_initial_prompt: None,
+        }
+    }
+}
+
+/// STT 流式配置（P2 LocalAgreement 2 真流式用；P1 仅占位）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StreamingConfig {
+    /// 解码触发间隔（秒）：audio buffer 每新增此时长触发一次 A/B 双解码
+    #[serde(default = "default_decode_interval")]
+    pub decode_interval_sec: f32,
+    /// 尾部裁剪（秒）：B 解码 = 去掉 buffer 尾部此时长，与 A 取最长公共前缀
+    #[serde(default = "default_tail_trim")]
+    pub tail_trim_sec: f32,
+    /// 前缀连续不回退多少次才 commit（标准 LocalAgreement 2 = 2）
+    #[serde(default = "default_min_agree")]
+    pub min_agree_count: u32,
+    /// WS 空闲超时（秒）：无新数据多久后关闭会话
+    #[serde(default = "default_idle_timeout")]
+    pub idle_timeout_sec: u64,
+    /// 单次解码超时（秒）：兜底防止同步 C 调用挂死
+    #[serde(default = "default_decode_timeout")]
+    pub decode_timeout_sec: u64,
+    /// 比较粒度：`char`(中日韩，按字) / `word`(空格分隔语种，按词)
+    #[serde(default = "default_granularity")]
+    pub compare_granularity: String,
+}
+
+impl Default for StreamingConfig {
+    fn default() -> Self {
+        Self {
+            decode_interval_sec: default_decode_interval(),
+            tail_trim_sec: default_tail_trim(),
+            min_agree_count: default_min_agree(),
+            idle_timeout_sec: default_idle_timeout(),
+            decode_timeout_sec: default_decode_timeout(),
+            compare_granularity: default_granularity(),
+        }
+    }
+}
+
+fn default_stt_pool_size() -> usize {
+    1
+}
+fn default_stt_device() -> String {
+    "auto".to_string()
+}
+fn default_bool_true() -> bool {
+    true
+}
+fn default_decode_interval() -> f32 {
+    0.5
+}
+fn default_tail_trim() -> f32 {
+    0.3
+}
+fn default_min_agree() -> u32 {
+    2
+}
+fn default_idle_timeout() -> u64 {
+    30
+}
+fn default_decode_timeout() -> u64 {
+    30
+}
+fn default_granularity() -> String {
+    "char".to_string()
 }
 
 impl Default for AudioProcessingConfig {

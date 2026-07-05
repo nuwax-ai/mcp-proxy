@@ -14,6 +14,12 @@ pub struct AsyncTranscriptionTask {
     pub original_filename: String, // Original filename from upload
     pub model: Option<String>,
     pub response_format: Option<String>,
+    /// 目标语种（`None` = 自动检测）。P1 透传到 STT 引擎
+    #[serde(default)]
+    pub language: Option<String>,
+    /// 初始提示。P1 透传到 STT 引擎
+    #[serde(default)]
+    pub initial_prompt: Option<String>,
     pub created_at: DateTime<Utc>,
     pub priority: TaskPriority,
 }
@@ -25,6 +31,8 @@ impl AsyncTranscriptionTask {
         original_filename: String,
         model: Option<String>,
         response_format: Option<String>,
+        language: Option<String>,
+        initial_prompt: Option<String>,
     ) -> Self {
         Self {
             task_id,
@@ -32,6 +40,8 @@ impl AsyncTranscriptionTask {
             original_filename,
             model,
             response_format,
+            language,
+            initial_prompt,
             created_at: Utc::now(),
             priority: TaskPriority::Normal,
         }
@@ -257,38 +267,11 @@ impl TranscriptionCompletedTask {
     }
 }
 
-// Conversion functions between voice_toolkit types and serializable types
-impl From<voice_toolkit::stt::TranscriptionResult> for SerializableTranscriptionResult {
-    fn from(result: voice_toolkit::stt::TranscriptionResult) -> Self {
-        Self {
-            text: result.text,
-            segments: result
-                .segments
-                .into_iter()
-                .map(SerializableSegment::from_voice_toolkit_segment)
-                .collect(),
-            language: result.language,
-            audio_duration: result.audio_duration,
-        }
-    }
-}
-
 impl From<crate::models::Segment> for SerializableSegment {
     fn from(segment: crate::models::Segment) -> Self {
         Self {
             start_time: (segment.start * 1000.0) as u64, // Convert seconds to milliseconds
             end_time: (segment.end * 1000.0) as u64,     // Convert seconds to milliseconds
-            text: segment.text,
-            confidence: segment.confidence,
-        }
-    }
-}
-
-impl SerializableSegment {
-    pub fn from_voice_toolkit_segment(segment: voice_toolkit::stt::TranscriptionSegment) -> Self {
-        Self {
-            start_time: segment.start_time * 1000, // Convert seconds to milliseconds (assuming start_time is in seconds as u64)
-            end_time: segment.end_time * 1000, // Convert seconds to milliseconds (assuming end_time is in seconds as u64)
             text: segment.text,
             confidence: segment.confidence,
         }
@@ -334,6 +317,8 @@ mod tests {
             "test.mp3".to_string(),
             Some("base".to_string()),
             Some("json".to_string()),
+            Some("en".to_string()),
+            None,
         );
 
         assert_eq!(task.task_id, "test-task-1");
@@ -350,6 +335,8 @@ mod tests {
             "test-task-1".to_string(),
             PathBuf::from("/tmp/test.mp3"),
             "test.mp3".to_string(),
+            None,
+            None,
             None,
             None,
         )

@@ -167,7 +167,7 @@ pub async fn transcribe_handler(
     let temp_dir = std::env::temp_dir();
     let task_id = generate_task_id();
     // 使用流式处理避免内存占用
-    let (temp_file, _request) =
+    let (temp_file, request) =
         extract_transcription_request_streaming(multipart, &task_id, &temp_dir).await?;
 
     // 提取音视频元数据
@@ -208,7 +208,15 @@ pub async fn transcribe_handler(
     // ensure_model：模型缺失时自动下载（接入 HTTP，修复旧版 auto_download 形同虚设）
     state.model_service.ensure_model(&model_id).await?;
     let model_path = state.model_service.get_model_path(&model_id)?;
-    let pool_size = 1usize; // P0 默认单实例；P1 从 config.whisper.engine.pool_size 读
+    let pool_size = state.config.whisper.engine.pool_size;
+
+    // STT 参数：请求字段优先，回退到 config.whisper.engine 默认（P1 透传）
+    let opt_language = request
+        .language
+        .or_else(|| state.config.whisper.engine.default_language.clone());
+    let opt_initial_prompt = request
+        .initial_prompt
+        .or_else(|| state.config.whisper.engine.default_initial_prompt.clone());
 
     // 同步推理走 spawn_blocking（transcribe-rs 是同步阻塞 C 调用，不能阻塞 tokio reactor）
     let temp_file_for_blocking = temp_file.clone();
@@ -221,7 +229,11 @@ pub async fn transcribe_handler(
             let pool = crate::stt::get_or_init_engine(key, model_path, pool_size)?;
             let inst = pool.pick();
             let mut guard = inst.lock().unwrap_or_else(|p| p.into_inner());
-            let opts = crate::stt::SttTranscribeOptions::default();
+            let opts = crate::stt::SttTranscribeOptions {
+                language: opt_language,
+                initial_prompt: opt_initial_prompt,
+                ..Default::default()
+            };
             let result = guard.transcribe_with(&samples, &opts.to_inference_params())?;
             Ok(result)
         })
@@ -335,6 +347,12 @@ pub async fn async_transcribe_handler(
             request.filename,
             model,
             request.response_format,
+            request
+                .language
+                .or_else(|| state.config.whisper.engine.default_language.clone()),
+            request
+                .initial_prompt
+                .or_else(|| state.config.whisper.engine.default_initial_prompt.clone()),
         )
         .await;
     info!(
@@ -410,6 +428,12 @@ pub async fn transcribe_from_url_handler(
             filename,
             model,
             request.response_format,
+            request
+                .language
+                .or_else(|| state.config.whisper.engine.default_language.clone()),
+            request
+                .initial_prompt
+                .or_else(|| state.config.whisper.engine.default_initial_prompt.clone()),
         )
         .await;
     info!(
@@ -690,6 +714,10 @@ struct TranscriptionRequest {
     filename: String,
     model: Option<String>,
     response_format: Option<String>,
+    /// 目标语种（BCP-47，如 `"en"`/`"zh"`；`None` = 自动检测）
+    language: Option<String>,
+    /// 初始提示，给模型领域上下文（提升专有词 / 风格准确率）
+    initial_prompt: Option<String>,
 }
 
 /// URL转录请求数据
@@ -698,6 +726,10 @@ pub struct UrlTranscriptionRequest {
     url: String,
     model: Option<String>,
     response_format: Option<String>,
+    /// 目标语种（BCP-47，如 `"en"`/`"zh"`；`None` = 自动检测）
+    language: Option<String>,
+    /// 初始提示，给模型领域上下文（提升专有词 / 风格准确率）
+    initial_prompt: Option<String>,
 }
 
 /// 解析 multipart 请求，使用流式处理避免内存占用
@@ -709,6 +741,8 @@ async fn extract_transcription_request_streaming(
     let mut filename: Option<String> = None;
     let mut model: Option<String> = None;
     let mut response_format: Option<String> = None;
+    let mut language: Option<String> = None;
+    let mut initial_prompt: Option<String> = None;
     let mut audio_data_temp_file: Option<PathBuf> = None;
 
     // 收集所有字段信息
@@ -787,6 +821,16 @@ async fn extract_transcription_request_streaming(
             "response_format" => {
                 response_format = Some(field.text().await.map_err(|e| {
                     VoiceCliError::MultipartError(format!("解析响应格式参数失败: {}", e))
+                })?);
+            }
+            "language" => {
+                language = Some(field.text().await.map_err(|e| {
+                    VoiceCliError::MultipartError(format!("解析 language 参数失败: {}", e))
+                })?);
+            }
+            "initial_prompt" => {
+                initial_prompt = Some(field.text().await.map_err(|e| {
+                    VoiceCliError::MultipartError(format!("解析 initial_prompt 参数失败: {}", e))
                 })?);
             }
             _ => {
@@ -881,6 +925,8 @@ async fn extract_transcription_request_streaming(
         filename: final_filename_str,
         model,
         response_format,
+        language,
+        initial_prompt,
     };
 
     Ok((final_file_path, request))

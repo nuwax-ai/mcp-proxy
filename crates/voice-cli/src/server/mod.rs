@@ -299,8 +299,8 @@ pub async fn handle_server_run(config: &Config) -> crate::Result<()> {
     info!("Logging initialized successfully");
 
     // 配置 STT 全局 GPU 加速（幂等；macOS=metal/CoreML，Linux=cpu 或 --features cuda/vulkan）。
-    // P0 用 "auto"；P1 改为从 config.whisper.engine.device 读。
-    crate::stt::accel::init_global_accel("auto");
+    // 设备由 config.whisper.engine.device 决定（默认 "auto"=平台 GPU）。
+    crate::stt::accel::init_global_accel(&config.whisper.engine.device);
 
     let config_arc = Arc::new(config.clone());
     let app_state = handlers::AppState::new(config_arc.clone()).await?;
