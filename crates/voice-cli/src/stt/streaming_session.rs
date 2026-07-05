@@ -210,12 +210,13 @@ impl<D: Decoder> StreamingSession<D> {
         let b_samples = self.buffer[..b_len].to_vec();
 
         let timeout = Duration::from_secs(self.cfg.streaming.decode_timeout_sec);
-        // A、B 串行解码（简化；并行 join! 可降延迟，但需注意 pool 实例争用）
-        let segs_a = decode_once(self.decoder.clone(), a_samples, timeout).await?;
-        if self.cancel.load(Ordering::Acquire) {
-            return Err(SessionError::Cancelled);
-        }
-        let segs_b = decode_once(self.decoder.clone(), b_samples, timeout).await?;
+        // A/B 并行解码（pool_size>1 时真并行降延迟；pool_size=1 时 lock 串行但代码统一）
+        let (res_a, res_b) = tokio::join!(
+            decode_once(self.decoder.clone(), a_samples, timeout),
+            decode_once(self.decoder.clone(), b_samples, timeout),
+        );
+        let segs_a = res_a?;
+        let segs_b = res_b?;
 
         // 记录最后一次完整 buffer（A）解码全文，finish 时作为最终结果（避免增量累积重复）
         self.last_full_text = segs_a

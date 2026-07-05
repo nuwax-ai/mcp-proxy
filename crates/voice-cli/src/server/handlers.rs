@@ -1034,7 +1034,10 @@ pub async fn tts_sync_handler(
     info!(text_len = text.len(), "TTS sync request received");
 
     let engine = &state.config.tts.engine;
-    let model_id = engine.default_model.clone();
+    let model_id = request
+        .model
+        .clone()
+        .unwrap_or_else(|| engine.default_model.clone());
 
     // ensure_model：缺失即 400，附手动放置指引（Fail Fast，早于 spawn_blocking）
     if let Err(e) = state.tts_model_service.ensure_model(&model_id) {
@@ -1181,8 +1184,12 @@ pub async fn tts_async_handler(
     }
 
     let engine = &state.config.tts.engine;
+    let model_id = request
+        .model
+        .clone()
+        .unwrap_or_else(|| engine.default_model.clone());
     // ensure_model：缺失即拒（Fail Fast，不进队列空跑）
-    if let Err(e) = state.tts_model_service.ensure_model(&engine.default_model) {
+    if let Err(e) = state.tts_model_service.ensure_model(&model_id) {
         return HttpResult::<TtsTaskResponse>::from(VoiceCliError::from(e));
     }
 
@@ -1199,7 +1206,7 @@ pub async fn tts_async_handler(
         length_scale: request.length_scale.unwrap_or(engine.default_length_scale),
         language: request.language,
         format: format.clone(),
-        model: engine.default_model.clone(),
+        model: model_id,
         created_at: Utc::now(),
     };
     let estimated = task.estimate_duration_secs();

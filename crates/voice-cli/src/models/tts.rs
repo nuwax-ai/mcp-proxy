@@ -9,6 +9,9 @@ use utoipa::ToSchema;
 pub struct TtsSyncRequest {
     /// 要合成的文本（必填）
     pub text: String,
+    /// 模型 id（`None` = `tts.engine.default_model`；多模型并存时指定）
+    #[serde(default)]
+    pub model: Option<String>,
     /// 音色 id（Kokoro voices.bin 多 speaker 索引；`None` = 用 `tts.engine.default_sid`）
     #[serde(default)]
     pub sid: Option<i32>,
@@ -42,6 +45,9 @@ pub struct TtsTaskResponse {
 pub struct TtsAsyncRequest {
     /// 要合成的文本（必填）
     pub text: String,
+    /// 模型 id（`None` = `tts.engine.default_model`；多模型并存时指定）
+    #[serde(default)]
+    pub model: Option<String>,
     /// 音色 id（`None` = 用 `tts.engine.default_sid`）
     #[serde(default)]
     pub sid: Option<i32>,
