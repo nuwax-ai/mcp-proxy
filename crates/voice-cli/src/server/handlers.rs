@@ -235,8 +235,11 @@ pub async fn transcribe_handler(
         }
     };
 
-    // 模型 id（P0 用配置默认；P1 从 request 读取）
-    let model_id = state.config.whisper.default_model.clone();
+    // 模型 id：请求字段优先，回退到 config.whisper.default_model（与异步 handler 一致）
+    let model_id = request
+        .model
+        .or_else(|| Some(state.config.whisper.default_model.clone()))
+        .unwrap_or_default();
     // ensure_model：模型缺失时自动下载（接入 HTTP，修复旧版 auto_download 形同虚设）
     state.model_service.ensure_model(&model_id).await?;
     let model_path = state.model_service.get_model_path(&model_id)?;
