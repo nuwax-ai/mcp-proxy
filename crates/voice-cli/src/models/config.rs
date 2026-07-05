@@ -115,8 +115,6 @@ pub struct TaskManagementConfig {
     pub catch_panic: bool,
     /// 任务保留分钟数
     pub task_retention_minutes: u32,
-    /// Sled 数据库路径
-    pub sled_db_path: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -150,9 +148,6 @@ pub struct TtsEngineConfig {
     /// 引擎池大小：1=单实例串行（CPU 通常最优），>1=N 实例并发（N× 内存）
     #[serde(default = "default_tts_pool_size")]
     pub pool_size: usize,
-    /// 加速设备：`cpu`(v1 默认) / `coreml` / `cuda` / `vulkan`（v2 自编库后生效）
-    #[serde(default = "default_tts_device")]
-    pub device: String,
     /// 默认模型 id（对应 `{models_dir}/{model_id}/`）
     #[serde(default = "default_tts_model")]
     pub default_model: String,
@@ -401,7 +396,6 @@ impl Default for TaskManagementConfig {
             task_timeout_seconds: 3600,
             catch_panic: true,
             task_retention_minutes: 1440, // 24 hours in minutes
-            sled_db_path: "./data/sled".to_string(),
         }
     }
 }
@@ -423,7 +417,6 @@ impl Default for TtsEngineConfig {
     fn default() -> Self {
         Self {
             pool_size: default_tts_pool_size(),
-            device: default_tts_device(),
             default_model: default_tts_model(),
             default_sid: 0,
             default_speed: default_tts_speed(),
@@ -455,9 +448,6 @@ fn default_tts_supported_formats() -> Vec<String> {
 }
 fn default_tts_pool_size() -> usize {
     1
-}
-fn default_tts_device() -> String {
-    "cpu".to_string()
 }
 fn default_tts_model() -> String {
     "kokoro-multi-lang-v1_0".to_string()
@@ -777,19 +767,6 @@ impl Config {
             tracing::info!(
                 "Applied environment override: VOICE_CLI_TASK_RETENTION_MINUTES = {}",
                 retention_minutes
-            );
-        }
-
-        if let Some(sled_path) = env.get("VOICE_CLI_SLED_DB_PATH") {
-            if sled_path.trim().is_empty() {
-                return Err(crate::VoiceCliError::Config(
-                    "VOICE_CLI_SLED_DB_PATH environment variable cannot be empty".to_string(),
-                ));
-            }
-            self.task_management.sled_db_path = sled_path.clone();
-            tracing::info!(
-                "Applied environment override: VOICE_CLI_SLED_DB_PATH = {}",
-                sled_path
             );
         }
 

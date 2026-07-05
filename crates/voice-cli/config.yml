@@ -52,7 +52,6 @@ tts:
   max_text_length: 5000
   engine:
     pool_size: 1                 # 引擎实例数（CPU 最优 1；多实例并发但内存×N）
-    device: "cpu"                # v1 CPU（v2 GPU 走 coreml/cuda/vulkan）
     default_model: "kokoro-multi-lang-v1_0"
     default_sid: 0               # 默认音色 id（0-52）
     default_speed: 1.0

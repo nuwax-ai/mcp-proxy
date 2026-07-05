@@ -13,7 +13,7 @@ use utoipa_swagger_ui::SwaggerUi;
 #[openapi(
     info(
         title = "Voice CLI API",
-        version = "0.1.0",
+        version = env!("CARGO_PKG_VERSION"),
         description = "Speech-to-text HTTP service with Whisper model support",
         license(
             name = "MIT",
@@ -68,11 +68,12 @@ use utoipa_swagger_ui::SwaggerUi;
         )
     ),
     tags(
-        (name = "Health", description = "Service health and status endpoints"),
-        (name = "Models", description = "Whisper model management endpoints"),
-        (name = "Transcription", description = "Speech-to-text transcription endpoints"),
-        (name = "Async Transcription", description = "Asynchronous transcription task management"),
-        (name = "Task Management", description = "Task lifecycle and monitoring endpoints")
+        (name = "健康检查", description = "服务健康与状态"),
+        (name = "模型管理", description = "Whisper 模型管理"),
+        (name = "转录", description = "语音转文本（同步 /transcribe）"),
+        (name = "异步转录", description = "异步转录任务管理"),
+        (name = "TTS", description = "文本转语音（sherpa-onnx Kokoro）"),
+        (name = "任务管理", description = "任务生命周期与监控")
     ),
     external_docs(
         url = "https://github.com/your-org/voice-cli",
