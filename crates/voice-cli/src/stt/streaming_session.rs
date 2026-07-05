@@ -2,7 +2,7 @@
 //!
 //! 客户端推送 PCM 帧（16k mono f32），本会话累积到 audio_buffer，
 //! 每 `decode_interval_sec` 触发双解码（A=完整 buffer，B=裁剪尾部 `tail_trim_sec`），
-//! decoder 返回 **带时间戳的 segments**，经 LA2（segment-based）取公共前缀，
+//! decoder 返回 **带时间戳的 segments**，经 LA2（token-based：segment 内拆词对齐）取公共前缀，
 //! 稳定后 commit；事件推送到 mpsc 供 WS handler 转发客户端。
 //!
 //! 解码抽象为 [`Decoder`] trait，便于单测注入 mock（真实实现 [`WhisperDecoder`]）。

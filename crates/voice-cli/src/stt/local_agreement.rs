@@ -13,8 +13,6 @@
 //! `skip_prefix` 干净剥离已 commit 词，只 commit 增量。Char 粒度下每字符是对齐单位，
 //! 任一字符抖动即断裂、重复严重，故默认 Word。
 
-use crate::models::config::StreamingConfig;
-
 /// LA2 比较粒度
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompareGranularity {
@@ -69,15 +67,6 @@ impl Default for LaConfig {
     }
 }
 
-impl From<&StreamingConfig> for LaConfig {
-    fn from(c: &StreamingConfig) -> Self {
-        Self {
-            min_agree_count: c.min_agree_count.max(1),
-            granularity: CompareGranularity::resolve(&c.compare_granularity, None),
-        }
-    }
-}
-
 /// Whisper segment（流式 LA 输入；与同步 handler 映射源头一致）
 #[derive(Debug, Clone, PartialEq)]
 pub struct SttSegment {
@@ -105,7 +94,9 @@ struct Tk {
 /// LocalAgreement 2 状态机（token-based）
 pub struct LocalAgreement {
     cfg: LaConfig,
-    /// 已确认 token（只增；decoder 全量解码 buffer，结果应以其为前缀）
+    /// 已确认 token（只增）。Whisper 全量解码通常以 committed 为前缀（同音频前缀
+    /// 稳定），`skip_prefix` 据此剥离；偶发前文修正时取最长公共前缀兜底，最终结果由
+    /// `streaming_session` 的 `last_full_text`（完整 buffer 单次解码）保证干净。
     committed: Vec<Tk>,
     /// 当前 A/B 公共前缀长度（相对 committed 之后的待确认区）
     pending_len: usize,
@@ -455,5 +446,35 @@ mod tests {
         assert_eq!(trim_punctuation("hello,"), "hello");
         assert_eq!(trim_punctuation("\"world\""), "world");
         assert_eq!(trim_punctuation("..."), "");
+    }
+
+    /// 多 segment 输入：segment 文本 join 后 tokenize（覆盖 observe 的 join 路径）
+    #[test]
+    fn test_multi_segment_input() {
+        let mut la = LocalAgreement::new(cfg(CompareGranularity::Word));
+        let s = vec![seg(0.0, 1.0, "hello world"), seg(1.0, 2.0, "foo bar")];
+        la.observe(&s, &s);
+        let d = la.observe(&s, &s);
+        assert_eq!(d.newly_committed, vec!["hello", "world", "foo", "bar"]);
+        assert_eq!(la.committed_text(), "hello world foo bar");
+    }
+
+    /// ★ Whisper 前文修正（ask→asked）行为文档化：skip_prefix 在首词断裂，a_new 含
+    /// 已 commit 之后的内容 → committed 出现重复。这是无 word-level timestamp 的固有
+    /// 残留；最终结果由 streaming_session.last_full_text 兜底覆盖为干净文本。
+    /// 此测试固定当前行为（不 panic、streak/pending 正常推进）。
+    #[test]
+    fn test_prefix_revision_documents_residual_duplication() {
+        let mut la = LocalAgreement::new(cfg(CompareGranularity::Word));
+        let s1 = vec![seg(0.0, 1.0, "ask not")];
+        la.observe(&s1, &s1);
+        la.observe(&s1, &s1);
+        assert_eq!(la.committed_text(), "ask not");
+        // 第2轮 A 解码修正前文 ask→asked：skip_prefix 在 ask/asked 断，a_new 从头
+        let s2 = vec![seg(0.0, 2.0, "asked not what you")];
+        la.observe(&s2, &s2);
+        la.observe(&s2, &s2); // streak=2 → commit a_new 全部（含重复的 not）
+        // committed 含重复（残留局限）；Done 由 last_full_text 覆盖为干净结果
+        assert_eq!(la.committed_text(), "ask not asked not what you");
     }
 }

@@ -854,6 +854,24 @@ impl Config {
             ));
         }
 
+        // Validate streaming configuration（Fail Fast：decode_interval=0 会永不解码）
+        let s = &self.whisper.streaming;
+        if s.decode_interval_sec <= 0.0 {
+            return Err(crate::VoiceCliError::Config(
+                "streaming.decode_interval_sec must be > 0".to_string(),
+            ));
+        }
+        if s.tail_trim_sec < 0.0 {
+            return Err(crate::VoiceCliError::Config(
+                "streaming.tail_trim_sec must be >= 0".to_string(),
+            ));
+        }
+        if s.min_agree_count == 0 {
+            return Err(crate::VoiceCliError::Config(
+                "streaming.min_agree_count must be >= 1".to_string(),
+            ));
+        }
+
         // Validate logging configuration
         if self.logging.log_dir.is_empty() {
             return Err(crate::VoiceCliError::Config(
