@@ -6,9 +6,7 @@
 # 显式 cargo (build|test) -p fastembed-server 或 --workspace 才编译它。
 members = [
     "crates/voice-toolkit",
-    "crates/rs-voice-toolkit-stt",
     "crates/rs-voice-toolkit-audio",
-    "crates/rs-voice-toolkit-tts",
     "crates/document-parser",
     "crates/mcp-common",
     "crates/mcp-proxy",
@@ -21,9 +19,7 @@ members = [
 ]
 default-members = [
     "crates/voice-toolkit",
-    "crates/rs-voice-toolkit-stt",
     "crates/rs-voice-toolkit-audio",
-    "crates/rs-voice-toolkit-tts",
     "crates/document-parser",
     "crates/mcp-common",
     "crates/mcp-proxy",
