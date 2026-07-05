@@ -168,6 +168,30 @@ impl<D: Decoder> StreamingSession<D> {
             self.try_decode().await?;
             self.last_decoded_len = self.buffer.len();
         }
+
+        // 长会话保护：buffer 超 buffer_max_sec → utterance 切分，避免 O(n²) 全量重解码
+        let max_samples =
+            (self.cfg.streaming.buffer_max_sec * self.cfg.sample_rate as f32) as usize;
+        if max_samples > 0 && self.buffer.len() >= max_samples {
+            self.segment_utterance().await?;
+        }
+        Ok(())
+    }
+
+    /// utterance 切分：flush 当前 partial 为 committed + reset LA + 清 buffer。
+    /// 长会话按 buffer_max_sec 分段，每段独立 LA（无 O(n²)、无跨段累积重复）。
+    /// 客户端按 Committed 事件累积全文；Done.committed_total 仅含最后一段。
+    async fn segment_utterance(&mut self) -> Result<(), SessionError> {
+        let flushed = self.la.flush_remaining();
+        if !flushed.is_empty() {
+            let text = join_tokens(&flushed, self.granularity);
+            let committed = self.la.committed_text();
+            self.send(StreamEvent::Committed { text, committed }).await;
+        }
+        self.la.reset_for_new_utterance();
+        self.buffer.clear();
+        self.last_decoded_len = 0;
+        self.last_full_text.clear();
         Ok(())
     }
 
@@ -364,5 +388,26 @@ mod tests {
         let mut session = StreamingSession::new(test_cfg(), decoder, tx, cancel);
         let err = session.push_samples(&[0.0f32; 100]).await.unwrap_err();
         assert!(matches!(err, SessionError::Cancelled));
+    }
+
+    /// buffer 超 buffer_max_sec → utterance 切分（清 buffer），封顶 O(n²)
+    #[tokio::test]
+    async fn test_buffer_trim_on_max() {
+        let decoder = Arc::new(MockDecoder::new(vec!["hello".to_string()]));
+        let (tx, _rx) = mpsc::channel(32);
+        let cancel = Arc::new(AtomicBool::new(false));
+        let mut cfg = test_cfg();
+        cfg.streaming.buffer_max_sec = 1.0; // 16000 samples
+        cfg.streaming.decode_interval_sec = 0.5; // 8000 samples
+        let mut session = StreamingSession::new(cfg, decoder, tx, cancel);
+
+        let chunk = vec![0.0f32; 8000];
+        session.push_samples(&chunk).await.unwrap(); // 8000
+        session.push_samples(&chunk).await.unwrap(); // 16000 >= max → 切分 → 清空
+        assert!(
+            session.buffer.len() < 16000,
+            "buffer 应被 utterance 切分清空，实际 {}",
+            session.buffer.len()
+        );
     }
 }

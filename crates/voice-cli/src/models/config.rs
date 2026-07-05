@@ -291,6 +291,10 @@ pub struct StreamingConfig {
     /// 比较粒度：`auto`(按 language 推断：CJK→char，其余→word) / `char` / `word`
     #[serde(default = "default_granularity")]
     pub compare_granularity: String,
+    /// 音频缓冲上限（秒）：超时强制 utterance 切分（flush committed + reset LA + 清 buffer），
+    /// 避免长会话 buffer 单调增长导致 O(n²) 全量重解码。0 = 禁用。
+    #[serde(default = "default_buffer_max_sec")]
+    pub buffer_max_sec: f32,
 }
 
 impl Default for StreamingConfig {
@@ -302,6 +306,7 @@ impl Default for StreamingConfig {
             idle_timeout_sec: default_idle_timeout(),
             decode_timeout_sec: default_decode_timeout(),
             compare_granularity: default_granularity(),
+            buffer_max_sec: default_buffer_max_sec(),
         }
     }
 }
@@ -332,6 +337,10 @@ fn default_decode_timeout() -> u64 {
 }
 fn default_granularity() -> String {
     "auto".to_string()
+}
+
+fn default_buffer_max_sec() -> f32 {
+    30.0
 }
 
 impl Default for AudioProcessingConfig {
@@ -869,6 +878,11 @@ impl Config {
         if s.min_agree_count == 0 {
             return Err(crate::VoiceCliError::Config(
                 "streaming.min_agree_count must be >= 1".to_string(),
+            ));
+        }
+        if s.buffer_max_sec < 0.0 {
+            return Err(crate::VoiceCliError::Config(
+                "streaming.buffer_max_sec must be >= 0".to_string(),
             ));
         }
 
