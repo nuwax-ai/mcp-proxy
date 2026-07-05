@@ -1,0 +1,2 @@
+# 占位文件：保证 docker/sherpa-cache/ 目录入库（COPY . . 源永远存在）。
+# 真正的 tar.bz2 由 docker/fetch-sherpa.sh 预下载，.gitignore 拦截不入库。

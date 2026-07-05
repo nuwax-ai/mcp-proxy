@@ -18,18 +18,25 @@ mcp-proxy 的 Docker 构建文件，采用多阶段构建：
 - 支持 Node.js 22.x、Python 3、Deno、Go 1.24.3
 
 ### Dockerfile.document-parser
-document-parser 和 voice-cli 的 Docker 构建文件，采用多阶段构建：
+document-parser 的 Docker 构建文件，采用多阶段构建：
 
 **构建阶段：**
 - 基础镜像：`rust:1.92`
 - 构建命令：`cargo build --release`
 
-**运行阶段：**
+**运行/导出阶段：**
 - 使用 `scratch` 基础镜像（最小化镜像）
-- 支持两个目标：
-  - `runtime` - document-parser 运行时
-  - `runtime-voice-cli` - voice-cli 运行时
-  - `export` - 导出所有二进制文件
+- 支持目标：`runtime`（document-parser 运行时）/ `export`（导出二进制）
+
+### Dockerfile.voice-cli
+voice-cli 的 Docker 构建文件（独立）。编译期需 sherpa-onnx 预编译 C 库：无 `SHERPA_ONNX_ARCHIVE_DIR` 缓存时默认联网下载；github 阻断时先 `bash docker/fetch-sherpa.sh amd64` 预下载到 `docker/sherpa-cache/`。
+
+- 基础镜像：`rust:1.92`
+- 构建命令：`cargo build --release -p voice-cli`（可选 `--build-arg VOICE_FEATURES=cuda`）
+- 导出目标：`export`（只导出二进制到 `dist/`，不在容器运行）
+
+### Dockerfile.fastembed
+fastembed 文本嵌入服务的 Docker 构建文件（独立）。用法：`make build-fastembed-x86_64`。
 
 ### config.yml
 mcp-proxy 的默认配置文件。
@@ -73,9 +80,9 @@ trusted-host = pypi.tuna.tsinghua.edu.cn
 | telnet | 网络调试 |
 | wget | 文件下载 |
 
-### document-parser/voice-cli 容器
+### document-parser / voice-cli / fastembed 容器
 
-使用 `scratch` 基础镜像，仅包含二进制文件，无额外依赖。
+使用 `scratch` 基础镜像仅导出二进制（`--target export`），**不在容器内运行**；二进制部署到目标机，运行时依赖（如 ffmpeg）由目标机提供。注：voice-cli 编译期还需 sherpa-onnx 预编译 C 库（见上 `Dockerfile.voice-cli` 段），与另两者不同。
 
 ## 国内镜像源配置
 
@@ -118,8 +125,8 @@ docker build -f docker/Dockerfile.document-parser --target runtime -t document-p
 # 或使用 Make 命令
 make build-image-document-parser
 
-# 构建 voice-cli 镜像
-docker build -f docker/Dockerfile.document-parser --target runtime-voice-cli -t voice-cli:latest ..
+# 构建 voice-cli（导出 linux 二进制到 dist/，github 阻断时先 bash docker/fetch-sherpa.sh amd64）
+make build-voice-cli-x86_64
 ```
 
 ### 使用 docker-compose（推荐）
@@ -189,7 +196,11 @@ mcp-proxy 容器包含健康检查，定期检查 `/health` 端点：
 ```
 docker/
 ├── Dockerfile.mcp-proxy           # mcp-proxy Docker 构建文件
-├── Dockerfile.document-parser     # document-parser/voice-cli Docker 构建文件
+├── Dockerfile.document-parser     # document-parser Docker 构建文件
+├── Dockerfile.voice-cli           # voice-cli Docker 构建文件（独立）
+├── Dockerfile.fastembed           # fastembed Docker 构建文件（独立）
+├── fetch-sherpa.sh                # sherpa-onnx C 库预下载（gh-proxy，阻断免疫）
+├── sherpa-cache/                  # 预下载的 sherpa tar.bz2 缓存（.gitignore 拦截不入库）
 ├── config.yml                     # mcp-proxy 默认配置
 ├── docker-compose.yml             # Docker Compose 配置
 ├── .npmrc                         # npm 国内镜像源配置

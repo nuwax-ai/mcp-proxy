@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Ubuntu 24.04 装 libssl1.1（voice-cli cuda 编译版需要）
+# Ubuntu 24.04 装 libssl1.1（voice-cli 兜底检测脚本）
 #
-# 背景: cuda 编译版 voice-cli 链接了 OpenSSL 1.1（libssl.so.1.1），但 Ubuntu 24.04 只带 OpenSSL 3。
-#   运行报: error while loading shared libraries: libssl.so.1.1
-# 本脚本从阿里云 Ubuntu 镜像下载 libssl1.1 deb 安装，与系统 OpenSSL 3 共存，互不影响。
+# 背景: voice-cli 新架构 reqwest 已用 rustls（Cargo.toml:65-73），产物通常不依赖任何 libssl.so。
+#   仅 cuda 编译 + 特定链接场景可能命中 libssl1.1，此时运行报:
+#   error while loading shared libraries: libssl.so.1.1
+# 本脚本先 ldd 检测，命中才从阿里云 Ubuntu 镜像下载 libssl1.1 deb 安装（与系统 OpenSSL 3 共存）。
+# rustls 版（默认）会自动 exit 0，无副作用。
 #
 # 用法: bash install-libssl1.1-ubuntu2404.sh [voice-cli 二进制路径]
 set -euo pipefail

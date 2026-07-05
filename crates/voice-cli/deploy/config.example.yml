@@ -1,32 +1,22 @@
-# Voice CLI 配置模板
-# 部署时复制为 config.yml，按需修改 server.port / whisper.default_model
-# 注意: 启动必须用 `voice-cli server run --config config.yml`（--config 在 server run 后）
+# Voice CLI 配置模板（纯 Rust：STT transcribe-rs + TTS sherpa-onnx Kokoro）
+# 部署时复制为 config.yml，按需修改 server.port / whisper.default_model / tts.enabled
+# 启动必须用 `voice-cli server run --config config.yml`（--config 在 server run 后，全局 -c 在 server run 时被代码忽略）
+# 字段权威源: src/models/config.rs + docs/DEPLOYMENT.md §5
 
 server:
   host: "0.0.0.0"
   port: 8087                       # ← 监听端口
-  max_file_size: 209715200         # 200MB
+  max_file_size: 209715200         # 200MB 上传上限
   cors_enabled: true
 
 whisper:
-  default_model: "large-v3"        # 默认转写模型，CPU 环境可调小(base/small)加速
+  default_model: "base"            # 默认转写模型（CPU 用 base/tiny 加速；Metal/CUDA 可 large-v3）
   models_dir: "./models"
-  auto_download: true
-  supported_models:
-    - "tiny"
-    - "tiny.en"
-    - "base"
-    - "base.en"
-    - "small"
-    - "small.en"
-    - "medium"
-    - "medium.en"
-    - "large-v1"
-    - "large-v2"
-    - "large-v3"
+  auto_download: false             # 建议 false（联网受限），模型手动放好
+  supported_models: ["tiny", "base", "small", "medium", "large-v3"]
   audio_processing:
-    supported_formats: ["mp3", "wav", "flac", "m4a", "ogg", "aac", "opus", "amr", "wma", "aiff", "caf", "mp4", "mov", "avi", "mkv", "webm", "3gp", "flv", "wmv", "mpeg", "mxf"]
-    auto_convert: true
+    supported_formats: ["mp3", "wav", "flac", "m4a", "ogg", "aac", "opus", "mp4"]
+    auto_convert: true             # ffmpeg-sidecar 自动转 16k/mono/s16le
     conversion_timeout: 60
     temp_file_cleanup: true
     temp_file_retention: 300
@@ -34,25 +24,37 @@ whisper:
     transcription_workers: 3
     channel_buffer_size: 100
     worker_timeout: 3600
+  # streaming:                     # STT 流式（可选，全部有默认值）
+  #   decode_interval_sec: 0.5     # 解码触发间隔
+  #   tail_trim_sec: 0.3           # B 解码尾部裁剪
+  #   min_agree_count: 2           # LA2 前缀稳定阈值
+  #   buffer_max_sec: 30           # 长会话 utterance 切分阈值（超时 flush+reset，详见 docs/API.md §4）
+  #   idle_timeout_sec: 30
+  #   decode_timeout_sec: 30
+  #   compare_granularity: "auto"  # auto（按 language 推断）/ char / word
 
-# TTS（文字转语音）配置 —— 默认禁用
-# 不启用时: 缺 tts_service.py 不崩，/tts/* 返回 503，STT 正常
-# 启用步骤见 deploy/enable-tts.md
+# TTS（sherpa-onnx Kokoro，CPU v1）—— 默认禁用
+# 启用: 置 enabled: true + 放 Kokoro 模型到 ./models/tts/kokoro-multi-lang-v1_0/
+# 模型下载 / lexicon 组合（us-en+zh，不含 gb-en；代码 resolve_paths 自动选对，无需手动删）见 docs/DEPLOYMENT.md §4.2
 tts:
-  enabled: false                   # ← true 启用（需配合 tts_service.py + IndexTTS 环境）
-  python_path: ".venv/bin/python"
-  model_path: "./checkpoints"
-  default_model: "default"
-  supported_formats: ["mp3", "wav"]
+  enabled: false                   # ← true 启用（不启用时 /api/v1/tts* 返回 403，STT 正常）
   max_text_length: 5000
-  default_speed: 1.0
-  default_pitch: 0
-  default_volume: 1.0
-  timeout_seconds: 300
-  # 注: script_path 字段已废弃（TtsService 硬编码找 ./tts_service.py），不要写
+  # tasks_db_path: "./data/tts_tasks.db"   # TTS 异步任务独立 SQLite（默认；与 STT 的 ./data/tasks.db 隔离）
+  engine:
+    pool_size: 1                   # 引擎实例数（CPU 最优 1；多实例并发但内存×N）
+    default_model: "kokoro-multi-lang-v1_0"
+    default_sid: 0                 # 默认音色 id（0-52）
+    default_speed: 1.0             # 语速（1.0 原速）
+    default_length_scale: 1.0      # 时长缩放（model-level，仅首次加载生效）
+    num_threads: 4
+    models_dir: "./models/tts"
+  # streaming:                     # 可选，全部有默认值
+  #   idle_timeout_sec: 30
+  #   synth_timeout_sec: 120
+  #   default_format: "pcm_s16le"
 
 logging:
-  level: "info"
+  level: "info"                    # trace/debug/info/warn/error
   log_dir: "./logs"
   max_file_size: "100MB"
   max_files: 20
@@ -62,7 +64,7 @@ daemon:
   log_file: "./logs/server-daemon.log"
   work_dir: "./"
 
-# 异步任务队列
+# 异步任务队列（apalis + SQLite，STT/TTS 共用）
 task_management:
   max_concurrent_tasks: 4
   retry_attempts: 2

@@ -42,6 +42,9 @@ fastembed/.fastembed_cache
 .fastembed_cache/
 crates/voice-cli/models/
 
+# sherpa-onnx 预编译 C 库（docker/fetch-sherpa.sh 下载，Dockerfile 编译期注入；不入库大文件）
+docker/sherpa-cache/*.tar.bz2
+
 # Environment files
 .env
 .env.local

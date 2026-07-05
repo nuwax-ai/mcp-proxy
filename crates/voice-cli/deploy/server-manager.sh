@@ -14,7 +14,7 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${VOICE_CLI_HOME:-$(dirname "$SCRIPT_DIR")}"
-PID_FILE="${PROJECT_ROOT}/voice-cli.pid"
+PID_FILE="${PROJECT_ROOT}/voice-cli-server.pid"
 LOG_FILE="${PROJECT_ROOT}/logs/server.log"
 CONFIG_FILE="${VOICE_CLI_CONFIG:-${PROJECT_ROOT}/config.yml}"
 VOICE_CLI_BIN="${VOICE_CLI_BIN:-${PROJECT_ROOT}/voice-cli}"
