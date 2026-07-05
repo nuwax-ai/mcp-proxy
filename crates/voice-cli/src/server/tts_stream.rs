@@ -161,7 +161,7 @@ async fn run_tts_stream_session(socket: WebSocket, state: AppState) {
     let watcher_handle = tokio::spawn(async move {
         while let Some(msg) = stream.next().await {
             match msg {
-                Ok(Message::Text(t)) if is_control_frame(&t, "cancel") => {
+                Ok(Message::Text(t)) if crate::server::is_control_frame(&t, "cancel") => {
                     warn!("tts stream: 收到 cancel，中断合成");
                     cancel_w.store(true, Ordering::Release);
                     break;
@@ -232,12 +232,4 @@ async fn send_event(
         }
     };
     sink.send(msg).await
-}
-
-/// 解析 WS 文本帧是否为控制帧（`{type:"<ty>"}`），避免 contains 误判
-fn is_control_frame(text: &str, ty: &str) -> bool {
-    serde_json::from_str::<serde_json::Value>(text)
-        .ok()
-        .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(str::to_string))
-        .is_some_and(|frame_ty| frame_ty.eq_ignore_ascii_case(ty))
 }

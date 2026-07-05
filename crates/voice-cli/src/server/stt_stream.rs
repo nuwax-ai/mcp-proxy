@@ -174,7 +174,7 @@ async fn run_stream_session(socket: WebSocket, state: AppState) {
                     }
                 }
                 Message::Text(t) => {
-                    if is_control_frame(&t, "stop") {
+                    if crate::server::is_control_frame(&t, "stop") {
                         break;
                     }
                 }
@@ -194,14 +194,6 @@ async fn run_stream_session(socket: WebSocket, state: AppState) {
 
 fn parse_start(text: &str) -> StreamStartFrame {
     serde_json::from_str(text).unwrap_or_default()
-}
-
-/// 解析 WS 文本帧是否为控制帧（`{type:"<ty>"}`），避免 contains 误判（如 "nonstop"）
-fn is_control_frame(text: &str, ty: &str) -> bool {
-    serde_json::from_str::<serde_json::Value>(text)
-        .ok()
-        .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(str::to_string))
-        .is_some_and(|frame_ty| frame_ty.eq_ignore_ascii_case(ty))
 }
 
 async fn send_event(

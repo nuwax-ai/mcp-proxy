@@ -270,7 +270,7 @@ impl<D: Decoder> StreamingSession<D> {
     }
 }
 
-/// 单次解码（spawn_blocking + timeout + 取消）
+/// 单次解码（spawn_blocking + timeout；取消由调用方在 try_decode 入口检查）
 async fn decode_once<D: Decoder>(
     decoder: Arc<D>,
     samples: Vec<f32>,
@@ -391,11 +391,11 @@ mod tests {
         assert!(matches!(err, SessionError::Cancelled));
     }
 
-    /// buffer 超 buffer_max_sec → utterance 切分（清 buffer），封顶 O(n²)
+    /// buffer 超 buffer_max_sec → utterance 切分（清 buffer + reset LA + 已 commit 事件可见）
     #[tokio::test]
     async fn test_buffer_trim_on_max() {
         let decoder = Arc::new(MockDecoder::new(vec!["hello".to_string()]));
-        let (tx, _rx) = mpsc::channel(32);
+        let (tx, mut rx) = mpsc::channel(32);
         let cancel = Arc::new(AtomicBool::new(false));
         let mut cfg = test_cfg();
         cfg.streaming.buffer_max_sec = 1.0; // 16000 samples
@@ -403,12 +403,24 @@ mod tests {
         let mut session = StreamingSession::new(cfg, decoder, tx, cancel);
 
         let chunk = vec![0.0f32; 8000];
-        session.push_samples(&chunk).await.unwrap(); // 8000
-        session.push_samples(&chunk).await.unwrap(); // 16000 >= max → 切分 → 清空
+        session.push_samples(&chunk).await.unwrap(); // 8000，触发 decode
+        session.push_samples(&chunk).await.unwrap(); // 16000 >= max → 切分
+
+        // 切分后 buffer 完全清空 + last_decoded_len 归零
+        assert_eq!(session.buffer.len(), 0, "buffer 应被完全清空");
+        assert_eq!(session.last_decoded_len, 0, "last_decoded_len 应归零");
+        // 切分前 try_decode 已 commit "hello"，应能收到 Committed 事件
+        let mut got_committed = false;
+        while let Ok(Some(evt)) = tokio::time::timeout(Duration::from_millis(50), rx.recv()).await {
+            if matches!(evt, StreamEvent::Committed { .. }) {
+                got_committed = true;
+            }
+        }
+        assert!(got_committed, "应收到 Committed 事件");
+        // LA 已 reset（committed_text 为空）
         assert!(
-            session.buffer.len() < 16000,
-            "buffer 应被 utterance 切分清空，实际 {}",
-            session.buffer.len()
+            session.la.committed_text().is_empty(),
+            "LA 应被 segment_utterance reset"
         );
     }
 }

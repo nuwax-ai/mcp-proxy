@@ -161,7 +161,6 @@ tts:
   max_text_length: 5000
   engine:
     pool_size: 1                 # 引擎实例数（CPU 最优 1；多实例并发但内存×N）
-    device: "cpu"                # v1 CPU；v2 GPU 走 "coreml"/"cuda"/"vulkan"
     default_model: "kokoro-multi-lang-v1_0"
     default_sid: 0               # 默认音色 id（0-52）
     default_speed: 1.0           # 语速（1.0 原速）
@@ -259,7 +258,7 @@ v1 TTS 走 CPU（sherpa-onnx 默认预编译库 CPU-only，无 cargo GPU feature
    make -j
    ```
 2. 设 `SHERPA_ONNX_LIB_DIR=/path/to/sherpa-onnx/build/lib` 重新编译 voice-cli
-3. `config.yml` 设 `tts.engine.device: "coreml"`（或 `cuda`/`vulkan`），`provider` 对应
+3. `config.yml` 设 `tts.engine.provider: "coreml"`（或 `cuda`/`vulkan`）
 
 kokoro CPU RTF<0.3 已快于实时，多数场景无需 GPU。GPU 仅对高并发或长文本批量合成有收益。
 
