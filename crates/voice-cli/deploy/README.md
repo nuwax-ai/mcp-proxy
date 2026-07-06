@@ -38,6 +38,60 @@ cp deploy/config.example.yml config.yml     # 按需改端口/模型
 ./deploy/server-manager.sh status
 ```
 
+## 系统服务（systemd，生产推荐）
+
+`voice-cli.service` 是 systemd unit 模板，比 `server-manager.sh` 更标准：开机自启 + 崩溃自动重启 + journald 统一日志。适合生产服务器。
+
+### 安装（一次性）
+
+```bash
+# 1. 替换占位符 __USER__ / __GROUP__ / __INSTALL_DIR__ 并安装到系统目录
+sudo sed -e "s|__USER__|$USER|g" \
+         -e "s|__GROUP__|$USER|g" \
+         -e "s|__INSTALL_DIR__|/opt/voice-cli|g" \
+         deploy/voice-cli.service \
+         | sudo tee /etc/systemd/system/voice-cli.service > /dev/null
+
+# 2. 重载 systemd + 开机自启 + 立即启动
+sudo systemctl daemon-reload
+sudo systemctl enable --now voice-cli
+
+# 3. 验证
+sudo systemctl status voice-cli
+curl -s http://localhost:8087/health
+```
+
+> `__INSTALL_DIR__`（默认 `/opt/voice-cli`）须含 `voice-cli` 二进制 + `config.yml` + `models/`（先完成上方"快速部署"步骤 2-3）。`User=` 决定运行用户，确保该用户对 `__INSTALL_DIR__` 有读写权限（运行时要写 `./logs/`、`./data/`）。
+
+### 常用命令
+
+```bash
+sudo systemctl start voice-cli       # 启动
+sudo systemctl stop voice-cli        # 停止
+sudo systemctl restart voice-cli     # 重启（改完 config.yml 后用它生效）
+sudo systemctl status voice-cli      # 状态 + 最近日志
+sudo systemctl disable voice-cli     # 取消开机自启
+```
+
+### 日志查询（journalctl）
+
+systemd 走 journald 统一收集；应用内 `tracing-appender` 文件日志仍在 `./logs/`（按天轮转），两者并存。
+
+```bash
+sudo journalctl -u voice-cli -f                       # 实时跟踪
+sudo journalctl -u voice-cli --since "10 min ago"     # 最近 10 分钟
+sudo journalctl -u voice-cli -n 200                   # 最近 200 行
+```
+
+### 与 server-manager.sh 怎么选
+
+| 场景 | 推荐 |
+|---|---|
+| 个人机 / 临时测试 | `server-manager.sh`（无需 sudo，nohup 后台） |
+| 生产服务器 | `voice-cli.service`（开机自启 + 崩溃重启 + journald，`Type=simple` 不依赖 PID 文件） |
+
+---
+
 ## Docker 构建补充（github 阻断环境）
 
 `docker/Dockerfile.voice-cli` 编译期需 sherpa-onnx 预编译 C 库（无 `SHERPA_ONNX_ARCHIVE_DIR` 缓存时默认联网下载，github 阻断会卡死）。**先预下载**：
