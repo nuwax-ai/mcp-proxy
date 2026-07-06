@@ -63,5 +63,5 @@ dev-run-voice-cli:
 
 .PHONY: dev-run-fastembed
 dev-run-fastembed:
-	@echo "🚀 fastembed（端口见 crates/fastembed/config.yml，当前 8080）..."
+	@echo "🚀 fastembed（端口见 crates/fastembed/config.yml，当前 8068）..."
 	@cd crates/fastembed && HF_ENDPOINT=$(HF_MIRROR) cargo run -p fastembed-server -- server

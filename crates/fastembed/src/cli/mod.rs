@@ -24,7 +24,7 @@ pub enum Commands {
 /// HTTP 服务启动参数
 #[derive(Parser, Debug)]
 pub struct ServerArgs {
-    /// 监听端口（未指定时取配置文件 / FASTEMBED_PORT / 默认 8080）
+    /// 监听端口（未指定时取配置文件 / FASTEMBED_PORT / 默认 8068）
     #[arg(short, long)]
     pub port: Option<u16>,
 

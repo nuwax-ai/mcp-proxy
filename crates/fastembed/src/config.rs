@@ -19,7 +19,7 @@ fn default_host() -> String {
 }
 
 fn default_port() -> u16 {
-    8080
+    8068
 }
 
 impl Default for ServerConfig {
@@ -272,7 +272,7 @@ mod tests {
         let back: AppConfig = serde_yaml::from_str(&yaml).unwrap();
         assert_eq!(back.fastembed.default_model, cfg.fastembed.default_model);
         assert_eq!(back.fastembed.device, "auto");
-        assert_eq!(back.server.port, 8080);
+        assert_eq!(back.server.port, 8068);
     }
 
     #[test]

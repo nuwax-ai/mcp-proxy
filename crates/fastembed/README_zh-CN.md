@@ -25,7 +25,7 @@
 > ```
 
 ```bash
-# 启动服务器（默认端口 8080）
+# 启动服务器（默认端口 8068）
 fastembed server
 
 # 指定自定义端口
@@ -54,7 +54,7 @@ fastembed models list --type text
 
 ```bash
 # 文本（默认）
-curl -X POST http://localhost:8080/api/embeddings \
+curl -X POST http://localhost:8068/api/embeddings \
   -H "Content-Type: application/json" \
   -d '{
     "type": "text",
@@ -63,7 +63,7 @@ curl -X POST http://localhost:8080/api/embeddings \
   }'
 
 # 图像（images 字段传本地图片路径）
-curl -X POST http://localhost:8080/api/embeddings \
+curl -X POST http://localhost:8068/api/embeddings \
   -H "Content-Type: application/json" \
   -d '{
     "type": "image",
@@ -72,7 +72,7 @@ curl -X POST http://localhost:8080/api/embeddings \
   }'
 
 # 稀疏（每条输入返回 {indices, values}）
-curl -X POST http://localhost:8080/api/embeddings \
+curl -X POST http://localhost:8068/api/embeddings \
   -H "Content-Type: application/json" \
   -d '{
     "type": "sparse",
@@ -104,7 +104,7 @@ curl -X POST http://localhost:8080/api/embeddings \
 ```yaml
 server:
   host: 0.0.0.0
-  port: 8080
+  port: 8068
 fastembed:
   cache_dir: .fastembed_cache
   default_model: BGELargeZHV15        # text

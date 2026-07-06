@@ -25,7 +25,7 @@ High-performance local embedding HTTP service built on [fastembed-rs](https://cr
 > ```
 
 ```bash
-# Start server (default port 8080)
+# Start server (default port 8068)
 fastembed server
 
 # Custom port
@@ -54,7 +54,7 @@ fastembed models list --type text
 
 ```bash
 # Text (default)
-curl -X POST http://localhost:8080/api/embeddings \
+curl -X POST http://localhost:8068/api/embeddings \
   -H "Content-Type: application/json" \
   -d '{
     "type": "text",
@@ -63,7 +63,7 @@ curl -X POST http://localhost:8080/api/embeddings \
   }'
 
 # Image (images field holds local image paths)
-curl -X POST http://localhost:8080/api/embeddings \
+curl -X POST http://localhost:8068/api/embeddings \
   -H "Content-Type: application/json" \
   -d '{
     "type": "image",
@@ -72,7 +72,7 @@ curl -X POST http://localhost:8080/api/embeddings \
   }'
 
 # Sparse (returns {indices, values} per input)
-curl -X POST http://localhost:8080/api/embeddings \
+curl -X POST http://localhost:8068/api/embeddings \
   -H "Content-Type: application/json" \
   -d '{
     "type": "sparse",
@@ -104,7 +104,7 @@ Response: `embeddings` (dense, text/image) **or** `sparse_embeddings` (sparse), 
 ```yaml
 server:
   host: 0.0.0.0
-  port: 8080
+  port: 8068
 fastembed:
   cache_dir: .fastembed_cache
   default_model: BGELargeZHV15        # text
