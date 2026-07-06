@@ -155,6 +155,8 @@ whisper:
     transcription_workers: 3
     channel_buffer_size: 100
     worker_timeout: 3600
+  # engine:                        # STT 引擎配置（可选，全部有默认值）
+  #   output_script: "simplified"  # 输出脚本：simplified(默认,繁→简;英文透传) / original(原样)
   # streaming:                     # STT 流式（可选，全部有默认值）
   #   decode_interval_sec: 0.5     # 解码触发间隔
   #   tail_trim_sec: 0.3           # B 解码尾部裁剪

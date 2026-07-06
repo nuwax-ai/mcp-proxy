@@ -672,6 +672,7 @@ impl LockFreeApalisManager {
     pub async fn get_task_result(
         &self,
         task_id: &str,
+        output_script: crate::models::config::OutputScript,
     ) -> Result<Option<TranscriptionResponse>, VoiceCliError> {
         let row = sqlx::query("SELECT result, metadata FROM task_results WHERE task_id = ?")
             .bind(task_id)
@@ -686,6 +687,12 @@ impl LockFreeApalisManager {
 
             let mut result: TranscriptionResponse = serde_json::from_str(&result_json)
                 .map_err(|e| VoiceCliError::Storage(format!("解析任务结果失败: {}", e)))?;
+
+            // 繁→简转换（read-time，按当前 output_script；库存繁体原样，配置可动态切繁简）
+            result.text = crate::stt::convert_if_needed(&result.text, output_script);
+            for seg in &mut result.segments {
+                seg.text = crate::stt::convert_if_needed(&seg.text, output_script);
+            }
 
             // 尝试获取元数据
             let metadata_json: Option<String> = row.try_get("metadata").unwrap_or(None);
@@ -1490,27 +1497,13 @@ async fn transcription_step(
             ))))
         })?;
 
-    // 转换 transcribe-rs TranscriptionResult → TranscriptionResponse。
-    // 注意：transcribe-rs 的 segment.start/end 已是秒（whisper.cpp 时间戳 / 100），
-    // 旧 voice_toolkit 是 start_time/end_time 毫秒。
-    let mut response = TranscriptionResponse {
-        text: transcription_result.text,
-        segments: transcription_result
-            .segments
-            .unwrap_or_default()
-            .into_iter()
-            .map(|s| crate::models::Segment {
-                start: s.start,
-                end: s.end,
-                text: s.text,
-                confidence: 0.0, // transcribe-rs 0.3.11 TranscriptionSegment 无 confidence
-            })
-            .collect(),
-        language: None, // 0.3.11 TranscriptionResult 无 language；P1 从 opts 透传
-        duration: None,
-        processing_time: 0.0,
-        metadata: None,
-    };
+    // 转换 transcribe-rs TranscriptionResult → TranscriptionResponse（走公共 map_whisper_result）。
+    // worker 用 Original 存繁体原样 —— 简繁转换在 get_task_result read-time 按当前 output_script 做，
+    // 这样改配置可动态切繁简，库存内容不变（同步 /transcribe 走 map_whisper_result 实时转）。
+    let mut response = crate::stt::map_whisper_result(
+        transcription_result,
+        crate::models::config::OutputScript::Original,
+    );
 
     // 设置元数据和时长
     if let Some(meta) = &metadata {

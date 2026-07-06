@@ -124,6 +124,10 @@ transcribe-rs = { workspace = true, features = ["whisper-cpp"] }
 [dependencies.sherpa-onnx]
 workspace = true
 
+# 繁→简中文转换（STT 后处理，纯 Rust ferrous-opencc）
+[dependencies.ferrous-opencc]
+workspace = true
+
 [dev-dependencies]
 tempfile = "3.0"
 

@@ -275,26 +275,9 @@ pub async fn transcribe_handler(
         .await
         .map_err(|e| VoiceCliError::TranscriptionFailed(format!("转录任务 join 失败: {e}")))??;
 
-    // 转换 TranscriptionResult → TranscriptionResponse
-    // 注意：transcribe-rs 的 segment.start/end 已是秒（whisper.cpp 时间戳 / 100）
-    let mut response = TranscriptionResponse {
-        text: result.text,
-        segments: result
-            .segments
-            .unwrap_or_default()
-            .into_iter()
-            .map(|s| crate::models::Segment {
-                start: s.start,
-                end: s.end,
-                text: s.text,
-                confidence: 0.0, // transcribe-rs 0.3.11 TranscriptionSegment 无 confidence
-            })
-            .collect(),
-        language: None, // 0.3.11 TranscriptionResult 无 language；P1 从 opts 透传
-        duration: None,
-        processing_time: 0.0,
-        metadata: None,
-    };
+    // 转换 TranscriptionResult → TranscriptionResponse（含繁→简，统一走 map_whisper_result）
+    let mut response =
+        crate::stt::map_whisper_result(result, state.config.whisper.engine.output_script);
 
     // 设置元数据和时长
     if let Some(meta) = &metadata {
@@ -572,7 +555,10 @@ pub async fn get_task_result_handler(
 ) -> Result<HttpResult<TranscriptionResponse>, VoiceCliError> {
     let manager = state.lock_free_apalis_manager.as_ref();
 
-    match manager.get_task_result(&task_id).await? {
+    match manager
+        .get_task_result(&task_id, state.config.whisper.engine.output_script)
+        .await?
+    {
         Some(result) => {
             info!(
                 "Successful acquisition of task results: {} -> {} characters",

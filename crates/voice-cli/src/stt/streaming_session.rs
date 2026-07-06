@@ -48,6 +48,8 @@ pub struct SessionConfig {
     pub model_path: PathBuf,
     pub pool_size: usize,
     pub streaming: StreamingConfig,
+    /// 输出文字脚本（繁→简策略，事件发送时按此转换；英文/非中文透传）
+    pub output_script: crate::models::config::OutputScript,
 }
 
 /// 会话级错误（分类超时 / 取消 / 引擎错误）
@@ -264,6 +266,26 @@ impl<D: Decoder> StreamingSession<D> {
     }
 
     async fn send(&self, evt: StreamEvent) {
+        // 繁→简转换（整句，在事件出口；英文/非中文透传。绝不触碰 LA 内部 token——
+        // token 级转换会破坏 skip_prefix/common_prefix 对齐导致 commit 永不达标）
+        let evt = if self.cfg.output_script == crate::models::config::OutputScript::Simplified {
+            match evt {
+                StreamEvent::Partial { text, committed } => StreamEvent::Partial {
+                    text: crate::stt::to_simplified(&text),
+                    committed: crate::stt::to_simplified(&committed),
+                },
+                StreamEvent::Committed { text, committed } => StreamEvent::Committed {
+                    text: crate::stt::to_simplified(&text),
+                    committed: crate::stt::to_simplified(&committed),
+                },
+                StreamEvent::Done { committed_total } => StreamEvent::Done {
+                    committed_total: crate::stt::to_simplified(&committed_total),
+                },
+                other => other,
+            }
+        } else {
+            evt
+        };
         if let Err(e) = self.event_tx.send(evt).await {
             warn!("streaming event send failed: {e}");
         }
@@ -339,6 +361,7 @@ mod tests {
             model_path: PathBuf::from("/dummy"),
             pool_size: 1,
             streaming: StreamingConfig::default(),
+            output_script: crate::models::config::OutputScript::Original,
         }
     }
 

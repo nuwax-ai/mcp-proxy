@@ -229,6 +229,17 @@ impl Default for WhisperConfig {
     }
 }
 
+/// STT 输出文字脚本策略
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum OutputScript {
+    /// 原样输出（Whisper 默认，中文常为繁体）
+    Original,
+    /// 繁→简转换（默认；英文/非中文透传，只作用于中文字符）
+    #[default]
+    Simplified,
+}
+
 /// STT 引擎配置（transcribe-rs 引擎池 + GPU 加速）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SttEngineConfig {
@@ -250,6 +261,10 @@ pub struct SttEngineConfig {
     /// 默认初始提示（领域上下文，提升专有词 / 风格准确率）
     #[serde(default)]
     pub default_initial_prompt: Option<String>,
+    /// 输出文字脚本：`simplified`(默认,繁→简) / `original`(原样)。Whisper 中文默认输出繁体，
+    /// `simplified` 用 OpenCC 转简（英文/非中文透传不受影响）
+    #[serde(default)]
+    pub output_script: OutputScript,
 }
 
 impl Default for SttEngineConfig {
@@ -261,6 +276,7 @@ impl Default for SttEngineConfig {
             n_threads: 0,
             default_language: None,
             default_initial_prompt: None,
+            output_script: OutputScript::default(),
         }
     }
 }

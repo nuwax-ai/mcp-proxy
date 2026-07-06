@@ -122,6 +122,7 @@ async fn run_stream_session(socket: WebSocket, state: AppState) {
         model_path,
         pool_size,
         streaming: streaming_cfg,
+        output_script: engine.output_script,
     };
 
     // 3. mpsc + StreamingSession
