@@ -16,8 +16,59 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::{Mutex, RwLock, mpsc};
 use tokio::time::{sleep, timeout};
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 use uuid::{NoContext, Timestamp, Uuid};
+
+/// MinerU 子进程 stderr 输出行的分级（用于按内容选择日志级别，避免 tqdm/loguru 正常输出污染 ERROR 日志）。
+///
+/// 注意：逐行分级仅影响日志级别，**不丢错误信息**——所有 stderr 原文同时累积进 `stderr_output`，
+/// 进程非零退出时会连同 exit code 一起作为 `AppError` 抛出（见调用处兜底逻辑）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StderrKind {
+    /// tqdm 进度条 / ANSI 转义噪音 → `trace!`（默认不采集，等价于静默）
+    Progress,
+    /// Python traceback / 异常 / loguru ERROR → `error!`
+    Error,
+    /// WARNING / DeprecationWarning 等 → `warn!`
+    Warning,
+    /// loguru INFO / uvicorn 关闭等正常输出 → `debug!`
+    Info,
+}
+
+/// 按 MinerU stderr 行的内容判定日志级别。
+///
+/// MinerU（含底层 loguru、tqdm、uvicorn）把进度条、INFO 日志、关闭信息都写 stderr，
+/// 若全部 `error!` 会淹没真实故障。本函数按特征字符串分级：
+/// - `%|` / `it/s` / `s/it` / `█` / `\x1b[` → 进度条噪音
+/// - `Traceback` / `Error:` / `ERROR` / `Exception` / `FATAL` → 真错误
+/// - `WARNING` / `*Warning` → 警告
+/// - 其余 → 普通 info
+fn classify_mineru_stderr(line: &str) -> StderrKind {
+    let l = line.trim_start();
+    // tqdm 进度条（`N%|bars| N/M [.., X it/s]`）及其 ANSI 光标控制残留
+    if l.contains("%|")
+        || l.contains("it/s")
+        || l.contains("s/it")
+        || l.contains('\x1b')
+        || l.contains('█')
+    {
+        return StderrKind::Progress;
+    }
+    // 真正的错误：Python 异常（`XError: ...`）、traceback 头、loguru/uvicorn ERROR 级别
+    if l.contains("Traceback")
+        || l.contains("Error:")
+        || l.contains("ERROR")
+        || l.contains("Exception")
+        || l.contains("FATAL")
+    {
+        return StderrKind::Error;
+    }
+    // 警告
+    if l.contains("WARNING") || l.contains("Warning") {
+        return StderrKind::Warning;
+    }
+    StderrKind::Info
+}
 
 /// 解析进度信息
 #[derive(Debug, Clone)]
@@ -620,12 +671,16 @@ impl MinerUParser {
 
                     // 处理输出
                     Some((source, line)) = rx.recv() => {
-                        debug!("MinerU {}: {}", source, line);
-
                         if source == "stderr" {
                             stderr_output.push_str(&line);
                             stderr_output.push('\n');
-                            error!("MinerU stderr: {}", line);
+                            // 按内容分级记录（tqdm 进度条/loguru INFO 等不再误报 ERROR）
+                            match classify_mineru_stderr(&line) {
+                                StderrKind::Error => error!("MinerU stderr: {}", line),
+                                StderrKind::Warning => warn!("MinerU stderr: {}", line),
+                                StderrKind::Progress => trace!("MinerU stderr: {}", line),
+                                StderrKind::Info => debug!("MinerU stderr: {}", line),
+                            }
                         } else {
                             info!("MinerU stdout: {}", line);
                         }
@@ -1388,5 +1443,87 @@ mod tests {
         if !updates.is_empty() {
             assert!(updates.iter().any(|p| p.stage == ParseStage::Initializing));
         }
+    }
+
+    #[test]
+    fn test_classify_mineru_stderr_progress_bars() {
+        // tqdm 进度条（各种形态）→ Progress
+        assert_eq!(
+            classify_mineru_stderr("Layout Predict: 100%|██████████| 1/1 [00:00<00:00, 1.49it/s]"),
+            StderrKind::Progress
+        );
+        assert_eq!(
+            classify_mineru_stderr("OCR-det ch:   0%|          | 0/6 [00:00<?, ?it/s]"),
+            StderrKind::Progress
+        );
+        assert_eq!(
+            classify_mineru_stderr("MFR Predict: 100%|██████████| 1/1 [00:00<00:02, 2.45s/it]"),
+            StderrKind::Progress
+        );
+        // ANSI 光标控制残留（tqdm 原地刷新）
+        assert_eq!(
+            classify_mineru_stderr("\x1b[AITER: 100%|████| 1/1"),
+            StderrKind::Progress
+        );
+    }
+
+    #[test]
+    fn test_classify_mineru_stderr_errors() {
+        // Python traceback / 异常 → Error
+        assert_eq!(
+            classify_mineru_stderr("Traceback (most recent call last):"),
+            StderrKind::Error
+        );
+        assert_eq!(
+            classify_mineru_stderr("RuntimeError: Expected one of cpu, cuda, mps, meta device"),
+            StderrKind::Error
+        );
+        assert_eq!(
+            classify_mineru_stderr("ModuleNotFoundError: No module named 'vllm'"),
+            StderrKind::Error
+        );
+        assert_eq!(
+            classify_mineru_stderr("ValueError: invalid argument"),
+            StderrKind::Error
+        );
+        // loguru / uvicorn ERROR 级别
+        assert_eq!(
+            classify_mineru_stderr("2026-07-06 | ERROR | mineru.cli - something failed"),
+            StderrKind::Error
+        );
+    }
+
+    #[test]
+    fn test_classify_mineru_stderr_warnings() {
+        assert_eq!(
+            classify_mineru_stderr("UserWarning: torch.meshgrid is deprecated"),
+            StderrKind::Warning
+        );
+        assert_eq!(
+            classify_mineru_stderr("2026-07-06 | WARNING | mineru - low memory"),
+            StderrKind::Warning
+        );
+        assert_eq!(
+            classify_mineru_stderr("DeprecationWarning: use new API"),
+            StderrKind::Warning
+        );
+    }
+
+    #[test]
+    fn test_classify_mineru_stderr_info() {
+        // loguru INFO / uvicorn 关闭等正常输出 → Info（不再误报 ERROR）
+        assert_eq!(
+            classify_mineru_stderr("2026-07-06 | INFO | mineru.backend.pipeline - init done!"),
+            StderrKind::Info
+        );
+        assert_eq!(
+            classify_mineru_stderr("INFO:     Application shutdown complete."),
+            StderrKind::Info
+        );
+        assert_eq!(
+            classify_mineru_stderr("INFO:     Finished server process [72373]"),
+            StderrKind::Info
+        );
+        assert_eq!(classify_mineru_stderr(""), StderrKind::Info);
     }
 }
