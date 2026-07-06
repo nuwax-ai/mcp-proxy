@@ -12,7 +12,7 @@
 #
 # 可用环境变量覆盖:
 #   MODELSCOPE  modelscope whisper 仓库（默认 cjc1887415157/whisper.cpp）
-#   PROXY       gh-proxy 镜像（默认 https://gh-proxy.com）
+#   PROXY       GitHub 镜像（kokoro 用；不设则自动探活 ghproxy.net/gh-proxy.com/mirror.ghproxy.com 择优）
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,7 +21,33 @@ MODELS_DIR="$VOICE_DIR/models"
 TTS_DIR="$MODELS_DIR/tts"
 
 MODELSCOPE="${MODELSCOPE:-https://modelscope.cn/models/cjc1887415157/whisper.cpp/resolve/master}"
-PROXY="${PROXY:-https://gh-proxy.com}"
+PROXY="${PROXY:-}"   # 手动指定 GitHub 镜像；留空则自动探活（kokoro 用）
+
+# GitHub 镜像列表（单个镜像偶发卡死，按序 5s 探活，首个可用即用）
+GH_MIRRORS=(
+    "https://ghproxy.net"
+    "https://gh-proxy.com"
+    "https://mirror.ghproxy.com"
+)
+
+# 选可用 GitHub 镜像（PROXY 已手动指定则跳过）。$1 = 完整 github URL。
+resolve_proxy() {
+    [ -n "$PROXY" ] && return 0
+    local target="$1"
+    local name="${1##*/}"
+    echo "🔍 探活 GitHub 镜像（${name}）..."
+    for m in "${GH_MIRRORS[@]}"; do
+        local sz
+        sz=$(curl -sL -m 5 -r 0-2000000 -o /dev/null -w '%{size_download}' "${m}/${target}" 2>/dev/null) || true
+        sz="${sz%.*}"; case "$sz" in ''|*[!0-9]*) sz=0 ;; esac
+        if [ "$sz" -gt 1000000 ]; then
+            PROXY="$m"; echo "  ✅ $m"; return 0
+        fi
+        echo "  ⚠️  ${m}（5s 内 $((sz/1024)) KB，跳过）"
+    done
+    echo "❌ 所有镜像不可用。手动指定: PROXY=https://<镜像> bash $0" >&2
+    exit 1
+}
 
 # 默认从 config.yml 读 default_model（保证 setup 拉的模型 = run 时要用的模型）
 config_default() {
@@ -63,7 +89,9 @@ KOKORO_DIR="$TTS_DIR/kokoro-multi-lang-v1_0"
 if [ -f "$KOKORO_DIR/model.onnx" ]; then
     echo "  ✅ 已存在: $KOKORO_DIR"
 else
-    url="$PROXY/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2"
+    url_target="https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2"
+    resolve_proxy "$url_target"
+    url="${PROXY}/${url_target}"
     echo "  ⬇️  $url"
     tar_tmp="$TTS_DIR/kokoro.tar.bz2"
     if curl -fSL --retry 3 --connect-timeout 30 -o "$tar_tmp" "$url"; then
