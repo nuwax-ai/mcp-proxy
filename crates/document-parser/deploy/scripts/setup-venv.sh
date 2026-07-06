@@ -54,7 +54,8 @@ uv pip install "huggingface-hub>=0.34,<1.0" --python "$PY"
 echo
 echo "=== 6) 验证 ==="
 "$VENV/bin/mineru" --version
-"$PY" -c "import torch; print('torch', torch.__version__, 'cuda', torch.cuda.is_available())"
+# 同时探测 CUDA(Linux+NVIDIA) 与 MPS(macOS Metal)；Mac 上 cuda=False、mps=True 为正常
+"$PY" -c "import torch; print('torch', torch.__version__, '| cuda', torch.cuda.is_available(), '| mps', torch.backends.mps.is_available())"
 
 echo
 echo "✅ venv 初始化完成: $VENV"

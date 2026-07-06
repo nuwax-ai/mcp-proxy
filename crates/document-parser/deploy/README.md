@@ -42,7 +42,7 @@ sudo journalctl -u document-parser -f
 | `backend` | `pipeline`（CPU/兼容）/ `hybrid-engine`（GPU+vllm，默认）/ `vlm-engine`（纯 VLM） |
 | `vram` | `0`=不限（通过 `MINERU_VIRTUAL_VRAM_SIZE` 注入 mineru） |
 | `gpu_memory_utilization` | 与 voice-cli 等 GPU 进程共存时设 `0.3` 避免 OOM；`0`=用 mineru 默认（约 0.5） |
-| `device` | 代码自动检测（CUDA→cuda，Mac→mps），**无需配置** |
+| `device` | Linux+NVIDIA 自动 `cpu→cuda`；**macOS 必须显式 `device: mps`**（MPS 不自动检测，否则跑 CPU）；多 GPU 用 `cuda:N` |
 
 > ⚠️ mineru 3.4.0 有 PageChars bug，**必须 3.4.2**（`setup-venv.sh` 已锁版本）。详见 `PITFALLS.md`。
 

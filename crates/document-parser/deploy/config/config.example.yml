@@ -7,7 +7,8 @@
 environment: "development"
 
 server:
-  port: 8087
+  # document-parser 默认 8077；与 voice-cli（默认 8087）同机部署时避免端口冲突
+  port: 8077
   host: "0.0.0.0"
 
 log:
@@ -30,6 +31,11 @@ mineru:
   queue_size: 100
   batch_size: 1
   quality_level: "Balanced"
+  # 推理设备: cpu / cuda / cuda:0 / mps / npu
+  # - Linux+NVIDIA: 写 cpu 会自动升 cuda（nvidia-smi 探测），也可显式 cuda:0
+  # - macOS(Metal): 必须显式写 "mps"，否则跑 CPU（MPS 不自动检测，慢 5-10 倍）
+  # - 多 GPU: 写 cuda:0 / cuda:1 指定
+  device: "cpu"
   # 显存(GB), 通过 MINERU_VIRTUAL_VRAM_SIZE 注入; 0=不限
   vram: 0
   # vllm 显存占比(仅 hybrid-engine/vlm-engine), 通过 --gpu-memory-utilization 注入;
