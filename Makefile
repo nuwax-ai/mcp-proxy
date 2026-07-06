@@ -19,4 +19,5 @@ include mk/all.mk
 include mk/docker.mk
 include mk/publish.mk
 include mk/clean.mk
+include mk/dev.mk
 include mk/help.mk
