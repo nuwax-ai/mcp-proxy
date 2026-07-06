@@ -1322,7 +1322,7 @@ mod tests {
         let config = AppConfig::load_base_config().unwrap();
 
         // 验证默认值
-        assert_eq!(config.server.port, 8087);
+        assert_eq!(config.server.port, 8077);
         assert_eq!(config.server.host, "0.0.0.0");
         assert_eq!(config.log.level, "info");
         assert_eq!(config.document_parser.max_concurrent, 5); // 配置文件中的实际值
@@ -1340,7 +1340,7 @@ mod tests {
         assert!(config.validate().is_err());
 
         // 恢复有效端口，测试无效日志级别
-        config.server.port = 8087;
+        config.server.port = 8077;
         config.log.level = "invalid".to_string();
         assert!(config.validate().is_err());
     }
@@ -1532,7 +1532,7 @@ mod tests {
         let summary = config.summary();
 
         assert!(summary.contains("AppConfig"));
-        assert!(summary.contains("0.0.0.0:8087"));
+        assert!(summary.contains("0.0.0.0:8077"));
         assert!(summary.contains("info"));
         assert!(!summary.contains("access_key")); // 确保敏感信息不在摘要中
     }

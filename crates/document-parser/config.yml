@@ -2,7 +2,7 @@
 environment: "development"
 
 server:
-  port: 8087
+  port: 8077
   host: "0.0.0.0"
 
 log:
@@ -24,7 +24,8 @@ document_parser:
 # MinerU配置
 mineru:
   # 后端选择：pipeline|vlm-engine|hybrid-engine|vlm-http-client|hybrid-http-client，有 cuda 推荐 hybrid-engine（mineru 3.4 默认）
-  backend: "hybrid-engine"
+  # mac 本地测试：无 vllm/CUDA → pipeline + MPS(Metal)。生产 Linux CUDA 用 hybrid-engine
+  backend: "pipeline"
   python_path: "./venv/bin/python"  # 默认使用虚拟环境，如不存在则自动检测系统Python
   # 这个是mineru的并发数，目前没用,占位使用,只需要小于document_parser.max_concurrent 即可
   max_concurrent: 1
@@ -32,6 +33,8 @@ mineru:
   # timeout 已移除，统一使用 document_parser.processing_timeout (3600秒)
   batch_size: 1
   quality_level: "Balanced"
+  # 推理设备：cpu/cuda/mps等。mac Metal 用 mps（通过 MINERU_DEVICE_MODE 传给 mineru 3.4）
+  device: "mps"
   # 单进程GPU显存占用(GB)，通过 MINERU_VIRTUAL_VRAM_SIZE 环境变量传给 mineru 3.4，0=不限
   vram: 0
   # vllm 显存占用比例(仅 hybrid-engine/vlm-engine)，通过 --gpu-memory-utilization 传给 mineru 3.4。
