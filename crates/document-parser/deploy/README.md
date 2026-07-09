@@ -35,6 +35,30 @@ sudo systemctl start document-parser
 sudo journalctl -u document-parser -f
 ```
 
+### 服务器本地编译（Linux CUDA，可不走 Docker buildx）
+
+目标机已装 rust/CUDA 时，直接在服务器上 `cargo build`（CPU 二进制，CUDA 由 venv 里 torch 提供），省去开发机交叉编译+上传：
+
+```bash
+# 1. 系统编译依赖（关键，缺了会卡 openssl-sys/cmake/stdbool.h，见 PITFALLS #10）
+sudo apt-get install -y build-essential cmake pkg-config libssl-dev
+# CUDA（mineru pipeline + device cuda 走 torch GPU，不需系统 CUDA toolkit；
+#       但若同机编 voice-cli --features cuda，需装 cuda-toolkit-12-6）
+
+# 2. rust（国内用 rsproxy 镜像，否则 static.rust-lang.org 龟速，见 PITFALLS #12）
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+  RUSTUP_DIST_SERVER=https://rsproxy.cn sh -s -- -y --profile minimal
+
+# 3. 编译 + 部署
+cd /path/to/mcp-proxy && cargo build -p document-parser --release
+cp target/release/document-parser /opt/document-parser/
+cd /opt/document-parser
+UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple bash deploy/scripts/setup-venv.sh
+bash deploy/scripts/install.sh
+```
+
+> mineru 后端选 `pipeline`（无 vllm，仍走 cuda OCR/公式/表格，稳定）；与 voice-cli 共用 GPU 时设 `gpu_memory_utilization: 0.3` 防 OOM（详见 PITFALLS #3）。
+
 ## mineru 配置要点（config.yml）
 
 | 字段 | 说明 |

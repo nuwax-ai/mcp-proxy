@@ -10,6 +10,32 @@
 
 > `--features` 仅 `cuda` / `vulkan`（见 `Cargo.toml [features]`）。macOS Metal 由 `[target.'cfg(target_os="macos")']` 默认启用，**不存在 metal feature**，写 `--features metal` 会报错。
 
+### Linux CUDA 服务器编译前置依赖
+
+`--features cuda` 编译 whisper.cpp 的 CUDA kernel，编译期需 nvcc（CUDA Toolkit），**Docker buildx 的 `rust:1.92` 基础镜像无 nvcc**，故 CUDA 版必须在 NVIDIA 服务器本地编。前置：
+
+```bash
+# 1. 系统编译依赖（whisper-cuda 经 cmake 编译，缺了报 cmake not found / stdbool.h not found）
+sudo apt-get install -y build-essential cmake pkg-config ffmpeg
+# 2. CUDA Toolkit 12.x（驱动 535+ 即可；nvcc 给 build.rs 编 CUDA kernel 用）
+wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+sudo dpkg -i cuda-keyring_1.1-1_all.deb && sudo apt-get update
+sudo apt-get install -y cuda-toolkit-12-6
+export PATH=/usr/local/cuda-12.6/bin:$PATH CUDA_HOME=/usr/local/cuda-12.6
+
+# 3. rust（国内用 rsproxy 镜像，否则 static.rust-lang.org 龟速）
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+  RUSTUP_DIST_SERVER=https://rsproxy.cn sh -s -- -y --profile minimal
+
+# 4. 预缓存 sherpa-onnx C 库（github 阻断时 build.rs 联网下载会卡死）
+bash docker/fetch-sherpa.sh amd64          # → ~/.cache/sherpa-onnx-prebuilt/（自动探活镜像）
+
+# 5. 编译
+export SHERPA_ONNX_ARCHIVE_DIR=$HOME/.cache/sherpa-onnx-prebuilt
+cargo build --release -p voice-cli --features cuda
+```
+> 编译期 `utoipa-swagger-ui` build.rs 会在线下载 Swagger UI（网络受限可能 curl 56 失败，重试即可命中缓存）。
+
 ## 文件清单
 
 | 文件 | 用途 |

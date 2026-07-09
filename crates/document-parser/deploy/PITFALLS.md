@@ -84,3 +84,42 @@ PID=$(systemctl show -p MainPID --value document-parser)
 sudo cat /proc/$PID/environ | tr '\0' '\n' | grep OSS
 ```
 输出 `OSS_ACCESS_KEY_ID=...` 即注入成功。环境变量只在进程启动时注入，改完 `.env` 要 `systemctl restart`。
+
+---
+
+## 10. 服务器本地编译缺系统 -dev 包
+**现象**: `cargo build` 报 `openssl-sys` / `could not find OpenSSL` / `cmake not installed` / `stdbool.h not found`。
+**原因**: 服务器没装编译依赖。document-parser 依赖 `openssl-sys`（native-tls），不像 voice-cli 用 rustls；还需 cmake（whisper-cuda 也用，但 doc-parser 部分依赖）、libc6-dev（含 stdbool.h）。
+**解决**:
+```bash
+sudo apt-get install -y build-essential cmake pkg-config libssl-dev
+```
+> ⚠️ apt **批量装可能假成功**（部分包没装但 `exit 0`）。装完逐个验证：`command -v cmake && pkg-config --exists openssl && echo OK`。
+
+---
+
+## 11. utoipa-swagger-ui build.rs 在线下载失败
+**现象**: `failed to download Swagger UI: curl download file exited with error status: exit status: 56`（cargo 编译期）。
+**原因**: `utoipa-swagger-ui` 的 build.rs 在线下载 Swagger UI 前端资源；网络受限环境（github/CDN 被墙）curl 56（收数据失败）。
+**解决**: **重试**。同机器先编过其它 crate（如 voice-cli）会命中 `target/release/build/utoipa-swagger-ui-*/out/` 缓存，document-parser 直接复用跳过下载。彻底断网环境需预置 swagger-ui 资源（见 utoipa-swagger-ui 文档的 vendored 方案）。
+
+---
+
+## 12. 国内网络镜像（构建 + venv 加速）
+github / huggingface / static.rust-lang.org / pypi 在国内常被墙或龟速。对应镜像：
+```bash
+# rust 工具链 + crate（~/.cargo/config.toml）
+[source.crates-io]
+replace-with = "rsproxy-sparse"
+[source.rsproxy-sparse]
+registry = "sparse+https://rsproxy.cn/index/"
+# 安装 rust: export RUSTUP_DIST_SERVER=https://rsproxy.cn
+
+# Python venv（setup-venv.sh 前设）
+export UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple   # torch CUDA ~2.5GB 快很多
+
+# github release（sherpa C 库 / kokoro）/ HF 模型
+#   fetch-sherpa.sh / fetch-voice-models.sh 已内置多镜像自动探活（ghproxy.net→gh-proxy.com→mirror.ghproxy.com）
+#   mineru 模型：document-parser 自动注入 MINERU_MODEL_SOURCE=modelscope（绕过 HF）
+```
+> rust 首装若 bin/ 为空（manifest 有 cargo 组件但无二进制），是下载损坏：`rustup toolchain uninstall stable && rustup toolchain install stable --profile minimal` 重装。
