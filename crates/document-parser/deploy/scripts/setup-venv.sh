@@ -34,8 +34,9 @@ PY="$VENV/bin/python"
 PY_VERSION=$("$PY" --version | awk '{print $2}')
 echo "Python: $PY_VERSION"
 # mineru 要求 >=3.10,<3.14；不满足直接退出（Fail Fast，避免后面装包才报错）
+# 注意：PY_VERSION 是 X.Y.Z 全版本号（如 3.12.3），case 用 3.1[0-3]* 通配匹配 3.10–3.13.* 全部补丁号
 case "$PY_VERSION" in
-  3.1[0-3]) ;;
+  3.1[0-3]*) ;;
   *) echo "❌ Python $PY_VERSION 不满足 mineru 要求（需 3.10–3.13）。请先装 3.12：uv python install 3.12" ; exit 1 ;;
 esac
 
