@@ -1,6 +1,6 @@
 # voice-cli 部署手册
 
-> 本地一体化语音服务：**STT**（transcribe-rs + Whisper，Metal/CoreML GPU 加速）+ **TTS**（sherpa-onnx + Kokoro，CPU，RTF<0.3）。
+> 本地一体化语音服务：**STT**（transcribe-rs + Whisper，Metal/CoreML GPU 加速）+ **TTS**（sherpa-onnx；Kokoro 标准多音色 / ZipVoice 零样本克隆，RTF<0.3）。
 > 异步任务 apalis + SQLite 持久化；HTTP axum + utoipa（Swagger `/api/docs`）。
 
 ---
@@ -10,7 +10,7 @@
 | 子系统 | 引擎 | GPU | HTTP 接口 |
 |---|---|---|---|
 | STT | transcribe-rs 0.3.11（Whisper.cpp 绑定） | Metal（mac）/ CUDA / Vulkan（linux，cargo feature） | **兼容旧接口**（`/transcribe` 等，加可选字段） |
-| TTS | sherpa-onnx 1.13.3（Kokoro multi-lang v1.0） | CPU（v1）；GPU 留 v2 | **重新设计**（`/api/v1/tts*`） |
+| TTS | sherpa-onnx 1.13.3（Kokoro v1_1 103 音色 / ZipVoice 克隆） | CPU；GPU（coreml/cuda） | **重新设计**（`/api/v1/tts*`） |
 | 任务队列 | apalis + SQLite | — | 异步 STT/TTS 持久化、可恢复 |
 | HTTP | axum 0.8 + tower + utoipa | — | REST + WebSocket 流式 |
 
@@ -23,7 +23,7 @@
 - **OS**：macOS 12+（M1/M2/M3）/ Linux x86_64+ARM64 / Windows
 - **Rust**：stable toolchain（rustup）
 - **FFmpeg**：系统 PATH（音频转码 16k/mono/s16le）。无 ffmpeg 时启动报错，需手动装：`brew install ffmpeg` / `apt install ffmpeg`
-- **磁盘**：模型 ~500MB（STT base 141MB + TTS Kokoro 349MB）+ 编译产物 ~1.5GB
+- **磁盘**：模型 ~550MB 起（STT base 141MB + TTS Kokoro v1_1 408MB；可选 ZipVoice 156MB + vocos 52MB）+ 编译产物 ~1.5GB
 
 ### 平台 GPU 矩阵
 
@@ -88,29 +88,35 @@ curl -L -o ggml-base.bin \
 
 可选 `small`/`medium`/`large-v3`（精度↑速度↓）。
 
-### 4.2 TTS — Kokoro multi-lang v1.0（gh-proxy 拉 github release）
+### 4.2 TTS — Kokoro multi-lang v1.1（默认，103 音色）
 
 ```bash
 mkdir -p ~/voice-cli-test/models/tts && cd ~/voice-cli-test/models/tts
 curl -SL -o kokoro.tar.bz2 \
-  https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2
+  https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_1.tar.bz2
 tar xjf kokoro.tar.bz2 && rm kokoro.tar.bz2
 ```
 
-校验 `kokoro-multi-lang-v1_0/` 内容：
+校验 `kokoro-multi-lang-v1_1/` 内容：`model.onnx` / `voices.bin`（103 音色）/ `tokens.txt` / `espeak-ng-data/` / `dict` / `lexicon-us-en.txt` + `lexicon-zh.txt` + `lexicon-gb-en.txt`。
 
-| 文件 | 大小 | 用途 |
-|---|---|---|
-| `model.onnx` | 311M | 主模型 |
-| `voices.bin` | 26M | 53 个音色 |
-| `tokens.txt` | 687B | BPE 词表 |
-| `espeak-ng-data/` | — | 音素化 |
-| `dict` | 320B | 中文字典 |
-| `lexicon-us-en.txt` | 5.7M | 美式英文词表 |
-| `lexicon-zh.txt` | 2.3M | 中文词表 |
-| `lexicon-gb-en.txt` | 6.1M | 英式英文（**不加载**，与 us-en 词表重叠会触发 C++ 异常） |
+> ⚠️ **Kokoro multi-lang 必需** `lexicon-us-en.txt + lexicon-zh.txt`（不含 gb-en）。代码 `resolve_paths` 已自动选对；否则 sherpa-onnx C 端抛 foreign exception 或 `std::exit`。
 
-> ⚠️ **Kokoro multi-lang 必需** `lexicon-us-en.txt + lexicon-zh.txt`（不含 gb-en）。代码 `resolve_paths` 已自动选对；若换模型布局需检查 lexicon 组合，否则 sherpa-onnx C 端抛 foreign exception（Rust 捕获不到）或 `std::exit`。
+### 4.2.1 TTS — ZipVoice（可选，零样本克隆）
+
+ZipVoice 是零样本**克隆**引擎（中英）：每次合成需 reference 音频 + 文本决定音色。双轨：预置 profile（`config.tts.engine.zipvoice.voices`，请求 `voice:<name>`）或动态上传 `reference_audio`（base64 WAV）。
+
+```bash
+cd ~/voice-cli-test/models/tts
+# 主模型（含 encoder/decoder/tokens/espeak-ng-data/lexicon.txt/test_wavs）
+curl -SL -o zipvoice.tar.bz2 \
+  https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-zipvoice-distill-int8-zh-en-emilia.tar.bz2
+tar xjf zipvoice.tar.bz2 && rm zipvoice.tar.bz2
+# vocoder（vocos_24khz.onnx）独立下载，放 ZipVoice 目录
+curl -SL -o sherpa-onnx-zipvoice-distill-int8-zh-en-emilia/vocos_24khz.onnx \
+  https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/vocoder-models/vocos_24khz.onnx
+```
+
+启用：`config.tts.engine.backend: zipvoice` + `default_model: sherpa-onnx-zipvoice-distill-int8-zh-en-emilia` + `zipvoice.voices: [{name, reference_wav, reference_text}]`（示例见 `deploy/config.example.yml`；或 `FETCH_ZIPVOICE=1 bash scripts/dev/fetch-voice-models.sh`）。
 
 ### 4.3 测试音频
 
@@ -241,7 +247,7 @@ tts:
   max_text_length: 5000
   engine:
     pool_size: 1                 # 引擎实例数（CPU 最优 1；多实例并发但内存×N）
-    default_model: "kokoro-multi-lang-v1_0"
+    default_model: "kokoro-multi-lang-v1_1"
     default_sid: 0               # 默认音色 id（0-52）
     default_speed: 1.0           # 语速（1.0 原速）
     default_length_scale: 1.0    # 时长缩放（model-level，仅首次加载生效）
@@ -340,7 +346,9 @@ v1 TTS 走 CPU（sherpa-onnx 默认预编译库 CPU-only，无 cargo GPU feature
 2. 设 `SHERPA_ONNX_LIB_DIR=/path/to/sherpa-onnx/build/lib` 重新编译 voice-cli
 3. `config.yml` 设 `tts.engine.provider: "coreml"`（或 `cuda`/`vulkan`）
 
-kokoro CPU RTF<0.3 已快于实时，多数场景无需 GPU。GPU 仅对高并发或长文本批量合成有收益。
+Kokoro CPU RTF<0.3 已快于实时，多数场景无需 GPU。GPU（coreml/cuda）仅对高并发或长文本批量合成有收益；ZipVoice 同走 sherpa（GPU 同 Kokoro）。
+
+> 💡 **首次请求慢、后续快**：引擎懒加载（首次请求触发 `OfflineTts::create` + EP 初始化，~10-20s；之后命中进程内缓存）。STT/TTS 均如此，属正常；重启服务后首次会再次慢。
 
 ---
 

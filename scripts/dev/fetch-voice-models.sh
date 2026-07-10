@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 拉取 voice-cli 模型：STT whisper ggml（modelscope）+ TTS kokoro（gh-proxy）
+# 拉取 voice-cli 模型：STT whisper ggml（modelscope）+ TTS Kokoro v1_1（gh-proxy）+ 可选 ZipVoice（FETCH_ZIPVOICE=1）
 #
 # 背景：HuggingFace 阻断，故 STT 走 modelscope 镜像、TTS 走 gh-proxy。
 #   模型放到 crates/voice-cli/models/（对齐 config.yml 的 whisper.models_dir / tts.engine.models_dir）。
@@ -84,12 +84,12 @@ if [ "${SKIP_TTS:-0}" = "1" ]; then
     exit 0
 fi
 
-echo "=== 2) TTS kokoro-multi-lang-v1_0 ← gh-proxy ==="
-KOKORO_DIR="$TTS_DIR/kokoro-multi-lang-v1_0"
+echo "=== 2) TTS kokoro-multi-lang-v1_1 ← gh-proxy ==="
+KOKORO_DIR="$TTS_DIR/kokoro-multi-lang-v1_1"
 if [ -f "$KOKORO_DIR/model.onnx" ]; then
     echo "  ✅ 已存在: $KOKORO_DIR"
 else
-    url_target="https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2"
+    url_target="https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_1.tar.bz2"
     resolve_proxy "$url_target"
     url="${PROXY}/${url_target}"
     echo "  ⬇️  $url"
@@ -106,7 +106,29 @@ else
     fi
 fi
 
+# 可选：ZipVoice 零样本克隆（中英）。FETCH_ZIPVOICE=1 才拉（Kokoro 是默认多音色；ZipVoice 是克隆引擎，需 reference 音频+文本）。
+if [ "${FETCH_ZIPVOICE:-0}" = "1" ]; then
+    echo "=== 3) TTS ZipVoice + vocos ← gh-proxy（可选，克隆引擎）==="
+    ZV_DIR="$TTS_DIR/sherpa-onnx-zipvoice-distill-int8-zh-en-emilia"
+    if [ -f "$ZV_DIR/encoder.int8.onnx" ] && [ -f "$ZV_DIR/vocos_24khz.onnx" ]; then
+        echo "  ✅ 已存在: $ZV_DIR"
+    else
+        url_target="https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-zipvoice-distill-int8-zh-en-emilia.tar.bz2"
+        resolve_proxy "$url_target"
+        if curl -fSL --retry 3 --connect-timeout 30 -o "$TTS_DIR/zipvoice.tar.bz2" "${PROXY}/${url_target}"; then
+            tar xjf "$TTS_DIR/zipvoice.tar.bz2" -C "$TTS_DIR" && rm -f "$TTS_DIR/zipvoice.tar.bz2"
+            # vocoder（vocos_24khz.onnx）独立下载，放 ZipVoice 目录
+            vocos_target="https://github.com/k2-fsa/sherpa-onnx/releases/download/vocoder-models/vocos_24khz.onnx"
+            curl -fSL --retry 3 --connect-timeout 30 -o "$ZV_DIR/vocos_24khz.onnx" "${PROXY}/${vocos_target}"
+            echo "  ✅ 完成: $ZV_DIR（含 vocos_24khz.onnx）"
+        else
+            rm -f "$TTS_DIR/zipvoice.tar.bz2"
+            echo "  ⚠️  ZipVoice 下载失败（可选，不影响 Kokoro）" >&2
+        fi
+    fi
+fi
+
 echo
 echo "✅ voice-cli 模型就绪: $MODELS_DIR"
 echo "   STT:  ggml-$STT_MODEL.bin"
-echo "   TTS:  $KOKORO_DIR"
+echo "   TTS:  $KOKORO_DIR（+ ${ZV_DIR:-}，若拉了 ZipVoice）"

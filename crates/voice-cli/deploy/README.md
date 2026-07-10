@@ -73,7 +73,7 @@ pip install nvidia-cudnn-cu12    # → .../site-packages/nvidia/cudnn/lib/libcud
 |------|------|
 | `server-manager.sh` | 进程管理（启动前 `cd` + 传 `--config`，修复相对路径落错的 bug） |
 | `voice-cli.service` | systemd unit 模板（可选，比 server-manager.sh 更标准） |
-| `config.example.yml` | 配置模板（端口 8087；STT transcribe-rs + TTS sherpa-onnx Kokoro 字段） |
+| `config.example.yml` | 配置模板（端口 8087；STT transcribe-rs + TTS Kokoro/ZipVoice 双引擎字段） |
 | `.env.example` | 环境变量模板 |
 | `install-libssl1.1-ubuntu2404.sh` | libssl1.1 兜底检测脚本（新架构 rustls 通常不需要，见下「关键坑 #5」） |
 
@@ -164,7 +164,7 @@ make build-voice-cli-x86_64                # build.rs 命中本地 tar，跳过�
 
 1. **`server run --config` 位置坑**：`--config` 必须放在 `server run` **后面**（`voice-cli server run --config config.yml`）；全局的 `-c config.yml server run` 在 `server run` 子命令下**会被代码忽略**（见 `src/main.rs:get_config_path_for_server_action`）。`server-manager.sh` 已正确处理。
 2. **端口**：由 config.yml 的 `server.port` 决定（本模板默认 8087；`../docs/DEPLOYMENT.md` 示例用 8080，按需统一）。改端口改配置，别在命令行传。
-3. **TTS 默认禁用**：sherpa-onnx Kokoro（CPU v1）。启用见 `../docs/DEPLOYMENT.md`（置 `tts.enabled: true` + 放 Kokoro 模型到 `./models/tts/kokoro-multi-lang-v1_0/`，注意 lexicon 组合：us-en + zh，不含 gb-en）。
+3. **TTS 默认禁用**：sherpa-onnx（Kokoro v1_1 标准 / ZipVoice 克隆）。启用见 `../docs/DEPLOYMENT.md` §4.2（置 `tts.enabled: true` + 放模型到 `./models/tts/`；Kokoro 默认，ZipVoice 改 `backend: zipvoice`，参考 `config.example.yml`）。
 4. **WorkingDirectory 必须设对**：`./models` `./logs` `./data/tasks.db` 都是相对路径。`server-manager.sh` 启动前会 `cd $PROJECT_ROOT`；systemd unit 的 `WorkingDirectory=` 也要设（否则落到 `/`）。
 5. **libssl1.1（可选兜底）**：新架构 reqwest 已用 rustls（`Cargo.toml` reqwest 段注释明确），产物**不依赖任何 libssl.so**，通常无需 `install-libssl1.1-ubuntu2404.sh`。仅当 `ldd voice-cli | grep libssl` 命中时（cuda 编译 + 特定链接场景）才跑该脚本——它是检测性的，命中才装。
 
