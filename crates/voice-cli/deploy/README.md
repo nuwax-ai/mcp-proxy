@@ -36,6 +36,37 @@ cargo build --release -p voice-cli --features cuda
 ```
 > 编译期 `utoipa-swagger-ui` build.rs 会在线下载 Swagger UI（网络受限可能 curl 56 失败，重试即可命中缓存）。
 
+### sherpa CUDA 后端（fireredasr2 / Fun-ASR-Nano / Qwen3-ASR）部署
+
+上面 `--features cuda` + `SHERPA_ONNX_ARCHIVE_DIR` 编的是 **whisper CUDA + sherpa 静态 CPU**（sherpa 预编译 static 包无 CUDA EP，同 Mac static 无 CoreML）。要 sherpa 三引擎也走 GPU（A6000），用 sherpa 官方 **CUDA 预编译包**（shared .so，含 `libonnxruntime_providers_cuda.so`）：
+
+```bash
+# 1. 拉 sherpa CUDA 预编译包（CUDA 12.x + cuDNN 9.x；钉 v1.13.3，1.13.4 的 ort 1.27.0 启动 SIGKILL）
+curl -fL -o /tmp/sherpa-cuda.tar.bz2 \
+  https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.3/sherpa-onnx-v1.13.3-cuda-12.x-cudnn-9.x-linux-x64-gpu.tar.bz2
+mkdir -p ~/sherpa-cuda && tar xjf /tmp/sherpa-cuda.tar.bz2 -C ~/sherpa-cuda
+CUDA_LIB=~/sherpa-cuda/sherpa-onnx-v1.13.3-cuda-12.x-cudnn-9.x-linux-x64-gpu/lib
+
+# 2. 编译（SHERPA_ONNX_LIB_DIR 指向 CUDA 包，而非静态缓存；必须设 CUDACXX 否则 whisper.cpp cmake 报 No CMAKE_CUDA_COMPILER）
+export PATH=/usr/local/cuda/bin:$PATH CUDACXX=/usr/local/cuda/bin/nvcc
+SHERPA_ONNX_LIB_DIR=$CUDA_LIB cargo build --release -p voice-cli --features cuda
+
+# 3. 部署：binary + 4 个 .so 放同目录（binary rpath=$ORIGIN 找同目录 .so）
+INSTALL_DIR=/home/$USER/workspace/voice-server
+cp target/release/voice-cli $CUDA_LIB/libsherpa-onnx-c-api.so $CUDA_LIB/libonnxruntime.so \
+   $CUDA_LIB/libonnxruntime_providers_cuda.so $CUDA_LIB/libonnxruntime_providers_shared.so $INSTALL_DIR/
+
+# 4. cuDNN 9.x（libonnxruntime_providers_cuda.so 依赖；二选一）
+pip install nvidia-cudnn-cu12    # → .../site-packages/nvidia/cudnn/lib/libcudnn.so.9
+# 或借用同机 document-parser venv 的 cuDNN（LD_LIBRARY_PATH 指过去）
+
+# 5. systemd voice-cli.service 取消注释 LD_LIBRARY_PATH 行，填 cuDNN 路径 + daemon-reload + enable
+#    Environment=LD_LIBRARY_PATH=<INSTALL_DIR>:<cudnn/lib>:/usr/local/cuda/lib64
+```
+
+**复用现成 binary（免重编）**：`voice-cli` + 4 个 `.so` 打包成 `voice-cli-cuda-*.tar`（~940M）传阿里云 OSS，新机 `tar xf` 解到 `$INSTALL_DIR/`（.so 与 binary 同目录）+ 配 `LD_LIBRARY_PATH`（cuDNN + cuda）+ cuDNN 9.x / CUDA toolkit 12.x 即可。
+> 模型另放：fireredasr2（`models/fireredasr2/...`）+ 标点（`models/punct/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12/model.onnx`），拉取见 `scripts/dev/fetch-asr-models.sh`。
+
 ## 文件清单
 
 | 文件 | 用途 |

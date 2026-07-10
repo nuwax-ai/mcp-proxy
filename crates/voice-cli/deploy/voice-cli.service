@@ -20,6 +20,14 @@ ExecStart=__INSTALL_DIR__/voice-cli server run --config __INSTALL_DIR__/config.y
 Restart=on-failure
 RestartSec=5
 Environment=RUST_LOG=info
+# sherpa CUDA 后端（backend=fireredasr2/funasrnano/qwen3asr 走 GPU）运行时需 LD_LIBRARY_PATH：
+#  - __INSTALL_DIR__：sherpa .so（libsherpa-onnx-c-api/libonnxruntime*.so，与 binary 同目录；
+#    binary rpath=$ORIGIN 找直接依赖，但 providers_cuda + cuDNN 透传加载仍需此路径）
+#  - cuDNN 9.x lib 目录（libonnxruntime_providers_cuda.so 依赖；如 pip nvidia-cudnn-cu12 的
+#    .../site-packages/nvidia/cudnn/lib，或系统 cuDNN 9.x）
+#  - /usr/local/cuda/lib64（CUDA runtime libcudart 等）
+# 取消下行注释并填 cuDNN 路径；纯 whisper 后端（GGML 静态）不需要，保持注释。
+# Environment=LD_LIBRARY_PATH=__INSTALL_DIR__:/path/to/nvidia/cudnn/lib:/usr/local/cuda/lib64
 
 # GPU: 如访问 /dev/nvidia* 受限，取消下面注释并把用户加入对应组
 # SupplementaryGroups=video render
