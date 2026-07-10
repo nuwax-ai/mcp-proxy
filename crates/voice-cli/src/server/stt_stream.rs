@@ -43,23 +43,19 @@ pub async fn ws_transcribe_handler(
 async fn run_stream_session(socket: WebSocket, state: AppState) {
     let (mut sink, mut stream) = socket.split();
 
-    // 非流式后端（SenseVoice + sherpa-onnx 三引擎）不支持流式：Fail Fast 拒绝（不静默回退 whisper）。
-    // 流式 LA2 需 whisper token 级对齐 + transcribe_with，仅 whisper 具象路径支持。
-    if matches!(
+    // 流式**恒走 whisper**（LA2 token 级真流式），与 `backend` **解耦**：
+    // - 批量（/transcribe）用 backend（可 fireredasr2/sensevoice/sherpa，准+标点）
+    // - 流式（本端点）只能 whisper（sherpa/sensevoice 是离线模型，无流式能力）
+    // 故 backend=fireredasr2 时批量走 fireredasr2、流式仍走 whisper，两不耽误，一个进程即可。
+    // （下方 model 解析 → get_or_init_whisper，本就独立于 backend。）
+    if !matches!(
         state.config.whisper.engine.backend,
-        crate::models::config::SttBackend::SenseVoice
-            | crate::models::config::SttBackend::FireRedAsr2
-            | crate::models::config::SttBackend::FunAsrNano
-            | crate::models::config::SttBackend::Qwen3Asr
+        crate::models::config::SttBackend::Whisper
     ) {
-        let _ = send_event(
-            &mut sink,
-            StreamEvent::Error {
-                message: "当前 backend 为非流式模型（SenseVoice/FireRedASR2/Fun-ASR-Nano/Qwen3-ASR），不支持流式转录。请把 config backend 改回 whisper，或改用批量 POST /api/v1/transcribe".into(),
-            },
-        )
-        .await;
-        return;
+        tracing::info!(
+            "流式端点：backend={:?} 非流式模型，流式恒走 whisper（与批量解耦）",
+            state.config.whisper.engine.backend
+        );
     }
 
     // 1. 等 start 帧（10s 超时）

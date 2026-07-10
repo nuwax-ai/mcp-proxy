@@ -252,8 +252,13 @@ pub enum OutputScript {
 /// - `FunAsrNano`：Fun-ASR-Nano-2512（800M，audio-encoder + Qwen3-0.6B LLM decoder，31 语 + 热词）
 /// - `Qwen3Asr`：Qwen3-ASR-0.6B（52 语 + 22 方言 + 热词）
 ///
-/// sherpa-onnx 三引擎均为**批量离线**，流式端点 Fail-Fast 拒绝。 sherpa-onnx C 库本就为 TTS
-/// 无条件链接，故这三者无需 Cargo feature 门控（区别于 sensevoice）。
+/// sherpa-onnx 三引擎均为**批量离线**。sherpa-onnx C 库本就为 TTS 无条件链接，故这三者无需
+/// Cargo feature 门控（区别于 sensevoice）。
+///
+/// **backend 只管批量**：`/transcribe`、`/api/v1/tasks/transcribe` 用 backend。
+/// **流式端点** `/api/v1/stream/transcribe`（WS）**恒走 whisper**（LA2 真流式；sherpa/sensevoice
+/// 是离线模型无流式能力），与 backend 解耦 —— 故 `backend: fireredasr2` 时批量=fireredasr2、
+/// 流式=whisper，一个进程两不耽误。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum SttBackend {
