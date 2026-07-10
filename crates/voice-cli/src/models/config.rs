@@ -210,7 +210,9 @@ impl Default for ZipVoiceConfig {
 
 /// TTS 引擎配置（sherpa-onnx；Kokoro / ZipVoice）。
 ///
-/// CPU 走 `provider=None`；GPU 需自编 C++ 库 + 设 `provider="coreml"/"cuda"/"vulkan"`。
+/// CPU 走 `provider=None`；GPU 设 `provider="coreml"`（Mac）/ `"cuda"`（Linux NVIDIA，需 sherpa CUDA 预编译包）。
+/// **不支持 vulkan/ROCm**（sherpa-onnx 上游 EP 仅 cpu/cuda/coreml）—— AMD/Intel GPU 只能跑 STT 的
+/// whisper 引擎（`whisper.engine.device` + `--features vulkan`，见 DEPLOYMENT.md §3.3），TTS 仍 CPU。
 /// Kokoro 用 `default_sid` 选音色；ZipVoice 用 reference 音频+文本克隆（见 [`ZipVoiceConfig`]）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TtsEngineConfig {
@@ -238,7 +240,7 @@ pub struct TtsEngineConfig {
     /// ONNX runtime 线程数（0 = sherpa-onnx 默认）
     #[serde(default = "default_tts_num_threads")]
     pub num_threads: i32,
-    /// ONNX EP provider（`None`=CPU；v2 GPU 走 `"coreml"`/`"cuda"`/`"vulkan"`）
+    /// ONNX EP provider（`None`=CPU；`"coreml"`=Mac GPU/ANE；`"cuda"`=Linux NVIDIA。**不含 vulkan**）
     #[serde(default)]
     pub provider: Option<String>,
     /// 模型根目录（`{models_dir}/{model_id}/`）
@@ -490,6 +492,9 @@ pub struct SttEngineConfig {
     #[serde(default = "default_stt_pool_size")]
     pub pool_size: usize,
     /// 加速设备：`auto`(默认,平台 GPU) / `cpu` / `gpu` / `metal` / `cuda` / `vulkan`
+    /// （GPU 需对应编译 feature：mac `whisper-metal` 默认开；Linux `cuda`/`vulkan` 需 `--features`，
+    ///   缺则 whisper.cpp 静默回退 CPU。AMD/Intel GPU 见 DEPLOYMENT.md §3.3。
+    ///   此字段仅驱动 transcribe-rs whisper；sherpa-onnx ASR/TTS 用 [`TtsEngineConfig::provider`]）
     #[serde(default = "default_stt_device")]
     pub device: String,
     /// flash attention（默认 true，GPU 下加速；CPU 忽略）

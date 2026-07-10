@@ -31,7 +31,7 @@
 |---|---|---|---|
 | macOS（开发） | Metal / CoreML | CPU | 裸 `cargo build`（`whisper-metal` 平台默认开） |
 | Linux + NVIDIA | CUDA | CPU（v1） | `cargo build --features cuda` |
-| Linux 通用 | Vulkan | CPU | `cargo build`（`whisper-vulkan` 默认） |
+| Linux 通用（AMD/Intel/NVIDIA） | Vulkan | CPU | `cargo build --features vulkan`（非默认，需显式开；详见 §3.3） |
 
 ---
 
@@ -65,9 +65,64 @@ cargo build -p voice-cli --release       # 生产（推荐，CPU 推理快 2-3 �
 
 # Linux NVIDIA GPU
 cargo build -p voice-cli --features cuda --release
+
+# Linux AMD / Intel GPU（Vulkan，仅加速 STT whisper；详见 §3.3）
+cargo build -p voice-cli --features vulkan --release
 ```
 
 二进制产物：`target/debug/voice-cli` 或 `target/release/voice-cli`。
+
+### 3.3 AMD / Intel GPU（Vulkan）部署 —— 仅加速 STT
+
+> **适用范围**：仅 STT 的 **whisper 引擎**（批量 + 流式 LA2）。**TTS（Kokoro/ZipVoice）和 sherpa ASR
+> （FireRedASR2/Fun/Qwen3）仍走 CPU** —— sherpa-onnx 上游 EP 只有 `cpu`/`cuda`/`coreml`，
+> 不支持 vulkan（onnxruntime 的 Vulkan EP 至今仍是 [feature request #21917](https://github.com/microsoft/onnxruntime)，未发布）。
+
+whisper.cpp 的 **ggml Vulkan backend** 跨厂商支持 AMD/Intel/NVIDIA，无需 CUDA。
+whisper.cpp 1.8.3 在 AMD/Intel 核显上实测有显著加速（参考 [Phoronix](https://www.phoronix.com/news/Whisper-cpp-1.8.3-12x-Perf)）。
+
+**1）装 Vulkan 驱动 + 编译依赖**
+
+```bash
+# Debian / Ubuntu（AMD 用 mesa RADV；Intel 用 anv）
+sudo apt install -y libvulkan-dev glslang-tools mesa-vulkan-drivers vulkan-tools
+# 验证 GPU 被 Vulkan 识别（应列出 AMD / Intel 设备名）
+vulkaninfo --summary
+```
+
+> macOS 不适用（Mac 走 Metal）。Windows 需 [LunarG Vulkan SDK](https://vulkan.lunarg.com/)，但 AMD 上 Linux（RADV）体验更稳，推荐 Linux。
+
+**2）编译（显式开 vulkan feature）**
+
+```bash
+export SHERPA_ONNX_ARCHIVE_DIR="$HOME/.cache/sherpa-onnx-prebuilt"
+cargo build -p voice-cli --features vulkan --release
+```
+
+**3）配置 `whisper.engine.device: gpu`**
+
+accel.rs → `WhisperAccelerator::Gpu` → whisper.cpp 用编译进来的 vulkan backend。
+
+```yaml
+whisper:
+  default_model: "base"          # AMD/Intel 显存有限建议 base / small
+  engine:
+    device: gpu                  # 非 cpu 即启用 GPU；实际后端由编译期 feature 决定
+```
+
+**4）启动日志确认（关键 —— 没装好会静默回退 CPU，不报错）**
+
+```
+ggml_vulkan: Found 1 Vulkan devices: ...
+STT accelerator configured: device=gpu, use_gpu=true (backend by compile feature: ... vulkan)
+```
+
+看到 `Found N Vulkan devices` 才算真吃到 GPU；否则已 fallback CPU（查驱动 / SDK）。
+
+**限制与注意**
+- TTS / sherpa ASR 不受 vulkan 加速（见上适用范围），AMD 机器跑 TTS 仍 CPU。
+- 缺 Vulkan SDK / 驱动时 whisper.cpp 自动回退 CPU，**不报错**，必须看日志确认。
+- Linux（RADV）AMD 体验优于 Windows；建议 `base`/`small` 实测 RTF 后再决定模型档位。
 
 ---
 
@@ -344,7 +399,8 @@ v1 TTS 走 CPU（sherpa-onnx 默认预编译库 CPU-only，无 cargo GPU feature
    make -j
    ```
 2. 设 `SHERPA_ONNX_LIB_DIR=/path/to/sherpa-onnx/build/lib` 重新编译 voice-cli
-3. `config.yml` 设 `tts.engine.provider: "coreml"`（或 `cuda`/`vulkan`）
+3. `config.yml` 设 `tts.engine.provider: "coreml"`（Mac）/ `"cuda"`（Linux NVIDIA）。**不含 vulkan**
+   （sherpa-onnx 无 Vulkan EP；AMD/Intel GPU 跑 TTS 只能 CPU，见 §3.3）
 
 Kokoro CPU RTF<0.3 已快于实时，多数场景无需 GPU。GPU（coreml/cuda）仅对高并发或长文本批量合成有收益；ZipVoice 同走 sherpa（GPU 同 Kokoro）。
 
