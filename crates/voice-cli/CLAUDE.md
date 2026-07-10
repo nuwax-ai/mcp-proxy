@@ -25,17 +25,27 @@ cargo run --bin voice-cli -- --help
 cargo run --bin voice-cli -- server run
 ```
 
-### TTS (sherpa-onnx Kokoro)
+### TTS (sherpa-onnx Kokoro / ZipVoice)
 > TTS 默认禁用（`config.tts.enabled=false`）。启用需在 `config.yml` 置 `tts.enabled: true`
-> 并放置 Kokoro 模型目录（见下）。缺模型时 `/api/v1/tts*` 返回明确错误，不阻塞 STT。
+> 并放置模型目录（见下）。`config.tts.engine.backend`：`kokoro`（标准多音色，默认）/ `zipvoice`（零样本克隆，中英）。
+> 缺模型时 `/api/v1/tts*` 返回明确错误，不阻塞 STT。
 
-**模型放置**（HuggingFace 阻断时用 gh-proxy 或 modelscope）：
+**模型放置**（HuggingFace 阻断时用 gh-proxy 或 modelscope；可翻墙则去掉 gh-proxy 前缀直连）：
 ```bash
 mkdir -p ./models/tts
-curl -SL https://gh-proxy.com/https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_0.tar.bz2 \
+# Kokoro（标准多音色，103 音色）
+curl -SL https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_1.tar.bz2 \
   -o /tmp/kokoro.tar.bz2
 tar xjf /tmp/kokoro.tar.bz2 -C ./models/tts
-# 目录布局：./models/tts/kokoro-multi-lang-v1_0/{model.onnx,voices.bin,tokens.txt,espeak-ng-data/,dict/,lexicon-*.txt}
+# 目录布局：./models/tts/kokoro-multi-lang-v1_1/{model.onnx,voices.bin,tokens.txt,espeak-ng-data/,dict/,lexicon-*.txt}
+
+# ZipVoice（零样本克隆，中英）+ vocoder（独立下载）
+curl -SL https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-zipvoice-distill-int8-zh-en-emilia.tar.bz2 \
+  -o /tmp/zipvoice.tar.bz2 && tar xjf /tmp/zipvoice.tar.bz2 -C ./models/tts
+curl -SL https://github.com/k2-fsa/sherpa-onnx/releases/download/vocoder-models/vocos_24khz.onnx \
+  -o ./models/tts/zipvoice-distill-int8-zh-en-emilia/vocos_24khz.onnx
+# 布局：./models/tts/zipvoice-distill-int8-zh-en-emilia/{encoder.int8.onnx,decoder.int8.onnx,tokens.txt,espeak-ng-data/,lexicon.txt,test_wavs/}
+# 克隆参考音频：预置 voices[]（请求 voice:<name>）或请求期 reference_audio(base64 WAV)。配置见 deploy/config.example.yml
 ```
 
 **编译**（sherpa-onnx-sys 需预编译 C 库；github 阻断时设 `SHERPA_ONNX_ARCHIVE_DIR`）：
@@ -71,7 +81,7 @@ This is a Rust-based speech-to-text HTTP service with CLI interface, built using
 - **Speech Recognition**: Whisper models via voice-toolkit workspace dependency
 - **Task Processing**: Apalis for async task queue with SQLite persistence
 - **FFmpeg Integration**: ffmpeg-sidecar for lightweight media metadata extraction
-- **TTS Support**: sherpa-onnx Kokoro text-to-speech (CPU, v1)
+- **TTS Support**: sherpa-onnx TTS — Kokoro（标准多音色）/ ZipVoice（零样本克隆，中英）
 - **Configuration**: Multi-format config (YAML/JSON/TOML) with environment overrides
 
 ### Core Components
@@ -83,12 +93,13 @@ This is a Rust-based speech-to-text HTTP service with CLI interface, built using
 - `apalis_manager.rs`: STT async task queue management
 - `audio_file_manager.rs`: File storage and management
 
-**TTS Library** (`src/tts/`): sherpa-onnx Kokoro 引擎池 + 合成（镜像 STT `src/stt/` + fastembed ModelPool）
-- `engine_pool.rs`: 进程级 OfflineTts 引擎池（DashMap + double-checked + round-robin）
-- `synthesizer.rs`: generate_with_config 封装（NUL 预清洗 + Option→TtsError）
+**TTS Library** (`src/tts/`): sherpa-onnx Kokoro / ZipVoice 双引擎池 + 合成（镜像 STT `src/stt/` + fastembed ModelPool）
+- `engine_pool.rs`: 进程级 OfflineTts 引擎池（DashMap + double-checked + round-robin；build_engine 按 backend 分派 Kokoro/ZipVoice）
+- `reference_profiles.rs`: ZipVoice 克隆参考管理（预置 profile 缓存 + 动态 base64 WAV 解码，Wave::read）
+- `synthesizer.rs`: generate_with_config 封装（NUL 预清洗 + Option→TtsError；reference 注入 GenerationConfig）
 - `streaming.rs`: 流式合成（callback → mpsc 增量 PCM）
 - `audio_encode.rs`: f32 → WAV / PCM s16le
-- `model_service.rs`: Kokoro 模型目录解析（lexicon 多文件逗号拼接，对齐官方）
+- `model_service.rs`: Kokoro / ZipVoice 模型目录解析（TtsModelPaths 枚举分引擎）
 
 **Server Layer** (`src/server/`):
 - `handlers.rs`: HTTP request handlers for transcription and TTS

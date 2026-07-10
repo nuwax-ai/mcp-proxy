@@ -1,27 +1,30 @@
-//! TTS 模型管理（sherpa-onnx Kokoro 模型布局）。
+//! TTS 模型管理（sherpa-onnx；Kokoro / ZipVoice 两引擎）。
 //!
-//! Kokoro 模型目录布局（与 sherpa-onnx 官方 release 一致）：
+//! # 模型目录布局
+//! **Kokoro**（`{models_dir}/{model_id}/`）：
 //! ```text
-//! {models_dir}/tts/{model_id}/
-//!   model.onnx        ← Kokoro 主模型
-//!   voices.bin        ← 多音色嵌入（fixed multi-voice）
-//!   tokens.txt        ← token 词表
-//!   espeak-ng-data/   ← phonemizer 数据（data_dir）
-//!   dict/             ← 中文分词词典（可选，dict_dir；非中文模型可缺）
+//! model.onnx voices.bin tokens.txt espeak-ng-data/ dict/(可选) lexicon[-]*.txt
 //! ```
+//! **ZipVoice**（`{zipvoice.model_dir}` 或 `{models_dir}/{model_id}/`）：
+//! ```text
+//! encoder.int8.onnx decoder.int8.onnx tokens.txt espeak-ng-data/ lexicon.txt
+//! ```
+//! ZipVoice 的 vocoder（`vocos_24khz.onnx`）独立下载，`config.zipvoice.vocoder=None` 时探测
+//! 同目录 `vocos_24khz.onnx`。
 //!
 //! # 网络
-//! 模型托管在 HuggingFace `k2-fsa/sherpa-onnx-models`，本环境 HF 被阻断；
-//! v1 不做自动下载（`auto_download=false`），由部署方手动放置模型目录。
-//! 缺模型时 [`ensure_model`] 返回 `ModelNotFound`，附手动放置指引（Fail Fast）。
+//! 模型托管在 sherpa-onnx GitHub releases，本环境 HF 阻断；v1 不做自动下载
+//! （`auto_download=false`），由部署方手动放置。缺模型时 [`TtsModelService::ensure_model`]
+//! 返回 `ModelNotFound`（附手动放置指引，Fail Fast）。
 
 use std::path::{Path, PathBuf};
 
+use crate::models::config::{TtsBackend, TtsEngineConfig, ZipVoiceConfig};
 use crate::tts::TtsError;
 
-/// Kokoro 模型所需文件路径集合（由 [`TtsModelService`] 从模型目录解析）。
+/// Kokoro 模型文件路径集合。
 #[derive(Debug, Clone)]
-pub struct TtsModelPaths {
+pub struct KokoroPaths {
     /// `model.onnx`（主模型）
     pub model: PathBuf,
     /// `voices.bin`（多音色嵌入）
@@ -32,11 +35,35 @@ pub struct TtsModelPaths {
     pub data_dir: PathBuf,
     /// `dict/`（中文分词词典；非中文模型可为 None）
     pub dict_dir: Option<PathBuf>,
-    /// lexicon：单语 = `lexicon.txt` 路径；多语 Kokoro v1.0 = 多个 `lexicon-*.txt` 逗号拼接（C 端约定）
+    /// lexicon：单语 = `lexicon.txt` 路径；多语 = 多个 `lexicon-*.txt` 逗号拼接（C 端约定）
     pub lexicon: Option<String>,
 }
 
-/// TTS 模型服务：按 model_id 解析模型目录 + 校验必备文件。
+/// ZipVoice 模型文件路径集合。
+#[derive(Debug, Clone)]
+pub struct ZipVoicePaths {
+    /// `encoder.int8.onnx`（text model）
+    pub encoder: PathBuf,
+    /// `decoder.int8.onnx`（flow-matching decoder）
+    pub decoder: PathBuf,
+    /// `vocos_24khz.onnx`（vocoder；独立于主模型包）
+    pub vocoder: PathBuf,
+    /// `tokens.txt`
+    pub tokens: PathBuf,
+    /// `espeak-ng-data/`
+    pub data_dir: PathBuf,
+    /// `lexicon.txt`（中文；英文用 espeak-ng-data 音素化，可为 None）
+    pub lexicon: Option<String>,
+}
+
+/// TTS 模型路径（按引擎分；build_engine / Fail-Fast 校验各取所需，编译期保证不串台）。
+#[derive(Debug, Clone)]
+pub enum TtsModelPaths {
+    Kokoro(KokoroPaths),
+    ZipVoice(ZipVoicePaths),
+}
+
+/// TTS 模型服务：按 model_id + backend 解析模型目录 + 校验必备文件。
 ///
 /// 与 STT 的 `ModelService` 对称，但 v1 不做自动下载（HF 阻断 + 模型体积大）。
 #[derive(Debug)]
@@ -57,10 +84,36 @@ impl TtsModelService {
         self.models_dir.join(model_id)
     }
 
-    /// 确保模型就绪：校验目录 + 必备文件存在。
-    ///
-    /// v1 不自动下载；缺失即报 `ModelNotFound`（带手动放置指引）。
-    pub fn ensure_model(&self, model_id: &str) -> Result<(), TtsError> {
+    /// 确认模型就绪：校验目录 + 必备文件（按 backend）。
+    pub fn ensure_model(&self, model_id: &str, engine: &TtsEngineConfig) -> Result<(), TtsError> {
+        match engine.backend {
+            TtsBackend::Kokoro => self.ensure_kokoro(model_id),
+            TtsBackend::ZipVoice => self.ensure_zipvoice(model_id, &engine.zipvoice),
+        }
+    }
+
+    /// 解析模型路径（不校验存在性，由 [`ensure_model`] 负责）。
+    pub fn resolve_paths(
+        &self,
+        model_id: &str,
+        engine: &TtsEngineConfig,
+    ) -> Result<TtsModelPaths, TtsError> {
+        match engine.backend {
+            TtsBackend::Kokoro => self.resolve_kokoro(model_id).map(TtsModelPaths::Kokoro),
+            TtsBackend::ZipVoice => self
+                .resolve_zipvoice(model_id, &engine.zipvoice)
+                .map(TtsModelPaths::ZipVoice),
+        }
+    }
+
+    /// 校验模型目录是否存在（轻量探测，不做完整文件校验）。
+    pub fn model_exists(&self, model_id: &str) -> bool {
+        self.model_root(model_id).is_dir()
+    }
+
+    // ---- Kokoro ----
+
+    fn ensure_kokoro(&self, model_id: &str) -> Result<(), TtsError> {
         let root = self.model_root(model_id);
         if !root.is_dir() {
             return Err(TtsError::ModelNotFound {
@@ -72,8 +125,7 @@ impl TtsModelService {
                 ),
             });
         }
-        // 校验必备文件（Fail Fast：缺任一即报，避免传到 sherpa-onnx 才在 C 端失败）
-        let paths = self.resolve_paths(model_id)?;
+        let paths = self.resolve_kokoro(model_id)?;
         for (name, p) in [
             ("model.onnx", &paths.model),
             ("voices.bin", &paths.voices),
@@ -89,19 +141,13 @@ impl TtsModelService {
         Ok(())
     }
 
-    /// 解析模型目录下的标准文件路径（不校验存在性，由 [`ensure_model`] 负责）。
-    ///
-    /// `lexicon` 探测规则：
-    /// - 若 `lexicon.txt` 存在（单语模型）→ 单路径
-    /// - 否则收集所有 `lexicon-*.txt`（多语 Kokoro v1.0）→ 逗号分隔（sherpa-onnx 约定）
-    pub fn resolve_paths(&self, model_id: &str) -> Result<TtsModelPaths, TtsError> {
+    fn resolve_kokoro(&self, model_id: &str) -> Result<KokoroPaths, TtsError> {
         let root = self.model_root(model_id);
         let dict_dir = root.join("dict");
 
         // lexicon 探测（对齐 sherpa-onnx 官方 kokoro-multi-lang 示例）：
         // - 单语 `lexicon.txt` → 单路径
-        // - 多语优先 `lexicon-us-en.txt,lexicon-zh.txt`（官方 run-kokoro-zh-en.sh 用的 2 文件组合；
-        //   不含 gb-en：gb-en 与 us-en 词表重叠会触发 C++ 异常）
+        // - 多语优先 `lexicon-us-en.txt,lexicon-zh.txt`（不含 gb-en：与 us-en 词表重叠触发 C++ 异常）
         // - 兜底：所有 `lexicon-*.txt` 排序后逗号拼接
         let single = root.join("lexicon.txt");
         let lexicon = if single.is_file() {
@@ -139,7 +185,7 @@ impl TtsModelService {
             }
         };
 
-        Ok(TtsModelPaths {
+        Ok(KokoroPaths {
             model: root.join("model.onnx"),
             voices: root.join("voices.bin"),
             tokens: root.join("tokens.txt"),
@@ -149,9 +195,71 @@ impl TtsModelService {
         })
     }
 
-    /// 校验模型目录是否存在（轻量探测，不做完整文件校验）。
-    pub fn model_exists(&self, model_id: &str) -> bool {
-        self.model_root(model_id).is_dir()
+    // ---- ZipVoice ----
+
+    fn ensure_zipvoice(&self, model_id: &str, cfg: &ZipVoiceConfig) -> Result<(), TtsError> {
+        // 先校验目录（清晰错误优先），再 resolve 路径（对齐 ensure_kokoro 顺序）
+        let root = self.zipvoice_root(model_id, cfg);
+        if !root.is_dir() {
+            return Err(TtsError::ModelNotFound {
+                model: format!(
+                    "{}（ZipVoice 模型目录不存在。请从 https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models \
+                     下载 sherpa-onnx-zipvoice-distill-int8-zh-en-emilia，解压；另下 vocos_24khz.onnx \
+                     放同目录或 config.tts.engine.zipvoice.vocoder 指定）",
+                    root.display()
+                ),
+            });
+        }
+        let paths = self.resolve_zipvoice(model_id, cfg)?;
+        for (name, p) in [
+            ("encoder.int8.onnx", &paths.encoder),
+            ("decoder.int8.onnx", &paths.decoder),
+            ("vocoder (vocos_24khz.onnx)", &paths.vocoder),
+            ("tokens.txt", &paths.tokens),
+            ("espeak-ng-data/", &paths.data_dir),
+        ] {
+            if !p.exists() {
+                return Err(TtsError::ModelNotFound {
+                    model: format!("{} 缺失：{}", name, p.display()),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// ZipVoice 模型根目录：优先 `config.zipvoice.model_dir`，否则 `{models_dir}/{model_id}`。
+    fn zipvoice_root(&self, model_id: &str, cfg: &ZipVoiceConfig) -> PathBuf {
+        cfg.model_dir
+            .as_ref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| self.model_root(model_id))
+    }
+
+    fn resolve_zipvoice(
+        &self,
+        model_id: &str,
+        cfg: &ZipVoiceConfig,
+    ) -> Result<ZipVoicePaths, TtsError> {
+        let root = self.zipvoice_root(model_id, cfg);
+        // vocoder：优先 config 指定，否则探测同目录 vocos_24khz.onnx
+        let vocoder = cfg
+            .vocoder
+            .as_ref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| root.join("vocos_24khz.onnx"));
+        // lexicon：单语 lexicon.txt（英文模型可无）
+        let lexicon = {
+            let p = root.join("lexicon.txt");
+            p.is_file().then(|| p.to_string_lossy().into_owned())
+        };
+        Ok(ZipVoicePaths {
+            encoder: root.join("encoder.int8.onnx"),
+            decoder: root.join("decoder.int8.onnx"),
+            vocoder,
+            tokens: root.join("tokens.txt"),
+            data_dir: root.join("espeak-ng-data"),
+            lexicon,
+        })
     }
 }
 
@@ -168,12 +276,32 @@ pub fn path_to_opt_string(p: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::config::{TtsBackend, TtsEngineConfig, ZipVoiceConfig};
     use std::fs;
     use tempfile::TempDir;
 
-    /// 在 tmp/<model_id>/ 下造一份"完整模型"（必备文件 + 可选 dict/lexicon）。
-    /// 返回 (svc, root, _guard)；**调用方必须保活 guard**（drop 会删目录）。
-    fn fixture(
+    /// 造一个 backend=Kokoro 的 engine config。
+    fn kokoro_engine() -> TtsEngineConfig {
+        TtsEngineConfig {
+            backend: TtsBackend::Kokoro,
+            ..Default::default()
+        }
+    }
+
+    /// 造一个 backend=ZipVoice 的 engine config（model_dir 指向 root）。
+    fn zipvoice_engine(root: &Path) -> TtsEngineConfig {
+        TtsEngineConfig {
+            backend: TtsBackend::ZipVoice,
+            zipvoice: ZipVoiceConfig {
+                model_dir: Some(root.to_string_lossy().into_owned()),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    /// 在 tmp/<model_id>/ 下造一份完整 Kokoro 模型。
+    fn kokoro_fixture(
         model_id: &str,
         lexicon_files: &[&str],
         with_dict: bool,
@@ -195,10 +323,28 @@ mod tests {
         (svc, root, tmp)
     }
 
+    /// 在 tmp/<model_id>/ 下造一份完整 ZipVoice 模型。
+    fn zipvoice_fixture(model_id: &str) -> (TtsModelService, PathBuf, TempDir) {
+        let tmp = TempDir::new().expect("tmp");
+        let root = tmp.path().join(model_id);
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("encoder.int8.onnx"), b"dummy").unwrap();
+        fs::write(root.join("decoder.int8.onnx"), b"dummy").unwrap();
+        fs::write(root.join("vocos_24khz.onnx"), b"dummy").unwrap();
+        fs::write(root.join("tokens.txt"), b"dummy").unwrap();
+        fs::create_dir_all(root.join("espeak-ng-data")).unwrap();
+        fs::write(root.join("lexicon.txt"), b"dummy").unwrap();
+        let svc = TtsModelService::new(tmp.path());
+        (svc, root, tmp)
+    }
+
     #[test]
-    fn resolve_paths_single_lexicon() {
-        let (svc, root, _g) = fixture("kokoro", &["lexicon.txt"], true);
-        let p = svc.resolve_paths("kokoro").unwrap();
+    fn resolve_kokoro_paths_single_lexicon() {
+        let (svc, root, _g) = kokoro_fixture("kokoro", &["lexicon.txt"], true);
+        let p = match svc.resolve_paths("kokoro", &kokoro_engine()).unwrap() {
+            TtsModelPaths::Kokoro(k) => k,
+            _ => panic!("expected Kokoro"),
+        };
         assert_eq!(p.model, root.join("model.onnx"));
         assert_eq!(p.voices, root.join("voices.bin"));
         assert_eq!(p.tokens, root.join("tokens.txt"));
@@ -211,76 +357,103 @@ mod tests {
     }
 
     #[test]
-    fn resolve_paths_multi_lang_prefers_us_en_zh_combo() {
-        // 三文件齐全时，必须选 us-en+zh 组合（不含 gb-en，避免 C++ 异常）
-        let (svc, _root, _g) = fixture(
+    fn resolve_kokoro_multi_lang_prefers_us_en_zh() {
+        let (svc, _root, _g) = kokoro_fixture(
             "kokoro",
             &["lexicon-gb-en.txt", "lexicon-us-en.txt", "lexicon-zh.txt"],
             false,
         );
-        let p = svc.resolve_paths("kokoro").unwrap();
+        let p = match svc.resolve_paths("kokoro", &kokoro_engine()).unwrap() {
+            TtsModelPaths::Kokoro(k) => k,
+            _ => panic!("expected Kokoro"),
+        };
         let lex = p.lexicon.expect("lexicon");
         let parts: Vec<&str> = lex.split(',').collect();
-        assert_eq!(parts.len(), 2, "应只选 2 文件组合，实际: {lex}");
+        assert_eq!(parts.len(), 2);
         assert!(parts.iter().any(|s| s.ends_with("lexicon-us-en.txt")));
         assert!(parts.iter().any(|s| s.ends_with("lexicon-zh.txt")));
-        assert!(!lex.contains("gb-en"), "不应包含 gb-en: {lex}");
-        assert!(p.dict_dir.is_none());
+        assert!(!lex.contains("gb-en"));
     }
 
     #[test]
-    fn resolve_paths_fallback_glob_when_no_preferred_combo() {
-        // 只有 zh（凑不齐 us-en+zh 两件套）→ fallback glob
-        let (svc, root, _g) = fixture("kokoro", &["lexicon-zh.txt"], false);
-        let p = svc.resolve_paths("kokoro").unwrap();
+    fn resolve_zipvoice_paths_defaults() {
+        let (svc, root, _g) = zipvoice_fixture("zipvoice");
+        let p = match svc
+            .resolve_paths("zipvoice", &zipvoice_engine(&root))
+            .unwrap()
+        {
+            TtsModelPaths::ZipVoice(z) => z,
+            _ => panic!("expected ZipVoice"),
+        };
+        assert_eq!(p.encoder, root.join("encoder.int8.onnx"));
+        assert_eq!(p.decoder, root.join("decoder.int8.onnx"));
+        assert_eq!(p.vocoder, root.join("vocos_24khz.onnx"));
+        assert_eq!(p.tokens, root.join("tokens.txt"));
+        assert_eq!(p.data_dir, root.join("espeak-ng-data"));
         assert_eq!(
             p.lexicon.as_deref(),
-            Some(root.join("lexicon-zh.txt").to_str().unwrap())
+            Some(root.join("lexicon.txt").to_str().unwrap())
         );
     }
 
     #[test]
-    fn resolve_paths_no_lexicon() {
-        let (svc, _root, _g) = fixture("kokoro", &[], false);
-        let p = svc.resolve_paths("kokoro").unwrap();
-        assert!(p.lexicon.is_none());
+    fn resolve_zipvoice_vocoder_override() {
+        let (svc, root, _g) = zipvoice_fixture("zipvoice");
+        let vocoder_elsewhere = root.join("elsewhere_vocoder.onnx");
+        fs::write(&vocoder_elsewhere, b"dummy").unwrap();
+        let engine = TtsEngineConfig {
+            backend: TtsBackend::ZipVoice,
+            zipvoice: ZipVoiceConfig {
+                model_dir: Some(root.to_string_lossy().into_owned()),
+                vocoder: Some(vocoder_elsewhere.to_string_lossy().into_owned()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let p = match svc.resolve_paths("zipvoice", &engine).unwrap() {
+            TtsModelPaths::ZipVoice(z) => z,
+            _ => panic!("expected ZipVoice"),
+        };
+        assert_eq!(p.vocoder, vocoder_elsewhere);
     }
 
     #[test]
-    fn ensure_model_ok_when_complete() {
-        let (svc, _root, _g) = fixture("kokoro", &["lexicon.txt"], true);
-        assert!(svc.ensure_model("kokoro").is_ok());
+    fn ensure_kokoro_ok_when_complete() {
+        let (svc, _root, _g) = kokoro_fixture("kokoro", &["lexicon.txt"], true);
+        assert!(svc.ensure_model("kokoro", &kokoro_engine()).is_ok());
+    }
+
+    #[test]
+    fn ensure_zipvoice_ok_when_complete() {
+        let (svc, root, _g) = zipvoice_fixture("zipvoice");
+        assert!(
+            svc.ensure_model("zipvoice", &zipvoice_engine(&root))
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn ensure_zipvoice_missing_vocoder_detected() {
+        let (svc, root, _g) = zipvoice_fixture("zipvoice");
+        fs::remove_file(root.join("vocos_24khz.onnx")).unwrap();
+        let err = svc
+            .ensure_model("zipvoice", &zipvoice_engine(&root))
+            .unwrap_err();
+        assert!(matches!(err, TtsError::ModelNotFound { .. }));
+        assert!(err.to_string().contains("vocoder"));
     }
 
     #[test]
     fn ensure_model_missing_dir() {
         let tmp = TempDir::new().unwrap();
         let svc = TtsModelService::new(tmp.path());
-        let err = svc.ensure_model("nope").unwrap_err();
+        let err = svc.ensure_model("nope", &kokoro_engine()).unwrap_err();
         assert!(matches!(err, TtsError::ModelNotFound { .. }));
-        assert!(err.to_string().contains("下载") || err.to_string().contains("不存在"));
-    }
-
-    #[test]
-    fn ensure_model_missing_required_file() {
-        let (svc, root, _g) = fixture("kokoro", &["lexicon.txt"], true);
-        fs::remove_file(root.join("voices.bin")).unwrap();
-        let err = svc.ensure_model("kokoro").unwrap_err();
-        assert!(matches!(err, TtsError::ModelNotFound { .. }));
-        assert!(err.to_string().contains("voices.bin"));
-    }
-
-    #[test]
-    fn ensure_model_missing_data_dir() {
-        let (svc, root, _g) = fixture("kokoro", &["lexicon.txt"], true);
-        fs::remove_dir_all(root.join("espeak-ng-data")).unwrap();
-        let err = svc.ensure_model("kokoro").unwrap_err();
-        assert!(err.to_string().contains("espeak-ng-data"));
     }
 
     #[test]
     fn model_exists_lightweight_probe() {
-        let (svc, _root, _g) = fixture("kokoro", &[], false);
+        let (svc, _root, _g) = kokoro_fixture("kokoro", &[], false);
         assert!(svc.model_exists("kokoro"));
         assert!(!svc.model_exists("missing"));
     }

@@ -111,6 +111,17 @@ pub async fn handle_server_run(config: &Config) -> crate::Result<()> {
         }
     }
 
+    // 初始化 ZipVoice 预置音色组（幂等；仅 backend=zipvoice 且 tts.enabled 才加载）。
+    // 任意 profile 的 reference_wav 缺失/解码失败 → Fail Fast 启动报错（配置错误不应静默）。
+    if config.tts.enabled
+        && matches!(
+            config.tts.engine.backend,
+            crate::models::config::TtsBackend::ZipVoice
+        )
+    {
+        crate::tts::init_reference_profiles(&config.tts.engine.zipvoice.voices)?;
+    }
+
     let config_arc = Arc::new(config.clone());
     let app_state = handlers::AppState::new(config_arc.clone()).await?;
     let mut app = routes::create_routes_with_state(app_state.clone()).await?;

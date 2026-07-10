@@ -13,12 +13,12 @@
 use crate::models::config::TtsEngineConfig;
 use crate::tts::{
     AudioFormat, EngineInstance, EngineKey, EngineLoadParams, TtsError, TtsModelService,
-    TtsOptions, encode, get_or_init_engine, synthesize,
+    TtsOptions, ZipVoiceEngineParams, encode, get_or_init_engine, synthesize,
 };
 
 /// 解析模型路径 + 构造 load_params + 初始化/取池化实例 + round-robin pick。
 ///
-/// `length_scale` 为 model-level 参数（仅引擎首次加载生效，池化后共享）。
+/// `length_scale` 为 Kokoro model-level 参数（仅引擎首次加载生效，池化后共享；ZipVoice 忽略）。
 /// 调用方拿到 `EngineInstance` 后自行 `lock()` 使用。
 pub fn acquire_instance(
     model_svc: &TtsModelService,
@@ -26,7 +26,7 @@ pub fn acquire_instance(
     engine: &TtsEngineConfig,
     length_scale: f32,
 ) -> Result<EngineInstance, TtsError> {
-    let paths = model_svc.resolve_paths(model_id)?;
+    let paths = model_svc.resolve_paths(model_id, engine)?;
     let load_params = EngineLoadParams {
         paths,
         num_threads: engine.num_threads,
@@ -35,6 +35,12 @@ pub fn acquire_instance(
         pool_size: engine.pool_size,
         debug: engine.debug,
         lang: engine.default_language.clone(),
+        zipvoice: ZipVoiceEngineParams {
+            feat_scale: engine.zipvoice.feat_scale,
+            t_shift: engine.zipvoice.t_shift,
+            target_rms: engine.zipvoice.target_rms,
+            guidance_scale: engine.zipvoice.guidance_scale,
+        },
     };
     let pool = get_or_init_engine(EngineKey::new(model_id), load_params)?;
     Ok(pool.pick())

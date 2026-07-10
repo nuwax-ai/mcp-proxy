@@ -41,7 +41,7 @@ pub async fn handle_tts_init(_force: bool, config: &crate::Config) -> anyhow::Re
 
     let svc = TtsModelService::new(&config.tts.engine.models_dir);
     let model_id = &config.tts.engine.default_model;
-    match svc.ensure_model(model_id) {
+    match svc.ensure_model(model_id, &config.tts.engine) {
         Ok(()) => println!("✅ TTS model ready: {model_id}"),
         Err(e) => {
             println!("⚠️  TTS 模型未就绪：{e}");
@@ -76,7 +76,7 @@ pub async fn handle_tts_test(config: &crate::Config, params: TtsTestParams) -> a
 
     let model_id = config.tts.engine.default_model.clone();
     let svc = TtsModelService::new(&config.tts.engine.models_dir);
-    svc.ensure_model(&model_id)
+    svc.ensure_model(&model_id, &config.tts.engine)
         .map_err(|e| anyhow::anyhow!("TTS 模型未就绪: {e}"))?;
 
     let fmt = AudioFormat::parse(&format);

@@ -139,12 +139,84 @@ pub struct TtsConfig {
     pub tasks_db_path: String,
 }
 
-/// TTS 引擎配置（sherpa-onnx Kokoro）。
+/// TTS 引擎类型（默认 Kokoro）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TtsBackend {
+    #[default]
+    Kokoro,
+    /// 零样本克隆引擎（sherpa-onnx ZipVoice；中英双语；每次合成需 reference 音频+文本决定音色）。
+    ZipVoice,
+}
+
+/// ZipVoice 预置音色 profile（启动期加载 `reference_wav` 缓存；请求 `voice:"{name}"` 引用）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ZipVoiceProfile {
+    /// 音色名（请求 `voice` 字段引用）。
+    pub name: String,
+    /// 参考音频路径（WAV；启动期解码成 f32 PCM 缓存）。
+    pub reference_wav: String,
+    /// 参考音频的**精确转写文本**（须与音频内容严格一致，否则克隆质量下降）。
+    pub reference_text: String,
+}
+
+/// ZipVoice 引擎配置（仅 [`TtsBackend::ZipVoice`] 生效）。
 ///
-/// v1 走 CPU（`provider=None`，sherpa-onnx 默认预编译库 CPU-only）；
-/// v2 升 GPU 需自编 C++ 库 + 设 `provider="coreml"/"cuda"/"vulkan"`（见 plan §GPU 加速策略）。
+/// 模型布局（sherpa-onnx `tts-models` release）：
+/// `{model_dir}/{encoder.int8.onnx, decoder.int8.onnx, tokens.txt, espeak-ng-data/, lexicon.txt}`。
+/// vocoder（`vocos_24khz.onnx`）独立下载，`vocoder=None` 时探测 `{model_dir}/vocos_24khz.onnx`。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ZipVoiceConfig {
+    /// 模型目录（绝对或相对 CWD）。`None` = `{models_dir}/{default_model}/`（与 Kokoro 同机制）。
+    #[serde(default)]
+    pub model_dir: Option<String>,
+    /// vocoder 路径（`vocos_24khz.onnx`）。`None` = 探测 `{model_dir}/vocos_24khz.onnx`。
+    #[serde(default)]
+    pub vocoder: Option<String>,
+    /// 预置音色组（启动期预加载缓存）。空时仍可请求期动态上传 `reference_audio`（克隆完全体）。
+    #[serde(default)]
+    pub voices: Vec<ZipVoiceProfile>,
+    /// flow-matching 解码步数（质量/速度权衡；默认 4，调大更稳但更慢）。
+    #[serde(default = "default_zipvoice_num_steps")]
+    pub num_steps: i32,
+    /// feat_scale（Rust `Default`=0.0 会被 C++ Validate 拒绝，必须 >0）。
+    #[serde(default = "default_zipvoice_feat_scale")]
+    pub feat_scale: f32,
+    /// t_shift。
+    #[serde(default = "default_zipvoice_t_shift")]
+    pub t_shift: f32,
+    /// target_rms。
+    #[serde(default = "default_zipvoice_target_rms")]
+    pub target_rms: f32,
+    /// guidance_scale。
+    #[serde(default = "default_zipvoice_guidance_scale")]
+    pub guidance_scale: f32,
+}
+
+impl Default for ZipVoiceConfig {
+    fn default() -> Self {
+        Self {
+            model_dir: None,
+            vocoder: None,
+            voices: Vec::new(),
+            num_steps: default_zipvoice_num_steps(),
+            feat_scale: default_zipvoice_feat_scale(),
+            t_shift: default_zipvoice_t_shift(),
+            target_rms: default_zipvoice_target_rms(),
+            guidance_scale: default_zipvoice_guidance_scale(),
+        }
+    }
+}
+
+/// TTS 引擎配置（sherpa-onnx；Kokoro / ZipVoice）。
+///
+/// CPU 走 `provider=None`；GPU 需自编 C++ 库 + 设 `provider="coreml"/"cuda"/"vulkan"`。
+/// Kokoro 用 `default_sid` 选音色；ZipVoice 用 reference 音频+文本克隆（见 [`ZipVoiceConfig`]）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TtsEngineConfig {
+    /// TTS 引擎（默认 Kokoro）
+    #[serde(default)]
+    pub backend: TtsBackend,
     /// 引擎池大小：1=单实例串行（CPU 通常最优），>1=N 实例并发（N× 内存）
     #[serde(default = "default_tts_pool_size")]
     pub pool_size: usize,
@@ -175,6 +247,9 @@ pub struct TtsEngineConfig {
     /// sherpa-onnx C 端 verbose 日志
     #[serde(default)]
     pub debug: bool,
+    /// ZipVoice 引擎配置（仅 [`TtsBackend::ZipVoice`] 生效）
+    #[serde(default)]
+    pub zipvoice: ZipVoiceConfig,
 }
 
 /// TTS 流式配置（P5 WS 流式合成用；P3/P4 仅占位）。
@@ -630,6 +705,7 @@ impl Default for TtsConfig {
 impl Default for TtsEngineConfig {
     fn default() -> Self {
         Self {
+            backend: TtsBackend::default(),
             pool_size: default_tts_pool_size(),
             default_model: default_tts_model(),
             default_sid: 0,
@@ -640,6 +716,7 @@ impl Default for TtsEngineConfig {
             provider: None,
             models_dir: default_tts_models_dir(),
             debug: false,
+            zipvoice: ZipVoiceConfig::default(),
         }
     }
 }
@@ -664,7 +741,7 @@ fn default_tts_pool_size() -> usize {
     1
 }
 fn default_tts_model() -> String {
-    "kokoro-multi-lang-v1_0".to_string()
+    "kokoro-multi-lang-v1_1".to_string()
 }
 fn default_tts_speed() -> f32 {
     1.0
@@ -694,6 +771,21 @@ fn default_tts_format() -> String {
 }
 fn default_tts_tasks_db_path() -> String {
     "./data/tts_tasks.db".to_string()
+}
+fn default_zipvoice_num_steps() -> i32 {
+    4
+}
+fn default_zipvoice_feat_scale() -> f32 {
+    0.1
+}
+fn default_zipvoice_t_shift() -> f32 {
+    0.5
+}
+fn default_zipvoice_target_rms() -> f32 {
+    0.1
+}
+fn default_zipvoice_guidance_scale() -> f32 {
+    1.0
 }
 
 /// 环境变量提供者抽象（依赖注入，避免直接读写全局 std::env）。
@@ -1022,6 +1114,29 @@ impl Config {
             return Err(crate::VoiceCliError::Config(
                 "Max file size must be greater than 0".to_string(),
             ));
+        }
+
+        // Validate TTS（ZipVoice 超参 Fail Fast：feat_scale/target_rms/guidance_scale 必须 >0，
+        // t_shift >=0，num_steps >0；否则 sherpa C++ Validate 拒绝且错误不可读）
+        if self.tts.enabled && matches!(self.tts.engine.backend, TtsBackend::ZipVoice) {
+            let zv = &self.tts.engine.zipvoice;
+            if zv.feat_scale <= 0.0
+                || zv.target_rms <= 0.0
+                || zv.guidance_scale <= 0.0
+                || zv.t_shift < 0.0
+            {
+                return Err(crate::VoiceCliError::Config(format!(
+                    "tts.engine.zipvoice 超参非法：feat_scale/target_rms/guidance_scale 必须 >0，\
+                     t_shift>=0；收到 feat_scale={}, t_shift={}, target_rms={}, guidance_scale={}",
+                    zv.feat_scale, zv.t_shift, zv.target_rms, zv.guidance_scale
+                )));
+            }
+            if zv.num_steps <= 0 {
+                return Err(crate::VoiceCliError::Config(format!(
+                    "tts.engine.zipvoice.num_steps 必须 > 0，收到 {}",
+                    zv.num_steps
+                )));
+            }
         }
 
         // Validate whisper configuration

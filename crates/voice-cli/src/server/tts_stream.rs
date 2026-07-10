@@ -21,6 +21,7 @@ use futures::{SinkExt, StreamExt};
 use serde::Deserialize;
 use tracing::{info, warn};
 
+use crate::models::config::TtsBackend;
 use crate::server::handlers::AppState;
 use crate::tts::{TtsOptions, TtsStreamConfig, TtsStreamEvent, synthesize_streaming};
 
@@ -33,6 +34,9 @@ struct TtsStreamStartFrame {
     length_scale: Option<f32>,
     language: Option<String>,
     model: Option<String>,
+    voice: Option<String>,
+    reference_audio: Option<String>,
+    reference_text: Option<String>,
 }
 
 /// GET /api/v1/stream/tts（WebSocket 升级）
@@ -84,7 +88,7 @@ async fn run_tts_stream_session(socket: WebSocket, state: AppState) {
 
     let engine = &state.config.tts.engine;
     let model_id = start.model.unwrap_or_else(|| engine.default_model.clone());
-    if let Err(e) = state.tts_model_service.ensure_model(&model_id) {
+    if let Err(e) = state.tts_model_service.ensure_model(&model_id, engine) {
         let _ = send_event(
             &mut sink,
             TtsStreamEvent::Error {
@@ -95,19 +99,21 @@ async fn run_tts_stream_session(socket: WebSocket, state: AppState) {
         return;
     }
 
-    let opts = TtsOptions {
-        sid: start.sid.unwrap_or(engine.default_sid),
-        speed: start.speed.unwrap_or(engine.default_speed),
-        ..Default::default()
-    };
+    let sid = start.sid.unwrap_or(engine.default_sid);
+    let speed = start.speed.unwrap_or(engine.default_speed);
+    let length_scale = start.length_scale.unwrap_or(engine.default_length_scale);
+    let backend = engine.backend;
+    let num_steps = engine.zipvoice.num_steps;
+    let voice = start.voice.clone();
+    let reference_audio = start.reference_audio.clone();
+    let reference_text = start.reference_text.clone();
     let stream_cfg = TtsStreamConfig {
         text,
-        sid: opts.sid,
-        speed: opts.speed,
+        sid,
+        speed,
         language: start.language,
         model: model_id.clone(),
     };
-    let length_scale = start.length_scale.unwrap_or(engine.default_length_scale);
 
     // 2. mpsc 通道 + 取消标志。三个并发任务：
     //    - synth（spawn_blocking）：acquire_instance + 合成 + 推事件
@@ -117,7 +123,8 @@ async fn run_tts_stream_session(socket: WebSocket, state: AppState) {
     let cancel = Arc::new(AtomicBool::new(false));
 
     let model_svc = state.tts_model_service.clone();
-    let engine_cfg = state.config.tts.engine.clone();
+    // clone Arc<Config>（廉价）而非 TtsEngineConfig（含 voices Vec），避免每请求复制 voices
+    let config = state.config.clone();
     let model_id_for_closure = model_id.clone();
     let cancel_for_synth = cancel.clone();
     let synth_handle = tokio::task::spawn_blocking(move || {
@@ -125,7 +132,7 @@ async fn run_tts_stream_session(socket: WebSocket, state: AppState) {
         let inst = match crate::tts::acquire_instance(
             &model_svc,
             &model_id_for_closure,
-            &engine_cfg,
+            &config.tts.engine,
             length_scale,
         ) {
             Ok(i) => i,
@@ -135,6 +142,29 @@ async fn run_tts_stream_session(socket: WebSocket, state: AppState) {
                 });
                 return;
             }
+        };
+        // per-request opts（reference 解码 CPU，放 spawn_blocking）；Kokoro 走 sid，ZipVoice 克隆
+        let opts = TtsOptions {
+            sid,
+            speed,
+            num_steps,
+            reference: match backend {
+                TtsBackend::Kokoro => None,
+                TtsBackend::ZipVoice => match crate::tts::resolve_reference(
+                    voice.as_deref(),
+                    reference_audio.as_deref(),
+                    reference_text.as_deref(),
+                ) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        let _ = event_tx.blocking_send(TtsStreamEvent::Error {
+                            message: format!("reference 解析失败: {e}"),
+                        });
+                        return;
+                    }
+                },
+            },
+            ..Default::default()
         };
         // lock 引擎取 &OfflineTts（impl Synthesizer），交给 synthesize_streaming
         let guard = inst.lock().unwrap_or_else(|p| p.into_inner());

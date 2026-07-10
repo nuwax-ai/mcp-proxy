@@ -4,7 +4,11 @@
 //! 在 `EngineLoadParams` + `engine_pool::build_engine` 中设置，不在本 DTO 内（避免
 //! "接受 per-request 输入但只能 model-level 生效"的静默忽略——Fail Fast）。
 
+use std::sync::Arc;
+
 use sherpa_onnx::GenerationConfig;
+
+use crate::tts::reference_profiles::ZipVoiceRef;
 
 /// voice-cli 侧的 TTS 合成参数（per-request）。
 ///
@@ -24,6 +28,11 @@ pub struct TtsOptions {
     pub speed: f32,
     /// 句间静音缩放（sherpa-onnx 默认 0.2）
     pub silence_scale: f32,
+    /// ZipVoice 克隆参考（预置 profile 缓存或动态 base64 解码；Kokoro 不用，留 None）。
+    /// backend=zipvoice 时必填（由 handler/worker 解析注入，见 reference_profiles）。
+    pub reference: Option<Arc<ZipVoiceRef>>,
+    /// ZipVoice flow-matching 解码步数（默认 4，调大更稳；Kokoro 忽略）。
+    pub num_steps: i32,
 }
 
 impl Default for TtsOptions {
@@ -32,6 +41,8 @@ impl Default for TtsOptions {
             sid: 0,
             speed: 1.0,
             silence_scale: 0.2,
+            reference: None,
+            num_steps: 4,
         }
     }
 }
@@ -57,17 +68,34 @@ impl TtsOptions {
                 self.sid
             )));
         }
+        // num_steps（ZipVoice flow-matching 步数）必须 > 0；<=0 会 C++ 隐晦失败
+        if self.num_steps <= 0 {
+            return Err(crate::tts::TtsError::InvalidInput(format!(
+                "num_steps 必须 > 0，收到 {}",
+                self.num_steps
+            )));
+        }
         Ok(())
     }
 
     /// 映射到 sherpa-onnx `GenerationConfig`（per-request 部分）。
     pub fn to_generation_config(&self) -> GenerationConfig {
-        GenerationConfig {
+        let mut cfg = GenerationConfig {
             sid: self.sid,
             speed: self.speed,
             silence_scale: self.silence_scale,
-            ..Default::default()
+            // ZipVoice 克隆：reference_audio + reference_text
+            // （Kokoro 不用；reference=None 时这些为 None，Kokoro 仍用 sid）
+            reference_audio: self.reference.as_ref().map(|r| r.samples.clone()),
+            reference_sample_rate: self.reference.as_ref().map(|r| r.sample_rate).unwrap_or(0),
+            reference_text: self.reference.as_ref().map(|r| r.text.clone()),
+            ..Default::default() // num_steps=5（Kokoro 忽略；避免字段污染）
+        };
+        // num_steps 仅 ZipVoice（reference 非空）生效；Kokoro 留 sherpa 默认
+        if self.reference.is_some() {
+            cfg.num_steps = self.num_steps;
         }
+        cfg
     }
 }
 
@@ -179,13 +207,34 @@ mod tests {
             sid: 7,
             speed: 1.5,
             silence_scale: 0.3,
+            ..Default::default()
         };
         let g = o.to_generation_config();
         assert_eq!(g.sid, 7);
         assert!((g.speed - 1.5).abs() < f32::EPSILON);
         assert!((g.silence_scale - 0.3).abs() < f32::EPSILON);
-        // 未设置的 reference_audio 等应为默认（None/0）
+        // Kokoro 场景：未设置 reference → 默认（None/0）
         assert!(g.reference_audio.is_none());
         assert_eq!(g.reference_sample_rate, 0);
+        assert!(g.reference_text.is_none());
+    }
+
+    #[test]
+    fn to_generation_config_injects_zipvoice_reference() {
+        let r = ZipVoiceRef {
+            samples: vec![0.1, 0.2, 0.3],
+            sample_rate: 24000,
+            text: "参考文本".into(),
+        };
+        let o = TtsOptions {
+            reference: Some(Arc::new(r)),
+            num_steps: 8,
+            ..Default::default()
+        };
+        let g = o.to_generation_config();
+        assert_eq!(g.reference_audio.as_deref(), Some(&[0.1, 0.2, 0.3][..]));
+        assert_eq!(g.reference_sample_rate, 24000);
+        assert_eq!(g.reference_text.as_deref(), Some("参考文本"));
+        assert_eq!(g.num_steps, 8);
     }
 }

@@ -18,6 +18,12 @@ pub struct TtsSyncRequest {
     /// 音色名（可选别名，v1 暂不解析名字→sid，保留接口）
     #[serde(default)]
     pub voice: Option<String>,
+    /// ZipVoice 动态克隆：base64 编码的 WAV 参考音频（优先于 `voice`；backend=kokoro 忽略）。
+    #[serde(default)]
+    pub reference_audio: Option<String>,
+    /// ZipVoice 动态克隆：`reference_audio` 的精确转写文本（须与音频内容严格一致）。
+    #[serde(default)]
+    pub reference_text: Option<String>,
     /// 语速（1.0 = 原速；`None` = 用 `tts.engine.default_speed`）
     #[serde(default)]
     pub speed: Option<f32>,
@@ -48,9 +54,18 @@ pub struct TtsAsyncRequest {
     /// 模型 id（`None` = `tts.engine.default_model`；多模型并存时指定）
     #[serde(default)]
     pub model: Option<String>,
-    /// 音色 id（`None` = 用 `tts.engine.default_sid`）
+    /// 音色 id（`None` = 用 `tts.engine.default_sid`；Kokoro 用）
     #[serde(default)]
     pub sid: Option<i32>,
+    /// 音色名（ZipVoice 预置 profile；与 reference_audio 二选一）
+    #[serde(default)]
+    pub voice: Option<String>,
+    /// ZipVoice 动态克隆：base64 WAV 参考音频（优先于 `voice`）
+    #[serde(default)]
+    pub reference_audio: Option<String>,
+    /// ZipVoice 动态克隆：`reference_audio` 的精确转写文本
+    #[serde(default)]
+    pub reference_text: Option<String>,
     /// 语速（`None` = 用 `tts.engine.default_speed`）
     #[serde(default)]
     pub speed: Option<f32>,
@@ -81,6 +96,12 @@ pub struct TtsTask {
     pub format: String,
     /// 模型 id（对应 `{models_dir}/{model_id}/`）
     pub model: String,
+    /// 音色名（ZipVoice 预置 profile）
+    pub voice: Option<String>,
+    /// ZipVoice 动态克隆：base64 WAV 参考音频（持久化到 SQLite）
+    pub reference_audio: Option<String>,
+    /// ZipVoice 动态克隆：reference_audio 的精确转写文本
+    pub reference_text: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -107,6 +128,9 @@ mod tests {
             language: None,
             format: "wav".into(),
             model: "kokoro".into(),
+            voice: None,
+            reference_audio: None,
+            reference_text: None,
             created_at: DateTime::parse_from_rfc3339("2026-07-05T00:00:00Z")
                 .unwrap()
                 .with_timezone(&Utc),

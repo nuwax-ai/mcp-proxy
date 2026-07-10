@@ -23,16 +23,23 @@ pub mod error;
 pub mod model_service;
 pub mod options;
 pub mod pipeline;
+pub mod reference_profiles;
 pub mod streaming;
 pub mod synthesizer;
 
 pub use audio_encode::{AudioFormat, encode, to_pcm_s16le as to_pcm_bytes};
 pub use engine_pool::{
-    EngineInstance, EngineKey, EngineLoadParams, EnginePool, get_or_init_engine,
+    EngineInstance, EngineKey, EngineLoadParams, EnginePool, ZipVoiceEngineParams,
+    get_or_init_engine,
 };
 pub use error::TtsError;
-pub use model_service::{TtsModelPaths, TtsModelService};
+pub use model_service::{KokoroPaths, TtsModelPaths, TtsModelService, ZipVoicePaths};
 pub use options::TtsOptions;
 pub use pipeline::{acquire_instance, synth_to_bytes};
+pub use reference_profiles::{
+    ZipVoiceRef, from_base64_wav as decode_reference_wav, init as init_reference_profiles,
+    lookup as lookup_reference_profile, profile_names as reference_profile_names,
+    resolve_reference,
+};
 pub use streaming::{TtsStreamConfig, TtsStreamEvent, synthesize_streaming};
 pub use synthesizer::{SynthesizedAudio, Synthesizer, synthesize};

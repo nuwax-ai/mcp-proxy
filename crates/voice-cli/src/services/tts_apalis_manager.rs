@@ -24,6 +24,7 @@ use sqlx::sqlite::SqlitePoolOptions;
 use tracing::{debug, info, warn};
 
 use crate::VoiceCliError;
+use crate::models::config::TtsBackend;
 use crate::models::tts::TtsProcessingStage;
 use crate::models::{
     TaskManagementConfig, TaskStatsResponse, TtsConfig, TtsTask, TtsTaskError, TtsTaskStatus,
@@ -470,12 +471,28 @@ pub async fn tts_pipeline_worker(task: TtsTask, ctx: Data<TtsStepContext>) -> Re
         let length_scale = task.length_scale;
         let format_str = task.format.clone();
         let model_id_for_closure = model_id.clone();
+        let backend = ctx_cfg.backend;
+        let num_steps = ctx_cfg.zipvoice.num_steps;
+        let voice = task.voice.clone();
+        let reference_audio = task.reference_audio.clone();
+        let reference_text = task.reference_text.clone();
         tokio::task::spawn_blocking(
             move || -> Result<(Vec<u8>, AudioFormat, i32, usize), String> {
                 let fmt = AudioFormat::parse(&format_str);
                 let opts = TtsOptions {
                     sid,
                     speed,
+                    num_steps,
+                    reference: match backend {
+                        TtsBackend::Kokoro => None,
+                        // resolve_reference：reference_audio 优先 → voice 预置 → 回退首个预置 → Err
+                        TtsBackend::ZipVoice => crate::tts::resolve_reference(
+                            voice.as_deref(),
+                            reference_audio.as_deref(),
+                            reference_text.as_deref(),
+                        )
+                        .map_err(|e| e.to_string())?,
+                    },
                     ..Default::default()
                 };
                 let (bytes, sr, n_samples) = crate::tts::synth_to_bytes(
@@ -598,6 +615,9 @@ mod tests {
             language: None,
             format: "wav".into(),
             model: "mock".into(),
+            voice: None,
+            reference_audio: None,
+            reference_text: None,
             created_at: Utc::now(),
         }
     }

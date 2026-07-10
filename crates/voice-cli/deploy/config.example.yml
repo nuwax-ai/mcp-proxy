@@ -59,21 +59,39 @@ whisper:
   #   decode_timeout_sec: 30
   #   compare_granularity: "auto"  # auto（按 language 推断）/ char / word
 
-# TTS（sherpa-onnx Kokoro，CPU v1）—— 默认禁用
-# 启用: 置 enabled: true + 放 Kokoro 模型到 ./models/tts/kokoro-multi-lang-v1_0/
-# 模型下载 / lexicon 组合（us-en+zh，不含 gb-en；代码 resolve_paths 自动选对，无需手动删）见 docs/DEPLOYMENT.md §4.2
+# TTS（sherpa-onnx；Kokoro / ZipVoice 双引擎）—— 默认禁用
+# 启用: 置 enabled: true + 放模型到 ./models/tts/<model_id>/
+#   - Kokoro（标准多音色）: kokoro-multi-lang-v1_1/（103 音色；lexicon 组合 us-en+zh，不含 gb-en）
+#   - ZipVoice（零样本克隆，中英）: zipvoice-distill-int8-zh-en-emilia/ + vocos_24khz.onnx（vocoder 独立下载）
+#     克隆需 reference 音频+文本：预置 config.tts.engine.zipvoice.voices（请求 voice:<name>）
+#     或请求期动态上传 reference_audio（base64 WAV）。
+# 模型下载见 docs/DEPLOYMENT.md §4
 tts:
   enabled: false                   # ← true 启用（不启用时 /api/v1/tts* 返回 403，STT 正常）
   max_text_length: 5000
   # tasks_db_path: "./data/tts_tasks.db"   # TTS 异步任务独立 SQLite（默认；与 STT 的 ./data/tasks.db 隔离）
   engine:
+    backend: kokoro                # TTS 引擎：kokoro（标准多音色，默认）/ zipvoice（零样本克隆）
     pool_size: 1                   # 引擎实例数（CPU 最优 1；多实例并发但内存×N）
-    default_model: "kokoro-multi-lang-v1_0"
-    default_sid: 0                 # 默认音色 id（0-52）
+    default_model: "kokoro-multi-lang-v1_1"
+    default_sid: 0                 # Kokoro 默认音色 id（0-102）
     default_speed: 1.0             # 语速（1.0 原速）
-    default_length_scale: 1.0      # 时长缩放（model-level，仅首次加载生效）
+    default_length_scale: 1.0      # Kokoro 时长缩放（model-level，仅首次加载生效）
     num_threads: 4
     models_dir: "./models/tts"
+    # ZipVoice 引擎配置（仅 backend: zipvoice 生效）
+    # zipvoice:
+    #   # model_dir: "./models/tts/zipvoice-distill-int8-zh-en-emilia"  # None = {models_dir}/{default_model}
+    #   # vocoder: "./models/tts/vocos_24khz.onnx"                       # None = 探测 {model_dir}/vocos_24khz.onnx
+    #   num_steps: 4                # flow-matching 步数（4 默认；调大更稳但更慢）
+    #   feat_scale: 0.1             # 4 个超参 Rust Default=0.0 会被 C++ 拒绝，必须 >0（下面是示例值）
+    #   t_shift: 0.5
+    #   target_rms: 0.1
+    #   guidance_scale: 1.0
+    #   voices:                     # 预置音色组（启动期加载缓存；请求 voice:<name> 引用）
+    #     - name: leijun
+    #       reference_wav: "./models/tts/zipvoice-distill-int8-zh-en-emilia/test_wavs/leijun-1.wav"
+    #       reference_text: "那还是三十六年前, 一九八七年. 我呢考上了武汉大学的计算机系."
   # streaming:                     # 可选，全部有默认值
   #   idle_timeout_sec: 30
   #   synth_timeout_sec: 120

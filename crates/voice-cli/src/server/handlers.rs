@@ -1,4 +1,5 @@
 use crate::VoiceCliError;
+use crate::models::config::TtsBackend;
 use crate::models::{
     AsyncTaskResponse, CancelResponse, Config, DeleteResponse, HealthResponse, HttpResult,
     ModelsResponse, RetryResponse, SimpleTaskStatus, TaskStatsResponse, TaskStatus,
@@ -9,7 +10,7 @@ use crate::services::{
     AudioFileManager, AudioFormatDetector, LockFreeApalisManager, MetadataExtractor, ModelService,
     TranscriptionTask, TtsApalisManager,
 };
-use crate::tts::{AudioFormat, TtsModelService, TtsOptions};
+use crate::tts::{AudioFormat, TtsModelService, TtsOptions, resolve_reference};
 use apalis_sql::sqlite::SqliteStorage;
 use axum::extract::{Json, Multipart, Path as AxumPath, State};
 use axum::response::IntoResponse;
@@ -1198,7 +1199,7 @@ pub async fn tts_sync_handler(
         .unwrap_or_else(|| engine.default_model.clone());
 
     // ensure_model：缺失即 400，附手动放置指引（Fail Fast，早于 spawn_blocking）
-    if let Err(e) = state.tts_model_service.ensure_model(&model_id) {
+    if let Err(e) = state.tts_model_service.ensure_model(&model_id, engine) {
         return Ok(HttpResult::<String>::from(VoiceCliError::from(e)).into_response());
     }
 
@@ -1207,23 +1208,41 @@ pub async fn tts_sync_handler(
         Some(f) => AudioFormat::parse(f),
         None => AudioFormat::parse(&state.config.tts.streaming.default_format),
     };
-    // 池化参数（model-level；length_scale 仅首次加载生效）
+    // 池化参数（model-level；length_scale 仅 Kokoro 首次加载生效）
     let length_scale = request.length_scale.unwrap_or(engine.default_length_scale);
-    // 合成参数（per-request）；silence_scale 走 TtsOptions::default 单一来源
-    let opts = TtsOptions {
-        sid: request.sid.unwrap_or(engine.default_sid),
-        speed: request.speed.unwrap_or(engine.default_speed),
-        ..Default::default()
-    };
+    // per-request 参数（reference 解码 CPU 密集，随 synth 一起放 spawn_blocking）
+    let sid = request.sid.unwrap_or(engine.default_sid);
+    let speed = request.speed.unwrap_or(engine.default_speed);
+    let backend = engine.backend;
+    let num_steps = engine.zipvoice.num_steps;
+    let voice = request.voice.clone();
+    let reference_audio = request.reference_audio.clone();
+    let reference_text = request.reference_text.clone();
 
     // 同步合成走 spawn_blocking（sherpa-onnx 是同步阻塞 C 调用）
     let model_svc = state.tts_model_service.clone();
-    let engine_cfg = state.config.tts.engine.clone();
+    // clone Arc<Config>（廉价）而非 TtsEngineConfig（含 voices Vec），避免每请求复制 voices
+    let config = state.config.clone();
     let result = tokio::task::spawn_blocking(move || -> std::result::Result<_, VoiceCliError> {
+        let opts = TtsOptions {
+            sid,
+            speed,
+            num_steps,
+            reference: match backend {
+                TtsBackend::Kokoro => None,
+                // resolve_reference：reference_audio 优先 → voice 预置 → 回退首个预置 → Err
+                TtsBackend::ZipVoice => resolve_reference(
+                    voice.as_deref(),
+                    reference_audio.as_deref(),
+                    reference_text.as_deref(),
+                )?,
+            },
+            ..Default::default()
+        };
         let (bytes, sample_rate, _n) = crate::tts::synth_to_bytes(
             &model_svc,
             &model_id,
-            &engine_cfg,
+            &config.tts.engine,
             &text,
             &opts,
             length_scale,
@@ -1273,29 +1292,45 @@ pub async fn tts_voices_handler(
         let msg = "TTS service is disabled".to_string();
         return Ok(HttpResult::<String>::from(VoiceCliError::InvalidInput(msg)).into_response());
     }
-    let model_id = state.config.tts.engine.default_model.clone();
-    if let Err(e) = state.tts_model_service.ensure_model(&model_id) {
+    // clone Arc<Config>（廉价）而非 TtsEngineConfig（含 voices Vec），避免每请求复制 voices
+    let config = state.config.clone();
+    let model_id = config.tts.engine.default_model.clone();
+    if let Err(e) = state
+        .tts_model_service
+        .ensure_model(&model_id, &config.tts.engine)
+    {
         return Ok(HttpResult::<String>::from(VoiceCliError::from(e)).into_response());
     }
 
-    // 加载引擎取 num_speakers（spawn_blocking：create 是阻塞 IO）
+    // Kokoro：num_speakers（加载引擎取）；ZipVoice：预置音色名（克隆引擎无内置 speaker）
     let model_svc = state.tts_model_service.clone();
-    let engine_cfg = state.config.tts.engine.clone();
-    let num = tokio::task::spawn_blocking(move || -> std::result::Result<i32, VoiceCliError> {
-        let inst = crate::tts::acquire_instance(
-            &model_svc,
-            &model_id,
-            &engine_cfg,
-            engine_cfg.default_length_scale,
-        )?;
-        let guard = inst.lock().unwrap_or_else(|p| p.into_inner());
-        Ok(guard.num_speakers())
-    })
-    .await
-    .map_err(|e| VoiceCliError::TtsError(format!("TTS voices join 失败: {e}")))??;
-
+    let backend = config.tts.engine.backend;
     let body =
-        serde_json::json!({ "model": state.config.tts.engine.default_model, "num_speakers": num });
+        tokio::task::spawn_blocking(move || -> std::result::Result<serde_json::Value, VoiceCliError> {
+            Ok(match backend {
+                TtsBackend::Kokoro => {
+                    let inst = crate::tts::acquire_instance(
+                        &model_svc,
+                        &model_id,
+                        &config.tts.engine,
+                        config.tts.engine.default_length_scale,
+                    )?;
+                    let guard = inst.lock().unwrap_or_else(|p| p.into_inner());
+                    serde_json::json!({ "model": &model_id, "backend": "kokoro", "num_speakers": guard.num_speakers() })
+                }
+                TtsBackend::ZipVoice => {
+                    let profiles = crate::tts::reference_profile_names();
+                    serde_json::json!({
+                        "model": &model_id, "backend": "zipvoice", "num_speakers": profiles.len(),
+                        "profiles": profiles,
+                        "hint": "克隆引擎：请求传 voice:<预置名> 或 reference_audio(base64 WAV) 动态克隆"
+                    })
+                }
+            })
+        })
+        .await
+        .map_err(|e| VoiceCliError::TtsError(format!("TTS voices join 失败: {e}")))??;
+
     let response = axum::response::Response::builder()
         .status(200)
         .header("Content-Type", "application/json")
@@ -1347,7 +1382,7 @@ pub async fn tts_async_handler(
         .clone()
         .unwrap_or_else(|| engine.default_model.clone());
     // ensure_model：缺失即拒（Fail Fast，不进队列空跑）
-    if let Err(e) = state.tts_model_service.ensure_model(&model_id) {
+    if let Err(e) = state.tts_model_service.ensure_model(&model_id, engine) {
         return HttpResult::<TtsTaskResponse>::from(VoiceCliError::from(e));
     }
 
@@ -1365,6 +1400,9 @@ pub async fn tts_async_handler(
         language: request.language,
         format: format.clone(),
         model: model_id,
+        voice: request.voice,
+        reference_audio: request.reference_audio,
+        reference_text: request.reference_text,
         created_at: Utc::now(),
     };
     let estimated = task.estimate_duration_secs();
