@@ -117,18 +117,20 @@ transcribe-rs = { workspace = true, features = ["whisper-cpp", "whisper-metal"] 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 transcribe-rs = { workspace = true, features = ["whisper-cpp"] }
 
-# TTS/STT 引擎 sherpa-onnx。
-# macOS 用 **shared**：CoreML EP 仅 shared 变体启用（static 变体编译时禁用 → CPU 回退）。
-#   shared 模式 copy dylib 到 binary 旁 + rpath @loader_path，运行/分发均可用。
-# 其他平台用 static（Linux CUDA 需自编 C++ 库，留后续）。
-# 编译期需 sherpa-onnx 预编译 C 库：设 SHERPA_ONNX_ARCHIVE_DIR 指向本地缓存（github 阻断时）。
+# TTS/STT 引擎 sherpa-onnx：各平台均用 **shared** 变体。
+# - macOS：CoreML EP 仅 shared 启用（static 编译时禁用 → CPU 回退）。
+# - Linux：CUDA 预编译包（sherpa-onnx-v*cuda-12.x-cudnn-9.x-linux-x64-gpu）是 shared；
+#   CPU 用 linux-x64-shared-lib。CUDA 走 SHERPA_ONNX_LIB_DIR 指向解压后的 lib/
+#   （含 libonnxruntime_providers_cuda.so，运行时按需加载 → A6000）。
+# shared 模式 dylib 放 binary 旁 + rpath（macOS @loader_path / Linux $ORIGIN，见 .cargo/config）。
+# 编译期：SHERPA_ONNX_LIB_DIR（自定义 lib，如 CUDA 包）或 SHERPA_ONNX_ARCHIVE_DIR（自动下载缓存）。
 [target.'cfg(target_os = "macos")'.dependencies.sherpa-onnx]
 workspace = true
 features = ["shared"]
 
 [target.'cfg(not(target_os = "macos"))'.dependencies.sherpa-onnx]
 workspace = true
-features = ["static"]
+features = ["shared"]
 
 # 繁→简中文转换（STT 后处理，纯 Rust ferrous-opencc）
 [dependencies.ferrous-opencc]
