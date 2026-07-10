@@ -48,6 +48,9 @@ whisper:
   #       hotwords: ""
   #       max_new_tokens: 1024     # 生成 token 上限（长音频调高；sherpa Rust 默认 128 偏小）
   # streaming:                     # STT 流式（可选，全部有默认值）
+  #   engine: "whisper"           # 流式引擎（与批量 backend 解耦；默认 whisper——唯一支持 LA2 真流式；
+  #                                 #   sherpa/sensevoice 是离线模型无流式能力）。加新流式引擎见 build_streaming_decoder
+  #   model: "large-v3"           # 流式 whisper 模型（None = 回退 default_model；可与批量 whisper 默认解耦）
   #   decode_interval_sec: 0.5     # 解码触发间隔
   #   tail_trim_sec: 0.3           # B 解码尾部裁剪
   #   min_agree_count: 2           # LA2 前缀稳定阈值

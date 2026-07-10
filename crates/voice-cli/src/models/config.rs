@@ -459,7 +459,17 @@ impl Default for SttEngineConfig {
     }
 }
 
-/// STT 流式配置（P2 LocalAgreement 2 真流式用；P1 仅占位）
+/// 流式引擎（与批量 [`SttBackend`] 解耦）。目前仅 whisper 支持 LA2 真流式；
+/// sherpa/sensevoice 是离线模型（OfflineRecognizer），无流式能力。
+/// 加新流式引擎：此处加变体 + impl `Decoder` + `build_streaming_decoder` 加分支。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum StreamingEngine {
+    #[default]
+    Whisper,
+}
+
+/// STT 流式配置（LA2 真流式）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StreamingConfig {
     /// 解码触发间隔（秒）：audio buffer 每新增此时长触发一次 A/B 双解码
@@ -484,6 +494,14 @@ pub struct StreamingConfig {
     /// 避免长会话 buffer 单调增长导致 O(n²) 全量重解码。0 = 禁用。
     #[serde(default = "default_buffer_max_sec")]
     pub buffer_max_sec: f32,
+    /// 流式引擎（与批量 backend 解耦；默认 whisper——唯一支持 LA2 真流式的引擎）。
+    /// sherpa/sensevoice 离线模型无流式能力。加新流式引擎见 `build_streaming_decoder`。
+    #[serde(default)]
+    pub engine: StreamingEngine,
+    /// 流式用的模型 id（whisper ggml 模型名，如 `large-v3`/`base`）。
+    /// `None` = 回退 `whisper.default_model`（与批量 whisper 默认解耦：可单独指定流式模型）。
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 impl Default for StreamingConfig {
@@ -496,6 +514,8 @@ impl Default for StreamingConfig {
             decode_timeout_sec: default_decode_timeout(),
             compare_granularity: default_granularity(),
             buffer_max_sec: default_buffer_max_sec(),
+            engine: StreamingEngine::default(),
+            model: None,
         }
     }
 }

@@ -43,6 +43,7 @@ pub use sherpa_engine_pool::{
 pub use sherpa_model_paths::{SherpaAsrKind, SherpaAsrPaths};
 pub use streaming_session::{
     Decoder, SessionConfig, SessionError, StreamEvent, StreamingSession, WhisperDecoder,
+    build_streaming_decoder,
 };
 
 use crate::models::config::OutputScript;

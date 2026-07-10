@@ -1,10 +1,17 @@
 //! STT 流式 WebSocket 端点（LocalAgreement 2）。
 //!
+//! **流式与批量 backend 解耦**：流式引擎由 `whisper.streaming.engine` 声明（默认 whisper，
+//! 唯一支持 LA2 真流式；sherpa/sensevoice 是离线模型），与批量 `backend` 无关。
+//! 故 `backend: fireredasr2` 时批量=fireredasr2、流式=whisper，一个进程两不耽误。
+//! 流式模型优先级：start 帧 `model` > `whisper.streaming.model` > `whisper.default_model`。
+//!
 //! 协议：
 //! - 客户端 → 服务端：首帧 JSON `{type:"start",sample_rate?,language?,model?,initial_prompt?}`；
 //!   后续二进制帧 = PCM s16le / 16k / mono；`{type:"stop"}` 或关闭连接结束。
 //! - 服务端 → 客户端：`{type:"ready",sample_rate}` → `{type:"partial",text,committed}`
 //!   → `{type:"committed",text,committed}` → `{type:"done",committed_total}`。
+//! - **最终文本取 `done.committed_total`**（完整 buffer 单次解码，干净）；中间 `committed` 是
+//!   尽力而为的增量（LA2 无 word-timestamp，前文修正偶发重复，属固有残留）。
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -19,9 +26,7 @@ use serde::Deserialize;
 use tracing::{info, warn};
 
 use crate::server::handlers::AppState;
-use crate::stt::{
-    SessionConfig, StreamEvent, StreamingSession, SttTranscribeOptions, WhisperDecoder,
-};
+use crate::stt::{SessionConfig, StreamEvent, StreamingSession, SttTranscribeOptions};
 
 /// 客户端 start 帧（`type` 等未知字段由 serde 默认忽略）
 #[derive(Debug, Deserialize, Default)]
@@ -81,9 +86,12 @@ async fn run_stream_session(socket: WebSocket, state: AppState) {
         return;
     }
 
-    // 2. 模型解析 + ensure_model + 构造 decoder
+    // 2. 流式引擎 + 模型解析（与批量 backend 解耦：流式用 whisper.streaming.engine/model）
+    let streaming_cfg = state.config.whisper.streaming.clone();
+    // 模型优先级：请求帧 model > whisper.streaming.model > whisper.default_model
     let model_id = start
         .model
+        .or(streaming_cfg.model.clone())
         .unwrap_or_else(|| state.config.whisper.default_model.clone());
     if let Err(e) = state.model_service.ensure_model(&model_id).await {
         let _ = send_event(
@@ -118,17 +126,36 @@ async fn run_stream_session(socket: WebSocket, state: AppState) {
             .or_else(|| engine.default_initial_prompt.clone()),
         ..Default::default()
     };
-    let streaming_cfg = state.config.whisper.streaming.clone();
     // 提前 clone：opts 下方 move 进 decoder，session_cfg 仍需 language（granularity auto 推断依赖）
     let session_language = opts.language.clone();
     let session_initial_prompt = opts.initial_prompt.clone();
 
-    let decoder = Arc::new(WhisperDecoder {
-        model_id: model_id.clone(),
-        model_path: model_path.clone(),
+    // 工厂按 streaming.engine 构造解码器（单一 dispatch 点；加新流式引擎见 build_streaming_decoder）
+    let decoder = match crate::stt::build_streaming_decoder(
+        streaming_cfg.engine,
+        model_id.clone(),
+        model_path.clone(),
         pool_size,
         opts,
-    });
+    ) {
+        Ok(d) => d,
+        Err(e) => {
+            let _ = send_event(
+                &mut sink,
+                StreamEvent::Error {
+                    message: format!(
+                        "流式解码器构造失败（engine={:?}）: {e}",
+                        streaming_cfg.engine
+                    ),
+                },
+            )
+            .await;
+            return;
+        }
+    };
+    // 提前捕获日志用值（model_id / streaming_cfg 随后 move 进 session_cfg → session）
+    let log_model_id = model_id.clone();
+    let log_engine = streaming_cfg.engine;
     let session_cfg = SessionConfig {
         sample_rate: 16000,
         language: session_language,
@@ -152,7 +179,10 @@ async fn run_stream_session(socket: WebSocket, state: AppState) {
     {
         return;
     }
-    info!("stream session ready: model={}", decoder.model_id);
+    info!(
+        "stream session ready: model={}, engine={:?}",
+        log_model_id, log_engine
+    );
 
     // 4. 事件转发任务（mpsc rx → socket）。收到 Done 后退出。
     let forward = tokio::spawn(async move {

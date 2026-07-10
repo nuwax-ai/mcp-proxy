@@ -16,7 +16,7 @@ use serde::Serialize;
 use tokio::sync::mpsc;
 use tracing::warn;
 
-use crate::models::config::StreamingConfig;
+use crate::models::config::{StreamingConfig, StreamingEngine};
 use crate::stt::local_agreement::{CompareGranularity, LaConfig, LocalAgreement, SttSegment};
 use crate::stt::{EngineKey, SttError, SttTranscribeOptions, get_or_init_whisper};
 
@@ -110,10 +110,33 @@ impl Decoder for WhisperDecoder {
     }
 }
 
-/// 流式会话
-pub struct StreamingSession<D: Decoder> {
+/// 按 [`StreamingEngine`] 构造流式解码器（**单一 dispatch 点**）。
+///
+/// 加新流式引擎三步：① `StreamingEngine` 加变体；② impl `Decoder`；③ 这里加 match 分支。
+/// **不改 `StreamingSession`**（它持 `dyn Decoder`，引擎无关）。
+///
+/// 单变体 match 无 `_ =>`：将来加变体时编译器报 non-exhaustive，强制补分支（编译期扩展保护）。
+pub fn build_streaming_decoder(
+    engine: StreamingEngine,
+    model_id: String,
+    model_path: PathBuf,
+    pool_size: usize,
+    opts: SttTranscribeOptions,
+) -> Result<Arc<dyn Decoder>, SttError> {
+    match engine {
+        StreamingEngine::Whisper => Ok(Arc::new(WhisperDecoder {
+            model_id,
+            model_path,
+            pool_size,
+            opts,
+        })),
+    }
+}
+
+/// 流式会话（引擎无关：持 `dyn Decoder`，由 [`build_streaming_decoder`] 按 engine 构造）
+pub struct StreamingSession {
     cfg: SessionConfig,
-    decoder: Arc<D>,
+    decoder: Arc<dyn Decoder>,
     la: LocalAgreement,
     granularity: CompareGranularity,
     buffer: Vec<f32>,
@@ -125,10 +148,10 @@ pub struct StreamingSession<D: Decoder> {
     cancel: Arc<AtomicBool>,
 }
 
-impl<D: Decoder> StreamingSession<D> {
+impl StreamingSession {
     pub fn new(
         cfg: SessionConfig,
-        decoder: Arc<D>,
+        decoder: Arc<dyn Decoder>,
         event_tx: mpsc::Sender<StreamEvent>,
         cancel: Arc<AtomicBool>,
     ) -> Self {
@@ -293,8 +316,8 @@ impl<D: Decoder> StreamingSession<D> {
 }
 
 /// 单次解码（spawn_blocking + timeout；取消由调用方在 try_decode 入口检查）
-async fn decode_once<D: Decoder>(
-    decoder: Arc<D>,
+async fn decode_once(
+    decoder: Arc<dyn Decoder>,
     samples: Vec<f32>,
     timeout: Duration,
 ) -> Result<Vec<SttSegment>, SessionError> {
