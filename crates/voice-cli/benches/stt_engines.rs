@@ -66,10 +66,16 @@ fn home_path(default_sub: &[&str]) -> PathBuf {
 
 /// 读音频文件为 bytes（缺失返回 None，跳过）。
 fn read_audio(env_key: &str, default_sub: &[&str]) -> Option<(String, Vec<u8>)> {
-    let path = std::env::var(env_key).map(PathBuf::from).unwrap_or_else(|_| home_path(default_sub));
+    let path = std::env::var(env_key)
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| home_path(default_sub));
     match std::fs::read(&path) {
         Ok(bytes) => {
-            eprintln!("🎵 {env_key} = {}（{}KB）", path.display(), bytes.len() / 1024);
+            eprintln!(
+                "🎵 {env_key} = {}（{}KB）",
+                path.display(),
+                bytes.len() / 1024
+            );
             Some((path.display().to_string(), bytes))
         }
         Err(_) => {
@@ -120,10 +126,15 @@ fn bench_stt(c: &mut Criterion) {
 
     let zh = read_audio(
         "BENCH_AUDIO_ZH",
-        &["data", "audio", "task_task019f3380f53b78c3b8f20d4a5ded58cb.m4a"],
+        &[
+            "data",
+            "audio",
+            "task_task019f3380f53b78c3b8f20d4a5ded58cb.m4a",
+        ],
     );
     let en = read_audio("BENCH_AUDIO_EN", &["jfk.wav"]);
-    let fixtures: Vec<(&str, &(String, Vec<u8>), &str)> = [
+    type Fixture<'a> = (&'a str, &'a (String, Vec<u8>), &'a str);
+    let fixtures: Vec<Fixture> = [
         zh.as_ref().map(|a| ("中文", a, "zh")),
         en.as_ref().map(|a| ("英文", a, "en")),
     ]

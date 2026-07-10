@@ -1599,11 +1599,18 @@ async fn transcription_step(
                     load_params,
                 } => {
                     // 独立 sherpa-onnx 池：Pool<OfflineRecognizer>（FireRedASR2/Fun-ASR-Nano/Qwen3-ASR）
+                    // FireRedASR2-AED 无标点 → 加 CT-Transformer 标点（已 init 才生效，否则透传）；
+                    // Fun/Qwen 自带 LLM 标点，跳过（is_fireredasr2=false）
+                    let is_fireredasr2 =
+                        matches!(load_params.kind, crate::stt::SherpaAsrKind::FireRedAsr2);
                     let key = crate::stt::EngineKey::new(&model_id);
                     let pool = crate::stt::sherpa_get_or_init_engine(key, load_params)?;
                     let inst = pool.pick();
                     let guard = inst.lock().unwrap_or_else(|p| p.into_inner());
-                    let result = crate::stt::sherpa_recognize(&guard, &samples)?;
+                    let mut result = crate::stt::sherpa_recognize(&guard, &samples)?;
+                    if is_fireredasr2 {
+                        result.text = crate::stt::sherpa_punc::add_punct(&result.text);
+                    }
                     Ok(crate::stt::map_sherpa_recognition_result(result, output_script))
                 }
             }

@@ -88,6 +88,29 @@ pub async fn handle_server_run(config: &Config) -> crate::Result<()> {
     // 设备由 config.whisper.engine.device 决定（默认 "auto"=平台 GPU）。
     crate::stt::accel::init_global_accel(&config.whisper.engine.device);
 
+    // 初始化 sherpa FireRedASR2 标点恢复（幂等；punct=true 且模型存在才加载，否则 add_punct 透传）。
+    // 仅 FireRedASR2-AED 无标点输出需要；Fun/Qwen 自带 LLM 标点，调用方按 kind 跳过。
+    {
+        let sh = &config.whisper.engine.sherpa;
+        if sh.punct {
+            let punc_onnx = match &sh.punct_model_dir {
+                Some(d) => {
+                    std::path::PathBuf::from(d).join(crate::stt::sherpa_punc::PUNCT_MODEL_FILE)
+                }
+                None => std::path::Path::new(&config.whisper.models_dir)
+                    .join("punct")
+                    .join(crate::stt::sherpa_punc::DEFAULT_PUNCT_DIR)
+                    .join(crate::stt::sherpa_punc::PUNCT_MODEL_FILE),
+            };
+            crate::stt::sherpa_punc::init(
+                Some(&punc_onnx),
+                sh.provider.as_deref(),
+                sh.num_threads,
+                sh.debug,
+            );
+        }
+    }
+
     let config_arc = Arc::new(config.clone());
     let app_state = handlers::AppState::new(config_arc.clone()).await?;
     let mut app = routes::create_routes_with_state(app_state.clone()).await?;

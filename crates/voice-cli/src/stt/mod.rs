@@ -25,6 +25,7 @@ pub mod script_convert;
 pub mod sensevoice;
 pub mod sherpa_engine_pool;
 pub mod sherpa_model_paths;
+pub mod sherpa_punc;
 pub mod streaming_session;
 
 pub use engine_pool::{

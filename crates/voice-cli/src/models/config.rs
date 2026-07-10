@@ -344,6 +344,14 @@ pub struct SherpaAsrEngineConfig {
     /// Qwen3-ASR 配置（仅 `backend: qwen3asr` 生效）
     #[serde(default)]
     pub qwen3asr: Qwen3AsrConfig,
+    /// 是否给 FireRedASR2 输出加标点（sherpa-onnx CT-Transformer；默认 true）。
+    /// Fun-ASR-Nano / Qwen3-ASR 自带 LLM 标点，**不受此开关影响**（不会双标点）。
+    #[serde(default = "default_bool_true")]
+    pub punct: bool,
+    /// 标点模型目录（含 `model.onnx`）。`None` = `{whisper.models_dir}/punct/
+    ///   sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12`（规范名）。
+    #[serde(default)]
+    pub punct_model_dir: Option<String>,
 }
 
 impl Default for SherpaAsrEngineConfig {
@@ -356,6 +364,8 @@ impl Default for SherpaAsrEngineConfig {
             fireredasr2: FireRedAsr2Config::default(),
             funasrnano: FunAsrNanoConfig::default(),
             qwen3asr: Qwen3AsrConfig::default(),
+            punct: default_bool_true(),
+            punct_model_dir: None,
         }
     }
 }
