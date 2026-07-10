@@ -348,7 +348,7 @@ v1 TTS 走 CPU（sherpa-onnx 默认预编译库 CPU-only，无 cargo GPU feature
 
 Kokoro CPU RTF<0.3 已快于实时，多数场景无需 GPU。GPU（coreml/cuda）仅对高并发或长文本批量合成有收益；ZipVoice 同走 sherpa（GPU 同 Kokoro）。
 
-> 💡 **首次请求慢、后续快**：引擎懒加载（首次请求触发 `OfflineTts::create` + EP 初始化，~10-20s；之后命中进程内缓存）。STT/TTS 均如此，属正常；重启服务后首次会再次慢。
+> 💡 **引擎懒加载 + 启动预热**：引擎首次加载 ~10-20s（`OfflineTts::create` + EP 初始化）。`config.tts.engine.warmup: true`（默认）启动期预热默认引擎（listen 前，完成后接请求），首个用户即命中缓存；关 warmup 则首个用户触发懒加载（慢 ~15s）。STT 仍懒加载（warmup 暂只 TTS）。
 
 ---
 

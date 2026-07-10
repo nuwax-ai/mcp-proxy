@@ -78,6 +78,7 @@ tts:
     default_speed: 1.0             # 语速（1.0 原速）
     default_length_scale: 1.0      # Kokoro 时长缩放（model-level，仅首次加载生效）
     num_threads: 4
+    warmup: true                   # 启动期预热默认引擎（避免首用户 ~10-20s 加载延迟；代价启动多 ~15s；关掉则首用户触发懒加载）
     models_dir: "./models/tts"
     # ZipVoice 引擎配置（仅 backend: zipvoice 生效）
     # zipvoice:

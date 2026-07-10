@@ -149,6 +149,38 @@ pub async fn handle_server_run(config: &Config) -> crate::Result<()> {
     );
     info!("Starting axum server...");
 
+    // 预热 TTS 默认引擎（listen 前 await，确保首个请求命中缓存；代价：启动多 ~10-20s）。
+    // warmup=true 且 enabled 才预热；失败仅 warn（不阻塞服务，首次请求将报错）。
+    if config.tts.enabled && config.tts.engine.warmup {
+        let engine_cfg = app_state.config.tts.engine.clone();
+        let model_svc = app_state.tts_model_service.clone();
+        let model_id = engine_cfg.default_model.clone();
+        let model_id_log = model_id.clone(); // model_id 将 move 进 spawn_blocking，留一份给日志
+        info!(model = %model_id_log, "🚀 预热 TTS 引擎（listen 前，~10-20s，完成后接请求）...");
+        let started = std::time::Instant::now();
+        match tokio::task::spawn_blocking(move || {
+            crate::tts::acquire_instance(
+                &model_svc,
+                &model_id,
+                &engine_cfg,
+                engine_cfg.default_length_scale,
+            )
+        })
+        .await
+        {
+            Ok(Ok(_)) => info!(
+                model = %model_id_log,
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "✅ TTS 预热完成（首个请求将命中缓存）"
+            ),
+            Ok(Err(e)) => warn!(
+                model = %model_id_log,
+                "⚠️ TTS 预热失败（不阻塞，首次请求将报错）: {e}"
+            ),
+            Err(e) => warn!("TTS 预热 join 失败: {e}"),
+        }
+    }
+
     let http = async {
         let result = axum::serve(listener, app)
             .with_graceful_shutdown(shutdown_signal_with_broadcast(shutdown_tx))

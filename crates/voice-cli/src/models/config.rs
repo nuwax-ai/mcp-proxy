@@ -244,6 +244,9 @@ pub struct TtsEngineConfig {
     /// 模型根目录（`{models_dir}/{model_id}/`）
     #[serde(default = "default_tts_models_dir")]
     pub models_dir: String,
+    /// 启动期预热默认引擎（避免首个用户承受 ~10-20s 加载延迟；默认 true）
+    #[serde(default = "default_tts_warmup")]
+    pub warmup: bool,
     /// sherpa-onnx C 端 verbose 日志
     #[serde(default)]
     pub debug: bool,
@@ -715,6 +718,7 @@ impl Default for TtsEngineConfig {
             num_threads: default_tts_num_threads(),
             provider: None,
             models_dir: default_tts_models_dir(),
+            warmup: default_tts_warmup(),
             debug: false,
             zipvoice: ZipVoiceConfig::default(),
         }
@@ -751,6 +755,9 @@ fn default_tts_length_scale() -> f32 {
 }
 fn default_tts_num_threads() -> i32 {
     4
+}
+fn default_tts_warmup() -> bool {
+    true
 }
 fn default_tts_lang() -> Option<String> {
     // None：对齐官方 run-kokoro-zh-en.sh（不传 --kokoro-lang；lexicon 提供后 lang 非必需）。
