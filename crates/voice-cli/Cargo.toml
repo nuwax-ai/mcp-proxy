@@ -24,14 +24,8 @@ tower-http = { workspace = true }
 utoipa = { workspace = true, features = ["axum_extras", "chrono", "uuid"] }
 utoipa-swagger-ui = { workspace = true, features = ["axum"] }
 
-# Async runtime
-tokio = { version = "1", features = [
-    "macros",
-    "net",
-    "rt",
-    "rt-multi-thread",
-    "signal",
-] }
+# Async runtime（workspace tokio 已含 macros/net/rt/rt-multi-thread；voice-cli 再加 signal）
+tokio = { workspace = true, features = ["signal"] }
 tokio-util = { workspace = true }
 
 # CLI argument parsing
@@ -43,7 +37,7 @@ serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 
 # Configuration management
-config = { version = "0.15", features = ["yaml", "json", "toml"] }
+config = { workspace = true }
 
 # Logging and tracing
 tracing = { workspace = true }
@@ -64,6 +58,9 @@ rust-i18n = { workspace = true }
 # HTTP client for model downloads
 # 使用 rustls + webpki-roots（内置 Mozilla 根证书），避免动态链接系统 OpenSSL。
 # 这样产物不依赖任何版本的 libssl.so，跨发行版部署不会再出现 libssl.so.1.1 找不到的问题。
+# reqwest 0.12（**不**走 workspace 0.13）：0.13 的 rustls 拉入 aws-lc-rs（大 C 加密库），
+# 令本 STT 重二进制（whisper.cpp + ort + sherpa）启动即被 macOS jetsam SIGKILL。
+# 0.12 同 mcp-sse-proxy（rmcp 0.10 trait impl 对齐）。default-features=false + rustls-tls 免系统 TLS。
 reqwest = { version = "0.12", default-features = false, features = [
     "json",
     "stream",
@@ -76,13 +73,13 @@ reqwest = { version = "0.12", default-features = false, features = [
 chrono = { workspace = true, features = ["serde"] }
 
 # Utilities
-bytes = "1.0"
+bytes = { workspace = true }
 futures = { workspace = true }
 uuid = { workspace = true, features = ["v4","v7"] }
-base64 = "0.22"
-tempfile = "3.0"
-dirs = "6.0"
-url = "2.5"
+base64 = { workspace = true }
+tempfile = { workspace = true }
+dirs = { workspace = true }
+url = { workspace = true }
 
 # Embedded database for task persistence
 # sled = { version = "0.34", features = ["compression"] }  # Disabled due to zstd dependency conflict
@@ -91,20 +88,21 @@ url = "2.5"
 # Audio format detection with Symphonia
 symphonia = { workspace = true }
 dashmap = { workspace = true }
-infer = "0.19"
+infer = { workspace = true }
 
 # FFmpeg command wrapper（统一到 workspace 2.5，与 voice crates 一致）
 ffmpeg-sidecar = { workspace = true }
 
 # Task queue and persistence for async processing
-apalis = { version = "0.7", features = ["tracing", "limit", "timeout", "catch-panic", "retry", "filter"] }
-apalis-sql = { version = "0.7", features = ["sqlite"] }
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
+# workspace apalis 已含 tracing/limit；voice-cli 再加 timeout/catch-panic/retry/filter
+apalis = { workspace = true, features = ["timeout", "catch-panic", "retry", "filter"] }
+apalis-sql = { workspace = true }
+sqlx = { workspace = true }
 
 
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["winuser", "processthreadsapi"] }
+winapi = { workspace = true }
 
 [dependencies.voice-toolkit]
 workspace = true
@@ -119,17 +117,37 @@ transcribe-rs = { workspace = true, features = ["whisper-cpp", "whisper-metal"] 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 transcribe-rs = { workspace = true, features = ["whisper-cpp"] }
 
-# TTS 引擎 sherpa-onnx（v1 CPU，默认 static feature）。
+# TTS/STT 引擎 sherpa-onnx。
+# macOS 用 **shared**：CoreML EP 仅 shared 变体启用（static 变体编译时禁用 → CPU 回退）。
+#   shared 模式 copy dylib 到 binary 旁 + rpath @loader_path，运行/分发均可用。
+# 其他平台用 static（Linux CUDA 需自编 C++ 库，留后续）。
 # 编译期需 sherpa-onnx 预编译 C 库：设 SHERPA_ONNX_ARCHIVE_DIR 指向本地缓存（github 阻断时）。
-[dependencies.sherpa-onnx]
+[target.'cfg(target_os = "macos")'.dependencies.sherpa-onnx]
 workspace = true
+features = ["shared"]
+
+[target.'cfg(not(target_os = "macos"))'.dependencies.sherpa-onnx]
+workspace = true
+features = ["static"]
 
 # 繁→简中文转换（STT 后处理，纯 Rust ferrous-opencc）
 [dependencies.ferrous-opencc]
 workspace = true
 
 [dev-dependencies]
-tempfile = "3.0"
+tempfile = { workspace = true }
+# STT 端到端基准（见 benches/stt_engines.rs，经 HTTP 调用运行中的 server）。harness=false 走 criterion_main。
+# reqwest 的 multipart feature 在 workspace 根统一开（避免 dev-dep 与 lib normal-dep 特征集不一致 → multiple candidates）
+criterion = { workspace = true }
+# bench 经 HTTP 调用 server（localhost，无需 TLS）；0.12 与 lib 的 reqwest 0.12 同版本统一为一个 artifact
+reqwest = { version = "0.12", default-features = false, features = ["multipart"] }
+tokio = { workspace = true }
+
+# STT 引擎推理基准：测各引擎纯模型 RTF（fireredasr2/funasrnano/qwen3asr/sensevoice/whisper）。
+# 模型/音频缺省自动跳过；用法见 benches/stt_engines.rs 顶部文档。
+[[bench]]
+name = "stt_engines"
+harness = false
 
 
 [features]
@@ -139,3 +157,11 @@ default = []
 # - Linux 用 cuda（NVIDIA + CUDA toolkit）或 vulkan（Vulkan SDK）
 cuda = ["transcribe-rs/whisper-cuda"]
 vulkan = ["transcribe-rs/whisper-vulkan"]
+# STT SenseVoice ONNX 引擎（transcribe-rs `onnx` 后端，与 whisper 并存）：
+# - sensevoice：CPU ONNX（Mac dev 默认，功能验证；裸 cargo build -p voice-cli --features sensevoice）
+# - sensevoice-coreml：Mac Neural Engine/GPU 加速（需 ort-coreml，可选）
+# - sensevoice-cuda：Linux NVIDIA CUDA 加速（需 ort-cuda + CUDA toolkit/cuDNN，~800MB）
+# 配 `whisper.engine.backend: sensevoice` 启用；批量转录用 SenseVoice，流式仍 whisper。
+sensevoice = ["transcribe-rs/onnx"]
+sensevoice-coreml = ["sensevoice", "transcribe-rs/ort-coreml"]
+sensevoice-cuda = ["sensevoice", "transcribe-rs/ort-cuda"]

@@ -55,13 +55,19 @@ ffmpeg-sidecar = "2.5"
 # 与 fastembed 的 ort 版本完全一致，共存无冲突。GPU feature（whisper-metal/cuda/vulkan）
 # 由 voice-cli 按平台 [target.'cfg'] 选用，不在此处统一开。
 transcribe-rs = "0.3.11"
-# TTS 引擎（替代 Python IndexTTS）：sherpa-onnx 官方 crate 1.13.3，自带 onnxruntime C 库
-# （静态链入，与 fastembed/transcribe-rs 的 ort 隔离，三套引擎同属 ONNX 生态）。
-# -sys 编译期从 github releases 下载预编译库（或 SHERPA_ONNX_ARCHIVE_DIR 本地缓存）。
-# v1 默认 `static` feature = CPU-only；GPU 需自编 C++ 库（v2，见 plan §GPU 加速策略）。
-sherpa-onnx = "1.13.3"
+# TTS/STT 引擎：sherpa-onnx 官方 crate，自带 onnxruntime C 库（与 fastembed/transcribe-rs
+# 的 ort 隔离，三套引擎同属 ONNX 生态）。-sys 编译期从 github releases 下载预编译库
+# （或 SHERPA_ONNX_ARCHIVE_DIR 本地缓存）。
+# default-features=false：由各 crate 按平台选 static/shared（见 voice-cli Cargo.toml）。
+#   关键：macOS **static** 变体编译时禁用 CoreML（session.cc #else → CPU 回退）；
+#   macOS **shared** 变体启用 CoreML EP → STT sherpa 三引擎可走 Mac GPU/ANE。
+# ⚠️ 钉 1.13.3（**不**用 1.13.4）：1.13.4 bundle 的 onnxruntime 1.27.0 在本机 macOS 启动即被
+#   SIGKILL（--help 都 exit 137，main 前死；非内存/非 codesign/非下载损坏，重新下载复现）。
+#   1.13.3 的 onnxruntime 1.24.4 正常。`version="1.13.3"` 仍允许 1.13.4，靠 Cargo.lock 钉；
+#   若 `cargo update` 升到 1.13.4 会复发，需 `cargo update -p sherpa-onnx --precise 1.13.3` 回退。
+sherpa-onnx = { version = "1.13.3", default-features = false }
 # 繁→简中文转换（STT 后处理）：纯 Rust 核心，字典编译期内嵌，zstd 复用现有依赖树
-ferrous-opencc = "0.3"
+ferrous-opencc = "0.4"
 
 # Note: rmcp 依赖由各子项目独立管理（mcp-sse-proxy 用 0.10，mcp-streamable-proxy 用 0.12）
 tokio = { version = "1.52", features = ["macros", "net", "rt", "rt-multi-thread"] }
@@ -109,12 +115,15 @@ utoipa-swagger-ui = { version = "9", features = ["axum"] }
 dashmap = "6.1"
 arc-swap = "1.9"
 moka = { version = "0.12", features = ["future"] }
-criterion = "0.7"
+criterion = "0.8"
 once_cell = "1.21"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "=0.9.33"
 serde_with = "3.21"
+# reqwest：非 STT crate（mcp-proxy/oss-client/document-parser/mcp-streamable-proxy）用 workspace 0.13。
+# voice-cli / mcp-sse-proxy 各自 0.12 inline（见各 Cargo.toml：rmcp trait 对齐 + 避免 0.13 的 aws-lc-rs
+# 令 STT 重二进制启动被 macOS jetsam SIGKILL）。0.13 default features 即 rustls（无 native TLS）。
 reqwest = { version = "0.13", features = ["json"] }
 http = "1.4"
 aliyun-oss-rust-sdk = { version = "0.2", default-features = false, features = ["async"] }
@@ -128,12 +137,22 @@ tempfile = "3.27"
 dirs = "6.0"
 scopeguard = "1.2"
 
+# voice-cli 专用（迁入 workspace 统一版本；除 reqwest 外 voice-cli 不再 inline 版本）
+# config-rs（the `config` crate）：YAML/JSON/TOML 配置加载
+config = { version = "0.15", features = ["yaml", "json", "toml"] }
+url = "2.5"
+infer = "0.19"
+# Windows 仅：窗口/进程信息（voice-cli daemon 模式）
+winapi = { version = "0.3", features = ["winuser", "processthreadsapi"] }
+
 async-trait = "0.1"
 
 # Task queue and persistence for async processing
 apalis = { version = "0.7", features = ["tracing", "limit"] }
 apalis-sql = { version = "0.7", features = ["sqlite"] }
-sqlx = { version = "0.9", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
+# sqlx 0.8（**不**升 0.9）：0.8→0.9 是 breaking（Pool<Sqlite> API 变），需改 voice-cli 代码，
+# 留作单独迁移。0.9 的特性名也改了（runtime-tokio-rustls 拆成 runtime-tokio + tls-*）。
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
 sled = "0.34"
 
 # 可执行文件查找

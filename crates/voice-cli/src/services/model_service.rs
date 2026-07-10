@@ -27,6 +27,11 @@ impl ModelService {
         &self.config.whisper.default_model
     }
 
+    /// 借用完整配置（供 worker 等无 `AppState` 的上下文读取 STT 后端 / sensevoice 等配置）
+    pub fn config(&self) -> &Config {
+        &self.config
+    }
+
     /// Get the worker timeout from configuration
     pub fn worker_timeout(&self) -> u64 {
         self.config.whisper.workers.worker_timeout as u64

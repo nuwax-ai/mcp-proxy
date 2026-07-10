@@ -240,6 +240,156 @@ pub enum OutputScript {
     Simplified,
 }
 
+/// STT 后端引擎选择
+///
+/// **transcribe-rs 引擎**（`Box<dyn SpeechModel>` dyn 池）：
+/// - `Whisper`（默认）：whisper.cpp（GGML）；支持流式 + 批量；中文默认输出繁体
+/// - `SenseVoice`：ONNX SenseVoice（阿里 FunASR）；**仅批量**，中文 CER 优于 Whisper、原生输出简体；
+///   需 `--features sensevoice`（Mac）/ `sensevoice-cuda`（Linux CUDA）
+///
+/// **sherpa-onnx 引擎**（独立 `Pool<OfflineRecognizer>`，镜像 TTS engine_pool）：
+/// - `FireRedAsr2`：FireRedASR2-AED（zh/en/20+ 方言，1.1B int8）；Mac 可 CoreML GPU
+/// - `FunAsrNano`：Fun-ASR-Nano-2512（800M，audio-encoder + Qwen3-0.6B LLM decoder，31 语 + 热词）
+/// - `Qwen3Asr`：Qwen3-ASR-0.6B（52 语 + 22 方言 + 热词）
+///
+/// sherpa-onnx 三引擎均为**批量离线**，流式端点 Fail-Fast 拒绝。 sherpa-onnx C 库本就为 TTS
+/// 无条件链接，故这三者无需 Cargo feature 门控（区别于 sensevoice）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SttBackend {
+    #[default]
+    Whisper,
+    SenseVoice,
+    FireRedAsr2,
+    FunAsrNano,
+    Qwen3Asr,
+}
+
+/// FireRedASR2 引擎配置（仅 [`SttBackend::FireRedAsr2`] 生效）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct FireRedAsr2Config {
+    /// 模型目录（绝对路径，或相对 CWD）。`None` = `{whisper.models_dir}/fireredasr2/
+    ///   sherpa-onnx-fire-red-asr2-zh_en-int8-2026-02-26`（规范名）。
+    /// 目录须含 `encoder.int8.onnx` + `decoder.int8.onnx` + `tokens.txt`。
+    #[serde(default)]
+    pub model_dir: Option<String>,
+}
+
+/// Fun-ASR-Nano 引擎配置（仅 [`SttBackend::FunAsrNano`] 生效）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct FunAsrNanoConfig {
+    /// 模型目录。`None` = `{whisper.models_dir}/funasrnano/sherpa-onnx-funasr-nano-int8-2025-12-30`。
+    /// 目录须含 `encoder_adaptor.int8.onnx` + `llm.int8.onnx` + `embedding.int8.onnx` + `Qwen3-0.6B/`。
+    #[serde(default)]
+    pub model_dir: Option<String>,
+    /// 热词（逗号分隔）。LLM-decoder 支持热词增强专有词识别。
+    #[serde(default)]
+    pub hotwords: Option<String>,
+}
+
+/// Qwen3-ASR 引擎配置（仅 [`SttBackend::Qwen3Asr`] 生效）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Qwen3AsrConfig {
+    /// 模型目录。`None` = `{whisper.models_dir}/qwen3asr/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25`。
+    /// 目录须含 `conv_frontend.onnx` + `encoder.int8.onnx` + `decoder.int8.onnx` + `tokenizer/`。
+    #[serde(default)]
+    pub model_dir: Option<String>,
+    /// 热词（逗号分隔）。
+    #[serde(default)]
+    pub hotwords: Option<String>,
+    /// 生成 token 上限（默认 1024，长音频调高；sherpa Rust `Default` 是 128 偏小故覆盖）。
+    #[serde(default = "default_qwen3_max_new_tokens")]
+    pub max_new_tokens: i32,
+}
+
+impl Default for Qwen3AsrConfig {
+    fn default() -> Self {
+        Self {
+            model_dir: None,
+            hotwords: None,
+            max_new_tokens: default_qwen3_max_new_tokens(),
+        }
+    }
+}
+
+fn default_qwen3_max_new_tokens() -> i32 {
+    1024
+}
+
+/// sherpa-onnx ASR 引擎配置（FireRedAsr2 / FunAsrNano / Qwen3Asr 共用，镜像 TTS `provider` 语义）。
+///
+/// 与 transcribe-rs 的全局 `device` + `init_global_accel` **独立**：sherpa-onnx 走 per-instance
+/// `provider` 字段（填入 `OfflineModelConfig.provider`），故 GPU 选择在引擎加载时按 provider 字符串生效。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SherpaAsrEngineConfig {
+    /// ONNX EP provider：`None`=CPU；`"coreml"`=Mac GPU/ANE；`"cuda"`=Linux NVIDIA。
+    /// Mac 上 sherpa-onnx 预编译 lib 含 CoreMLExecutionProvider（与 transcribe-rs 的 ort 不同）。
+    #[serde(default)]
+    pub provider: Option<String>,
+    /// 引擎池大小（1=单实例串行；>1=N 实例并发，N× 内存）
+    #[serde(default = "default_stt_pool_size")]
+    pub pool_size: usize,
+    /// ONNX runtime 线程数（0 = sherpa-onnx 默认）
+    #[serde(default)]
+    pub num_threads: i32,
+    /// sherpa-onnx C 端 verbose 日志
+    #[serde(default)]
+    pub debug: bool,
+    /// FireRedASR2 配置（仅 `backend: fireredasr2` 生效）
+    #[serde(default)]
+    pub fireredasr2: FireRedAsr2Config,
+    /// Fun-ASR-Nano 配置（仅 `backend: funasrnano` 生效）
+    #[serde(default)]
+    pub funasrnano: FunAsrNanoConfig,
+    /// Qwen3-ASR 配置（仅 `backend: qwen3asr` 生效）
+    #[serde(default)]
+    pub qwen3asr: Qwen3AsrConfig,
+}
+
+impl Default for SherpaAsrEngineConfig {
+    fn default() -> Self {
+        Self {
+            provider: None,
+            pool_size: default_stt_pool_size(),
+            num_threads: 0,
+            debug: false,
+            fireredasr2: FireRedAsr2Config::default(),
+            funasrnano: FunAsrNanoConfig::default(),
+            qwen3asr: Qwen3AsrConfig::default(),
+        }
+    }
+}
+
+/// SenseVoice 引擎配置（仅 [`SttEngineConfig::backend`] = `SenseVoice` 时生效）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SenseVoiceConfig {
+    /// 模型目录（绝对路径，或相对 CWD）。`None` = `{whisper.models_dir}/sensevoice/
+    ///   sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17`（规范名）。
+    /// 目录须含 `model.{quantization}.onnx` + `tokens.txt`（sherpa-onnx 布局）。
+    #[serde(default)]
+    pub model_dir: Option<String>,
+    /// 量化等级：`fp32` / `fp16` / `int8`（默认）/ `int4`。决定读取 `model.{quant}.onnx` 文件。
+    #[serde(default = "default_sv_quantization")]
+    pub quantization: String,
+    /// 逆文本归一化（数字/日期等口语→书面，默认 true）。SenseVoice 走 trait 转录时恒 true。
+    #[serde(default = "default_bool_true")]
+    pub use_itn: bool,
+}
+
+impl Default for SenseVoiceConfig {
+    fn default() -> Self {
+        Self {
+            model_dir: None,
+            quantization: default_sv_quantization(),
+            use_itn: default_bool_true(),
+        }
+    }
+}
+
+fn default_sv_quantization() -> String {
+    "int8".to_string()
+}
+
 /// STT 引擎配置（transcribe-rs 引擎池 + GPU 加速）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SttEngineConfig {
@@ -265,6 +415,16 @@ pub struct SttEngineConfig {
     /// `simplified` 用 OpenCC 转简（英文/非中文透传不受影响）
     #[serde(default)]
     pub output_script: OutputScript,
+    /// 后端引擎：`whisper`（默认）/ `sensevoice` / `fireredasr2` / `funasrnano` / `qwen3asr`。
+    /// 后三者走 sherpa-onnx（仅批量，流式端点拒绝）。
+    #[serde(default)]
+    pub backend: SttBackend,
+    /// SenseVoice 配置（仅 `backend: sensevoice` 生效）
+    #[serde(default)]
+    pub sensevoice: SenseVoiceConfig,
+    /// sherpa-onnx ASR 配置（仅 `backend: fireredasr2|funasrnano|qwen3asr` 生效）
+    #[serde(default)]
+    pub sherpa: SherpaAsrEngineConfig,
 }
 
 impl Default for SttEngineConfig {
@@ -277,6 +437,9 @@ impl Default for SttEngineConfig {
             default_language: None,
             default_initial_prompt: None,
             output_script: OutputScript::default(),
+            backend: SttBackend::default(),
+            sensevoice: SenseVoiceConfig::default(),
+            sherpa: SherpaAsrEngineConfig::default(),
         }
     }
 }

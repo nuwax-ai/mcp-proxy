@@ -18,7 +18,7 @@ use tracing::warn;
 
 use crate::models::config::StreamingConfig;
 use crate::stt::local_agreement::{CompareGranularity, LaConfig, LocalAgreement, SttSegment};
-use crate::stt::{EngineKey, SttError, SttTranscribeOptions, get_or_init_engine};
+use crate::stt::{EngineKey, SttError, SttTranscribeOptions, get_or_init_whisper};
 
 /// 服务端推送事件（WS 文本帧，JSON）
 #[derive(Debug, Clone, Serialize)]
@@ -91,7 +91,7 @@ pub struct WhisperDecoder {
 impl Decoder for WhisperDecoder {
     fn decode(&self, samples: &[f32]) -> Result<Vec<SttSegment>, SttError> {
         let key = EngineKey::new(&self.model_id);
-        let pool = get_or_init_engine(key, self.model_path.clone(), self.pool_size)?;
+        let pool = get_or_init_whisper(key, self.model_path.clone(), self.pool_size)?;
         let inst = pool.pick();
         let mut guard = inst.lock().unwrap_or_else(|p| p.into_inner());
         let result = guard.transcribe_with(samples, &self.opts.to_inference_params())?;

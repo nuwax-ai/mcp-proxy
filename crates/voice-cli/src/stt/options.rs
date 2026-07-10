@@ -55,4 +55,20 @@ impl SttTranscribeOptions {
             ..Default::default()
         }
     }
+
+    /// 映射到 transcribe-rs 共享 [`transcribe_rs::TranscribeOptions`]（whisper + sensevoice 通用）。
+    ///
+    /// 用于**批量** dyn 池（`Box<dyn SpeechModel>::transcribe`）——whisper 与 sensevoice 都实现
+    /// [`transcribe_rs::SpeechModel::transcribe`]。仅 `language` / `translate` 两引擎都识别；
+    /// whisper 专属参数（`initial_prompt` / `no_speech_thold` / `n_threads` 等）在此**丢弃**，
+    /// 需要时走 whisper 具象 `to_inference_params`（流式 LA2 仍用那条路径）。
+    /// 静默填充用 `None`（各引擎自带默认：whisper=0，sensevoice=0）。
+    pub fn to_transcribe_options(&self) -> transcribe_rs::TranscribeOptions {
+        transcribe_rs::TranscribeOptions {
+            language: self.language.clone(),
+            translate: self.translate,
+            leading_silence_ms: None,
+            trailing_silence_ms: None,
+        }
+    }
 }

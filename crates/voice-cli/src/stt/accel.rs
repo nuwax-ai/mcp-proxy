@@ -34,5 +34,22 @@ pub fn init_global_accel(device: &str) {
             "STT accelerator configured: device={device}, use_gpu={use_gpu} \
              (backend by compile feature: mac=metal/CoreML; linux=cpu unless --features cuda/vulkan)"
         );
+
+        // SenseVoice ONNX（ort）加速：独立全局，须在任何 SenseVoiceModel::load 之前设置。
+        // feature 未启用时本块编译期移除；启用时 ort 按 device 选 EP（缺对应 ort-* feature 则 ort 自降级 CPU 并告警）。
+        #[cfg(feature = "sensevoice")]
+        {
+            use transcribe_rs::{OrtAccelerator, set_ort_accelerator};
+            let ort = match device.to_ascii_lowercase().as_str() {
+                "cpu" => OrtAccelerator::CpuOnly,
+                "cuda" | "gpu" => OrtAccelerator::Cuda,
+                #[cfg(target_os = "macos")]
+                "metal" | "coreml" => OrtAccelerator::CoreMl,
+                // 含 "auto"：ort 自选已编译的 EP（mac→CoreML，linux→CUDA，否则 CPU）
+                _ => OrtAccelerator::Auto,
+            };
+            set_ort_accelerator(ort);
+            tracing::info!("ORT(SenseVoice) accelerator configured: device={device}, ort={ort}");
+        }
     });
 }

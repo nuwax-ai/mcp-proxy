@@ -121,6 +121,76 @@ say -o jfk.aiff "and so my fellow Americans, ask not what your country can do fo
 ffmpeg -y -i jfk.aiff -ar 16000 -ac 1 jfk.wav && rm jfk.aiff
 ```
 
+### 4.4 STT（可选）— SenseVoice ONNX（中文更准，原生简体）
+
+SenseVoice（阿里 FunASR）经 transcribe-rs `onnx` feature 接入，与 whisper 并存。中文 CER 优于 whisper、推理更快、原生输出简体。**仅批量**（非流式模型，流式端点仍走 whisper）。
+
+```bash
+# 1) 编译带 sensevoice feature（Mac CPU ONNX；Linux NVIDIA GPU 用 sensevoice-cuda）
+cd /path/to/mcp-proxy
+cargo build -p voice-cli --features sensevoice           # Mac dev
+# cargo build -p voice-cli --features "cuda sensevoice-cuda"  # Linux server（需 CUDA toolkit）
+
+# 2) 拉模型（sherpa-onnx 布局：model.int8.onnx + tokens.txt，int8 ~900MB）
+cd ~/voice-cli-test
+bash /path/to/mcp-proxy/scripts/dev/fetch-sensevoice-model.sh
+# → ./models/sensevoice/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/
+
+# 3) config.yml 切后端（whisper.engine 下）
+# whisper:
+#   engine:
+#     backend: sensevoice
+#     sensevoice:
+#       model_dir: "./models/sensevoice/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
+#       quantization: "int8"
+```
+
+A/B 对比（同音频，免重启）：`/api/v1/transcribe` 传 `-F engine=sensevoice` 或 `-F engine=whisper` 覆盖后端。默认 `backend: whisper`，未拉 SenseVoice 模型不影响现有 whisper 链路。
+
+> SenseVoice 不支持流式：`backend: sensevoice` 时 `/api/v1/stream/transcribe` 返回明确错误（不静默回退）。需要流式请保持 `backend: whisper`。
+
+### 4.5 STT（可选）— sherpa-onnx 新模型（FireRedASR2 / Fun-ASR-Nano / Qwen3-ASR，Mac CoreML GPU）
+
+三个 2025-2026 新中文 ASR 模型经 **sherpa-onnx** `OfflineRecognizer` 接入（与 TTS 同库），**不走 transcribe-rs**（transcribe-rs 的 `ort` 库在 Mac 上 CoreML EP 不可用，且不支持这三模型）。关键：**sherpa-onnx 预编译 macOS lib 含 CoreMLExecutionProvider** → 这三模型在 Mac 可走 CoreML GPU/ANE（与 SenseVoice 的 CPU-only 路径不同）。三者均**仅批量**，流式端点仍 whisper。
+
+| 模型 | 架构 | 大小(int8) | 语种 | 备注 |
+|---|---|---|---|---|
+| `fireredasr2` | AED（encoder-decoder，无自回归 LLM） | ~1.2G | zh/en/20+ 方言 | **Mac CoreML 加速最显著**；AISHELL CER ~2.89% |
+| `funasrnano` | audio-encoder + Qwen3-0.6B LLM decoder | ~950M | 31 语+7 方言+热词 | LLM-decoder，CoreML 加速有限；含热词 |
+| `qwen3asr` | conv frontend + encoder + LLM decoder | ~940M | 52 语+22 方言+热词 | LLM-decoder；长音频需调 `max_new_tokens` |
+
+```bash
+# 1) 拉模型（任选，sherpa-onnx asr-models release，gh-proxy 镜像自动探活）
+cd ~/voice-cli-test
+bash /path/to/mcp-proxy/scripts/dev/fetch-asr-models.sh fireredasr2
+# bash /path/to/mcp-proxy/scripts/dev/fetch-asr-models.sh funasrnano
+# bash /path/to/mcp-proxy/scripts/dev/fetch-asr-models.sh qwen3asr
+# → ./models/<kind>/sherpa-onnx-...-int8-.../
+
+# 2) 编译（无需新 feature：sherpa-onnx C 库本就为 TTS 无条件链接）
+cd /path/to/mcp-proxy
+SHERPA_ONNX_ARCHIVE_DIR="$HOME/.cache/sherpa-onnx-prebuilt" cargo build -p voice-cli
+
+# 3) config.yml 切后端 + 开 CoreML（whisper.engine 下）
+# whisper:
+#   engine:
+#     backend: fireredasr2          # 或 funasrnano / qwen3asr
+#     sherpa:
+#       provider: coreml            # Mac GPU/ANE；留空=CPU；Linux 用 cuda
+#       fireredasr2:
+#         model_dir: "./models/fireredasr2/sherpa-onnx-fire-red-asr2-zh_en-int8-2026-02-26"
+
+# 4) 跑（务必带 --config）
+SHERPA_ONNX_ARCHIVE_DIR="$HOME/.cache/sherpa-onnx-prebuilt" \
+  cargo run -p voice-cli -- server run --config config.yml
+```
+
+A/B 对比（同音频，免重启）：`/api/v1/transcribe` 传 `-F engine=fireredasr2|funasrnano|qwen3asr` 覆盖后端；切 `sherpa.provider` 在 coreml/空之间对比 Mac GPU vs CPU。默认 `backend: whisper`，未拉模型不影响现有链路。
+
+> ⚠️ **Fun-ASR-Nano 默认值陷阱**（sherpa-onnx issue #3066）：Rust `OfflineFunASRNanoModelConfig::default()` 的生成参数是错的（`max_new_tokens:0`/`temperature:1.0`/无 prompt → 乱码重复）。代码已硬编码 C++ 工作默认（`build_recognizer`），用户无需配置；若换库版本需复核。
+>
+> 三模型均不支持流式：`backend` 为任一 sherpa 模型时 `/api/v1/stream/transcribe` 返回明确错误（不静默回退）。
+
 ---
 
 ## 5. 配置

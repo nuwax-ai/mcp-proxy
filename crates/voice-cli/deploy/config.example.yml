@@ -26,6 +26,27 @@ whisper:
     worker_timeout: 3600
   # engine:                        # STT 引擎配置（可选，全部有默认值）
   #   output_script: "simplified"  # 输出脚本：simplified(默认,繁→简;英文透传) / original(原样输出)
+  #   backend: "whisper"           # STT 后端：whisper(默认) / sensevoice / fireredasr2 / funasrnano / qwen3asr。
+  #                                 #   sensevoice 仅批量（流式仍 whisper），中文 CER 优于 whisper、原生简体；
+  #                                 #   需 `--features sensevoice` 编译（Mac）/ sensevoice-cuda(Linux)。
+  #                                 #   fireredasr2/funasrnano/qwen3asr 走 sherpa-onnx（与 TTS 同库，Mac 可 CoreML GPU），
+  #                                 #   均仅批量；无需 feature 门控（sherpa-onnx C 库本就为 TTS 无条件链接）。
+  #   sensevoice:                  # 仅 backend=sensevoice 生效（模型 host 预置，无自动下载）
+  #     model_dir: "./models/sensevoice/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
+  #     quantization: "int8"       # fp32/fp16/int8(默认)/int4 → 读对应 model.<quant>.onnx
+  #     use_itn: true              # 逆文本归一化（数字/日期口语→书面）
+  #   sherpa:                      # 仅 backend=fireredasr2|funasrnano|qwen3asr 生效（sherpa-onnx 引擎池）
+  #     provider: "coreml"         # ONNX EP：留空=CPU；coreml=Mac GPU/ANE；cuda=Linux NVIDIA。per-instance（与 transcribe-rs 全局 device 独立）
+  #     pool_size: 1               # 引擎实例数（CPU 最优 1）
+  #     fireredasr2:               # FireRedASR2-AED（zh/en/20+ 方言，1.1B；Mac CoreML 受益最大）
+  #       model_dir: "./models/fireredasr2/sherpa-onnx-fire-red-asr2-zh_en-int8-2026-02-26"
+  #     funasrnano:                # Fun-ASR-Nano（800M LLM-decoder，31 语 + 热词）
+  #       model_dir: "./models/funasrnano/sherpa-onnx-funasr-nano-int8-2025-12-30"
+  #       hotwords: ""             # 热词（逗号分隔），可空
+  #     qwen3asr:                  # Qwen3-ASR-0.6B（52 语 + 22 方言 + 热词）
+  #       model_dir: "./models/qwen3asr/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25"
+  #       hotwords: ""
+  #       max_new_tokens: 1024     # 生成 token 上限（长音频调高；sherpa Rust 默认 128 偏小）
   # streaming:                     # STT 流式（可选，全部有默认值）
   #   decode_interval_sec: 0.5     # 解码触发间隔
   #   tail_trim_sec: 0.3           # B 解码尾部裁剪

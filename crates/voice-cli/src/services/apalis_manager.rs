@@ -1439,71 +1439,187 @@ async fn transcription_step(
         }
     };
 
-    // 模型 id（P0 用配置默认；P1 从 task 透传 language/beam_size/temperature/initial_prompt）
-    let default_model = ctx.model_service.default_model();
-    let model = task.model.as_deref().unwrap_or(default_model).to_string();
+    // 后端引擎（config-only：异步任务不做 per-task override，避免任务 schema 复杂化）
+    let cfg = ctx.model_service.config();
+    let backend = cfg.whisper.engine.backend;
+    let tr_pool_size = cfg.whisper.engine.pool_size; // transcribe-rs dyn 池（sherpa 走 load_params.pool_size）
+    // worker 存繁体原样：简繁转换在 get_task_result read-time 按当前 output_script 做（动态切繁简）
+    let output_script = crate::models::config::OutputScript::Original;
 
-    // ensure_model：模型缺失时自动下载（接入 HTTP，修复旧版 auto_download 形同虚设）
-    ctx.model_service
-        .ensure_model(&model)
-        .await
-        .map_err(|e| -> Error {
-            Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
-                format!("模型准备失败: {e}"),
-            ))))
-        })?;
-    let model_path = ctx
-        .model_service
-        .get_model_path(&model)
-        .map_err(|e| -> Error {
-            Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
-                format!("获取模型路径失败: {e}"),
-            ))))
-        })?;
-    let pool_size = 1usize; // P0 默认单实例；P1 从 config.whisper.engine.pool_size 读
+    // 模型解析 + ensure + 构造分派产物（按 backend 分派）。两库引擎统一为 SttInvocation。
+    let invocation: crate::stt::SttInvocation = match backend {
+        crate::models::config::SttBackend::Whisper => {
+            // 模型 id：task 透传优先，回退 config.whisper.default_model
+            let default_model = ctx.model_service.default_model();
+            let model = task.model.as_deref().unwrap_or(default_model).to_string();
+            // ensure_model：模型缺失时自动下载（接入 HTTP，修复旧版 auto_download 形同虚设）
+            ctx.model_service
+                .ensure_model(&model)
+                .await
+                .map_err(|e| -> Error {
+                    Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
+                        format!("模型准备失败: {e}"),
+                    ))))
+                })?;
+            let model_path = ctx
+                .model_service
+                .get_model_path(&model)
+                .map_err(|e| -> Error {
+                    Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
+                        format!("获取模型路径失败: {e}"),
+                    ))))
+                })?;
+            crate::stt::SttInvocation::TranscribeRs {
+                model_id: model,
+                spec: crate::stt::SttEngineSpec::Whisper { model_path },
+            }
+        }
+        crate::models::config::SttBackend::SenseVoice => {
+            // SenseVoice：从 config.whisper.engine.sensevoice 解析目录 + 量化（host 预置，无自动下载）
+            #[cfg(feature = "sensevoice")]
+            {
+                let models_dir = cfg.whisper.models_dir.clone();
+                let sv_cfg = &cfg.whisper.engine.sensevoice;
+                let model_dir = crate::stt::sensevoice::resolve_model_dir(&models_dir, sv_cfg);
+                let quantization = crate::stt::sensevoice::parse_quantization(&sv_cfg.quantization)
+                    .map_err(|e| -> Error {
+                        Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
+                            format!("SenseVoice 量化解析失败: {e}"),
+                        ))))
+                    })?;
+                let model_id = model_dir.display().to_string();
+                crate::stt::SttInvocation::TranscribeRs {
+                    model_id,
+                    spec: crate::stt::SttEngineSpec::SenseVoice {
+                        model_dir,
+                        quantization,
+                    },
+                }
+            }
+            #[cfg(not(feature = "sensevoice"))]
+            {
+                return Err(Error::Abort(std::sync::Arc::new(Box::new(
+                    std::io::Error::other(
+                        "backend=sensevoice 但未启用 sensevoice feature（请 --features sensevoice 编译）",
+                    ),
+                ))));
+            }
+        }
+        // sherpa-onnx 三引擎（FireRedASR2 / Fun-ASR-Nano / Qwen3-ASR）：仅批量，走独立 sherpa 池
+        crate::models::config::SttBackend::FireRedAsr2
+        | crate::models::config::SttBackend::FunAsrNano
+        | crate::models::config::SttBackend::Qwen3Asr => {
+            use crate::stt::sherpa_model_paths::{
+                DEFAULT_FIREREDASR2_DIR, DEFAULT_FUNASRNANO_DIR, DEFAULT_QWEN3ASR_DIR,
+                resolve_model_dir,
+            };
+            let sh = &cfg.whisper.engine.sherpa;
+            let models_dir = std::path::Path::new(&cfg.whisper.models_dir);
+            let (model_dir, kind) = match backend {
+                crate::models::config::SttBackend::FireRedAsr2 => (
+                    resolve_model_dir(
+                        models_dir,
+                        "fireredasr2",
+                        DEFAULT_FIREREDASR2_DIR,
+                        sh.fireredasr2.model_dir.as_deref(),
+                    ),
+                    crate::stt::SherpaAsrKind::FireRedAsr2,
+                ),
+                crate::models::config::SttBackend::FunAsrNano => (
+                    resolve_model_dir(
+                        models_dir,
+                        "funasrnano",
+                        DEFAULT_FUNASRNANO_DIR,
+                        sh.funasrnano.model_dir.as_deref(),
+                    ),
+                    crate::stt::SherpaAsrKind::FunAsrNano {
+                        hotwords: sh.funasrnano.hotwords.clone(),
+                    },
+                ),
+                crate::models::config::SttBackend::Qwen3Asr => (
+                    resolve_model_dir(
+                        models_dir,
+                        "qwen3asr",
+                        DEFAULT_QWEN3ASR_DIR,
+                        sh.qwen3asr.model_dir.as_deref(),
+                    ),
+                    crate::stt::SherpaAsrKind::Qwen3Asr {
+                        hotwords: sh.qwen3asr.hotwords.clone(),
+                        max_new_tokens: sh.qwen3asr.max_new_tokens,
+                    },
+                ),
+                // Whisper / SenseVoice 由前置独立臂处理，逻辑不可达
+                _ => unreachable!("sherpa 分派臂已覆盖全部 sherpa backend"),
+            };
+            let model_id = model_dir.display().to_string();
+            let load_params = crate::stt::SherpaAsrLoadParams {
+                model_dir,
+                kind,
+                provider: sh.provider.clone(),
+                num_threads: sh.num_threads,
+                pool_size: sh.pool_size,
+                debug: sh.debug,
+            };
+            crate::stt::SttInvocation::Sherpa {
+                model_id,
+                load_params,
+            }
+        }
+    };
 
-    // 同步推理走 spawn_blocking（transcribe-rs 是同步阻塞 C 调用，不能阻塞 tokio reactor）。
+    // 同步推理走 spawn_blocking（两库引擎都是同步阻塞 C 调用，不能阻塞 tokio reactor）。
     // 修复旧版反模式：transcribe_with_conversion 内 spawn_blocking 再 block_on 新 current-thread runtime。
     // 无音频流时 ffmpeg-sidecar 转码自然报错 → SttError::Audio（替代旧 ffprobe 系统依赖）。
     let audio_path_for_blocking = task.processed_audio_path.clone();
-    let model_id_for_blocking = model.clone();
     // STT 参数（config 默认已在提交时合并进 task.language/initial_prompt）
     let opt_language = task.language.clone();
     let opt_initial_prompt = task.initial_prompt.clone();
-    let transcription_result =
-        tokio::task::spawn_blocking(move || -> std::result::Result<_, crate::stt::SttError> {
+    let mut response = tokio::task::spawn_blocking(
+        move || -> std::result::Result<crate::models::request::TranscriptionResponse, crate::stt::SttError>
+    {
             let samples = crate::stt::audio::to_whisper_samples(&audio_path_for_blocking)?;
-            let key = crate::stt::EngineKey::new(&model_id_for_blocking);
-            let pool = crate::stt::get_or_init_engine(key, model_path, pool_size)?;
-            let inst = pool.pick();
-            let mut guard = inst.lock().unwrap_or_else(|p| p.into_inner());
-            let opts = crate::stt::SttTranscribeOptions {
-                language: opt_language,
-                initial_prompt: opt_initial_prompt,
-                ..Default::default()
-            };
-            let result = guard.transcribe_with(&samples, &opts.to_inference_params())?;
-            Ok(result)
-        })
-        .await
-        .map_err(|e| {
-            Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
-                format!("转录任务 join 失败: {e}"),
-            ))))
-        })?
-        .map_err(|e| {
-            Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
-                format!("转录失败: {}", e),
-            ))))
-        })?;
-
-    // 转换 transcribe-rs TranscriptionResult → TranscriptionResponse（走公共 map_whisper_result）。
-    // worker 用 Original 存繁体原样 —— 简繁转换在 get_task_result read-time 按当前 output_script 做，
-    // 这样改配置可动态切繁简，库存内容不变（同步 /transcribe 走 map_whisper_result 实时转）。
-    let mut response = crate::stt::map_whisper_result(
-        transcription_result,
-        crate::models::config::OutputScript::Original,
-    );
+            match invocation {
+                crate::stt::SttInvocation::TranscribeRs { model_id, spec } => {
+                    // 进程级 dyn 池：whisper/sensevoice 统一 Box<dyn SpeechModel>
+                    let key = crate::stt::EngineKey::new(&model_id);
+                    let pool = crate::stt::get_or_init_engine(key, spec, tr_pool_size)?;
+                    let inst = pool.pick();
+                    let mut guard = inst.lock().unwrap_or_else(|p| p.into_inner());
+                    let opts = crate::stt::SttTranscribeOptions {
+                        language: opt_language,
+                        initial_prompt: opt_initial_prompt,
+                        ..Default::default()
+                    };
+                    // 共享 trait 方法（whisper + sensevoice 都实现 SpeechModel::transcribe）
+                    let result = guard.transcribe(&samples, &opts.to_transcribe_options())?;
+                    Ok(crate::stt::map_transcription_result(result, output_script))
+                }
+                crate::stt::SttInvocation::Sherpa {
+                    model_id,
+                    load_params,
+                } => {
+                    // 独立 sherpa-onnx 池：Pool<OfflineRecognizer>（FireRedASR2/Fun-ASR-Nano/Qwen3-ASR）
+                    let key = crate::stt::EngineKey::new(&model_id);
+                    let pool = crate::stt::sherpa_get_or_init_engine(key, load_params)?;
+                    let inst = pool.pick();
+                    let guard = inst.lock().unwrap_or_else(|p| p.into_inner());
+                    let result = crate::stt::sherpa_recognize(&guard, &samples)?;
+                    Ok(crate::stt::map_sherpa_recognition_result(result, output_script))
+                }
+            }
+        },
+    )
+    .await
+    .map_err(|e| {
+        Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
+            format!("转录任务 join 失败: {e}"),
+        ))))
+    })?
+    .map_err(|e| {
+        Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
+            format!("转录失败: {}", e),
+        ))))
+    })?;
 
     // 设置元数据和时长
     if let Some(meta) = &metadata {

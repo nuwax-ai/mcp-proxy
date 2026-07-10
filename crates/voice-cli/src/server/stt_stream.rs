@@ -43,6 +43,25 @@ pub async fn ws_transcribe_handler(
 async fn run_stream_session(socket: WebSocket, state: AppState) {
     let (mut sink, mut stream) = socket.split();
 
+    // 非流式后端（SenseVoice + sherpa-onnx 三引擎）不支持流式：Fail Fast 拒绝（不静默回退 whisper）。
+    // 流式 LA2 需 whisper token 级对齐 + transcribe_with，仅 whisper 具象路径支持。
+    if matches!(
+        state.config.whisper.engine.backend,
+        crate::models::config::SttBackend::SenseVoice
+            | crate::models::config::SttBackend::FireRedAsr2
+            | crate::models::config::SttBackend::FunAsrNano
+            | crate::models::config::SttBackend::Qwen3Asr
+    ) {
+        let _ = send_event(
+            &mut sink,
+            StreamEvent::Error {
+                message: "当前 backend 为非流式模型（SenseVoice/FireRedASR2/Fun-ASR-Nano/Qwen3-ASR），不支持流式转录。请把 config backend 改回 whisper，或改用批量 POST /api/v1/transcribe".into(),
+            },
+        )
+        .await;
+        return;
+    }
+
     // 1. 等 start 帧（10s 超时）
     let start = match tokio::time::timeout(Duration::from_secs(10), stream.next()).await {
         Ok(Some(Ok(Message::Text(t)))) => parse_start(&t),
