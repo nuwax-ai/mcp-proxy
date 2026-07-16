@@ -1,4 +1,4 @@
-# voice-cli systemd 服务单元模板（可选，比 server-manager.sh 更标准，开机自启+崩溃重启）
+# voice-cli systemd 服务单元模板（开机自启 + 崩溃重启；部署统一走 systemd）
 #
 # 用法: 替换 __占位符__ 后放到 /etc/systemd/system/voice-cli.service
 #   sudo sed -e "s|__USER__|$USER|g" -e "s|__INSTALL_DIR__|/opt/voice-cli|g" voice-cli.service | \

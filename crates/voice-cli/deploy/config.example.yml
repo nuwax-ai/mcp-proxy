@@ -5,7 +5,7 @@
 
 server:
   host: "0.0.0.0"
-  port: 8087                       # ← 监听端口
+  port: 8077                       # ← 监听端口
   max_file_size: 209715200         # 200MB 上传上限
   cors_enabled: true
 

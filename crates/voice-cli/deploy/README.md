@@ -71,9 +71,8 @@ pip install nvidia-cudnn-cu12    # → .../site-packages/nvidia/cudnn/lib/libcud
 
 | 文件 | 用途 |
 |------|------|
-| `server-manager.sh` | 进程管理（启动前 `cd` + 传 `--config`，修复相对路径落错的 bug） |
-| `voice-cli.service` | systemd unit 模板（可选，比 server-manager.sh 更标准） |
-| `config.example.yml` | 配置模板（端口 8087；STT transcribe-rs + TTS Kokoro/ZipVoice 双引擎字段） |
+| `voice-cli.service` | systemd unit 模板（开机自启 + 崩溃重启 + journald，部署统一走 systemd） |
+| `config.example.yml` | 配置模板（端口 8077；STT transcribe-rs + TTS Kokoro/ZipVoice 双引擎字段） |
 | `.env.example` | 环境变量模板 |
 | `install-libssl1.1-ubuntu2404.sh` | libssl1.1 兜底检测脚本（新架构 rustls 通常不需要，见下「关键坑 #5」） |
 
@@ -87,17 +86,17 @@ make build-voice-cli-x86_64                 # 产出 dist/voice-cli-x86_64/voice
 # 2. 传到目标机（连本目录）
 scp -r voice-cli deploy/ <目标机>:/opt/voice-cli/
 
-# 3. 放配置 + 模型 + 启动
+# 3. 放配置 + 模型
 cd /opt/voice-cli
 cp deploy/config.example.yml config.yml     # 按需改端口/模型
 # STT 模型放 ./models/；TTS（启用时）放 ./models/tts/（见 ../docs/DEPLOYMENT.md §4）
-./deploy/server-manager.sh start
-./deploy/server-manager.sh status
+
+# 4. 注册 systemd 服务（开机自启 + 崩溃重启）—— 命令见下方「系统服务」章节
 ```
 
-## 系统服务（systemd，生产推荐）
+## 系统服务（systemd）
 
-`voice-cli.service` 是 systemd unit 模板，比 `server-manager.sh` 更标准：开机自启 + 崩溃自动重启 + journald 统一日志。适合生产服务器。
+部署统一走 systemd：开机自启 + 崩溃自动重启 + journald 统一日志。`voice-cli.service` 是 unit 模板。
 
 ### 安装（一次性）
 
@@ -115,7 +114,7 @@ sudo systemctl enable --now voice-cli
 
 # 3. 验证
 sudo systemctl status voice-cli
-curl -s http://localhost:8087/health
+curl -s http://localhost:8077/health
 ```
 
 > `__INSTALL_DIR__`（默认 `/opt/voice-cli`）须含 `voice-cli` 二进制 + `config.yml` + `models/`（先完成上方"快速部署"步骤 2-3）。`User=` 决定运行用户，确保该用户对 `__INSTALL_DIR__` 有读写权限（运行时要写 `./logs/`、`./data/`）。
@@ -140,13 +139,6 @@ sudo journalctl -u voice-cli --since "10 min ago"     # 最近 10 分钟
 sudo journalctl -u voice-cli -n 200                   # 最近 200 行
 ```
 
-### 与 server-manager.sh 怎么选
-
-| 场景 | 推荐 |
-|---|---|
-| 个人机 / 临时测试 | `server-manager.sh`（无需 sudo，nohup 后台） |
-| 生产服务器 | `voice-cli.service`（开机自启 + 崩溃重启 + journald，`Type=simple` 不依赖 PID 文件） |
-
 ---
 
 ## Docker 构建补充（github 阻断环境）
@@ -162,10 +154,10 @@ make build-voice-cli-x86_64                # build.rs 命中本地 tar，跳过�
 
 ## ⚠️ 关键坑（必看）
 
-1. **`server run --config` 位置坑**：`--config` 必须放在 `server run` **后面**（`voice-cli server run --config config.yml`）；全局的 `-c config.yml server run` 在 `server run` 子命令下**会被代码忽略**（见 `src/main.rs:get_config_path_for_server_action`）。`server-manager.sh` 已正确处理。
-2. **端口**：由 config.yml 的 `server.port` 决定（本模板默认 8087；`../docs/DEPLOYMENT.md` 示例用 8080，按需统一）。改端口改配置，别在命令行传。
+1. **`server run --config` 位置坑**：`--config` 必须放在 `server run` **后面**（`voice-cli server run --config config.yml`）；全局的 `-c config.yml server run` 在 `server run` 子命令下**会被代码忽略**（见 `src/main.rs:get_config_path_for_server_action`）。下方 systemd unit 的 `ExecStart` 已正确放置（`--config` 在 `server run` 后）。
+2. **端口**：由 config.yml 的 `server.port` 决定（本模板默认 8077；`../docs/DEPLOYMENT.md` 示例用 8080，按需统一）。改端口改配置，别在命令行传。
 3. **TTS 默认禁用**：sherpa-onnx（Kokoro v1_1 标准 / ZipVoice 克隆）。启用见 `../docs/DEPLOYMENT.md` §4.2（置 `tts.enabled: true` + 放模型到 `./models/tts/`；Kokoro 默认，ZipVoice 改 `backend: zipvoice`，参考 `config.example.yml`）。
-4. **WorkingDirectory 必须设对**：`./models` `./logs` `./data/tasks.db` 都是相对路径。`server-manager.sh` 启动前会 `cd $PROJECT_ROOT`；systemd unit 的 `WorkingDirectory=` 也要设（否则落到 `/`）。
+4. **WorkingDirectory 必须设对**：`./models` `./logs` `./data/tasks.db` 都是相对路径。systemd unit 的 `WorkingDirectory=` 必须指向安装根（否则相对路径落到 `/`）。
 5. **libssl1.1（可选兜底）**：新架构 reqwest 已用 rustls（`Cargo.toml` reqwest 段注释明确），产物**不依赖任何 libssl.so**，通常无需 `install-libssl1.1-ubuntu2404.sh`。仅当 `ldd voice-cli | grep libssl` 命中时（cuda 编译 + 特定链接场景）才跑该脚本——它是检测性的，命中才装。
 
 ## Mac 本地验证
@@ -173,5 +165,5 @@ make build-voice-cli-x86_64                # build.rs 命中本地 tar，跳过�
 ```bash
 cargo build --release -p voice-cli          # 默认带 whisper-metal
 ./target/release/voice-cli server run --config config.yml
-# 端口 8087，whisper 走 Metal(mps)
+# 端口 8077，whisper 走 Metal(mps)
 ```

@@ -7,8 +7,8 @@
 environment: "development"
 
 server:
-  # document-parser 默认 8077；与 voice-cli（默认 8087）同机部署时避免端口冲突
-  port: 8077
+  # document-parser 默认 8087；与 voice-cli（默认 8077）同机部署时避免端口冲突
+  port: 8087
   host: "0.0.0.0"
 
 log:
