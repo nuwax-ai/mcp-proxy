@@ -60,110 +60,100 @@ cp target/release/voice-cli $CUDA_LIB/libsherpa-onnx-c-api.so $CUDA_LIB/libonnxr
 pip install nvidia-cudnn-cu12    # → .../site-packages/nvidia/cudnn/lib/libcudnn.so.9
 # 或借用同机 document-parser venv 的 cuDNN（LD_LIBRARY_PATH 指过去）
 
-# 5. systemd voice-cli.service 取消注释 LD_LIBRARY_PATH 行，填 cuDNN 路径 + daemon-reload + enable
-#    Environment=LD_LIBRARY_PATH=<INSTALL_DIR>:<cudnn/lib>:/usr/local/cuda/lib64
+# 5. systemd 注册时传 CUDA 路径（生成 drop-in LD_LIBRARY_PATH）
+#    voice-cli service install --install-dir $INSTALL_DIR \
+#      --cuda-lib-dir /usr/local/cuda/lib64 --cudnn-lib-dir <cudnn/lib>
 ```
 
-**复用现成 binary（免重编）**：`voice-cli` + 4 个 `.so` 打包成 `voice-cli-cuda-*.tar`（~940M）传阿里云 OSS，新机 `tar xf` 解到 `$INSTALL_DIR/`（.so 与 binary 同目录）+ 配 `LD_LIBRARY_PATH`（cuDNN + cuda）+ cuDNN 9.x / CUDA toolkit 12.x 即可。
-> 模型另放：fireredasr2（`models/fireredasr2/...`）+ 标点（`models/punct/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12/model.onnx`），拉取见 `scripts/dev/fetch-asr-models.sh`。
+**复用现成 binary（免重编）**：`voice-cli` + 4 个 `.so` 打包成 `voice-cli-cuda-*.tar`（~940M）传阿里云 OSS，新机 `tar xf` 解到 `$INSTALL_DIR/`（.so 与 binary 同目录）+ `service install` 传 CUDA 路径即可。
+> 模型另放：fireredasr2（`models/fireredasr2/...`）+ 标点（`models/punct/...`），拉取见 `scripts/dev/fetch-asr-models.sh`。
 
 ## 文件清单
 
 | 文件 | 用途 |
 |------|------|
-| `voice-cli.service` | systemd unit 模板（开机自启 + 崩溃重启 + journald，部署统一走 systemd） |
-| `config.example.yml` | 配置模板（端口 8077；STT transcribe-rs + TTS Kokoro/ZipVoice 双引擎字段） |
-| `.env.example` | 环境变量模板 |
-| `install-libssl1.1-ubuntu2404.sh` | libssl1.1 兜底检测脚本（新架构 rustls 通常不需要，见下「关键坑 #5」） |
+| `config.example.yml` | 带注释的运维参考（**非**自动创建源；缺 `config.yml` 时由 `Config::default()` 生成） |
+| `.env.example` | 环境变量说明 |
+| `install-libssl1.1-ubuntu2404.sh` | libssl1.1 兜底检测脚本（新架构 rustls 通常不需要） |
 
 ## 快速部署（Ubuntu）
 
 ```bash
-# 1. 编译（Docker 跨平台，推荐）
-make build-voice-cli-x86_64                 # 产出 dist/voice-cli-x86_64/voice-cli
-# 或目标机本地: cargo build --release -p voice-cli --features cuda   # GPU 版
+# 1. 编译
+make build-voice-cli-x86_64                 # 或 cargo build --release -p voice-cli
 
-# 2. 传到目标机（连本目录）
-scp -r voice-cli deploy/ <目标机>:/opt/voice-cli/
+# 2. 传到目标机（只需二进制 + 本目录参考文件，不必 scp unit 模板）
+scp target/release/voice-cli deploy/ <目标机>:/opt/voice-cli/
 
-# 3. 放配置 + 模型
+# 3. 注册 systemd（缺 config.yml 时自动用代码默认值创建）
 cd /opt/voice-cli
-cp deploy/config.example.yml config.yml     # 按需改端口/模型
-# STT 模型放 ./models/；TTS（启用时）放 ./models/tts/（见 ../docs/DEPLOYMENT.md §4）
+./voice-cli service install --install-dir /opt/voice-cli
 
-# 4. 注册 systemd 服务（开机自启 + 崩溃重启）—— 命令见下方「系统服务」章节
+# 4. STT 模型放 ./models/；TTS（启用时）放 ./models/tts/
 ```
 
 ## 系统服务（systemd）
 
-部署统一走 systemd：开机自启 + 崩溃自动重启 + journald 统一日志。`voice-cli.service` 是 unit 模板。
+部署统一走 **`voice-cli service`** 子命令（内置 unit 渲染，无需手动 `sed` / `tee`）。
 
 ### 安装（一次性）
 
 ```bash
-# 1. 替换占位符 __USER__ / __GROUP__ / __INSTALL_DIR__ 并安装到系统目录
-sudo sed -e "s|__USER__|$USER|g" \
-         -e "s|__GROUP__|$USER|g" \
-         -e "s|__INSTALL_DIR__|/opt/voice-cli|g" \
-         deploy/voice-cli.service \
-         | sudo tee /etc/systemd/system/voice-cli.service > /dev/null
+cd /opt/voice-cli   # 须含 voice-cli 二进制；config.yml 可缺省（自动创建）
 
-# 2. 重载 systemd + 开机自启 + 立即启动
-sudo systemctl daemon-reload
-sudo systemctl enable --now voice-cli
+# 默认：注册 + enable + 立即 start
+# 不要用 sudo 跑二进制（内部会对 systemctl 调 sudo；若必须 sudo，会读 SUDO_USER 填 User=）
+./voice-cli service install --install-dir /opt/voice-cli
 
-# 3. 验证
-sudo systemctl status voice-cli
+# sherpa CUDA：附加库路径（生成 cuda-sherpa drop-in；两路径按需传，不会臆造默认 CUDA 路径）
+./voice-cli service install --install-dir /opt/voice-cli \
+  --cuda-lib-dir /usr/local/cuda/lib64 \
+  --cudnn-lib-dir /path/to/nvidia/cudnn/lib
+
+# 仅注册、暂不启动（改完 config 再 restart）
+./voice-cli service install --install-dir /opt/voice-cli --no-start
+
+# 验证
+./voice-cli service status
 curl -s http://localhost:8077/health
 ```
-
-> `__INSTALL_DIR__`（默认 `/opt/voice-cli`）须含 `voice-cli` 二进制 + `config.yml` + `models/`（先完成上方"快速部署"步骤 2-3）。`User=` 决定运行用户，确保该用户对 `__INSTALL_DIR__` 有读写权限（运行时要写 `./logs/`、`./data/`）。
 
 ### 常用命令
 
 ```bash
-sudo systemctl start voice-cli       # 启动
-sudo systemctl stop voice-cli        # 停止
-sudo systemctl restart voice-cli     # 重启（改完 config.yml 后用它生效）
-sudo systemctl status voice-cli      # 状态 + 最近日志
-sudo systemctl disable voice-cli     # 取消开机自启
+./voice-cli service restart      # 改完 config.yml 后
+./voice-cli service status       # 状态 + unit + 最近 journal
+./voice-cli service uninstall
 ```
 
-### 日志查询（journalctl）
-
-systemd 走 journald 统一收集；应用内 `tracing-appender` 文件日志仍在 `./logs/`（按天轮转），两者并存。
+### 日志
 
 ```bash
-sudo journalctl -u voice-cli -f                       # 实时跟踪
-sudo journalctl -u voice-cli --since "10 min ago"     # 最近 10 分钟
-sudo journalctl -u voice-cli -n 200                   # 最近 200 行
+sudo journalctl -u voice-cli -f
+# 应用文件日志仍在 ./logs/（按天轮转）
 ```
-
----
 
 ## Docker 构建补充（github 阻断环境）
 
-`docker/Dockerfile.voice-cli` 编译期需 sherpa-onnx 预编译 C 库（无 `SHERPA_ONNX_ARCHIVE_DIR` 缓存时默认联网下载，github 阻断会卡死）。**先预下载**：
-
 ```bash
-bash docker/fetch-sherpa.sh amd64          # gh-proxy 拉 linux x64 tar 到 docker/sherpa-cache/
-make build-voice-cli-x86_64                # build.rs 命中本地 tar，跳过联网
+bash docker/fetch-sherpa.sh amd64
+make build-voice-cli-x86_64
 ```
-
-有网环境（CI / 公网服务器）可跳过预下载，容器内自动联网。
 
 ## ⚠️ 关键坑（必看）
 
-1. **`server run --config` 位置坑**：`--config` 必须放在 `server run` **后面**（`voice-cli server run --config config.yml`）；全局的 `-c config.yml server run` 在 `server run` 子命令下**会被代码忽略**（见 `src/main.rs:get_config_path_for_server_action`）。下方 systemd unit 的 `ExecStart` 已正确放置（`--config` 在 `server run` 后）。
-2. **端口**：由 config.yml 的 `server.port` 决定（本模板默认 8077；`../docs/DEPLOYMENT.md` 示例用 8080，按需统一）。改端口改配置，别在命令行传。
-3. **TTS 默认禁用**：sherpa-onnx（Kokoro v1_1 标准 / ZipVoice 克隆）。启用见 `../docs/DEPLOYMENT.md` §4.2（置 `tts.enabled: true` + 放模型到 `./models/tts/`；Kokoro 默认，ZipVoice 改 `backend: zipvoice`，参考 `config.example.yml`）。
-4. **WorkingDirectory 必须设对**：`./models` `./logs` `./data/tasks.db` 都是相对路径。systemd unit 的 `WorkingDirectory=` 必须指向安装根（否则相对路径落到 `/`）。
-5. **libssl1.1（可选兜底）**：新架构 reqwest 已用 rustls（`Cargo.toml` reqwest 段注释明确），产物**不依赖任何 libssl.so**，通常无需 `install-libssl1.1-ubuntu2404.sh`。仅当 `ldd voice-cli | grep libssl` 命中时（cuda 编译 + 特定链接场景）才跑该脚本——它是检测性的，命中才装。
+1. **`--install-dir`**：必须是**专用安装根**（含二进制）；勿指向含其他服务 `config.yml` 的目录。
+2. **`server run --config` 位置**：`--config` 必须在 `server run` **后面**（unit 已正确配置）。
+3. **端口**：由 `config.yml` 的 `server.port` 决定（默认 8077）。
+4. **TTS 默认禁用**：启用见 `../docs/DEPLOYMENT.md`。
+5. **WorkingDirectory**：`service install` 自动设为 `--install-dir`。
+6. **libssl1.1**：通常不需要（rustls）；仅 `ldd voice-cli | grep libssl` 命中时再装。
 
 ## Mac 本地验证
 
 ```bash
-cargo build --release -p voice-cli          # 默认带 whisper-metal
-./target/release/voice-cli server run --config config.yml
-# 端口 8077，whisper 走 Metal(mps)
+cargo build -p voice-cli
+cd crates/voice-cli
+cargo run -p voice-cli -- service install --dry-run --install-dir .
+# 只打印 unit，不写 /etc、不创建文件
 ```

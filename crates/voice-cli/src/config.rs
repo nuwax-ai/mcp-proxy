@@ -15,7 +15,7 @@ impl ServiceType {
     /// 获取默认配置文件名
     pub fn default_config_filename(&self) -> &'static str {
         match self {
-            ServiceType::Server => "server-config.yml",
+            ServiceType::Server => "config.yml",
         }
     }
 
@@ -32,37 +32,23 @@ impl ServiceType {
     }
 }
 
-/// 配置模板生成器
+/// 配置模板生成器：用代码 `Config::default()` 序列化写盘（单一真相源）。
 pub struct ConfigTemplateGenerator;
 
 impl ConfigTemplateGenerator {
-    /// 生成指定服务类型的配置文件
+    /// 生成指定服务类型的配置文件（来自 `Config::default()`）。
     pub fn generate_config_file(
         service_type: ServiceType,
         output_path: &PathBuf,
     ) -> crate::Result<()> {
-        let template_content = Self::get_template_content(service_type)?;
-
-        if let Some(parent) = output_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
-        std::fs::write(output_path, template_content)?;
-
+        let _ = service_type; // currently only Server → Config::default()
+        Config::default().save(output_path)?;
         info!(
-            "Generated {} configuration file: {:?}",
+            "Generated {} configuration from code defaults: {:?}",
             service_type.display_name(),
             output_path
         );
-
         Ok(())
-    }
-
-    /// 获取服务类型对应的模板内容
-    fn get_template_content(service_type: ServiceType) -> crate::Result<&'static str> {
-        match service_type {
-            ServiceType::Server => Ok(include_str!("../templates/server-config.yml.template")),
-        }
     }
 
     /// 生成所有类型的配置文件到指定目录

@@ -124,28 +124,7 @@ impl CancellationToken {
 // MinerUConfig 和 QualityLevel 现在在 crate::config 中定义
 pub use crate::config::{MinerUConfig, QualityLevel};
 
-impl Default for MinerUConfig {
-    fn default() -> Self {
-        Self {
-            python_path: if cfg!(windows) {
-                "./venv/Scripts/python.exe".to_string()
-            } else {
-                "./venv/bin/python".to_string()
-            },
-            backend: "pipeline".to_string(),
-            max_concurrent: 3,
-            queue_size: 100,
-            timeout: 0, // 0表示使用统一的超时配置
-            batch_size: 1,
-            quality_level: QualityLevel::Balanced,
-            device: "cpu".to_string(),
-            vram: 0, // 默认不限制显存（mineru 3.4 改用 MINERU_VIRTUAL_VRAM_SIZE 环境变量）
-            gpu_memory_utilization: 0.0, // 默认不传，用 mineru 默认
-        }
-    }
-}
-
-/// MinerU PDF解析器
+/// MinerUParser PDF解析器
 pub struct MinerUParser {
     config: MinerUConfig,
     active_tasks: Arc<Mutex<std::collections::HashMap<String, CancellationToken>>>,

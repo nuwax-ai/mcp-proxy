@@ -42,6 +42,30 @@ impl<'de> Deserialize<'de> for FileSize {
     }
 }
 
+impl Serialize for FileSize {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&format_file_size_human(self.0))
+    }
+}
+
+fn format_file_size_human(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+    if bytes >= GB && bytes.is_multiple_of(GB) {
+        format!("{}GB", bytes / GB)
+    } else if bytes >= MB && bytes.is_multiple_of(MB) {
+        format!("{}MB", bytes / MB)
+    } else if bytes >= KB && bytes.is_multiple_of(KB) {
+        format!("{}KB", bytes / KB)
+    } else {
+        format!("{bytes}B")
+    }
+}
+
 impl FileSize {
     pub fn bytes(&self) -> u64 {
         self.0
@@ -57,7 +81,7 @@ impl FileSize {
 }
 
 /// 全局文件大小配置
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GlobalFileSizeConfig {
     /// 统一的最大文件大小限制
     pub max_file_size: FileSize,
@@ -68,8 +92,8 @@ pub struct GlobalFileSizeConfig {
 impl Default for GlobalFileSizeConfig {
     fn default() -> Self {
         Self {
-            max_file_size: FileSize(100 * 1024 * 1024),      // 100MB
-            large_document_threshold: FileSize(1024 * 1024), // 1MB
+            max_file_size: FileSize(200 * 1024 * 1024), // 200MB
+            large_document_threshold: FileSize(50 * 1024 * 1024), // 50MB
         }
     }
 }
@@ -304,7 +328,7 @@ pub struct CudaStatus {
 }
 
 /// 应用配置
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub environment: String,
     pub server: ServerConfig,
@@ -320,7 +344,7 @@ pub struct AppConfig {
 }
 
 /// 服务器配置
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
     pub port: u16,
     pub host: String,
@@ -359,7 +383,7 @@ impl ServerConfig {
 }
 
 /// 日志配置
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogConfig {
     pub level: String,
     pub path: String,
@@ -411,7 +435,7 @@ impl LogConfig {
 }
 
 /// 文档解析配置
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DocumentParserConfig {
     pub max_concurrent: usize,
     pub queue_size: usize,
@@ -463,7 +487,7 @@ impl DocumentParserConfig {
 }
 
 /// MinerU配置
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MinerUConfig {
     #[serde(default = "default_backend")]
     pub backend: String,
@@ -488,7 +512,7 @@ pub struct MinerUConfig {
 }
 
 /// 质量级别
-#[derive(Debug, Clone, PartialEq, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum QualityLevel {
     Fast,
     #[default]
@@ -515,6 +539,15 @@ fn default_python_path() -> String {
 
 fn default_device() -> String {
     "cpu".to_string()
+}
+
+/// Platform-aware default for `MinerUConfig::default()` / auto-generated config.yml.
+fn default_device_for_platform() -> String {
+    if cfg!(target_os = "macos") {
+        "mps".to_string()
+    } else {
+        "cpu".to_string()
+    }
 }
 
 fn default_vram() -> u32 {
@@ -597,7 +630,7 @@ impl MinerUConfig {
 }
 
 /// MarkItDown配置
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MarkItDownConfig {
     #[serde(default = "default_python_path")]
     pub python_path: String,
@@ -654,7 +687,7 @@ pub struct MarkItDownFeatures {
 }
 
 /// 存储配置
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StorageConfig {
     pub sled: SledConfig,
     pub oss: OssConfig,
@@ -669,7 +702,7 @@ impl StorageConfig {
 }
 
 /// Sled数据库配置
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SledConfig {
     pub path: String,
     pub cache_capacity: usize,
@@ -696,7 +729,7 @@ impl SledConfig {
 }
 
 /// OSS配置
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OssConfig {
     pub endpoint: String,
     // pub bucket: String,
@@ -715,7 +748,7 @@ pub struct OssConfig {
 
 /// 默认上传目录
 fn default_upload_directory() -> String {
-    "edu".to_string()
+    "document_parser".to_string()
 }
 
 impl OssConfig {
@@ -753,7 +786,7 @@ impl OssConfig {
 }
 
 /// 外部集成配置
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExternalIntegrationConfig {
     pub webhook_url: String,
     pub api_key: String,
@@ -807,6 +840,125 @@ pub struct MapEnv(pub std::collections::HashMap<String, String>);
 impl EnvProvider for MapEnv {
     fn get(&self, key: &str) -> Option<String> {
         self.0.get(key).cloned()
+    }
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            port: 8077,
+            host: "0.0.0.0".to_string(),
+        }
+    }
+}
+
+impl Default for LogConfig {
+    fn default() -> Self {
+        Self {
+            level: "info".to_string(),
+            path: "logs".to_string(),
+            retain_days: default_retain_days(),
+        }
+    }
+}
+
+impl Default for DocumentParserConfig {
+    fn default() -> Self {
+        Self {
+            max_concurrent: 5,
+            queue_size: 1000,
+            download_timeout: 3600,
+            processing_timeout: 3600,
+        }
+    }
+}
+
+impl Default for MinerUConfig {
+    fn default() -> Self {
+        Self {
+            backend: default_backend(),
+            python_path: default_python_path(),
+            max_concurrent: 1,
+            queue_size: 100,
+            timeout: 0,
+            batch_size: default_batch_size(),
+            quality_level: QualityLevel::default(),
+            // Prefer platform default: macOS → mps, others → cpu (see default_device).
+            device: default_device_for_platform(),
+            vram: default_vram(),
+            gpu_memory_utilization: 0.3,
+        }
+    }
+}
+
+impl Default for MarkItDownFeatures {
+    fn default() -> Self {
+        Self {
+            ocr: true,
+            audio_transcription: true,
+            azure_doc_intel: false,
+            youtube_transcription: false,
+        }
+    }
+}
+
+impl Default for MarkItDownConfig {
+    fn default() -> Self {
+        Self {
+            python_path: default_python_path(),
+            timeout: 0,
+            enable_plugins: false,
+            features: MarkItDownFeatures::default(),
+        }
+    }
+}
+
+impl Default for SledConfig {
+    fn default() -> Self {
+        Self {
+            path: "data/document_parser".to_string(),
+            cache_capacity: 104_857_600,
+        }
+    }
+}
+
+impl Default for OssConfig {
+    fn default() -> Self {
+        Self {
+            endpoint: "oss-rg-china-mainland.aliyuncs.com".to_string(),
+            public_bucket: "nuwa-packages".to_string(),
+            private_bucket: "edu-nuwa-packages".to_string(),
+            access_key_id: String::new(),
+            access_key_secret: String::new(),
+            region: "oss-rg-china-mainland".to_string(),
+            upload_directory: "document_parser".to_string(),
+        }
+    }
+}
+
+impl Default for ExternalIntegrationConfig {
+    fn default() -> Self {
+        Self {
+            webhook_url: String::new(),
+            api_key: String::new(),
+            timeout: 30,
+        }
+    }
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            environment: "development".to_string(),
+            server: ServerConfig::default(),
+            log: LogConfig::default(),
+            document_parser: DocumentParserConfig::default(),
+            mineru: MinerUConfig::default(),
+            markitdown: MarkItDownConfig::default(),
+            storage: StorageConfig::default(),
+            external_integration: ExternalIntegrationConfig::default(),
+            file_size_config: GlobalFileSizeConfig::default(),
+        }
     }
 }
 
@@ -868,9 +1020,8 @@ impl AppConfig {
             );
         }
 
-        // 使用默认配置
-        serde_yaml::from_str::<AppConfig>(DEFAULT_CONFIG_YAML)
-            .map_err(|e| ConfigError::Parse(format!("解析默认配置失败: {e}")))
+        // 使用代码默认配置
+        Ok(Self::default())
     }
 
     /// 从指定文件加载配置
@@ -882,27 +1033,34 @@ impl AppConfig {
             .map_err(|e| ConfigError::Parse(format!("解析配置文件 {path} 失败: {e}")))
     }
 
-    /// 在当前目录创建默认配置文件
+    /// 将 `AppConfig::default()` 序列化为 YAML 写入指定路径（不覆盖已存在文件）。
+    pub fn write_default_config(path: &Path) -> Result<(), ConfigError> {
+        if path.exists() {
+            return Ok(());
+        }
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                ConfigError::FileRead(format!("无法创建配置目录 {}: {e}", parent.display()))
+            })?;
+        }
+        let yaml = serde_yaml::to_string(&Self::default())
+            .map_err(|e| ConfigError::Parse(format!("序列化默认配置失败: {e}")))?;
+        std::fs::write(path, yaml).map_err(|e| {
+            ConfigError::FileRead(format!("无法写入默认配置文件 {}: {e}", path.display()))
+        })?;
+        info!(
+            "Default configuration written from code defaults: {}",
+            path.display()
+        );
+        Ok(())
+    }
+
+    /// 在当前目录创建默认配置文件（来自 `AppConfig::default()`）
     fn create_default_config_in_current_dir() -> Result<(), ConfigError> {
         let current_dir = std::env::current_dir()
             .map_err(|e| ConfigError::FileRead(format!("无法获取当前目录: {e}")))?;
-
         let config_path = current_dir.join("config.yml");
-
-        // 如果配置文件已存在，不覆盖
-        if config_path.exists() {
-            return Ok(());
-        }
-
-        // 创建配置文件
-        std::fs::write(&config_path, DEFAULT_CONFIG_YAML)
-            .map_err(|e| ConfigError::FileRead(format!("无法创建默认配置文件: {e}")))?;
-
-        info!(
-            "The default configuration file has been created in the current directory: {}",
-            config_path.display()
-        );
-        Ok(())
+        Self::write_default_config(&config_path)
     }
 
     /// 验证整个配置的有效性

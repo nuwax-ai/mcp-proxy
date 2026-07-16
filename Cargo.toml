@@ -14,6 +14,7 @@ members = [
     "crates/mcp-streamable-proxy",
     "crates/oss-client",
     "crates/run-code-rmcp",
+    "crates/systemd-installer",
     "crates/voice-cli",
     "crates/fastembed",
 ]
@@ -27,6 +28,7 @@ default-members = [
     "crates/mcp-streamable-proxy",
     "crates/oss-client",
     "crates/run-code-rmcp",
+    "crates/systemd-installer",
     "crates/voice-cli",
 ]
 resolver = "2"
@@ -45,6 +47,7 @@ mcp-common = { version = "0.2.0", path = "crates/mcp-common" }
 mcp-sse-proxy = { version = "0.2.0", path = "crates/mcp-sse-proxy" }
 mcp-streamable-proxy = { version = "0.2.0", path = "crates/mcp-streamable-proxy" }
 oss-client = { version = "0.2.0", path = "crates/oss-client" }
+systemd-installer = { version = "0.2.0", path = "crates/systemd-installer" }
 # run_code_rmcp 已 vendor 到本地（crates/run-code-rmcp/），不再从 crates.io 拉取
 run_code_rmcp = { path = "crates/run-code-rmcp" }
 # voice-toolkit 已 vendor 到本地（crates/voice-toolkit 等 4 个 crate），不再从 crates.io 拉取

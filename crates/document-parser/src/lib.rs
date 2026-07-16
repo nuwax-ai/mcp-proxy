@@ -20,6 +20,7 @@ pub mod performance;
 pub mod processors;
 pub mod production;
 pub mod routes;
+pub mod service_cli;
 pub mod services;
 pub mod utils;
 

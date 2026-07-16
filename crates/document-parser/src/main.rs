@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use document_parser::{
     APP_NAME, APP_VERSION, AppConfig, AppError, AppState,
-    config::{CudaStatus, init_global_config, init_global_cuda_status},
+    config::{CudaStatus, StdEnv, init_global_config, init_global_cuda_status},
     routes::create_routes,
     utils::environment_manager::{
         CleanupRisk, DirectoryValidationResult, EnvironmentManager, EnvironmentStatus, InstallStage,
@@ -147,6 +147,39 @@ enum Commands {
 
 每个问题都包含详细的诊断步骤和解决方案。")]
     Troubleshoot,
+    /// systemd service registration (Linux)
+    Service {
+        #[command(subcommand)]
+        action: ServiceAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum ServiceAction {
+    /// Generate unit, install to /etc/systemd/system, enable + start
+    Install {
+        /// Install root (WorkingDirectory); default: current directory
+        #[arg(long, default_value = ".")]
+        install_dir: PathBuf,
+
+        /// systemd User= (default: current user)
+        #[arg(long)]
+        user: Option<String>,
+
+        /// Register + enable but do not start/restart
+        #[arg(long)]
+        no_start: bool,
+
+        /// Only print rendered unit; do not write or call systemctl
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Stop, disable, and remove the unit
+    Uninstall,
+    /// Show enable/active state, unit, and recent logs
+    Status,
+    /// Restart the service
+    Restart,
 }
 
 #[tokio::main]
@@ -155,20 +188,38 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
-    // 加载配置
-    let mut app_config = if let Some(config_path) = cli.config {
-        // 直接传入配置文件路径
-        AppConfig::load_base_config_with_path(Some(config_path.to_string_lossy().to_string()))
-            .map_err(|e| anyhow::anyhow!("配置加载失败: {}", e))?
+    let Cli {
+        command,
+        config,
+        port,
+        host,
+    } = cli;
+
+    // Lightweight path: systemd registration (no server / tracing / CUDA)
+    if let Some(Commands::Service { action }) = command {
+        return handle_service_command(action).await;
+    }
+
+    // 加载配置（`--config` 路径也必须套一层环境变量覆盖，否则 systemd EnvironmentFile
+    // 注入的 OSS_ACCESS_KEY_* 不会生效）
+    let mut app_config = if let Some(config_path) = config {
+        let mut cfg =
+            AppConfig::load_base_config_with_path(Some(config_path.to_string_lossy().to_string()))
+                .map_err(|e| anyhow::anyhow!("配置加载失败: {}", e))?;
+        cfg.load_all_from_env(&StdEnv)
+            .map_err(|e| anyhow::anyhow!("环境变量覆盖失败: {}", e))?;
+        cfg.validate()
+            .map_err(|e| anyhow::anyhow!("配置验证失败: {}", e))?;
+        cfg
     } else {
         AppConfig::load_config().map_err(|e| anyhow::anyhow!("配置加载失败: {}", e))?
     };
 
     // 覆盖命令行参数
-    if let Some(port) = cli.port {
+    if let Some(port) = port {
         app_config.server.port = port;
     }
-    app_config.server.host = cli.host.clone();
+    app_config.server.host = host.clone();
 
     // 初始化全局配置
     init_global_config(app_config.clone())
@@ -269,7 +320,7 @@ async fn main() -> Result<()> {
         .map_err(|e| anyhow::anyhow!("无法创建环境管理器: {}", e))?;
 
     // 处理命令行子命令
-    match cli.command {
+    match command {
         Some(Commands::Check) => {
             return handle_check_command(&environment_manager).await;
         }
@@ -289,6 +340,9 @@ async fn main() -> Result<()> {
         }
         Some(Commands::Troubleshoot) => {
             return handle_troubleshoot_command(&environment_manager).await;
+        }
+        Some(Commands::Service { .. }) => {
+            unreachable!("service command handled before server init")
         }
         Some(Commands::Server { daemon: _ }) | None => {
             // 继续执行服务器模式
@@ -1219,6 +1273,27 @@ async fn handle_troubleshoot_command(environment_manager: &EnvironmentManager) -
     println!("💡 Tip: Most problems can be solved by re-running 'document-parser uv-init'");
 
     Ok(())
+}
+
+async fn handle_service_command(action: ServiceAction) -> Result<()> {
+    use document_parser::service_cli::{self, InstallParams};
+
+    match action {
+        ServiceAction::Install {
+            install_dir,
+            user,
+            no_start,
+            dry_run,
+        } => service_cli::handle_service_install(InstallParams {
+            install_dir,
+            user,
+            no_start,
+            dry_run,
+        }),
+        ServiceAction::Uninstall => service_cli::handle_service_uninstall(),
+        ServiceAction::Status => service_cli::handle_service_status(),
+        ServiceAction::Restart => service_cli::handle_service_restart(),
+    }
 }
 
 /// 处理环境检查命令

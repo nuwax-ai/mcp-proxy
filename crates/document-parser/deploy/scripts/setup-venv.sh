@@ -60,4 +60,4 @@ echo "=== 6) 验证 ==="
 
 echo
 echo "✅ venv 初始化完成: $VENV"
-echo "下一步: bash deploy/scripts/install.sh"
+echo "下一步: ./document-parser service install --install-dir \$(pwd)"

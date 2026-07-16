@@ -275,7 +275,7 @@ impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             host: "0.0.0.0".to_string(),
-            port: 8080,
+            port: 8077,
             max_file_size: 200 * 1024 * 1024, // 200MB
             cors_enabled: true,
         }

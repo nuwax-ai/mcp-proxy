@@ -3,7 +3,7 @@ use clap::Parser;
 use std::path::PathBuf;
 use tracing::{error, info};
 use voice_cli::{
-    cli::{Cli, Commands, ModelAction, ServerAction, TtsAction},
+    cli::{Cli, Commands, ModelAction, ServerAction, ServiceAction, TtsAction},
     config::ServiceType,
     config_rs_integration::ConfigRsLoader,
     server,
@@ -29,13 +29,11 @@ async fn main() {
 
     // Load configuration based on command type using config-rs with proper hierarchy
     let config = match &cli.command {
-        // For init commands, we don't need to load existing config
+        // For init / service commands, we don't need to load existing config here
         Commands::Server {
             action: ServerAction::Init { .. },
-        } => {
-            // Use default config for init commands
-            voice_cli::Config::default()
         }
+        | Commands::Service { .. } => voice_cli::Config::default(),
 
         // For server commands, use server-specific config
         Commands::Server { action } => {
@@ -76,6 +74,7 @@ async fn main() {
         Commands::Server { action } => handle_server_command(action, &config).await,
         Commands::Model { action } => handle_model_command(action, &config).await,
         Commands::Tts { action } => handle_tts_command(action, &config).await,
+        Commands::Service { action } => handle_service_command(action),
     };
 
     // Handle result
@@ -162,6 +161,31 @@ async fn handle_server_command(action: ServerAction, config: &voice_cli::Config)
                 .await
                 .context("Failed to run server")
         }
+    }
+}
+
+fn handle_service_command(action: ServiceAction) -> Result<()> {
+    use voice_cli::cli::service;
+
+    match action {
+        ServiceAction::Install {
+            install_dir,
+            user,
+            no_start,
+            dry_run,
+            cuda_lib_dir,
+            cudnn_lib_dir,
+        } => service::handle_service_install(service::InstallParams {
+            install_dir,
+            user,
+            no_start,
+            dry_run,
+            cuda_lib_dir,
+            cudnn_lib_dir,
+        }),
+        ServiceAction::Uninstall => service::handle_service_uninstall(),
+        ServiceAction::Status => service::handle_service_status(),
+        ServiceAction::Restart => service::handle_service_restart(),
     }
 }
 
@@ -264,6 +288,18 @@ mod tests {
 
         // Test model download command
         let args = vec!["voice-cli", "model", "download", "base"];
+        let cli = Cli::try_parse_from(args);
+        assert!(cli.is_ok());
+
+        // Test service install dry-run
+        let args = vec![
+            "voice-cli",
+            "service",
+            "install",
+            "--dry-run",
+            "--install-dir",
+            ".",
+        ];
         let cli = Cli::try_parse_from(args);
         assert!(cli.is_ok());
     }

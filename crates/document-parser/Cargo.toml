@@ -78,6 +78,7 @@ tar = "0.4"
 
 # 配置管理
 clap = { workspace = true, features = ["derive", "env"] }
+systemd-installer = { workspace = true }
 dashmap.workspace = true
 moka = { workspace = true, features = ["future"] }
 regex = "1.11.1"

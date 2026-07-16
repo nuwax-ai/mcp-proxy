@@ -46,12 +46,12 @@ async fn shutdown_signal_with_broadcast(shutdown_tx: broadcast::Sender<()>) {
     let _ = shutdown_tx.send(());
 }
 
-/// Initialize server configuration
+/// Initialize server configuration from code defaults (`Config::default()`).
 pub async fn handle_server_init(config_path: Option<PathBuf>, force: bool) -> crate::Result<()> {
     let output_path = config_path.unwrap_or_else(|| {
         std::env::current_dir()
             .unwrap_or_else(|_| PathBuf::from("."))
-            .join("server-config.yml")
+            .join("config.yml")
     });
 
     // 检查文件是否已存在
@@ -61,13 +61,16 @@ pub async fn handle_server_init(config_path: Option<PathBuf>, force: bool) -> cr
         return Ok(());
     }
 
-    // 生成配置文件
+    // 从代码默认值生成配置文件
     crate::config::ConfigTemplateGenerator::generate_config_file(
         crate::config::ServiceType::Server,
         &output_path,
     )?;
 
-    println!("✅ Server configuration initialized: {:?}", output_path);
+    println!(
+        "✅ Server configuration initialized from code defaults: {:?}",
+        output_path
+    );
 
     println!("📝 Edit the configuration file and run:");
     println!("   voice-cli server run --config {:?}", output_path);

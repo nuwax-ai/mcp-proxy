@@ -1,6 +1,8 @@
 pub mod model;
+pub mod service;
 pub mod tts;
 
+pub use service::InstallParams;
 pub use tts::TtsAction;
 
 use clap::{Parser, Subcommand};
@@ -39,13 +41,18 @@ pub enum Commands {
         #[command(subcommand)]
         action: TtsAction,
     },
+    /// systemd service registration (Linux)
+    Service {
+        #[command(subcommand)]
+        action: ServiceAction,
+    },
 }
 
 #[derive(Subcommand)]
 pub enum ServerAction {
     /// Initialize server configuration
     Init {
-        /// Configuration file output path (default: ./server-config.yml)
+        /// Configuration file output path (default: ./config.yml)
         #[arg(short, long)]
         config: Option<std::path::PathBuf>,
 
@@ -59,6 +66,42 @@ pub enum ServerAction {
         #[arg(short, long)]
         config: Option<std::path::PathBuf>,
     },
+}
+
+#[derive(Subcommand)]
+pub enum ServiceAction {
+    /// Generate unit, install to /etc/systemd/system, enable + start
+    Install {
+        /// Install root (WorkingDirectory); default: current directory
+        #[arg(long, default_value = ".")]
+        install_dir: std::path::PathBuf,
+
+        /// systemd User= (default: current user)
+        #[arg(long)]
+        user: Option<String>,
+
+        /// Register + enable but do not start/restart
+        #[arg(long)]
+        no_start: bool,
+
+        /// Only print rendered unit; do not write or call systemctl
+        #[arg(long)]
+        dry_run: bool,
+
+        /// CUDA lib dir for LD_LIBRARY_PATH drop-in (e.g. /usr/local/cuda/lib64)
+        #[arg(long)]
+        cuda_lib_dir: Option<std::path::PathBuf>,
+
+        /// cuDNN lib dir for LD_LIBRARY_PATH drop-in
+        #[arg(long)]
+        cudnn_lib_dir: Option<std::path::PathBuf>,
+    },
+    /// Stop, disable, and remove the unit
+    Uninstall,
+    /// Show enable/active state, unit, and recent logs
+    Status,
+    /// Restart the service
+    Restart,
 }
 
 #[derive(Subcommand)]
@@ -83,6 +126,3 @@ pub enum ModelAction {
         model_name: String,
     },
 }
-
-// Daemon mode is no longer supported
-// Use foreground mode with shell scripts for background operation

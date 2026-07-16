@@ -1,0 +1,14 @@
+[package]
+name = "systemd-installer"
+version.workspace = true
+edition.workspace = true
+description = "Shared helpers to render and install systemd unit files for local services"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+thiserror = { workspace = true }
+tempfile = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

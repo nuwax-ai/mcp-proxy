@@ -80,6 +80,7 @@ base64 = { workspace = true }
 tempfile = { workspace = true }
 dirs = { workspace = true }
 url = { workspace = true }
+systemd-installer = { workspace = true }
 
 # Embedded database for task persistence
 # sled = { version = "0.34", features = ["compression"] }  # Disabled due to zstd dependency conflict
