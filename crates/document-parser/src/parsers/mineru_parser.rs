@@ -1156,7 +1156,12 @@ mod tests {
         assert_eq!(config.backend, "pipeline");
         assert_eq!(config.timeout, 0);
         assert_eq!(config.quality_level, QualityLevel::Balanced);
-        assert_eq!(config.device, "cpu");
+        // device 平台感知:macOS 默认 mps,其他默认 cpu(见 default_device_for_platform)
+        if cfg!(target_os = "macos") {
+            assert_eq!(config.device, "mps");
+        } else {
+            assert_eq!(config.device, "cpu");
+        }
     }
 
     #[test]

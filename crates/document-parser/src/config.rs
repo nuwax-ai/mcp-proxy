@@ -733,9 +733,9 @@ impl SledConfig {
 pub struct OssConfig {
     pub endpoint: String,
     // pub bucket: String,
-    /// 公有存储桶名称 (默认: nuwa-packages)
+    /// 公有存储桶名称 (必填;为空时启动期 validate 报错,需在 config.yml 配置)
     pub public_bucket: String,
-    /// 私有存储桶名称 (默认: edu-nuwa-packages)
+    /// 私有存储桶名称 (必填;为空时启动期 validate 报错,需在 config.yml 配置)
     pub private_bucket: String,
     pub access_key_id: String,
     pub access_key_secret: String,
@@ -878,7 +878,7 @@ impl Default for MinerUConfig {
         Self {
             backend: default_backend(),
             python_path: default_python_path(),
-            max_concurrent: 1,
+            max_concurrent: 3,
             queue_size: 100,
             timeout: 0,
             batch_size: default_batch_size(),
@@ -926,8 +926,8 @@ impl Default for OssConfig {
     fn default() -> Self {
         Self {
             endpoint: "oss-rg-china-mainland.aliyuncs.com".to_string(),
-            public_bucket: "nuwa-packages".to_string(),
-            private_bucket: "edu-nuwa-packages".to_string(),
+            public_bucket: String::new(),
+            private_bucket: String::new(),
             access_key_id: String::new(),
             access_key_secret: String::new(),
             region: "oss-rg-china-mainland".to_string(),
