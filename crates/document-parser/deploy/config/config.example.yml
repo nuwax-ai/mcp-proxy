@@ -27,7 +27,7 @@ mineru:
   # 后端: pipeline(CPU/兼容) | vlm-engine(纯VLM) | hybrid-engine(GPU+vllm,默认) | vlm-http-client | hybrid-http-client
   backend: "hybrid-engine"
   python_path: "./venv/bin/python"
-  max_concurrent: 1
+  max_concurrent: 3
   queue_size: 100
   batch_size: 1
   quality_level: "Balanced"
