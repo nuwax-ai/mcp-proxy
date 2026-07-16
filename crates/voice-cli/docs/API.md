@@ -1,9 +1,9 @@
 # voice-cli API 集成测试手册
 
 > 全部 HTTP/WebSocket 接口的请求/响应示例 + curl/python 测试用例。
-> 部署见 [DEPLOYMENT.md](./DEPLOYMENT.md)。Swagger UI：`http://localhost:8080/api/docs`。
+> 部署见 [DEPLOYMENT.md](./DEPLOYMENT.md)。Swagger UI：`http://localhost:8077/api/docs`。
 
-- **Base URL**：`http://localhost:8080`
+- **Base URL**：`http://localhost:8077`
 - **服务须已启动**：`cd ~/voice-cli-test && voice-cli server run`（见 DEPLOYMENT.md §6）
 - 测试音频：`~/voice-cli-test/jfk.wav`（16kHz mono，~8s 英文）
 
@@ -40,8 +40,8 @@
 ## 1. 健康检查 + 模型列表
 
 ```bash
-curl -s http://localhost:8080/health | python3 -m json.tool
-curl -s http://localhost:8080/models | python3 -m json.tool
+curl -s http://localhost:8077/health | python3 -m json.tool
+curl -s http://localhost:8077/models | python3 -m json.tool
 ```
 
 ---
@@ -52,7 +52,7 @@ curl -s http://localhost:8080/models | python3 -m json.tool
 curl -s -F file=@~/voice-cli-test/jfk.wav \
      -F language=en \
      -F model=base \
-     http://localhost:8080/transcribe | python3 -m json.tool
+     http://localhost:8077/transcribe | python3 -m json.tool
 ```
 
 可选 multipart 字段（全可选，向后兼容）：
@@ -73,15 +73,15 @@ curl -s -F file=@~/voice-cli-test/jfk.wav \
 ```bash
 # 提交
 TID=$(curl -s -F file=@~/voice-cli-test/jfk.wav -F language=en \
-  http://localhost:8080/api/v1/tasks/transcribe \
+  http://localhost:8077/api/v1/tasks/transcribe \
   | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['task_id'])")
 echo "task_id=$TID"
 
 # 轮询状态
-curl -s "http://localhost:8080/api/v1/tasks/$TID" | python3 -m json.tool
+curl -s "http://localhost:8077/api/v1/tasks/$TID" | python3 -m json.tool
 
 # 取结果（Completed 后）
-curl -s "http://localhost:8080/api/v1/tasks/$TID/result" | python3 -m json.tool
+curl -s "http://localhost:8077/api/v1/tasks/$TID/result" | python3 -m json.tool
 ```
 
 ---
@@ -103,7 +103,7 @@ Python 客户端（`ws_stt_test.py`）：
 import asyncio, json, struct, wave, sys
 import websockets
 
-URI = "ws://localhost:8080/api/v1/stream/transcribe"
+URI = "ws://localhost:8077/api/v1/stream/transcribe"
 WAV = sys.argv[1] if len(sys.argv) > 1 else "jfk.wav"
 
 async def main():
@@ -153,7 +153,7 @@ python3 ws_stt_test.py ~/voice-cli-test/jfk.wav
 ## 5. TTS — 同步合成
 
 ```bash
-curl -s -X POST http://localhost:8080/api/v1/tts \
+curl -s -X POST http://localhost:8077/api/v1/tts \
   -H 'Content-Type: application/json' \
   -d '{"text":"你好世界，这是 Metal 加速的本地语音合成测试。","sid":0,"format":"wav"}' \
   -o /tmp/tts.wav
@@ -166,7 +166,7 @@ open /tmp/tts.wav       # macOS 播放
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `text` | string | 要合成的文本（≤`tts.max_text_length`） |
-| `model` | string | 模型 id（不传=`default_model`；多模型并存时指定，如 `kokoro-multi-lang-v1_0`） |
+| `model` | string | 模型 id（不传=`default_model`；多模型并存时指定，如 `kokoro-multi-lang-v1_1`） |
 | `sid` | i32 | 音色 id（0-52；不传=`default_sid`） |
 | `voice` | string | 音色别名（v1 暂不解析，保留接口） |
 | `speed` | f32 | 语速（1.0 原速；不传=`default_speed`） |
@@ -181,8 +181,8 @@ open /tmp/tts.wav       # macOS 播放
 ## 6. TTS — 音色列表
 
 ```bash
-curl -s http://localhost:8080/api/v1/tts/voices | python3 -m json.tool
-# {"model":"kokoro-multi-lang-v1_0","num_speakers":53}
+curl -s http://localhost:8077/api/v1/tts/voices | python3 -m json.tool
+# {"model":"kokoro-multi-lang-v1_1","num_speakers":103}
 ```
 
 ---
@@ -191,7 +191,7 @@ curl -s http://localhost:8080/api/v1/tts/voices | python3 -m json.tool
 
 ```bash
 # 提交（请求体字段同同步接口：text 必填，model/sid/speed/length_scale/language/format 可选）
-TID=$(curl -s -X POST http://localhost:8080/api/v1/tasks/tts \
+TID=$(curl -s -X POST http://localhost:8077/api/v1/tasks/tts \
   -H 'Content-Type: application/json' \
   -d '{"text":"异步语音合成测试，使用 sherpa-onnx Kokoro 模型。","format":"wav"}' \
   | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['task_id'])")
@@ -199,10 +199,10 @@ echo "task_id=$TID"
 
 # 轮询状态（Pending → Processing → Completed）
 sleep 2
-curl -s "http://localhost:8080/api/v1/tasks/tts/$TID" | python3 -m json.tool
+curl -s "http://localhost:8077/api/v1/tasks/tts/$TID" | python3 -m json.tool
 
 # 下载音频（Completed 后）
-curl -s "http://localhost:8080/api/v1/tasks/tts/$TID/audio" -o /tmp/tts_async.wav
+curl -s "http://localhost:8077/api/v1/tasks/tts/$TID/audio" -o /tmp/tts_async.wav
 file /tmp/tts_async.wav
 ```
 
@@ -213,7 +213,7 @@ file /tmp/tts_async.wav
 ## 8. TTS — 流式 WebSocket
 
 协议：
-- 客户端 → 服务端：首帧 JSON `{type:"start", text:"...", sid:0, speed:1.0, language:"zh", model:"kokoro-multi-lang-v1_0", format:"pcm_s16le"}`；`{type:"cancel"}` 或关闭结束
+- 客户端 → 服务端：首帧 JSON `{type:"start", text:"...", sid:0, speed:1.0, language:"zh", model:"kokoro-multi-lang-v1_1", format:"pcm_s16le"}`；`{type:"cancel"}` 或关闭结束
 - 服务端 → 客户端：`{type:"ready",sample_rate}` → 二进制 PCM s16le 帧（多帧，增量）→ `{type:"done",total_samples,sample_rate}` / `{type:"error",message}`
 
 > 流式只发**裸 PCM s16le**（无 WAV 头：流式无法预知总长）；`ready` 给采样率，客户端自行封装。
@@ -226,14 +226,14 @@ Python 客户端（`ws_tts_test.py`）：
 import asyncio, json, struct, wave
 import websockets
 
-URI = "ws://localhost:8080/api/v1/stream/tts"
+URI = "ws://localhost:8077/api/v1/stream/tts"
 TEXT = "你好世界，这是流式语音合成测试。"
 
 async def main():
     async with websockets.connect(URI, proxy=None, max_size=None) as ws:
         await ws.send(json.dumps({
             "type": "start", "text": TEXT, "sid": 0, "speed": 1.0,
-            "language": "zh", "model": "kokoro-multi-lang-v1_0", "format": "pcm_s16le",
+            "language": "zh", "model": "kokoro-multi-lang-v1_1", "format": "pcm_s16le",
         }))
         sr = None
         pcm = bytearray()
@@ -271,22 +271,22 @@ open tts_stream.wav
 
 ```bash
 # 查任意任务（STT/TTS）状态
-curl -s "http://localhost:8080/api/v1/tasks/<task_id>" | python3 -m json.tool
+curl -s "http://localhost:8077/api/v1/tasks/<task_id>" | python3 -m json.tool
 
 # 取消
-curl -s -X POST "http://localhost:8080/api/v1/tasks/<task_id>/cancel"
+curl -s -X POST "http://localhost:8077/api/v1/tasks/<task_id>/cancel"
 
 # 重试
-curl -s -X POST "http://localhost:8080/api/v1/tasks/<task_id>/retry"
+curl -s -X POST "http://localhost:8077/api/v1/tasks/<task_id>/retry"
 
 # 删除（TTS 会一并删音频文件）
-curl -s -X DELETE "http://localhost:8080/api/v1/tasks/<task_id>"
+curl -s -X DELETE "http://localhost:8077/api/v1/tasks/<task_id>"
 
 # STT 任务统计
-curl -s "http://localhost:8080/api/v1/tasks/stats" | python3 -m json.tool
+curl -s "http://localhost:8077/api/v1/tasks/stats" | python3 -m json.tool
 
 # TTS 任务统计（对称 STT，查 tts_task_info 表）
-curl -s "http://localhost:8080/api/v1/tasks/tts/stats" | python3 -m json.tool
+curl -s "http://localhost:8077/api/v1/tasks/tts/stats" | python3 -m json.tool
 ```
 
 ---
@@ -297,7 +297,7 @@ curl -s "http://localhost:8080/api/v1/tasks/tts/stats" | python3 -m json.tool
 #!/usr/bin/env bash
 # run_all_tests.sh —— 跑通 STT 同步/异步 + TTS 同步/异步/voices
 set -e
-BASE=http://localhost:8080
+BASE=http://localhost:8077
 WAV=~/voice-cli-test/jfk.wav
 
 echo "=== health ==="

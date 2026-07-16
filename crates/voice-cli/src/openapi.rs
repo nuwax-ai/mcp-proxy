@@ -24,7 +24,7 @@ use utoipa_swagger_ui::SwaggerUi;
         )
     ),
     servers(
-        (url = "http://localhost:8080", description = "Local development server"),
+        (url = "http://localhost:8077", description = "Local development server"),
         (url = "https://api.voice-cli.dev", description = "Production server")
     ),
     paths(
@@ -45,6 +45,8 @@ use utoipa_swagger_ui::SwaggerUi;
         handlers::tts_async_handler,
         handlers::tts_task_status_handler,
         handlers::tts_task_audio_handler,
+        crate::server::stt_stream::ws_transcribe_handler,
+        crate::server::tts_stream::ws_tts_handler,
     ),
     components(
         schemas(
@@ -74,7 +76,9 @@ use utoipa_swagger_ui::SwaggerUi;
         (name = "转录", description = "语音转文本（同步 /transcribe）"),
         (name = "异步转录", description = "异步转录任务管理"),
         (name = "TTS", description = "文本转语音（sherpa-onnx Kokoro）"),
-        (name = "任务管理", description = "任务生命周期与监控")
+        (name = "任务管理", description = "任务生命周期与监控"),
+        (name = "流式转录", description = "STT 流式 WebSocket（LocalAgreement 2）"),
+        (name = "流式 TTS", description = "TTS 流式 WebSocket（增量 PCM）")
     ),
     external_docs(
         url = "https://github.com/your-org/voice-cli",

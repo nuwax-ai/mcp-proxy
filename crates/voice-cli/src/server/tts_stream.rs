@@ -40,6 +40,17 @@ struct TtsStreamStartFrame {
 }
 
 /// GET /api/v1/stream/tts（WebSocket 升级）
+#[utoipa::path(
+    get,
+    path = "/api/v1/stream/tts",
+    tag = "流式 TTS",
+    summary = "TTS 流式 WebSocket（增量 PCM s16le）",
+    description = "WebSocket 升级接口。客户端发 JSON {type:\"start\",text,sid?,speed?,length_scale?,language?,model?,format?}；服务端推 ready → 二进制 PCM s16le 增量帧 → done。流式只发裸 PCM（无 WAV 头，ready 给采样率）。swagger 无法测 WebSocket，请用 wscat / python websockets 客户端（见 docs/API.md §8）。",
+    responses(
+        (status = 101, description = "Switching Protocols（WebSocket 升级成功）"),
+        (status = 426, description = "Upgrade Required（客户端不支持 WebSocket）"),
+    )
+)]
 pub async fn ws_tts_handler(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,

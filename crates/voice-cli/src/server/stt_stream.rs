@@ -38,6 +38,17 @@ struct StreamStartFrame {
 }
 
 /// GET /api/v1/stream/transcribe（WebSocket 升级）
+#[utoipa::path(
+    get,
+    path = "/api/v1/stream/transcribe",
+    tag = "流式转录",
+    summary = "STT 流式 WebSocket（LocalAgreement 2 增量识别）",
+    description = "WebSocket 升级接口。连接后首帧发 JSON {type:\"start\",sample_rate?,language?,model?,initial_prompt?}；后续发 PCM s16le / 16k / mono 二进制帧；{type:\"stop\"} 或断开结束。服务端推 ready → partial → committed → done，**最终文本取 done.committed_total**。swagger 无法测 WebSocket，请用 wscat / python websockets 客户端（见 docs/API.md §4）。",
+    responses(
+        (status = 101, description = "Switching Protocols（WebSocket 升级成功）"),
+        (status = 426, description = "Upgrade Required（客户端不支持 WebSocket）"),
+    )
+)]
 pub async fn ws_transcribe_handler(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
