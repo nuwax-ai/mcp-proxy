@@ -78,8 +78,9 @@ cp crates/voice-cli/deploy/config.example.yml $INSTALL_DIR/config.yml
 cd $INSTALL_DIR
 
 # cuDNN 路径:二选一
-#   (a) 借用同机 document-parser venv:../document-server/venv/lib/python3.12/site-packages/nvidia/cudnn/lib
-#   (b) pip install nvidia-cudnn-cu12 → .../site-packages/nvidia/cudnn/lib
+#   (a) 借用同机 document-parser venv:../document-server/venv/.../nvidia/cudnn/lib
+#       ⚠️ 需先部署 document-parser(§3)建好 venv;否则先做 §3,或用方案 (b)
+#   (b) pip install nvidia-cudnn-cu12 → .../site-packages/nvidia/cudnn/lib(独立,不依赖 document-parser)
 # ⚠️ sudo 非 NOPASSWD 时:用 `echo <pass> | sudo -S` 包裹下行命令(见 §6 #2)
 ./voice-cli service install --install-dir $INSTALL_DIR \
   --cuda-lib-dir /usr/local/cuda/lib64 \
@@ -140,6 +141,7 @@ cd $INSTALL_DIR
 curl -s http://localhost:8087/health
 curl -s http://localhost:8087/api/v1/documents/parser/health   # markitdown/mineru available
 ```
+> **首次解析 PDF**:mineru 会自动从 modelscope 下载模型(PDF-Extract-Kit ~1GB;hybrid-engine 再加 MinerU2.5-Pro),`MINERU_MODEL_SOURCE=modelscope` 已注入。首次慢属正常,后续走缓存。
 
 ---
 
