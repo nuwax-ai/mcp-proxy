@@ -59,5 +59,17 @@ echo "=== 6) 验证 ==="
 "$PY" -c "import torch; print('torch', torch.__version__, '| cuda', torch.cuda.is_available(), '| mps', torch.backends.mps.is_available())"
 
 echo
+echo "=== 7) 可选: hybrid-engine 后端依赖 ==="
+# hybrid-engine(VLM 后端,复杂版式/扫描件解析质量优于 pipeline)首次解析时 triton 要
+# 运行时编译 GPU kernel,需系统 Python.h(python3.12-dev)。pipeline(默认)不需要。
+if [ ! -f /usr/include/python3.12/Python.h ]; then
+  echo "ℹ️  若计划用 backend=hybrid-engine(VLM),先装 Python.h:"
+  echo "    sudo apt-get install -y python3.12-dev"
+  echo "  (默认 pipeline 后端不需要,可跳过)"
+else
+  echo "✅ python3.12-dev 已装(hybrid-engine 可用)"
+fi
+
+echo
 echo "✅ venv 初始化完成: $VENV"
 echo "下一步: ./document-parser service install --install-dir \$(pwd)"

@@ -105,6 +105,9 @@ cargo build --release -p document-parser
 cd crates/document-parser
 cargo run --bin document-parser -- uv-init    # 建 ./venv,装 mineru + markitdown
 cargo run --bin document-parser -- check      # 验证 venv
+# backend 选择(默认 pipeline 快 ~30s;hybrid-engine 是 VLM 后端,复杂版式/扫描件质量更好但慢 ~60s):
+#   要用 hybrid-engine → 先 sudo apt-get install -y python3.12-dev(triton 编译 GPU kernel 要 Python.h)
+#   再 config.yml 改 backend: hybrid-engine + service restart
 ```
 
 ### 3.2 放置文件
@@ -191,6 +194,7 @@ echo <sudo_pass> | sudo -S systemctl start $BIN
 | 5 | document-parser OSS 密钥不生效 | 确认走 `--config` 分支(新 unit 已带);密钥在 `.document-parser.env`(EnvironmentFile),非 config.yml |
 | 6 | 不确定 unit 是否正确 | `<bin> service install --dry-run --install-dir <dir>` 先看渲染结果 |
 | 7 | 跨服务依赖 cuDNN | document-parser venv 重建若改了 cudnn 路径,voice-cli 的 `--cudnn-lib-dir` 要同步更新 |
+| 8 | `backend: hybrid-engine` 报 `fatal error: Python.h: No such file` | triton 运行时编译 GPU kernel 缺 Python.h → `sudo apt-get install -y python3.12-dev`(默认 pipeline 不需要;hybrid-engine VLM 质量好但慢 ~60s/文档,vllm 每次重启) |
 
 ---
 

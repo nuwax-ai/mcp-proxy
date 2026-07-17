@@ -24,8 +24,13 @@ document_parser:
 
 # MinerU 配置（mineru 3.4）
 mineru:
-  # 后端: pipeline(CPU/兼容) | vlm-engine(纯VLM) | hybrid-engine(GPU+vllm,默认) | vlm-http-client | hybrid-http-client
-  backend: "hybrid-engine"
+  # 后端选择(按解析需求切,改完 service restart 生效):
+  #   pipeline(默认) — 传统 OCR+layout,快(~30s/文档),GPU 间歇加速。大多数文档够用。
+  #   hybrid-engine  — VLM 后端,复杂版式/扫描件/公式密集文档解析质量更好,但慢
+  #                     (vllm 每次解析重启 ~60s)。依赖 python3.12-dev(triton 编译 GPU kernel):
+  #                       sudo apt-get install -y python3.12-dev
+  #   vlm-engine / vlm-http-client / hybrid-http-client — 见 MinerU 文档
+  backend: "pipeline"
   python_path: "./venv/bin/python"
   max_concurrent: 3
   queue_size: 100
