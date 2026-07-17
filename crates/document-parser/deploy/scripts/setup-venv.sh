@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 初始化 document-parser 的 Python venv（mineru + markitdown）
-# 关键: mineru 锁 3.4.2（3.4.0 有 PageChars bug），huggingface-hub<1.0（避 mineru/vllm 冲突）
+# 关键: mineru 锁 3.4.4（3.4.2+ 修 PageChars bug + font/字符渲染/OCR），huggingface-hub<1.0（避 mineru 依赖冲突）
 set -euo pipefail
 
 # 切到部署根目录（document-parser/，即本脚本的上级目录的上级）
@@ -41,8 +41,8 @@ case "$PY_VERSION" in
 esac
 
 echo
-echo "=== 3) 装 mineru[core]==3.4.2（锁版本避 PageChars bug）==="
-uv pip install "mineru[core]==3.4.2" --python "$PY"
+echo "=== 3) 装 mineru[core]==3.4.4（3.4.2+ 修 PageChars bug + font/字符/OCR）==="
+uv pip install "mineru[core]==3.4.4" --python "$PY"
 
 echo
 echo "=== 4) 装 markitdown ==="
