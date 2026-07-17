@@ -27,7 +27,7 @@ mineru:
   # 后端选择(按解析需求切,改完 service restart 生效):
   #   pipeline(默认) — 传统 OCR+layout,快(~30s/文档),GPU 间歇加速。大多数文档够用。
   #   hybrid-engine  — VLM 后端,复杂版式/扫描件/公式密集文档解析质量更好,但慢
-  #                     (vllm 每次解析重启 ~60s)。依赖 python3.12-dev(triton 编译 GPU kernel):
+  #                     (VLM 模型每次加载 ~60s)。依赖 python3.12-dev(triton 编译 GPU kernel):
   #                       sudo apt-get install -y python3.12-dev
   #   vlm-engine / vlm-http-client / hybrid-http-client — 见 MinerU 文档
   backend: "pipeline"
@@ -43,7 +43,7 @@ mineru:
   device: "cpu"
   # 显存(GB), 通过 MINERU_VIRTUAL_VRAM_SIZE 注入; 0=不限
   vram: 0
-  # vllm 显存占比(仅 hybrid-engine/vlm-engine), 通过 --gpu-memory-utilization 注入;
+  # VLM 推理显存占比(仅 hybrid-engine/vlm-engine), 通过 --gpu-memory-utilization 注入;
   # 0=用 mineru 默认(~0.5); 与其他 GPU 进程(如 voice-cli)共存建议 0.3 避免 OOM
   gpu_memory_utilization: 0.3
 
