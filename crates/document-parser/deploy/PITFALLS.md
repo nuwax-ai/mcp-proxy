@@ -26,13 +26,13 @@ uv pip install "huggingface-hub>=0.34,<1.0" --python ./venv/bin/python
 
 ---
 
-## 3. hybrid-engine 的 vllm 冲突 + OOM
-**现象 A**: hybrid-engine 报 `Please install vllm to use the vllm-async-engine backend`。
-**原因**: vllm 要 huggingface-hub≥1.0，mineru 要 <1.0，降级 huggingface-hub 会卸 vllm —— 二者互斥。
-**现象 B**: `CUDA out of memory`（vllm 默认占 50% 显存，与 voice-cli 共存 OOM）。
-**解决**:
-- **用 `pipeline` backend**（不用 vllm，无冲突，仍走 cuda 加速 OCR/公式/表格）。改 config.yml `backend: "pipeline"`。质量略低于 hybrid-engine，但稳定。
-- 或保持 hybrid-engine + 调 `gpu_memory_utilization: 0.3` 让 vllm 少占显存（config.yml 默认 0.3）。但前提是 vllm 还在（没被降级 huggingface-hub 卸掉）。
+## 3. hybrid-engine 后端(VLM,3.4.4 实测可用)
+**说明**: hybrid-engine 用 `mineru-vl-utils + triton`(**不是 vllm**,3.4.4 实测:venv 无 vllm 但 hybrid-engine 跑通),对复杂版式/扫描件/公式密集文档解析质量优于 pipeline,但慢(~60s/文档,VLM 模型每次加载)。默认 pipeline(快 ~30s)。
+**现象 A**: hybrid-engine 报 `fatal error: Python.h: No such file` —— triton 运行时编译 GPU kernel 缺 Python.h。
+  **解决**: `sudo apt-get install -y python3.12-dev`(pipeline 不需要;setup-venv.sh 第 7 步自动检查提示)。
+**现象 B**: `CUDA out of memory` —— VLM 占显存,与 voice-cli sherpa CUDA 共存时 OOM。
+  **解决**: config.yml `gpu_memory_utilization: 0.3`(默认,让 VLM 少占显存)。
+**切换**: config.yml `backend: hybrid-engine` + `document-parser service restart`(python3.12-dev 装好后)。
 
 ---
 
