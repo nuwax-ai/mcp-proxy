@@ -49,7 +49,7 @@ echo "=== 4) 装 markitdown ==="
 uv pip install markitdown --python "$PY"
 
 echo
-echo "=== 5) 修 huggingface-hub<1.0（避 mineru 3.4.2 依赖冲突）==="
+echo "=== 5) 修 huggingface-hub<1.0（避 mineru 依赖冲突）==="
 uv pip install "huggingface-hub>=0.34,<1.0" --python "$PY"
 
 echo

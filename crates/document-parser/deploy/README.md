@@ -8,7 +8,7 @@
 |------|------|
 | `systemd/.document-parser.env.example` | OSS 密钥环境变量模板（`service install` 缺省时自动复制） |
 | `config/config.example.yml` | 带注释的运维参考（**非**自动创建源；缺 `config.yml` 时由 `AppConfig::default()` 生成） |
-| `scripts/setup-venv.sh` | 初始化 Python venv（mineru[core]==3.4.2 + markitdown） |
+| `scripts/setup-venv.sh` | 初始化 Python venv（mineru[core]==3.4.4 + markitdown） |
 | `PITFALLS.md` | 踩坑笔记（**必看**） |
 
 > 已废弃：`scripts/install.sh`、外置 `document-parser.service.example` —— 请用 `document-parser service install`。
@@ -71,7 +71,7 @@ document-parser service restart
 | `gpu_memory_utilization` | 与 voice-cli 共存时设 `0.3` |
 | `device` | macOS 须显式 `mps` |
 
-> mineru **必须 3.4.2**，见 `PITFALLS.md`。
+> mineru **锁 3.4.4**(3.4.2+ 修 PageChars bug + font/字符/OCR),见 `PITFALLS.md`。
 
 ## 更多
 

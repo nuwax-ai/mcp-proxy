@@ -7,9 +7,9 @@
 ## 1. mineru 3.4.0 PageChars bug
 **现象**: 任务失败 `TypeError: 'PageChars' object is not iterable`（`pipeline_magic_model.py:94`）。
 **原因**: mineru 3.4.0 自身 bug（pipeline 和 hybrid-engine 都走 pipeline 部分，都会撞）。
-**解决**: 升级 3.4.2（已修）。`setup-venv.sh` 已锁 `mineru[core]==3.4.2`。
+**解决**: 升级到 3.4.4（3.4.2+ 已修）。`setup-venv.sh` 已锁 `mineru[core]==3.4.4`。
 ```bash
-uv pip install -U "mineru[core]==3.4.2" --python ./venv/bin/python
+uv pip install -U "mineru[core]==3.4.4" --python ./venv/bin/python
 ```
 > 阿里云源最新可能只到 3.4.0，用 pypi 官方源：`--index-url https://pypi.org/simple`
 
