@@ -19,17 +19,12 @@ members = [
     "crates/fastembed",
 ]
 default-members = [
-    "crates/voice-toolkit",
-    "crates/rs-voice-toolkit-audio",
-    "crates/document-parser",
     "crates/mcp-common",
     "crates/mcp-proxy",
     "crates/mcp-sse-proxy",
     "crates/mcp-streamable-proxy",
     "crates/oss-client",
     "crates/run-code-rmcp",
-    "crates/systemd-installer",
-    "crates/voice-cli",
 ]
 resolver = "2"
 
