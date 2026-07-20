@@ -22,6 +22,8 @@ targets = [
 publish-jobs = ["npm"]
 # 只发布 mcp-stdio-proxy，避免构建 voice-cli 等带 sherpa-onnx/ort 的重依赖
 packages = ["mcp-stdio-proxy"]
+# 只构建待发布包，不用 cargo build --workspace（否则会编译 voice-cli 等全部 member）
+precise-builds = true
 # Path that installers should place binaries in
 install-path = "CARGO_HOME"
 # Whether to install an updater program
