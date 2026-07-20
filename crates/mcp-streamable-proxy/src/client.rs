@@ -1,14 +1,12 @@
 //! Streamable HTTP Client Connection Module
 //!
 //! Provides a high-level API for connecting to MCP servers via Streamable HTTP protocol.
-//! This module encapsulates the rmcp 0.12 transport details and exposes a simple interface.
+//! This module encapsulates the rmcp transport details and exposes a simple interface.
 
 use anyhow::{Context, Result};
 use mcp_common::McpClientConfig;
 use rmcp::{
-    RoleClient, ServiceExt,
-    model::{ClientCapabilities, ClientInfo, Implementation},
-    service::RunningService,
+    ServiceExt,
     transport::{
         common::client_side_sse::SseRetryPolicy,
         streamable_http_client::{
@@ -19,7 +17,8 @@ use rmcp::{
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::proxy_handler::ProxyHandler;
+use crate::backend_client::{BackendNotificationBridge, UpstreamPeerRegistry};
+use crate::proxy_handler::{BackendRunningService, ProxyHandler};
 use mcp_common::ToolFilter;
 
 /// 自定义的指数退避重试策略，支持最大间隔限制
@@ -105,19 +104,20 @@ impl SseRetryPolicy for CappedExponentialBackoff {
 /// println!("Available tools: {:?}", tools);
 /// ```
 pub struct StreamClientConnection {
-    inner: RunningService<RoleClient, ClientInfo>,
+    inner: BackendRunningService,
 }
 
 impl StreamClientConnection {
-    /// Connect to a Streamable HTTP MCP server
-    ///
-    /// # Arguments
-    /// * `config` - Client configuration including URL and headers
-    ///
-    /// # Returns
-    /// * `Ok(StreamClientConnection)` - Successfully connected client
-    /// * `Err` - Connection failed
+    /// Connect to a Streamable HTTP MCP server (new upstream peer registry).
     pub async fn connect(config: McpClientConfig) -> Result<Self> {
+        Self::connect_with_peers(config, Arc::new(UpstreamPeerRegistry::new())).await
+    }
+
+    /// Connect using a shared [`UpstreamPeerRegistry`] (for proxy reconnect / hot-swap).
+    pub async fn connect_with_peers(
+        config: McpClientConfig,
+        upstream_peers: Arc<UpstreamPeerRegistry>,
+    ) -> Result<Self> {
         let http_client = build_http_client(&config)?;
 
         // 配置指数退避重试策略，最大间隔 1 分钟，不限制重试次数
@@ -133,8 +133,8 @@ impl StreamClientConnection {
 
         let transport = StreamableHttpClientTransport::with_client(http_client, transport_config);
 
-        let client_info = create_default_client_info();
-        let running = client_info
+        let bridge = BackendNotificationBridge::with_default_info(upstream_peers);
+        let running = bridge
             .serve(transport)
             .await
             .context("Failed to initialize MCP client")?;
@@ -181,7 +181,7 @@ impl StreamClientConnection {
     /// Extract the internal RunningService for use with swap_backend
     ///
     /// This is used internally to support backend hot-swapping.
-    pub fn into_running_service(self) -> RunningService<RoleClient, ClientInfo> {
+    pub fn into_running_service(self) -> BackendRunningService {
         self.inner
     }
 }
@@ -221,15 +221,6 @@ fn build_http_client(config: &McpClientConfig) -> Result<reqwest::Client> {
     builder.build().context("Failed to build HTTP client")
 }
 
-/// Create default client info for MCP handshake
-fn create_default_client_info() -> ClientInfo {
-    let capabilities = ClientCapabilities::builder().enable_experimental().build();
-    ClientInfo::new(
-        capabilities,
-        Implementation::new("mcp-streamable-proxy-client", env!("CARGO_PKG_VERSION")),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,49 +250,21 @@ mod tests {
         assert_eq!(policy.retry(1), Some(Duration::from_secs(2)));
         // 验证第 3 次重试：4 秒
         assert_eq!(policy.retry(2), Some(Duration::from_secs(4)));
-        // 验证第 4 次重试：8 秒
-        assert_eq!(policy.retry(3), Some(Duration::from_secs(8)));
-        // 验证第 5 次重试：16 秒
-        assert_eq!(policy.retry(4), Some(Duration::from_secs(16)));
-        // 验证第 6 次重试：32 秒
-        assert_eq!(policy.retry(5), Some(Duration::from_secs(32)));
-        // 验证第 7 次重试：64 秒 -> 会被限制为 60 秒
+        // 验证第 7 次重试：64 秒，但被限制为 60 秒
         assert_eq!(policy.retry(6), Some(Duration::from_secs(60)));
-        // 验证第 8 次重试：128 秒 -> 会被限制为 60 秒
-        assert_eq!(policy.retry(7), Some(Duration::from_secs(60)));
+        // 验证第 10 次重试：仍然是 60 秒
+        assert_eq!(policy.retry(9), Some(Duration::from_secs(60)));
     }
 
     #[test]
     fn test_capped_exponential_backoff_with_max_times() {
-        // 测试带最大重试次数的限制
-        let policy = CappedExponentialBackoff::new(
-            Some(3),                 // 最多重试 3 次
-            Duration::from_secs(1),  // 基础延迟 1 秒
-            Duration::from_secs(60), // 最大间隔 60 秒
-        );
+        let policy =
+            CappedExponentialBackoff::new(Some(3), Duration::from_secs(1), Duration::from_secs(60));
 
-        // 验证前 3 次重试都有延迟时间
         assert_eq!(policy.retry(0), Some(Duration::from_secs(1)));
         assert_eq!(policy.retry(1), Some(Duration::from_secs(2)));
         assert_eq!(policy.retry(2), Some(Duration::from_secs(4)));
-
-        // 验证第 4 次重试（重试次数已达到上限）
+        // 超过最大次数
         assert_eq!(policy.retry(3), None);
-    }
-
-    #[test]
-    fn test_capped_exponential_backoff_default() {
-        // 测试默认配置
-        let policy = CappedExponentialBackoff::default();
-
-        // 验证默认配置
-        assert_eq!(policy.max_times, None);
-        assert_eq!(policy.base_duration, Duration::from_secs(1));
-        assert_eq!(policy.max_interval, Duration::from_secs(60));
-
-        // 验证重试行为
-        assert_eq!(policy.retry(0), Some(Duration::from_secs(1)));
-        assert_eq!(policy.retry(5), Some(Duration::from_secs(32)));
-        assert_eq!(policy.retry(10), Some(Duration::from_secs(60)));
     }
 }

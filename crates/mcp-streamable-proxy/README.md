@@ -14,21 +14,40 @@ This module provides a proxy implementation for MCP (Model Context Protocol) usi
 
 ## Features
 
-- **Streamable HTTP Support**: Uses rmcp 0.12 with enhanced Streamable HTTP transport
+- **Streamable HTTP Support**: Uses rmcp with Streamable HTTP transport
 - **Stateful Sessions**: Custom SessionManager with backend version tracking
-- **Hot Swap**: Supports backend connection replacement without downtime
-- **Version Control**: Automatically invalidates sessions when backend reconnects
+- **Backend isolation**:
+  - **URL backends** default to **per-session** connections (connect on `initialize`, RAII drop)
+  - **Stdio backends** default to **shared** single child process + notification fan-out
+- **Hot Swap**: Supports backend connection replacement for shared isolation
+- **Version Control**: Invalidates sessions when a shared backend reconnects
 - **High-level Client API**: Simple connection interface hiding transport details
 
 ## Architecture
 
 ```text
 Client → Streamable HTTP → ProxyAwareSessionManager → ProxyHandler → Backend MCP Service
-                                  ↓
-                          Version Tracking
-                          (DashMap<SessionId, BackendVersion>)
+
+URL (per-session):
+  each factory() → new ProxyHandler → initialize → connect() → Drop closes backend
+
+Stdio (shared):
+  one backend Arc shared by cloned handlers + UpstreamPeerRegistry fan-out
 ```
 
+### Builder knobs
+
+```rust,ignore
+StreamServerBuilder::new(BackendConfig::Url { url, headers: None })
+    .stateful(true)
+    .backend_isolation(BackendIsolation::PerSession) // default for URL
+    .max_sessions(32)
+    .connect_timeout(Duration::from_secs(30))
+    .build()
+    .await?;
+```
+
+Stdio + `PerSession` is rejected in this release.
 ## Installation
 
 Add to `Cargo.toml`:

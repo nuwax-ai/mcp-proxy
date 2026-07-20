@@ -14,19 +14,20 @@
 
 ## 功能特性
 
-- **Streamable HTTP 支持**: 使用 rmcp 0.12 增强的 Streamable HTTP 传输
-- **有状态会话**: 使用 DashMap 进行后端版本跟踪的自定义 SessionManager
-- **热交换**: 支持无停机后端连接替换
-- **版本控制**: 后端重连时自动使会话失效
-- **高级客户端 API**: 简单的连接接口，隐藏传输细节
+- **Streamable HTTP 支持**: 使用 rmcp Streamable HTTP 传输
+- **有状态会话**: 自定义 SessionManager
+- **后端隔离**:
+  - **URL**：默认 **每 session 独立**后端（`initialize` 时建连，Drop/RAII 释放）
+  - **Stdio**：默认 **共享**单子进程 + 通知 fan-out
+- **热交换**: 共享隔离模式下支持后端热替换
+- **版本控制**: 共享后端重连时使旧 session 失效
 
 ## 架构
 
 ```text
 客户端 → Streamable HTTP → ProxyAwareSessionManager → ProxyHandler → 后端 MCP 服务
-                                      ↓
-                              版本跟踪
-                              (DashMap<SessionId, BackendVersion>)
+  URL（per-session）：factory 新建 handler → initialize 建连 → Drop 断连
+  Stdio（shared）：单一后端 Arc + UpstreamPeerRegistry
 ```
 
 ## 安装

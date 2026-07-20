@@ -55,6 +55,7 @@ pub struct ProxyAwareSessionManager {
     inner: LocalSessionManager,
     handler: Arc<ProxyHandler>,
     session_versions: DashMap<String, SessionMetadata>,
+    max_sessions: Option<usize>,
 }
 
 impl ProxyAwareSessionManager {
@@ -81,10 +82,23 @@ impl ProxyAwareSessionManager {
             inner,
             handler,
             session_versions: DashMap::new(),
+            max_sessions: None,
         }
     }
 
+    /// Limit the number of concurrent sessions (`None` = unlimited).
+    pub fn with_max_sessions(mut self, max_sessions: Option<usize>) -> Self {
+        self.max_sessions = max_sessions;
+        self
+    }
+
     fn check_backend_version(&self, session_id: &SessionId) -> bool {
+        // Per-session handlers own their own backend; template version is not authoritative.
+        if self.handler.isolation()
+            == crate::backend_connector::BackendIsolation::PerSession
+        {
+            return true;
+        }
         if let Some(meta) = self.session_versions.get(session_id.as_ref()) {
             let current_version = self.handler.get_backend_version();
             if meta.backend_version != current_version {
@@ -100,6 +114,15 @@ impl ProxyAwareSessionManager {
         }
         true
     }
+
+    fn backend_ready_for_session_ops(&self) -> bool {
+        match self.handler.isolation() {
+            crate::backend_connector::BackendIsolation::PerSession => true,
+            crate::backend_connector::BackendIsolation::Shared => {
+                self.handler.is_backend_available()
+            }
+        }
+    }
 }
 
 // Implement SessionManager trait
@@ -108,6 +131,21 @@ impl SessionManager for ProxyAwareSessionManager {
     type Transport = WorkerTransport<LocalSessionWorker>;
 
     async fn create_session(&self) -> Result<(SessionId, Self::Transport), Self::Error> {
+        if let Some(max) = self.max_sessions {
+            let current = self.session_versions.len();
+            if current >= max {
+                warn!(
+                    "[Session limit] rejecting create_session: {} >= max {}, MCP ID: {}",
+                    current,
+                    max,
+                    self.handler.mcp_id()
+                );
+                return Err(LocalSessionManagerError::SessionNotFound(
+                    format!("session-limit-{max}").into(),
+                ));
+            }
+        }
+
         let (session_id, transport) = self.inner.create_session().await?;
 
         let version = self.handler.get_backend_version();
@@ -133,7 +171,7 @@ impl SessionManager for ProxyAwareSessionManager {
         id: &SessionId,
         message: ClientJsonRpcMessage,
     ) -> Result<ServerJsonRpcMessage, Self::Error> {
-        if !self.handler.is_backend_available() {
+        if !self.backend_ready_for_session_ops() {
             warn!(
                 "[Session initialization failed] session_id={}, reason: backend is unavailable, MCP ID: {}",
                 id,
@@ -173,6 +211,8 @@ impl SessionManager for ProxyAwareSessionManager {
             self.handler.mcp_id()
         );
         self.session_versions.remove(id.as_ref());
+        // Shared isolation: drop peers whose transport is already closed.
+        self.handler.upstream_peers().reap_closed_peers();
         self.inner.close_session(id).await
     }
 
@@ -181,7 +221,7 @@ impl SessionManager for ProxyAwareSessionManager {
         id: &SessionId,
         message: ClientJsonRpcMessage,
     ) -> Result<impl Stream<Item = ServerSseMessage> + Send + 'static, Self::Error> {
-        if !self.handler.is_backend_available() {
+        if !self.backend_ready_for_session_ops() {
             warn!(
                 "[Stream creation failed] session_id={}, reason: backend is unavailable, MCP ID: {}",
                 id,
@@ -212,7 +252,7 @@ impl SessionManager for ProxyAwareSessionManager {
         id: &SessionId,
         message: ClientJsonRpcMessage,
     ) -> Result<(), Self::Error> {
-        if !self.handler.is_backend_available() {
+        if !self.backend_ready_for_session_ops() {
             warn!(
                 "[Message rejected] session_id={}, reason: backend unavailable, MCP ID: {}",
                 id,
@@ -266,7 +306,7 @@ impl SessionManager for ProxyAwareSessionManager {
             }
         }
 
-        if !self.handler.is_backend_available() {
+        if !self.backend_ready_for_session_ops() {
             warn!(
                 "[Session recovery failed] session_id={}, reason: backend is unavailable, MCP ID: {}",
                 id,

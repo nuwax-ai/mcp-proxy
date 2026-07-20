@@ -1,0 +1,11 @@
+{
+  "jsonrpc": "2.0",
+  "method": "notifications/tasks/status",
+  "params": {
+    "taskId": "task-abc",
+    "status": "working",
+    "createdAt": "2025-01-01T00:00:00Z",
+    "lastUpdatedAt": "2025-01-01T00:00:01Z",
+    "ttl": null
+  }
+}

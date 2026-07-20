@@ -268,6 +268,10 @@ async fn run_stream_watchdog(
         monitor_stream_connection(&handler, args.ping_interval, args.ping_timeout, quiet).await;
 
     // 连接断开，标记后端不可用
+    // NOTE: This path uses shared-backend isolation (one URL client for the
+    // stdio-facing proxy). Streamable HTTP *server* URL mode defaults to
+    // per-session backends via StreamServerBuilder and does not use this
+    // global swap_backend reconnect loop.
     handler.swap_backend(None);
 
     let alive_duration = initial_connection_start.elapsed();
@@ -297,8 +301,10 @@ async fn run_stream_watchdog(
             eprintln!("🔗 Reconnecting (attempt #{})...", attempt);
         }
 
-        // 尝试建立连接
-        let connect_result = StreamClientConnection::connect(config.clone()).await;
+        // 尝试建立连接（复用 handler 的 upstream peer registry，保持通知桥）
+        let connect_result =
+            StreamClientConnection::connect_with_peers(config.clone(), handler.upstream_peers())
+                .await;
 
         match connect_result {
             Ok(conn) => {

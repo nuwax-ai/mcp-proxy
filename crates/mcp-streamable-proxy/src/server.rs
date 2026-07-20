@@ -7,7 +7,6 @@ use anyhow::{Result, bail};
 use mcp_common::{McpServiceConfig, check_windows_command, wrap_process_v9};
 use rmcp::{
     ServiceExt,
-    model::{ClientCapabilities, ClientInfo},
     transport::{
         TokioChildProcess,
         streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService},
@@ -21,6 +20,7 @@ use tracing::{error, info, warn};
 // process-wrap 9.0 使用 CommandWrap 而不是 TokioCommandWrap
 use process_wrap::tokio::{CommandWrap, KillOnDrop};
 
+use crate::backend_client::{BackendNotificationBridge, UpstreamPeerRegistry};
 use crate::{ProxyAwareSessionManager, ProxyHandler};
 
 /// 从配置启动 Streamable HTTP 服务器
@@ -88,15 +88,10 @@ pub async fn run_stream_server_from_config(
         mcp_common::spawn_stderr_reader(stderr_pipe, config.name.clone());
     }
 
-    // 3. 创建客户端信息
-    let capabilities = ClientCapabilities::builder().enable_experimental().build();
-    let client_info = ClientInfo::new(
-        capabilities,
-        rmcp::model::Implementation::new("mcp-streamable-proxy-server", env!("CARGO_PKG_VERSION")),
-    );
-
-    // 4. 连接到子进程
-    let client = client_info.serve(tokio_process).await?;
+    // 3. 创建带通知桥的后端客户端并连接子进程
+    let upstream_peers = Arc::new(UpstreamPeerRegistry::new());
+    let bridge = BackendNotificationBridge::with_default_info(upstream_peers);
+    let client = bridge.serve(tokio_process).await?;
 
     // 记录子进程启动到日志文件
     info!(
@@ -225,6 +220,11 @@ pub async fn run_stream_server(
 
     // 创建 Streamable HTTP 服务
     // service factory 每次请求都会调用，返回 handler 的克隆
+    //
+    // Host 校验：`StreamableHttpServerConfig::default()` 的 `allowed_hosts` 仅放行
+    // loopback（localhost / 127.0.0.1 / ::1），用于防 DNS rebinding。
+    // 非本机部署若需公网/内网域名，应调用 `.with_allowed_hosts([...])`
+    // 或 `.disable_allowed_hosts()`（后者不推荐用于公网）。
     let handler_for_service = handler.clone();
     let mut server_config = StreamableHttpServerConfig::default();
     server_config.stateful_mode = true; // 关键：启用有状态模式

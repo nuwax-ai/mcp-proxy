@@ -5,19 +5,18 @@
 //!
 //! # Features
 //!
-//! - **Streamable HTTP Support**: Uses rmcp 0.12 with enhanced Streamable HTTP transport
+//! - **Streamable HTTP Support**: Uses rmcp with Streamable HTTP transport
 //! - **Stateful Sessions**: Custom SessionManager with backend version tracking
-//! - **Hot Swap**: Supports backend connection replacement without downtime
-//! - **Version Control**: Automatically invalidates sessions when backend reconnects
-//! - **High-level Client API**: Simple connection interface hiding transport details
+//! - **Per-session URL backends**: each upstream session connects its own backend on `initialize`
+//! - **Shared stdio backends**: one child process shared across sessions
+//! - **Hot Swap**: Supports backend connection replacement (shared isolation)
 //!
 //! # Architecture
 //!
 //! ```text
 //! Client → Streamable HTTP → ProxyAwareSessionManager → ProxyHandler → Backend MCP Service
-//!                                    ↓
-//!                            Version Tracking
-//!                            (DashMap<SessionId, BackendVersion>)
+//!   URL (per-session): each session opens its own backend (connect on initialize)
+//!   Stdio (shared): one backend, clones share Arcs + notification fan-out registry
 //! ```
 //!
 //! # Example
@@ -33,6 +32,8 @@
 //! let tools = conn.list_tools().await?;
 //! ```
 
+pub mod backend_client;
+pub mod backend_connector;
 pub mod client;
 pub mod config;
 pub mod detector;
@@ -42,8 +43,15 @@ pub mod server_builder;
 pub mod session_manager;
 
 // Re-export main types
+pub use backend_client::{
+    BackendNotificationBridge, NotifyTarget, ProgressRouteGuard, UpstreamPeerRegistry,
+    UpstreamPeerSlot,
+};
+pub use backend_connector::{
+    BackendConnector, BackendIsolation, StdioBackendConnector, UrlBackendConnector,
+};
 pub use mcp_common::McpServiceConfig;
-pub use proxy_handler::{ProxyHandler, ToolFilter};
+pub use proxy_handler::{BackendRunningService, ProxyHandler, ToolFilter};
 pub use server::{run_stream_server, run_stream_server_from_config};
 pub use session_manager::ProxyAwareSessionManager;
 
@@ -64,11 +72,11 @@ pub use rmcp::{
     service::{Peer, RunningService},
 };
 
-// Re-export transport types for Streamable HTTP protocol (rmcp 0.12)
+// Re-export transport types for Streamable HTTP protocol
 pub use rmcp::transport::{
     StreamableHttpServerConfig,
     child_process::TokioChildProcess,
-    stdio, // stdio transport for CLI mode
+    stdio,
     streamable_http_client::StreamableHttpClientTransport,
     streamable_http_client::StreamableHttpClientTransportConfig,
 };

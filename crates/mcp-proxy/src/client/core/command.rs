@@ -8,9 +8,9 @@ use std::process::Stdio;
 
 use crate::proxy::{StreamProxyHandler, ToolFilter};
 
-// 使用 mcp-streamable-proxy 的类型（rmcp 0.12，process-wrap 9.0）
+// 使用 mcp-streamable-proxy 的类型
 use mcp_streamable_proxy::{
-    ClientCapabilities, ClientInfo, Implementation, ServiceExt, TokioChildProcess, stdio,
+    BackendNotificationBridge, ServiceExt, TokioChildProcess, UpstreamPeerRegistry, stdio,
 };
 
 use crate::client::support::utils::truncate_str;
@@ -99,11 +99,11 @@ pub async fn run_command_mode(
         eprintln!("🔗 Starting child process...");
     }
 
-    // 创建 ClientInfo（使用 rmcp 0.12 类型）
-    let client_info = create_client_info();
-
-    // 连接到子进程
-    let running = client_info.serve(tokio_process).await?;
+    // 创建带通知桥的后端客户端并连接子进程
+    let bridge = BackendNotificationBridge::with_default_info(std::sync::Arc::new(
+        UpstreamPeerRegistry::new(),
+    ));
+    let running = bridge.serve(tokio_process).await?;
 
     if !quiet {
         eprintln!("✅ Child process started, proxying to stdio...");
@@ -148,13 +148,4 @@ pub async fn run_command_mode(
     }
 
     Ok(())
-}
-
-/// 创建 ClientInfo（使用 rmcp 1.1.0 类型）
-fn create_client_info() -> ClientInfo {
-    let capabilities = ClientCapabilities::builder().enable_experimental().build();
-    ClientInfo::new(
-        capabilities,
-        Implementation::new("mcp-proxy-cli", env!("CARGO_PKG_VERSION")),
-    )
 }
