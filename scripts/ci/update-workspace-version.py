@@ -4,7 +4,6 @@
 import re
 import sys
 
-# systemd-installer 独立版本，不在此列表
 INTERNAL_CRATES = [
     "mcp-proxy",
     "mcp-common",
@@ -12,6 +11,7 @@ INTERNAL_CRATES = [
     "mcp-streamable-proxy",
     "oss-client",
     "run_code_rmcp",
+    "systemd-installer",
 ]
 
 
