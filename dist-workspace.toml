@@ -2,6 +2,9 @@
 # 只包含需要发布的包，排除 fastembed 等不支持所有平台的包
 members = ["cargo:crates/mcp-proxy"]
 
+[package]
+repository = "https://github.com/nuwax-ai/mcp-proxy"
+
 # Config for 'dist'
 [dist]
 # The preferred dist version to use in CI (Cargo.toml SemVer syntax)
