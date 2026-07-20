@@ -9,6 +9,9 @@ homepage = "https://nuwax.com/"
 readme = "README.md"
 default-run = "run_code_rmcp"
 
+[package.metadata.dist]
+dist = false
+
 [features]
 default = []
 mcp = ["dep:rmcp"]

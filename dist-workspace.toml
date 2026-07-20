@@ -20,6 +20,8 @@ targets = [
 ]
 # Publish jobs to run in CI
 publish-jobs = ["npm"]
+# 只发布 mcp-stdio-proxy，避免构建 voice-cli 等带 sherpa-onnx/ort 的重依赖
+packages = ["mcp-stdio-proxy"]
 # Path that installers should place binaries in
 install-path = "CARGO_HOME"
 # Whether to install an updater program
