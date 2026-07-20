@@ -37,16 +37,16 @@ resolver = "2"
 
 # 统一版本管理：所有 crate 用 version.workspace = true 继承此处版本，bump 只改这一处
 [workspace.package]
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 
 [workspace.dependencies]
 # 内部 crate（依赖版本串也集中在此，配合 [workspace.package] 实现根一处维护）
-mcp-proxy = { version = "0.2.0", path = "crates/mcp-proxy" }
-mcp-common = { version = "0.2.0", path = "crates/mcp-common" }
-mcp-sse-proxy = { version = "0.2.0", path = "crates/mcp-sse-proxy" }
-mcp-streamable-proxy = { version = "0.2.0", path = "crates/mcp-streamable-proxy" }
-oss-client = { version = "0.2.0", path = "crates/oss-client" }
+mcp-proxy = { version = "0.2.1", path = "crates/mcp-proxy" }
+mcp-common = { version = "0.2.1", path = "crates/mcp-common" }
+mcp-sse-proxy = { version = "0.2.1", path = "crates/mcp-sse-proxy" }
+mcp-streamable-proxy = { version = "0.2.1", path = "crates/mcp-streamable-proxy" }
+oss-client = { version = "0.2.1", path = "crates/oss-client" }
 systemd-installer = { version = "0.2.0", path = "crates/systemd-installer" }
 # run_code_rmcp 已 vendor 到本地（crates/run-code-rmcp/），不再从 crates.io 拉取
 run_code_rmcp = { path = "crates/run-code-rmcp" }
