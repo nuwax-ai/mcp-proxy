@@ -5462,9 +5462,9 @@ dependencies = [
 
 [[package]]
 name = "rmcp-soddygo"
-version = "1.8.0"
+version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "971e57ac7ab2542a9beb926c3c5a9122965ffcd163fcda7cd751083d0fb44fd3"
+checksum = "3fa4881b5527e4d058ff0cae3fb639639059a88524a3465f0d0c1e020c2fcb19"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -5495,9 +5495,9 @@ dependencies = [
 
 [[package]]
 name = "rmcp-soddygo-macros"
-version = "1.8.0"
+version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94dc2c1dffcfa77354bb6f58a01947bcb298eabd99f34e1256dc159f834813a0"
+checksum = "7d76aec092894735384b91b466ad9ef4a1f48b36b33884e502067e37b14bbdf6"
 dependencies = [
  "darling 0.23.0",
  "proc-macro2",
@@ -6533,9 +6533,9 @@ dependencies = [
 
 [[package]]
 name = "sse-stream"
-version = "0.2.3"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3962b63f038885f15bce2c6e02c0e7925c072f1ac86bb60fd44c5c6b762fb72"
+checksum = "39f24a9b78c40b90817bbcd1821c74ddfd74916aadd29403d001532a9195532d"
 dependencies = [
  "bytes",
  "futures-util",
@@ -8196,7 +8196,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

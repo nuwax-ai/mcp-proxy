@@ -6,8 +6,9 @@ pub use mcp_common::ToolFilter;
 use rmcp::{
     ErrorData, RoleClient, RoleServer, ServerHandler,
     model::{
-        CallToolRequestParams, CallToolResult, ClientInfo, ContentBlock, Implementation,
-        ListToolsResult, PaginatedRequestParams, ServerInfo,
+        CallToolRequestParams, CallToolResponse, CallToolResult, ClientInfo, ContentBlock,
+        GetPromptResponse, Implementation, ListToolsResult, PaginatedRequestParams,
+        ReadResourceResponse, ServerInfo,
     },
     service::{NotificationContext, Peer, RequestContext, RunningService},
 };
@@ -123,7 +124,10 @@ impl ServerHandler for ProxyHandler {
                                 Ok(ListToolsResult {
                                     tools: filtered_tools,
                                     next_cursor: result.next_cursor,
-                                    meta: result.meta, // rmcp 0.12 新增字段
+                                    meta: result.meta,
+                                    result_type: result.result_type,
+                                    ttl_ms: result.ttl_ms,
+                                    cache_scope: result.cache_scope,
                                 })
                             }
                             Err(err) => {
@@ -161,7 +165,7 @@ impl ServerHandler for ProxyHandler {
         &self,
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, ErrorData> {
+    ) -> Result<CallToolResponse, ErrorData> {
         // 生成唯一请求 ID 用于追踪
         let request_id = REQUEST_COUNTER.fetch_add(1, Ordering::Relaxed);
         let start = Instant::now();
@@ -180,7 +184,8 @@ impl ServerHandler for ProxyHandler {
             return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
                 "Tool '{}' is not allowed by filter configuration",
                 request.name
-            ))]));
+            ))])
+            .into());
         }
 
         // 原子加载后端连接
@@ -201,7 +206,8 @@ impl ServerHandler for ProxyHandler {
                 );
                 return Ok(CallToolResult::error(vec![ContentBlock::text(
                     "Backend connection is not available, reconnecting...",
-                )]));
+                )])
+                .into());
             }
         };
 
@@ -213,7 +219,8 @@ impl ServerHandler for ProxyHandler {
             );
             return Ok(CallToolResult::error(vec![ContentBlock::text(
                 "Backend connection closed, please retry",
-            )]));
+            )])
+            .into());
         }
 
         // Check if the server has tools capability and forward the request
@@ -227,8 +234,9 @@ impl ServerHandler for ProxyHandler {
                     start.elapsed().as_millis()
                 );
 
-                // 创建后端调用的 Future，使用 pin 固定
-                let call_future = inner.peer.call_tool(request.clone());
+                // 使用 call_tool_once：透传 Complete / InputRequired（MRTR），避免 Peer::call_tool
+                // 把 InputRequired 当成 UnexpectedResponse
+                let call_future = inner.peer.call_tool_once(request.clone());
                 tokio::pin!(call_future);
 
                 // 等待心跳间隔（30秒）
@@ -254,7 +262,8 @@ impl ServerHandler for ProxyHandler {
                             );
                             return Ok(CallToolResult::error(vec![ContentBlock::text(
                                 "Request cancelled"
-                            )]));
+                            )])
+                            .into());
                         }
                         _ = heartbeat_interval.tick() => {
                             // 定期打印等待日志，证明 mcp-proxy 在等待后端响应
@@ -270,25 +279,46 @@ impl ServerHandler for ProxyHandler {
                 };
 
                 let elapsed = start.elapsed();
-                match &call_result {
-                    Ok(call_result) => {
-                        // 记录工具调用结果
-                        let is_error = call_result.is_error.unwrap_or(false);
-                        info!(
-                            "[call_tool:{}] Response received - tool: {}, time taken: {}ms, is_error: {}, MCP ID: {}",
-                            request_id,
-                            request.name,
-                            elapsed.as_millis(),
-                            is_error,
-                            self.mcp_id
-                        );
-                        if is_error {
-                            debug!(
-                                "[call_tool:{}] Error response content: {:?}",
-                                request_id, call_result.content
-                            );
+                match call_result {
+                    Ok(response) => {
+                        match &response {
+                            CallToolResponse::Complete(call_result) => {
+                                let is_error = call_result.is_error.unwrap_or(false);
+                                info!(
+                                    "[call_tool:{}] Response received - tool: {}, time taken: {}ms, is_error: {}, MCP ID: {}",
+                                    request_id,
+                                    request.name,
+                                    elapsed.as_millis(),
+                                    is_error,
+                                    self.mcp_id
+                                );
+                                if is_error {
+                                    debug!(
+                                        "[call_tool:{}] Error response content: {:?}",
+                                        request_id, call_result.content
+                                    );
+                                }
+                            }
+                            CallToolResponse::InputRequired(_) => {
+                                info!(
+                                    "[call_tool:{}] InputRequired received - tool: {}, time taken: {}ms, MCP ID: {}",
+                                    request_id,
+                                    request.name,
+                                    elapsed.as_millis(),
+                                    self.mcp_id
+                                );
+                            }
+                            _ => {
+                                info!(
+                                    "[call_tool:{}] Response received - tool: {}, time taken: {}ms, MCP ID: {}",
+                                    request_id,
+                                    request.name,
+                                    elapsed.as_millis(),
+                                    self.mcp_id
+                                );
+                            }
                         }
-                        Ok(call_result.clone())
+                        Ok(response)
                     }
                     Err(err) => {
                         error!(
@@ -302,7 +332,8 @@ impl ServerHandler for ProxyHandler {
                         // Return an error result instead of propagating the error
                         Ok(CallToolResult::error(vec![ContentBlock::text(format!(
                             "Error: {err}"
-                        ))]))
+                        ))])
+                        .into())
                     }
                 }
             }
@@ -313,7 +344,8 @@ impl ServerHandler for ProxyHandler {
                 );
                 Ok(CallToolResult::error(vec![ContentBlock::text(
                     "Server doesn't support tools capability",
-                )]))
+                )])
+                .into())
             }
         };
 
@@ -398,7 +430,7 @@ impl ServerHandler for ProxyHandler {
         &self,
         request: rmcp::model::ReadResourceRequestParams,
         context: RequestContext<RoleServer>,
-    ) -> Result<rmcp::model::ReadResourceResult, ErrorData> {
+    ) -> Result<ReadResourceResponse, ErrorData> {
         // 原子加载后端连接
         let inner_guard = self.peer.load();
         let inner = inner_guard.as_ref().ok_or_else(|| {
@@ -422,7 +454,7 @@ impl ServerHandler for ProxyHandler {
         match self.capabilities().resources {
             Some(_) => {
                 tokio::select! {
-                    result = inner.peer.read_resource(rmcp::model::ReadResourceRequestParams::new(request.uri.clone())) => {
+                    result = inner.peer.read_resource_once(request.clone()) => {
                         match result {
                             Ok(result) => {
                                 // 记录资源读取结果，这些结果会通过 SSE 推送给客户端
@@ -455,7 +487,7 @@ impl ServerHandler for ProxyHandler {
             None => {
                 // Server doesn't support resources, return error
                 error!("Server doesn't support resources capability");
-                Ok(rmcp::model::ReadResourceResult::new(vec![]))
+                Ok(rmcp::model::ReadResourceResult::new(vec![]).into())
             }
         }
     }
@@ -584,7 +616,7 @@ impl ServerHandler for ProxyHandler {
         &self,
         request: rmcp::model::GetPromptRequestParams,
         context: RequestContext<RoleServer>,
-    ) -> Result<rmcp::model::GetPromptResult, ErrorData> {
+    ) -> Result<GetPromptResponse, ErrorData> {
         // 原子加载后端连接
         let inner_guard = self.peer.load();
         let inner = inner_guard.as_ref().ok_or_else(|| {
@@ -608,7 +640,7 @@ impl ServerHandler for ProxyHandler {
         match self.capabilities().prompts {
             Some(_) => {
                 tokio::select! {
-                    result = inner.peer.get_prompt(request.clone()) => {
+                    result = inner.peer.get_prompt_once(request.clone()) => {
                         match result {
                             Ok(result) => {
                                 debug!("Proxying get_prompt response");
@@ -636,7 +668,7 @@ impl ServerHandler for ProxyHandler {
                 // Server doesn't support prompts, return empty messages
                 warn!("Server doesn't support prompts capability");
                 let messages = Vec::new();
-                Ok(rmcp::model::GetPromptResult::new(messages))
+                Ok(rmcp::model::GetPromptResult::new(messages).into())
             }
         }
     }
@@ -1024,10 +1056,17 @@ impl ProxyHandler {
                     .map_err(|e| format!("Invalid params for tools/call: {}", e))?;
                 let result = inner
                     .peer
-                    .call_tool(request)
+                    .call_tool_once(request)
                     .await
                     .map_err(|e| format!("call_tool error: {:?}", e))?;
-                serde_json::to_value(result).map_err(|e| format!("serialize error: {}", e))
+                let value = match result {
+                    CallToolResponse::Complete(r) => serde_json::to_value(r),
+                    CallToolResponse::InputRequired(r) => serde_json::to_value(r),
+                    other => {
+                        return Err(format!("unsupported CallToolResponse variant: {other:?}"));
+                    }
+                };
+                value.map_err(|e| format!("serialize error: {}", e))
             }
             "resources/list" => {
                 let request: Option<PaginatedRequestParams> = serde_json::from_value(params).ok();
@@ -1044,10 +1083,19 @@ impl ProxyHandler {
                         .map_err(|e| format!("Invalid params for resources/read: {}", e))?;
                 let result = inner
                     .peer
-                    .read_resource(request)
+                    .read_resource_once(request)
                     .await
                     .map_err(|e| format!("read_resource error: {:?}", e))?;
-                serde_json::to_value(result).map_err(|e| format!("serialize error: {}", e))
+                let value = match result {
+                    ReadResourceResponse::Complete(r) => serde_json::to_value(r),
+                    ReadResourceResponse::InputRequired(r) => serde_json::to_value(r),
+                    other => {
+                        return Err(format!(
+                            "unsupported ReadResourceResponse variant: {other:?}"
+                        ));
+                    }
+                };
+                value.map_err(|e| format!("serialize error: {}", e))
             }
             "prompts/list" => {
                 let request: Option<PaginatedRequestParams> = serde_json::from_value(params).ok();
@@ -1064,10 +1112,17 @@ impl ProxyHandler {
                         .map_err(|e| format!("Invalid params for prompts/get: {}", e))?;
                 let result = inner
                     .peer
-                    .get_prompt(request)
+                    .get_prompt_once(request)
                     .await
                     .map_err(|e| format!("get_prompt error: {:?}", e))?;
-                serde_json::to_value(result).map_err(|e| format!("serialize error: {}", e))
+                let value = match result {
+                    GetPromptResponse::Complete(r) => serde_json::to_value(r),
+                    GetPromptResponse::InputRequired(r) => serde_json::to_value(r),
+                    other => {
+                        return Err(format!("unsupported GetPromptResponse variant: {other:?}"));
+                    }
+                };
+                value.map_err(|e| format!("serialize error: {}", e))
             }
             "resources/templates/list" => {
                 let request: Option<PaginatedRequestParams> = serde_json::from_value(params).ok();
