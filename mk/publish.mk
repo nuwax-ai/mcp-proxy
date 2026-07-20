@@ -16,7 +16,7 @@ mcp-version-update:
 	NEW_VERSION="$$MAJOR.$$MINOR.$$NEW_PATCH"; \
 	echo "workspace: $$VERSION -> $$NEW_VERSION"; \
 	sed -i.bak "s/^version = \"$$VERSION\"/version = \"$$NEW_VERSION\"/" Cargo.toml && rm Cargo.toml.bak; \
-	for c in mcp-proxy mcp-common mcp-sse-proxy mcp-streamable-proxy oss-client; do \
+	for c in mcp-proxy mcp-common mcp-sse-proxy mcp-streamable-proxy oss-client run_code_rmcp; do \
 		sed -i.bak "s|$$c = { version = \"$$VERSION\"|$$c = { version = \"$$NEW_VERSION\"|" Cargo.toml && rm Cargo.toml.bak; \
 	done; \
 	echo "✅ workspace 版本更新完成：$$NEW_VERSION（所有 crate 已继承）"
@@ -26,15 +26,17 @@ mcp-version-update:
 mcp-version-show:
 	@echo "📋 当前 workspace 版本（根 Cargo.toml）："
 	@echo ""
-	@echo "  [workspace.package] version:  $$(grep -m1 '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')"
+	@echo "  [workspace.package] version:  $$(grep -m1 '^version = ' Cargo.toml | sed 's/version = \"\(.*\)\"/\1/')"
 	@echo ""
 	@echo "  [workspace.dependencies] 内部 crate 依赖版本："
-	@for c in mcp-proxy mcp-common mcp-sse-proxy mcp-streamable-proxy oss-client; do \
-		v=$$(grep "$$c = { version" Cargo.toml | sed 's/.*version = "\([^"]*\)".*/\1/' | head -1); \
+	@for c in mcp-proxy mcp-common mcp-sse-proxy mcp-streamable-proxy oss-client run_code_rmcp; do \
+		v=$$(grep "$$c = { version" Cargo.toml | sed 's/.*version = \"\([^\"]*\)\".*/\1/' | head -1); \
 		printf "    %-22s %s\n" "$$c" "$$v"; \
 	done
 
 # 发布所有 MCP 相关包（按依赖顺序）
+# 顺序：common → sse → streamable → run_code_rmcp → stdio
+# run_code_rmcp 必须在 mcp-stdio-proxy 之前（stdio 依赖它）
 .PHONY: mcp-publish
 mcp-publish:
 	@echo "📦 开始发布 MCP 相关包到 crates.io..."
@@ -54,10 +56,30 @@ mcp-publish:
 	@echo "⏳ 等待 10 秒让 crates.io 索引更新..."
 	@sleep 10
 	@echo ""
-	@echo "4️⃣  发布 mcp-stdio-proxy..."
+	@echo "4️⃣  发布 run_code_rmcp..."
+	cd crates/run-code-rmcp && cargo publish
+	@echo "⏳ 等待 10 秒让 crates.io 索引更新..."
+	@sleep 10
+	@echo ""
+	@echo "5️⃣  发布 mcp-stdio-proxy..."
 	cd crates/mcp-proxy && cargo publish
 	@echo ""
 	@echo "✅ 所有 MCP 包发布成功！"
+
+# 仅发布尚未完成的尾部包（common/sse/streamable 已发布时用）
+.PHONY: mcp-publish-remaining
+mcp-publish-remaining:
+	@echo "📦 发布剩余包：run_code_rmcp → mcp-stdio-proxy..."
+	@echo ""
+	@echo "4️⃣  发布 run_code_rmcp..."
+	cd crates/run-code-rmcp && cargo publish
+	@echo "⏳ 等待 10 秒让 crates.io 索引更新..."
+	@sleep 10
+	@echo ""
+	@echo "5️⃣  发布 mcp-stdio-proxy..."
+	cd crates/mcp-proxy && cargo publish
+	@echo ""
+	@echo "✅ 剩余 MCP 包发布成功！"
 
 # 预览将要发布的 MCP 包（dry-run）
 .PHONY: mcp-publish-dry-run
@@ -73,7 +95,10 @@ mcp-publish-dry-run:
 	@echo "3️⃣  mcp-streamable-proxy:"
 	cd crates/mcp-streamable-proxy && cargo publish --dry-run
 	@echo ""
-	@echo "4️⃣  mcp-stdio-proxy:"
+	@echo "4️⃣  run_code_rmcp:"
+	cd crates/run-code-rmcp && cargo publish --dry-run
+	@echo ""
+	@echo "5️⃣  mcp-stdio-proxy:"
 	cd crates/mcp-proxy && cargo publish --dry-run
 	@echo ""
 	@echo "✅ 预览完成（未实际发布）"
@@ -92,5 +117,8 @@ mcp-package-list:
 	@echo "3️⃣  mcp-streamable-proxy:"
 	cd crates/mcp-streamable-proxy && cargo package --list
 	@echo ""
-	@echo "4️⃣  mcp-stdio-proxy:"
+	@echo "4️⃣  run_code_rmcp:"
+	cd crates/run-code-rmcp && cargo package --list
+	@echo ""
+	@echo "5️⃣  mcp-stdio-proxy:"
 	cd crates/mcp-proxy && cargo package --list

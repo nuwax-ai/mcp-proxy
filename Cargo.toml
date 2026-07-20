@@ -48,8 +48,9 @@ mcp-sse-proxy = { version = "0.2.1", path = "crates/mcp-sse-proxy" }
 mcp-streamable-proxy = { version = "0.2.1", path = "crates/mcp-streamable-proxy" }
 oss-client = { version = "0.2.1", path = "crates/oss-client" }
 systemd-installer = { version = "0.2.0", path = "crates/systemd-installer" }
-# run_code_rmcp 已 vendor 到本地（crates/run-code-rmcp/），不再从 crates.io 拉取
-run_code_rmcp = { path = "crates/run-code-rmcp" }
+# run_code_rmcp 已 vendor 到本地（crates/run-code-rmcp/）；发布 mcp-stdio-proxy 时仍需 version
+# 以便 cargo publish 把 path 依赖解析为 crates.io 上的同名版本
+run_code_rmcp = { version = "0.2.1", path = "crates/run-code-rmcp" }
 # voice-toolkit 已 vendor 到本地（crates/voice-toolkit 等 4 个 crate），不再从 crates.io 拉取
 voice-toolkit = { path = "crates/voice-toolkit", features = ["audio"] }
 # FFmpeg wrapper：统一到 2.5（voice-cli 原 2.2 + voice crates 2.5 → 合并）
