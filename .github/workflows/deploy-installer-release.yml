@@ -1,17 +1,34 @@
-# Publish nuwax-deploy-installer to npm (binaries bundled in package, no GitHub Release download)
+# Publish nuwax-deploy-installer to npm (binaries bundled in package)
+#
+# Tag channels (must push tag from a commit that contains this workflow):
+#   Beta:    deploy-v0.2.1-beta.1  →  npm @beta   (prerelease version)
+#   Stable:  deploy-v0.2.1         →  npm @latest (no prerelease suffix)
+#
+# Workflow: always ship beta first, verify on Mac Mini, then ship stable.
 
 name: Deploy Installer Release
 
 on:
   push:
     tags:
-      - 'deploy-v*'
+      # Stable: deploy-v1.2.3 (no prerelease suffix after the version)
+      - 'deploy-v[0-9]+.[0-9]+.[0-9]+'
+      # Beta:   deploy-v1.2.3-beta.N
+      - 'deploy-v[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+'
   workflow_dispatch:
     inputs:
       version:
-        description: 'npm package version (e.g. 0.2.1)'
+        description: 'npm version (stable: 0.2.1 | beta: 0.2.1-beta.2)'
         required: true
-        default: '0.2.1'
+        default: '0.2.1-beta.2'
+      channel:
+        description: 'npm dist-tag channel'
+        required: true
+        type: choice
+        options:
+          - beta
+          - latest
+        default: beta
 
 permissions:
   contents: read
@@ -27,18 +44,42 @@ jobs:
         with:
           targets: aarch64-apple-darwin
 
-      - name: Resolve version
+      - name: Resolve version and channel
         id: ver
         run: |
+          set -euo pipefail
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            VERSION="${{ inputs.version }}"
+            CHANNEL="${{ inputs.channel }}"
           else
-            TAG="${GITHUB_REF_NAME#deploy-v}"
-            echo "version=$TAG" >> "$GITHUB_OUTPUT"
+            VERSION="${GITHUB_REF_NAME#deploy-v}"
+            if [[ "$VERSION" == *"-beta"* || "$VERSION" == *"-alpha"* || "$VERSION" == *"-rc"* ]]; then
+              CHANNEL="beta"
+            else
+              CHANNEL="latest"
+            fi
           fi
+
+          # Guard: channel must match version shape
+          if [[ "$CHANNEL" == "beta" ]]; then
+            if [[ "$VERSION" != *"-beta"* && "$VERSION" != *"-alpha"* && "$VERSION" != *"-rc"* ]]; then
+              echo "::error::channel=beta requires a prerelease version (e.g. 0.2.1-beta.1), got: $VERSION"
+              exit 1
+            fi
+          else
+            if [[ "$VERSION" == *"-beta"* || "$VERSION" == *"-alpha"* || "$VERSION" == *"-rc"* ]]; then
+              echo "::error::channel=latest forbids prerelease versions, got: $VERSION"
+              exit 1
+            fi
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
+          echo "==> nuwax-deploy-installer@$VERSION → npm dist-tag @$CHANNEL"
 
       - name: Update workspace version
         run: |
+          # Cargo SemVer accepts 0.2.1-beta.1; strip for path-dep crates that need X.Y.Z only is not required.
           python3 scripts/ci/update-workspace-version.py "${{ steps.ver.outputs.version }}" \
             || python scripts/ci/update-workspace-version.py "${{ steps.ver.outputs.version }}"
 
@@ -58,14 +99,25 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           VERSION: ${{ steps.ver.outputs.version }}
+          CHANNEL: ${{ steps.ver.outputs.channel }}
         run: |
-          if [[ "$VERSION" == *"-beta"* || "$VERSION" == *"-alpha"* || "$VERSION" == *"-rc"* ]]; then
-            echo "==> Publishing nuwax-deploy-installer@${VERSION} with dist-tag beta"
-            npm publish --access public --tag beta
+          set -euo pipefail
+          echo "==> Publishing nuwax-deploy-installer@${VERSION} with --tag ${CHANNEL}"
+          npm publish --access public --tag "$CHANNEL"
+
+          # First-ever package publish also attaches @latest; after a stable
+          # release, force @latest onto the stable version explicitly.
+          if [[ "$CHANNEL" == "latest" ]]; then
+            npm dist-tag add "nuwax-deploy-installer@${VERSION}" latest
+            echo "==> dist-tag latest → ${VERSION}"
           else
-            echo "==> Publishing nuwax-deploy-installer@${VERSION} (latest)"
-            npm publish --access public
+            echo "==> dist-tag beta → ${VERSION}"
+            echo "NOTE: if this is the first publish ever, npm may also set latest=${VERSION}."
+            echo "      Formal deploy-v${VERSION%-beta*} will move @latest to the stable version."
           fi
+
+          echo "==> current dist-tags:"
+          npm dist-tag ls nuwax-deploy-installer || true
 
       - name: Smoke test
         run: bash scripts/ci/smoke-nuwax-deploy-installer.sh /tmp/doc-parser-smoke

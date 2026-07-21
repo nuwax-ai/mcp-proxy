@@ -9,10 +9,14 @@ permissions:
 on:
   push:
     tags:
-      - '**[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+'
+      # cargo-dist / mcp-stdio-proxy betas only (e.g. v0.2.1-beta.1).
+      # Do NOT use ** prefix — it would also match deploy-v0.2.1-beta.1.
+      - 'v[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+'
+      - '[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+'
 
 jobs:
   plan:
+    if: ${{ !startsWith(github.ref_name, 'deploy-v') }}
     runs-on: "ubuntu-22.04"
     outputs:
       val: ${{ steps.plan.outputs.manifest }}

@@ -75,22 +75,29 @@ bash scripts/ci/verify-oss-venv-url.sh --extract \
 
 ## 维护者：npm 发布
 
+**先 beta、后正式**，完整步骤见 [RELEASE.md](./RELEASE.md)。
+
 venv 上传并验证通过后：
 
 ```bash
-# 本地组装 + 冒烟 + npm pack
-bash scripts/ci/publish-nuwax-deploy-installer.sh 0.2.1
+# ① beta
+git tag -a deploy-v0.2.1-beta.2 -m "nuwax-deploy-installer 0.2.1-beta.2"
+git push origin deploy-v0.2.1-beta.2
+# 验证: npm i -g nuwax-deploy-installer@beta
 
-# 或直接发布（需 NPM_TOKEN）
-NPM_TOKEN=*** bash scripts/ci/publish-nuwax-deploy-installer.sh 0.2.1 --publish
-```
-
-或通过 GitHub tag 触发 CI：
-
-```bash
-git tag deploy-v0.2.1
+# ② 正式（beta 测通后再打）
+git tag -a deploy-v0.2.1 -m "nuwax-deploy-installer 0.2.1"
 git push origin deploy-v0.2.1
 ```
+
+本地 pack（不经 CI）：
+
+```bash
+bash scripts/ci/publish-nuwax-deploy-installer.sh 0.2.1-beta.2
+bash scripts/ci/publish-nuwax-deploy-installer.sh 0.2.1
+```
+
+或手动触发 workflow `Deploy Installer Release`（选 channel=`beta` / `latest`）。
 
 ## 后续（voice-cli CUDA）
 
