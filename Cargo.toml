@@ -134,6 +134,7 @@ bytes = "1.12"
 base64 = "0.22"
 tempfile = "3.27"
 service-manager = "0.10"
+dotenvy = "0.15"
 dirs = "6.0"
 scopeguard = "1.2"
 

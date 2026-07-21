@@ -8,7 +8,10 @@
     <string>__INSTALL_DIR__</string>
     <key>ProgramArguments</key>
     <array>
-        <string>__INSTALL_DIR__/run-server.sh</string>
+        <string>__INSTALL_DIR__/document-parser</string>
+        <string>--config</string>
+        <string>__INSTALL_DIR__/config.yml</string>
+        <string>server</string>
     </array>
     <key>EnvironmentVariables</key>
     <dict>

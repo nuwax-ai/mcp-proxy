@@ -79,6 +79,7 @@ tar = "0.4"
 # 配置管理
 clap = { workspace = true, features = ["derive", "env"] }
 deploy-installer = { workspace = true }
+dotenvy = { workspace = true }
 dashmap.workspace = true
 moka = { workspace = true, features = ["future"] }
 regex = "1.11.1"

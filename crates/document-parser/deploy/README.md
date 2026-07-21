@@ -93,4 +93,6 @@ npm install -g nuwax-deploy-installer
 deploy-installer document-parser install --install-dir ~/document-parser
 ```
 
+macOS LaunchAgent 直接启动 `document-parser` 二进制；`.document-parser.env` 由进程在启动时加载（与 Linux `EnvironmentFile=` 双保险并存）。
+
 完整文档：[crates/deploy-installer/doc/mac-mini-quickstart.md](../../deploy-installer/doc/mac-mini-quickstart.md)

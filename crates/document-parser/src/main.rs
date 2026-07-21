@@ -200,6 +200,10 @@ async fn main() -> Result<()> {
         return handle_service_command(action).await;
     }
 
+    // Load `.document-parser.env` before config (does not override existing env vars).
+    // Launchd has no EnvironmentFile=; Linux may also inject via systemd (those win).
+    let _ = document_parser::env_file::load_document_parser_env(config.as_deref());
+
     // 加载配置（`--config` 路径也必须套一层环境变量覆盖，否则 systemd EnvironmentFile
     // 注入的 OSS_ACCESS_KEY_* 不会生效）
     let mut app_config = if let Some(config_path) = config {

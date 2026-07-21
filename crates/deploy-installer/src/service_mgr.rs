@@ -6,7 +6,7 @@
 use crate::error::{InstallerError, Result};
 use crate::platform::ServiceBackend;
 use crate::render::{render_unit, validate_unit_name};
-use crate::render_plist::{ensure_log_dir, ensure_run_server_script, render_launchd_plist};
+use crate::render_plist::{ensure_log_dir, render_launchd_plist};
 use crate::spec::{DropIn, ServiceSpec};
 use crate::systemd;
 use service_manager::{
@@ -75,16 +75,32 @@ fn build_install_ctx(
     let label = service_label(spec, backend)?;
     match backend {
         ServiceBackend::Launchd => {
-            ensure_run_server_script(spec, true)?;
             ensure_log_dir(spec)?;
             let plist = match contents {
                 Some(c) => c,
                 None => render_launchd_plist(spec, run_at_load)?,
             };
+            let program = spec
+                .exec_start
+                .first()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| spec.install_dir.join("document-parser"));
+            let args: Vec<OsString> = if spec.exec_start.len() > 1 {
+                spec.exec_start[1..]
+                    .iter()
+                    .map(|s| OsString::from(s.as_str()))
+                    .collect()
+            } else {
+                vec![
+                    OsString::from("--config"),
+                    OsString::from(spec.install_dir.join("config.yml")),
+                    OsString::from("server"),
+                ]
+            };
             Ok(ServiceInstallCtx {
                 label,
-                program: spec.run_server_script_path(),
-                args: vec![],
+                program,
+                args,
                 contents: Some(plist),
                 username: None,
                 working_directory: Some(spec.install_dir.clone()),

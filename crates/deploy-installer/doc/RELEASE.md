@@ -57,6 +57,8 @@ deploy-installer document-parser install \
   --use-prebuilt-venv
 
 deploy-installer document-parser service status --install-dir ~/document-parser
+# 确认 LaunchAgent 直接启动二进制（无 run-server.sh）
+plutil -p ~/Library/LaunchAgents/com.nuwax.document-parser.plist | head -40
 curl -fsS http://127.0.0.1:8087/health
 ```
 

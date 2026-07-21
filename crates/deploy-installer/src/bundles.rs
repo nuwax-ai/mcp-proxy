@@ -145,7 +145,10 @@ mod tests {
             std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.1-beta.2");
         }
         let url = optional_venv_download_url();
-        assert!(url.is_some(), "manifest should provide darwin-arm64 venv URL");
+        assert!(
+            url.is_some(),
+            "manifest should provide darwin-arm64 venv URL"
+        );
         let url = url.unwrap();
         assert!(
             url.contains("venv-macos-arm64-0.2.1.tar.gz"),

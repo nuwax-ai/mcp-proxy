@@ -204,7 +204,6 @@ fn copy_templates(install_dir: &Path, quiet: bool) -> Result<()> {
     let mappings = [
         ("config.example.yml", CONFIG_FILENAME),
         (".document-parser.env.example", ENV_FILENAME),
-        ("run-server.sh", "run-server.sh"),
         (
             "com.nuwax.document-parser.plist",
             "com.nuwax.document-parser.plist",
@@ -220,9 +219,6 @@ fn copy_templates(install_dir: &Path, quiet: bool) -> Result<()> {
         if copy_if_exists(&src, &dst)? {
             if dst_name == ENV_FILENAME {
                 write_user_file(&dst, &fs::read_to_string(&dst)?, Some(0o600))?;
-            }
-            if dst_name == "run-server.sh" {
-                make_executable(&dst)?;
             }
             if !quiet {
                 println!("  template: {}", dst_name);

@@ -70,9 +70,4 @@ impl ServiceSpec {
             .join("Library/LaunchAgents")
             .join(format!("{}.plist", self.launchd_label()))
     }
-
-    /// Wrapper script used by launchd to load `.env` before starting the service.
-    pub fn run_server_script_path(&self) -> PathBuf {
-        self.install_dir.join("run-server.sh")
-    }
 }

@@ -31,10 +31,12 @@ tail -f ~/document-parser/logs/launchd.stdout.log
 常见原因：
 
 - 安装目录在 `~/Documents` / Desktop / iCloud：会报 `Operation not permitted`，请改用 `~/document-parser`
-- `.document-parser.env` 密钥未填或格式错误（不要用 `export` 前缀）
+- `.document-parser.env` 密钥未填或格式错误（不要用 `export` 前缀）；改密钥后需 `service restart`
 - 端口 8087 被占用：修改 `config.yml` 的 `server.port`
 - `venv` 未就绪：重新 `deploy-installer document-parser setup --use-prebuilt-venv`
 - 首次启动卡在 MinerU 检查：等 1–2 分钟再 `curl http://127.0.0.1:8087/health`；旧版若 plist 含 `ProcessType=Background` 会导致 MPS 卡住，请升级 CLI 后重新 `service install`
+- 确认 LaunchAgent 直接启动二进制（`ProgramArguments` 应为 `document-parser --config … server`，不应再有 `run-server.sh`）：
+  `plutil -p ~/Library/LaunchAgents/com.nuwax.document-parser.plist`
 
 ## health 不通但 status 显示 running
 

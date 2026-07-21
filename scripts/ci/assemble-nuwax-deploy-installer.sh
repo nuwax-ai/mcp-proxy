@@ -29,11 +29,8 @@ cp crates/document-parser/deploy/config/config.example.yml \
   "$PKG/vendor/templates/document-parser/config.example.yml"
 cp crates/document-parser/deploy/systemd/.document-parser.env.example \
   "$PKG/vendor/templates/document-parser/.document-parser.env.example"
-cp crates/document-parser/deploy/launchd/run-server.sh \
-  "$PKG/vendor/templates/document-parser/run-server.sh"
 cp crates/document-parser/deploy/launchd/com.nuwax.document-parser.plist \
   "$PKG/vendor/templates/document-parser/com.nuwax.document-parser.plist"
-chmod +x "$PKG/vendor/templates/document-parser/run-server.sh"
 
 node -e "
 const fs = require('fs');

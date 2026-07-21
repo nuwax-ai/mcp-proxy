@@ -44,7 +44,7 @@ vim ~/document-parser/.document-parser.env
 # OSS_ACCESS_KEY_ID=...
 # OSS_ACCESS_KEY_SECRET=...
 
-# 4. 注册并启动 LaunchAgent
+# 4. 注册并启动 LaunchAgent（直接 exec document-parser，密钥由二进制加载 .env）
 deploy-installer document-parser service install --install-dir ~/document-parser
 ```
 
@@ -57,6 +57,10 @@ deploy-installer document-parser install \
 ```
 
 首次启动会做 MinerU / MarkItDown 环境检查，通常 **十几秒到一两分钟**；通过后再访问 health。
+
+修改 `.document-parser.env` 后执行 `service restart` 即可生效（无需改 plist）。
+
+旧安装目录若仍有 `run-server.sh`，可手动删除；新版 LaunchAgent 已改为直接启动二进制。
 
 ## 验证
 

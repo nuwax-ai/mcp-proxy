@@ -34,8 +34,10 @@ nuwax-deploy-installer/
         └── document-parser/
             ├── config.example.yml
             ├── .document-parser.env.example
-            └── run-server.sh
+            └── com.nuwax.document-parser.plist   # 参考模板；实际由 CLI 渲染
 ```
+
+> 说明：LaunchAgent 直接 `exec document-parser`；`.document-parser.env` 由二进制在启动时加载（不覆盖已有环境变量）。旧安装中的 `run-server.sh` 可手动删除。
 
 环境变量（由 Node 垫片注入）：
 

@@ -21,8 +21,7 @@ mkdir -p "$INSTALL"
 cp "$PKG/vendor/darwin-arm64/document-parser" "$INSTALL/"
 cp "$TEMPLATES/config.example.yml" "$INSTALL/config.yml"
 cp "$TEMPLATES/.document-parser.env.example" "$INSTALL/.document-parser.env"
-cp "$TEMPLATES/run-server.sh" "$INSTALL/"
-chmod +x "$INSTALL/document-parser" "$INSTALL/run-server.sh"
+chmod +x "$INSTALL/document-parser"
 
 echo "==> doctor"
 "$BIN" doctor

@@ -11,6 +11,7 @@ use utoipa::OpenApi;
 
 pub mod app_state;
 pub mod config;
+pub mod env_file;
 pub mod error;
 pub mod handlers;
 pub mod middleware;
