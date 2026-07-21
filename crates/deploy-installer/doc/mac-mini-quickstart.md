@@ -84,7 +84,7 @@ deploy-installer document-parser setup \
 deploy-installer document-parser setup \
   --install-dir ~/document-parser \
   --use-prebuilt-venv \
-  --oss-base https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/document-parser/v0.2.1
+  --oss-base https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/document-parser
 ```
 
 详见 [oss-optional-assets.md](./oss-optional-assets.md)。

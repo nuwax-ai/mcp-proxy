@@ -2,7 +2,7 @@
   "version": "0.2.1",
   "optionalAssets": {
     "venv": {
-      "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/document-parser/{version}/venv-macos-arm64-{version}.tar.gz"
+      "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/document-parser/venv-macos-arm64-{version}.tar.gz"
     }
   }
 }

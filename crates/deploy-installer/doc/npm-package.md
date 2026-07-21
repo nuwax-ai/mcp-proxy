@@ -57,6 +57,18 @@ bash scripts/ci/smoke-nuwax-deploy-installer.sh /tmp/doc-parser-smoke
 cd npm/nuwax-deploy-installer && npm pack
 ```
 
+预编译 venv（维护者，Mac Mini 上执行，见 [oss-optional-assets.md](./oss-optional-assets.md)）：
+
+```bash
+bash scripts/ci/pack-document-parser-venv-macos-arm64.sh 0.2.1
+```
+
+一键发布准备（assemble + smoke + npm pack）：
+
+```bash
+bash scripts/ci/publish-nuwax-deploy-installer.sh 0.2.1
+```
+
 ## Beta 测试
 
 ```bash

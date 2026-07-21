@@ -55,9 +55,17 @@ jobs:
 
       - name: Publish to npm
         working-directory: npm/nuwax-deploy-installer
-        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          if [[ "$VERSION" == *"-beta"* || "$VERSION" == *"-alpha"* || "$VERSION" == *"-rc"* ]]; then
+            echo "==> Publishing nuwax-deploy-installer@${VERSION} with dist-tag beta"
+            npm publish --access public --tag beta
+          else
+            echo "==> Publishing nuwax-deploy-installer@${VERSION} (latest)"
+            npm publish --access public
+          fi
 
       - name: Smoke test
         run: bash scripts/ci/smoke-nuwax-deploy-installer.sh /tmp/doc-parser-smoke
