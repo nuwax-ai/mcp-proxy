@@ -66,7 +66,7 @@ uv venv --python /usr/bin/python3 ./venv
 
 ## 7. 部署脚本 sudo + heredoc stdin 冲突
 **坑**: `echo 密码 | sudo -S tee FILE <<EOF ... EOF` 里管道和 heredoc 抢同一 stdin，sudo 把 heredoc 内容当密码读 → 3 次失败。
-**正解**: 先写临时文件（普通用户），再 `sudo install`（密码走管道、文件内容不冲突）。systemd-installer 的 `service install` 内部已采用此套路。
+**正解**: 先写临时文件（普通用户），再 `sudo install`（密码走管道、文件内容不冲突）。`deploy-installer` 的 `service install` 内部已采用此套路。
 
 ---
 

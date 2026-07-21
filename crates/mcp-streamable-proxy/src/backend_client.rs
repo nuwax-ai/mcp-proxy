@@ -19,8 +19,8 @@ use rmcp::{
     },
     service::{NotificationContext, Peer, ServiceError},
 };
-use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tracing::{debug, warn};
 
@@ -430,8 +430,11 @@ impl ClientHandler for BackendNotificationBridge {
                     .await;
             }
             NotifyTarget::Session(slot) => {
-                with_session_peer(slot, |peer| async move { peer.notify_tool_list_changed().await })
-                    .await;
+                with_session_peer(
+                    slot,
+                    |peer| async move { peer.notify_tool_list_changed().await },
+                )
+                .await;
             }
         }
     }
@@ -505,8 +508,11 @@ impl ClientHandler for BackendNotificationBridge {
                 reg.deliver_progress(params).await;
             }
             NotifyTarget::Session(slot) => {
-                with_session_peer(slot, |peer| async move { peer.notify_progress(params).await })
-                    .await;
+                with_session_peer(
+                    slot,
+                    |peer| async move { peer.notify_progress(params).await },
+                )
+                .await;
             }
         }
     }

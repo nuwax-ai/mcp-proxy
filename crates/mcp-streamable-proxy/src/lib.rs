@@ -74,9 +74,7 @@ pub use rmcp::{
 
 // Re-export transport types for Streamable HTTP protocol
 pub use rmcp::transport::{
-    StreamableHttpServerConfig,
-    child_process::TokioChildProcess,
-    stdio,
+    StreamableHttpServerConfig, child_process::TokioChildProcess, stdio,
     streamable_http_client::StreamableHttpClientTransport,
     streamable_http_client::StreamableHttpClientTransportConfig,
 };

@@ -2,11 +2,11 @@
 
 use crate::models::Config;
 use anyhow::{Context, Result, bail};
-use std::path::{Path, PathBuf};
-use systemd_installer::{
+use deploy_installer::{
     DropIn, InstallOptions, ServiceIdentity, ServiceSpec, group_for_user, install,
     resolve_service_user, restart, status, uninstall,
 };
+use std::path::{Path, PathBuf};
 
 const SERVICE_NAME: &str = "voice-cli";
 

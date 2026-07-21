@@ -41,12 +41,9 @@ fn isolation_defaults() {
 
 #[test]
 fn per_session_handler_starts_disconnected() {
-    let connector: Arc<dyn BackendConnector> = Arc::new(UrlBackendConnector::new(
-        "http://127.0.0.1:9/mcp",
-        None,
-    ));
-    let handler =
-        ProxyHandler::new_per_session(connector, "test".into(), ToolFilter::default());
+    let connector: Arc<dyn BackendConnector> =
+        Arc::new(UrlBackendConnector::new("http://127.0.0.1:9/mcp", None));
+    let handler = ProxyHandler::new_per_session(connector, "test".into(), ToolFilter::default());
     assert_eq!(handler.isolation(), BackendIsolation::PerSession);
     assert!(!handler.is_backend_available());
     assert_eq!(handler.get_backend_version(), 0);
@@ -57,11 +54,7 @@ fn two_per_session_handlers_are_independent() {
     let connector: Arc<dyn BackendConnector> = Arc::new(CountingConnector {
         session_connects: AtomicU64::new(0),
     });
-    let a = ProxyHandler::new_per_session(
-        connector.clone(),
-        "a".into(),
-        ToolFilter::default(),
-    );
+    let a = ProxyHandler::new_per_session(connector.clone(), "a".into(), ToolFilter::default());
     let b = ProxyHandler::new_per_session(connector, "b".into(), ToolFilter::default());
     a.swap_backend(None);
     assert!(a.get_backend_version() >= 1);
@@ -93,8 +86,7 @@ fn mcp_json_fixtures_parse() {
         &std::fs::read_to_string(root.join("tools_call_with_progress.json")).unwrap(),
     )
     .unwrap();
-    let params: CallToolRequestParams =
-        serde_json::from_value(call["params"].clone()).unwrap();
+    let params: CallToolRequestParams = serde_json::from_value(call["params"].clone()).unwrap();
     assert_eq!(params.name.as_ref(), "echo");
     let token = params
         .meta

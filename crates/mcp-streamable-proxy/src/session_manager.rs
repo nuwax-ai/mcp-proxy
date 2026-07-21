@@ -94,9 +94,7 @@ impl ProxyAwareSessionManager {
 
     fn check_backend_version(&self, session_id: &SessionId) -> bool {
         // Per-session handlers own their own backend; template version is not authoritative.
-        if self.handler.isolation()
-            == crate::backend_connector::BackendIsolation::PerSession
-        {
+        if self.handler.isolation() == crate::backend_connector::BackendIsolation::PerSession {
             return true;
         }
         if let Some(meta) = self.session_versions.get(session_id.as_ref()) {

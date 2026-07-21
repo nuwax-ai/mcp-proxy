@@ -1,0 +1,79 @@
+# ===== document-parser 配置模板 =====
+# 部署时复制为 config.yml，按需修改:
+#   - mineru.backend / vram / gpu_memory_utilization（见下方注释）
+#   - storage.oss 的 bucket / endpoint（改成你自己的）
+#   - OSS 密钥不放这里，放 .document-parser.env（见 systemd/.document-parser.env.example）
+
+environment: "development"
+
+server:
+  # document-parser 默认 8087；与 voice-cli（默认 8077）同机部署时避免端口冲突
+  port: 8087
+  host: "0.0.0.0"
+
+log:
+  level: "info"
+  path: "logs"
+  retain_days: 20
+
+document_parser:
+  max_concurrent: 5
+  queue_size: 1000
+  download_timeout: 3600
+  processing_timeout: 3600  # 60 分钟，MinerU/MarkItDown 解析超时
+
+# MinerU 配置（mineru 3.4）
+mineru:
+  # 后端选择(按解析需求切,改完 service restart 生效):
+  #   pipeline(默认) — 传统 OCR+layout,快(~30s/文档),GPU 间歇加速。大多数文档够用。
+  #   hybrid-engine  — VLM 后端,复杂版式/扫描件/公式密集文档解析质量更好,但慢
+  #                     (VLM 模型每次加载 ~60s)。依赖 python3.12-dev(triton 编译 GPU kernel):
+  #                       sudo apt-get install -y python3.12-dev
+  #   vlm-engine / vlm-http-client / hybrid-http-client — 见 MinerU 文档
+  backend: "pipeline"
+  python_path: "./venv/bin/python"
+  max_concurrent: 3
+  queue_size: 100
+  batch_size: 1
+  quality_level: "Balanced"
+  # 推理设备: cpu / cuda / cuda:0 / mps / npu
+  # - Linux+NVIDIA: 写 cpu 会自动升 cuda（nvidia-smi 探测），也可显式 cuda:0
+  # - macOS(Metal): 必须显式写 "mps"，否则跑 CPU（MPS 不自动检测，慢 5-10 倍）
+  # - 多 GPU: 写 cuda:0 / cuda:1 指定
+  device: "cpu"
+  # 显存(GB), 通过 MINERU_VIRTUAL_VRAM_SIZE 注入; 0=不限
+  vram: 0
+  # VLM 推理显存占比(仅 hybrid-engine/vlm-engine), 通过 --gpu-memory-utilization 注入;
+  # 0=用 mineru 默认(~0.5); 与其他 GPU 进程(如 voice-cli)共存建议 0.3 避免 OOM
+  gpu_memory_utilization: 0.3
+
+markitdown:
+  python_path: "./venv/bin/python"
+  enable_plugins: false
+  features:
+    ocr: true
+    audio_transcription: true
+    azure_doc_intel: false
+    youtube_transcription: false
+
+storage:
+  sled:
+    path: "data/document_parser"
+    cache_capacity: 104857600  # 100MB
+  oss:
+    endpoint: "oss-rg-china-mainland.aliyuncs.com"   # ← 改成你的 OSS endpoint
+    public_bucket: "your-public-bucket"               # ← 改成你的公共 bucket
+    private_bucket: "your-private-bucket"             # ← 改成你的私有 bucket
+    access_key_id: "${OSS_ACCESS_KEY_ID}"             # 从 .document-parser.env 读
+    access_key_secret: "${OSS_ACCESS_KEY_SECRET}"
+    region: "oss-rg-china-mainland"
+    upload_directory: "document_parser"
+
+file_size_config:
+  max_file_size: "200MB"
+  large_document_threshold: "50MB"
+
+external_integration:
+  webhook_url: ""
+  api_key: ""
+  timeout: 30

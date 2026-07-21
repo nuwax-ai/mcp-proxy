@@ -11,7 +11,7 @@ INTERNAL_CRATES = [
     "mcp-streamable-proxy",
     "oss-client",
     "run_code_rmcp",
-    "systemd-installer",
+    "deploy-installer",
 ]
 
 

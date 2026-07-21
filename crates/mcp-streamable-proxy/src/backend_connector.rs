@@ -104,8 +104,7 @@ impl UrlBackendConnector {
         if let Some(config_headers) = &self.headers {
             for (key, value) in config_headers {
                 if key.eq_ignore_ascii_case("Authorization") {
-                    auth_header =
-                        Some(value.strip_prefix("Bearer ").unwrap_or(value).to_string());
+                    auth_header = Some(value.strip_prefix("Bearer ").unwrap_or(value).to_string());
                     continue;
                 }
                 req_headers.insert(
@@ -181,10 +180,7 @@ impl StdioBackendConnector {
         }
     }
 
-    async fn spawn(
-        &self,
-        registry: Arc<UpstreamPeerRegistry>,
-    ) -> Result<BackendRunningService> {
+    async fn spawn(&self, registry: Arc<UpstreamPeerRegistry>) -> Result<BackendRunningService> {
         let args = self.args.clone();
         let mut wrapped_cmd = CommandWrap::with_new(&self.command, |cmd| {
             if let Some(cmd_args) = &args {

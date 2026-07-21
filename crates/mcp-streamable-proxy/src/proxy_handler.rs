@@ -262,9 +262,12 @@ impl ServerHandler for ProxyHandler {
         );
 
         let call_result = self
-            .forward_backend_with_heartbeat(&context, request_id, tool_name.as_ref(), |peer| {
-                async move { peer.call_tool_once(request).await }
-            })
+            .forward_backend_with_heartbeat(
+                &context,
+                request_id,
+                tool_name.as_ref(),
+                |peer| async move { peer.call_tool_once(request).await },
+            )
             .await;
 
         let elapsed = start.elapsed();
@@ -320,10 +323,7 @@ impl ServerHandler for ProxyHandler {
                         elapsed.as_millis(),
                         self.mcp_id
                     );
-                    Ok(CallToolResult::error(vec![ContentBlock::text(
-                        "Request cancelled",
-                    )])
-                    .into())
+                    Ok(CallToolResult::error(vec![ContentBlock::text("Request cancelled")]).into())
                 } else if message.contains("Backend connection is not available")
                     || message.contains("Backend unavailable")
                     || message.contains("Backend connect")
@@ -354,10 +354,12 @@ impl ServerHandler for ProxyHandler {
                         message,
                         self.mcp_id
                     );
-                    Ok(CallToolResult::error(vec![ContentBlock::text(format!(
-                        "Error: {message}"
-                    ))])
-                    .into())
+                    Ok(
+                        CallToolResult::error(vec![ContentBlock::text(format!(
+                            "Error: {message}"
+                        ))])
+                        .into(),
+                    )
                 }
             }
         };
@@ -1617,8 +1619,7 @@ mod meta_merge_tests {
 
         let mut context_meta = RequestMetaObject::new();
         context_meta.set_progress_token(ProgressToken(NumberOrString::Number(99)));
-        context_meta
-            .insert("traceId".to_string(), serde_json::json!("abc"));
+        context_meta.insert("traceId".to_string(), serde_json::json!("abc"));
 
         merge_context_meta_into_params(&mut params, &context_meta);
 

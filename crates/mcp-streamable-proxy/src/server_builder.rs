@@ -7,13 +7,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
-use rmcp::transport::streamable_http_server::{
-    StreamableHttpServerConfig, StreamableHttpService,
-};
+use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
 
 use crate::backend_client::UpstreamPeerRegistry;
 use crate::backend_connector::{
@@ -136,18 +134,15 @@ impl StreamServerBuilder {
             .mcp_id
             .clone()
             .unwrap_or_else(|| "stream-proxy".into());
-        let tool_filter = self
-            .server_config
-            .tool_filter
-            .clone()
-            .unwrap_or_default();
+        let tool_filter = self.server_config.tool_filter.clone().unwrap_or_default();
 
-        let isolation = self.server_config.backend_isolation.unwrap_or(
-            match &self.backend_config {
-                BackendConfig::Url { .. } => BackendIsolation::for_url(),
-                BackendConfig::Stdio { .. } => BackendIsolation::for_stdio(),
-            },
-        );
+        let isolation =
+            self.server_config
+                .backend_isolation
+                .unwrap_or(match &self.backend_config {
+                    BackendConfig::Url { .. } => BackendIsolation::for_url(),
+                    BackendConfig::Stdio { .. } => BackendIsolation::for_stdio(),
+                });
 
         if let (BackendConfig::Stdio { .. }, BackendIsolation::PerSession) =
             (&self.backend_config, isolation)
@@ -166,9 +161,7 @@ impl StreamServerBuilder {
                 let registry = Arc::new(UpstreamPeerRegistry::new());
                 let client = connector.connect_shared(registry).await?;
                 let handler = ProxyHandler::with_tool_filter(client, mcp_id.clone(), tool_filter);
-                let (router, ct) = self
-                    .create_shared_server(handler.clone())
-                    .await?;
+                let (router, ct) = self.create_shared_server(handler.clone()).await?;
                 (router, ct, handler)
             }
             (BackendConfig::Url { url, headers }, BackendIsolation::Shared) => {
@@ -179,9 +172,7 @@ impl StreamServerBuilder {
                 let registry = Arc::new(UpstreamPeerRegistry::new());
                 let client = connector.connect_shared(registry).await?;
                 let handler = ProxyHandler::with_tool_filter(client, mcp_id.clone(), tool_filter);
-                let (router, ct) = self
-                    .create_shared_server(handler.clone())
-                    .await?;
+                let (router, ct) = self.create_shared_server(handler.clone()).await?;
                 (router, ct, handler)
             }
             (BackendConfig::Url { url, headers }, BackendIsolation::PerSession) => {
@@ -190,7 +181,11 @@ impl StreamServerBuilder {
                         .with_connect_timeout(self.server_config.connect_timeout),
                 );
                 let (router, ct) = self
-                    .create_per_session_server(connector.clone(), mcp_id.clone(), tool_filter.clone())
+                    .create_per_session_server(
+                        connector.clone(),
+                        mcp_id.clone(),
+                        tool_filter.clone(),
+                    )
                     .await?;
                 // Management stub (disconnected); real backends live per session.
                 let management =
@@ -247,9 +242,7 @@ impl StreamServerBuilder {
         tool_filter: ToolFilter,
     ) -> Result<(axum::Router, CancellationToken)> {
         if !self.server_config.stateful_mode {
-            warn!(
-                "Per-session isolation is intended for stateful_mode; enabling stateful_mode"
-            );
+            warn!("Per-session isolation is intended for stateful_mode; enabling stateful_mode");
         }
         let ct = CancellationToken::new();
         // Session manager still needs a template handler for version APIs;

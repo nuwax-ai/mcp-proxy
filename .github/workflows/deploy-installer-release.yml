@@ -1,0 +1,63 @@
+# Publish nuwax-deploy-installer to npm (binaries bundled in package, no GitHub Release download)
+
+name: Deploy Installer Release
+
+on:
+  push:
+    tags:
+      - 'deploy-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'npm package version (e.g. 0.2.1)'
+        required: true
+        default: '0.2.1'
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-publish:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            TAG="${GITHUB_REF_NAME#deploy-v}"
+            echo "version=$TAG" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update workspace version
+        run: |
+          python3 scripts/ci/update-workspace-version.py "${{ steps.ver.outputs.version }}" \
+            || python scripts/ci/update-workspace-version.py "${{ steps.ver.outputs.version }}"
+
+      - name: Assemble npm package
+        run: |
+          bash scripts/ci/assemble-nuwax-deploy-installer.sh \
+            "${{ steps.ver.outputs.version }}" \
+            aarch64-apple-darwin
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Publish to npm
+        working-directory: npm/nuwax-deploy-installer
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Smoke test
+        run: bash scripts/ci/smoke-nuwax-deploy-installer.sh /tmp/doc-parser-smoke

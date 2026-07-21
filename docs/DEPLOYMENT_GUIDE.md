@@ -1,6 +1,6 @@
 # 部署指南 (Deployment Guide)
 
-> voice-cli + document-parser 生产部署操作手册 —— 基于 systemd-installer `service install` 方式
+> voice-cli + document-parser 生产部署操作手册 —— 基于 deploy-installer（原 systemd-installer）`service install` 方式
 > 配套设计文档:[SYSTEMD_SERVICE_INSTALLER_DESIGN.md](./SYSTEMD_SERVICE_INSTALLER_DESIGN.md)
 > 适用:Ubuntu / systemd / NVIDIA CUDA 服务器
 
@@ -34,7 +34,7 @@ export PATH=/usr/local/cuda/bin:$PATH
 
 ### 源码
 ```bash
-git clone <repo-url> mcp-proxy && cd mcp-proxy   # test 分支(含 systemd-installer)
+git clone <repo-url> mcp-proxy && cd mcp-proxy   # test 分支(含 deploy-installer)
 ```
 
 > 详细编译依赖(sherpa 缓存、Swagger UI 等)见 [`crates/voice-cli/deploy/README.md`](../crates/voice-cli/deploy/README.md)。
@@ -204,4 +204,5 @@ echo <sudo_pass> | sudo -S systemctl start $BIN
 
 - voice-cli 编译/模型/CUDA/Vulkan 细则:[`crates/voice-cli/deploy/README.md`](../crates/voice-cli/deploy/README.md)、[`crates/voice-cli/docs/DEPLOYMENT.md`](../crates/voice-cli/docs/DEPLOYMENT.md)
 - document-parser venv/PITFALLS:[`crates/document-parser/deploy/README.md`](../crates/document-parser/deploy/README.md)、[`PITFALLS.md`](../crates/document-parser/deploy/PITFALLS.md)
-- systemd-installer 设计(架构/ServiceSpec/决策):[`SYSTEMD_SERVICE_INSTALLER_DESIGN.md`](./SYSTEMD_SERVICE_INSTALLER_DESIGN.md)
+- deploy-installer 设计(架构/ServiceSpec/决策):[`SYSTEMD_SERVICE_INSTALLER_DESIGN.md`](./SYSTEMD_SERVICE_INSTALLER_DESIGN.md)（历史文档名）
+- Mac Mini npm 部署:[`crates/deploy-installer/doc/mac-mini-quickstart.md`](../crates/deploy-installer/doc/mac-mini-quickstart.md)

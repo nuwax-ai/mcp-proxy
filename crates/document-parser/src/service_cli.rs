@@ -2,11 +2,11 @@
 
 use crate::config::AppConfig;
 use anyhow::{Context, Result, bail};
-use std::path::{Path, PathBuf};
-use systemd_installer::{
+use deploy_installer::{
     InstallOptions, ServiceIdentity, ServiceSpec, group_for_user, install, resolve_service_user,
     restart, status, uninstall, write_user_file,
 };
+use std::path::{Path, PathBuf};
 
 const SERVICE_NAME: &str = "document-parser";
 const ENV_FILENAME: &str = ".document-parser.env";
@@ -125,21 +125,21 @@ pub fn handle_service_install(params: InstallParams) -> Result<()> {
         dry_run: params.dry_run,
     };
 
-    install(&spec, &opts).context("systemd install failed")?;
+    install(&spec, &opts).context("service install failed")?;
     Ok(())
 }
 
 pub fn handle_service_uninstall() -> Result<()> {
-    uninstall(SERVICE_NAME).context("systemd uninstall failed")?;
+    uninstall(SERVICE_NAME).context("service uninstall failed")?;
     Ok(())
 }
 
 pub fn handle_service_status() -> Result<()> {
-    status(SERVICE_NAME).context("systemd status failed")?;
+    status(SERVICE_NAME).context("service status failed")?;
     Ok(())
 }
 
 pub fn handle_service_restart() -> Result<()> {
-    restart(SERVICE_NAME).context("systemd restart failed")?;
+    restart(SERVICE_NAME).context("service restart failed")?;
     Ok(())
 }
