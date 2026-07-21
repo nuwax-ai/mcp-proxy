@@ -5,6 +5,7 @@
 | 文档 | 说明 |
 |------|------|
 | [mac-mini-quickstart.md](./mac-mini-quickstart.md) | **Mac Mini 小白部署**（推荐入口） |
+| [RELEASE.md](./RELEASE.md) | **维护者发布**：先 beta → 验证 → 正式 latest |
 | [npm-package.md](./npm-package.md) | npm 包结构与国内安装 |
 | [oss-optional-assets.md](./oss-optional-assets.md) | 可选 OSS 资源（预编译 venv 等） |
 | [troubleshooting-mac.md](./troubleshooting-mac.md) | Mac 常见问题 |
