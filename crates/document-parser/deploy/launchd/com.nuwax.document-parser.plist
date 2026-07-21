@@ -14,6 +14,10 @@
     <dict>
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Library/Frameworks/Python.framework/Versions/Current/bin</string>
+        <key>HOME</key>
+        <string>__HOME__</string>
+        <key>TMPDIR</key>
+        <string>/tmp</string>
     </dict>
     <key>RunAtLoad</key>
     <true/>
@@ -26,7 +30,5 @@
     <string>__INSTALL_DIR__/logs/launchd.stdout.log</string>
     <key>StandardErrorPath</key>
     <string>__INSTALL_DIR__/logs/launchd.stderr.log</string>
-    <key>ProcessType</key>
-    <string>Background</string>
 </dict>
 </plist>

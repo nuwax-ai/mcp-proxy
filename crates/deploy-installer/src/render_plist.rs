@@ -12,6 +12,10 @@ pub fn render_launchd_plist(spec: &ServiceSpec, run_at_load: bool) -> Result<Str
     let stdout = format!("{install_dir}/logs/launchd.stdout.log");
     let stderr = format!("{install_dir}/logs/launchd.stderr.log");
     let path = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Library/Frameworks/Python.framework/Versions/Current/bin";
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+    let home = crate::render::sanitize_unit_value("HOME", &home)?;
+    let tmpdir = std::env::var("TMPDIR").unwrap_or_else(|_| "/tmp".into());
+    let tmpdir = crate::render::sanitize_unit_value("TMPDIR", &tmpdir)?;
     let run_at_load_xml = if run_at_load {
         "<true/>"
     } else {
@@ -45,6 +49,10 @@ pub fn render_launchd_plist(spec: &ServiceSpec, run_at_load: bool) -> Result<Str
     <dict>
         <key>PATH</key>
         <string>{path}</string>
+        <key>HOME</key>
+        <string>{home}</string>
+        <key>TMPDIR</key>
+        <string>{tmpdir}</string>
     </dict>
     <key>RunAtLoad</key>
     {run_at_load_xml}
@@ -52,8 +60,6 @@ pub fn render_launchd_plist(spec: &ServiceSpec, run_at_load: bool) -> Result<Str
     <string>{stdout}</string>
     <key>StandardErrorPath</key>
     <string>{stderr}</string>
-    <key>ProcessType</key>
-    <string>Background</string>
 </dict>
 </plist>
 "#
@@ -65,6 +71,12 @@ pub fn default_run_server_script() -> &'static str {
     r#"#!/usr/bin/env bash
 set -euo pipefail
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Library/Frameworks/Python.framework/Versions/Current/bin:${PATH:-}"
+# launchd may omit HOME; Python/HuggingFace caches need it
+if [[ -z "${HOME:-}" ]]; then
+  HOME="$(cd ~ && pwd)"
+  export HOME
+fi
+export TMPDIR="${TMPDIR:-/tmp}"
 cd "$(dirname "$0")"
 set -a
 # shellcheck disable=SC1091

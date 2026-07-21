@@ -1,7 +1,7 @@
 use crate::{
     InstallOptions, ServiceIdentity, ServiceSpec, bundled_binary_path, bundled_templates_dir,
-    copy_if_exists, default_document_parser_install_dir, deploy_version, group_for_user, install,
-    make_executable, optional_venv_download_url, resolve_service_user, restart_in_dir,
+    copy_if_exists, default_document_parser_install_dir, deploy_asset_version, group_for_user,
+    install, make_executable, optional_venv_download_url, resolve_service_user, restart_in_dir,
     status_in_dir, uninstall_in_dir, write_user_file,
 };
 use anyhow::{Context, Result, bail};
@@ -271,7 +271,7 @@ fn run_uv_init(bin: &Path, install_dir: &Path, quiet: bool) -> Result<()> {
 
 fn download_prebuilt_venv(args: &SetupArgs, install_dir: &Path, quiet: bool) -> Result<()> {
     let url = if let Some(base) = args.oss_base.as_deref() {
-        let version = deploy_version();
+        let version = deploy_asset_version();
         format!("{base}/venv-macos-arm64-{version}.tar.gz")
     } else if let Some(url) = optional_venv_download_url() {
         url

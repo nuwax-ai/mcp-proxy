@@ -58,6 +58,14 @@ pub fn deploy_version() -> String {
     std::env::var("NUWAX_DEPLOY_VERSION").unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string())
 }
 
+/// SemVer core used for OSS optional assets (`0.2.1-beta.2` → `0.2.1`).
+///
+/// Prebuilt venv tarballs are published once per stable X.Y.Z and reused by beta builds.
+pub fn deploy_asset_version() -> String {
+    let v = deploy_version();
+    v.split('-').next().unwrap_or(&v).to_string()
+}
+
 /// `vendor/<platform>/document-parser` bundled binary.
 pub fn bundled_binary_path(service: &str) -> PathBuf {
     deploy_root().join(platform_vendor_key()).join(service)
@@ -82,7 +90,7 @@ pub fn optional_venv_download_url() -> Option<String> {
     let content = std::fs::read_to_string(path).ok()?;
     let manifest: DeployManifest = serde_json::from_str(&content).ok()?;
     let template = manifest.optional_assets.venv.get(platform_vendor_key())?;
-    let version = deploy_version();
+    let version = deploy_asset_version();
     Some(template.replace("{version}", &version))
 }
 
@@ -116,16 +124,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn asset_version_strips_prerelease() {
+        unsafe {
+            std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.1-beta.2");
+        }
+        assert_eq!(deploy_asset_version(), "0.2.1");
+        unsafe {
+            std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.1");
+        }
+        assert_eq!(deploy_asset_version(), "0.2.1");
+    }
+
+    #[test]
     fn optional_venv_url_from_manifest() {
-        let root = deploy_root();
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../npm/nuwax-deploy-installer/vendor");
         // SAFETY: test-only env mutation; no concurrent env access in unit tests.
         unsafe {
             std::env::set_var("NUWAX_DEPLOY_ROOT", root.display().to_string());
+            std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.1-beta.2");
         }
         let url = optional_venv_download_url();
         assert!(url.is_some(), "manifest should provide darwin-arm64 venv URL");
         let url = url.unwrap();
-        assert!(url.contains("venv-macos-arm64"));
-        assert!(url.contains("document-parser"));
+        assert!(
+            url.contains("venv-macos-arm64-0.2.1.tar.gz"),
+            "beta package must reuse stable venv asset, got {url}"
+        );
+        assert!(!url.contains("beta"));
     }
 }

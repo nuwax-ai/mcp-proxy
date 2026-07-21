@@ -19,8 +19,8 @@ pub mod cli;
 
 pub use bundles::{
     bundled_binary_path, bundled_templates_dir, copy_if_exists,
-    default_document_parser_install_dir, deploy_root, deploy_version, make_executable,
-    optional_venv_download_url, platform_vendor_key,
+    default_document_parser_install_dir, deploy_asset_version, deploy_root, deploy_version,
+    make_executable, optional_venv_download_url, platform_vendor_key,
 };
 pub use checks::{
     CheckItem, CheckSeverity, PrecheckOptions, PrecheckReport, current_user, group_for_user,

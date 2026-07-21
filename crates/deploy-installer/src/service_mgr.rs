@@ -75,7 +75,7 @@ fn build_install_ctx(
     let label = service_label(spec, backend)?;
     match backend {
         ServiceBackend::Launchd => {
-            ensure_run_server_script(spec, false)?;
+            ensure_run_server_script(spec, true)?;
             ensure_log_dir(spec)?;
             let plist = match contents {
                 Some(c) => c,
@@ -88,7 +88,17 @@ fn build_install_ctx(
                 contents: Some(plist),
                 username: None,
                 working_directory: Some(spec.install_dir.clone()),
-                environment: Some(vec![("PATH".into(), LAUNCHD_PATH.into())]),
+                environment: Some(vec![
+                    ("PATH".into(), LAUNCHD_PATH.into()),
+                    (
+                        "HOME".into(),
+                        std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()),
+                    ),
+                    (
+                        "TMPDIR".into(),
+                        std::env::var("TMPDIR").unwrap_or_else(|_| "/tmp".into()),
+                    ),
+                ]),
                 autostart,
                 restart_policy: RestartPolicy::OnFailure { delay_secs: None },
             })
