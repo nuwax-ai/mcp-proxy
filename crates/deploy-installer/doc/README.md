@@ -18,5 +18,5 @@
 
 ## 命令关系
 
-- **推荐**：`npm i -g nuwax-deploy-installer@beta` → `deploy-installer voice-cli|document-parser …`
+- **推荐**：`npm i -g nuwax-deploy-installer`（`@latest`）→ `deploy-installer voice-cli|document-parser …`；尝鲜用 `@beta`
 - **高级**：单独二进制仍可用 `voice-cli service` / `document-parser service`（同一套渲染逻辑）
