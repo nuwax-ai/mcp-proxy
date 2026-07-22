@@ -53,6 +53,14 @@ pub fn run() -> Result<()> {
     check_install_dir_path(&parser_dir);
     check_disk_space(&voice_dir);
 
+    if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        if let Some(url) = crate::optional_voice_cli_cuda_url() {
+            println!("  oss cuda:   OK ({url})");
+        } else {
+            println!("  oss cuda:   WARN (no voiceCliCuda URL in manifest.json)");
+        }
+    }
+
     if cfg!(target_os = "macos") {
         println!("  backend:    launchd (LaunchAgent)");
         check_macos_gui_session()?;

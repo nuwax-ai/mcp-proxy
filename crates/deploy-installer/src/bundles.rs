@@ -14,6 +14,8 @@ struct OptionalAssets {
     whisper_large_v3: std::collections::HashMap<String, String>,
     #[serde(default, rename = "whisperAll")]
     whisper_all: std::collections::HashMap<String, String>,
+    #[serde(default, rename = "voiceCliCuda")]
+    voice_cli_cuda: std::collections::HashMap<String, String>,
 }
 
 /// Which prebuilt Whisper ggml tarball to fetch from OSS.
@@ -137,6 +139,23 @@ fn optional_asset_url(pick: impl FnOnce(&OptionalAssets) -> Option<&String>) -> 
     Some(template.replace("{version}", &version))
 }
 
+/// OSS tarball basename for prebuilt voice-cli + sherpa CUDA libs (Linux x86_64).
+pub fn voice_cli_cuda_archive_filename(version: &str) -> String {
+    format!("voice-cli-cuda-linux-x64-{version}.tar.gz")
+}
+
+/// Resolve optional voice-cli CUDA bundle URL from manifest (Linux x86_64 only).
+pub fn optional_voice_cli_cuda_url() -> Option<String> {
+    optional_asset_url(|assets| assets.voice_cli_cuda.get("linux-x64"))
+}
+
+/// Build voice-cli CUDA tarball URL from an OSS base directory.
+pub fn voice_cli_cuda_download_url_from_base(base: &str) -> String {
+    let version = deploy_asset_version();
+    let name = voice_cli_cuda_archive_filename(&version);
+    format!("{}/{}", base.trim_end_matches('/'), name)
+}
+
 /// Resolve optional prebuilt Whisper ggml tarball URL from manifest.
 pub fn optional_whisper_download_url(pack: WhisperModelsPack) -> Option<String> {
     optional_asset_url(|assets| match pack {
@@ -228,6 +247,24 @@ mod tests {
         let url = url.unwrap();
         assert!(
             url.contains("whisper-ggml-large-v3-0.2.1.tar.gz"),
+            "got {url}"
+        );
+        assert!(!url.contains("beta"));
+    }
+
+    #[test]
+    fn optional_voice_cli_cuda_url_from_manifest() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../npm/nuwax-deploy-installer/vendor");
+        unsafe {
+            std::env::set_var("NUWAX_DEPLOY_ROOT", root.display().to_string());
+            std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.1-beta.2");
+        }
+        let url = optional_voice_cli_cuda_url();
+        assert!(url.is_some(), "manifest should provide voiceCliCuda URL");
+        let url = url.unwrap();
+        assert!(
+            url.contains("voice-cli-cuda-linux-x64-0.2.1.tar.gz"),
             "got {url}"
         );
         assert!(!url.contains("beta"));

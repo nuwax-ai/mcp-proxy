@@ -1,7 +1,7 @@
 //! Shared helpers for `document-parser` / `voice-cli` CLI modules.
 
 use crate::{
-    WhisperModelsPack, bundled_binary_path, default_document_parser_install_dir,
+    DropIn, WhisperModelsPack, bundled_binary_path, default_document_parser_install_dir,
     default_voice_cli_install_dir, group_for_user, make_executable, resolve_service_user,
     restart_in_dir, status_in_dir, uninstall_in_dir,
 };
@@ -34,6 +34,84 @@ const VOICE_CLI_REQUIRED_LIBS: &[&str] = &[];
 
 #[cfg(not(target_os = "macos"))]
 const VOICE_CLI_OPTIONAL_LIBS: &[&str] = &[];
+
+/// Linux CUDA OSS bundle: binary + sherpa/onnx shared libs (flat extract into install_dir).
+#[cfg(target_os = "linux")]
+pub const VOICE_CLI_CUDA_BUNDLE_FILES: &[&str] = &[
+    "voice-cli",
+    "libsherpa-onnx-c-api.so",
+    "libonnxruntime.so",
+    "libonnxruntime_providers_cuda.so",
+    "libonnxruntime_providers_shared.so",
+];
+
+#[cfg(not(target_os = "linux"))]
+pub const VOICE_CLI_CUDA_BUNDLE_FILES: &[&str] = &[];
+
+/// Return true when a voice-cli CUDA OSS bundle is fully present in `install_dir`.
+pub fn voice_cli_cuda_bundle_present(install_dir: &Path) -> bool {
+    !VOICE_CLI_CUDA_BUNDLE_FILES.is_empty()
+        && VOICE_CLI_CUDA_BUNDLE_FILES.iter().all(|name| {
+            let path = install_dir.join(name);
+            path.exists() && fs::metadata(&path).map(|m| m.len() > 0).unwrap_or(false)
+        })
+}
+
+/// systemd drop-in for CUDA/cuDNN `LD_LIBRARY_PATH` (install_dir first for bundled .so).
+pub fn build_cuda_sherpa_drop_in(
+    install_dir: &Path,
+    cuda_lib_dir: Option<&Path>,
+    cudnn_lib_dir: Option<&Path>,
+) -> Option<DropIn> {
+    if cuda_lib_dir.is_none() && cudnn_lib_dir.is_none() {
+        return None;
+    }
+    let mut parts: Vec<String> = vec![install_dir.display().to_string()];
+    if let Some(p) = cudnn_lib_dir {
+        parts.push(p.display().to_string());
+    }
+    if let Some(p) = cuda_lib_dir {
+        parts.push(p.display().to_string());
+    }
+    let ld = parts.join(":");
+    Some(DropIn {
+        name: "cuda-sherpa".into(),
+        content: format!("[Service]\nEnvironment=LD_LIBRARY_PATH={ld}\n"),
+    })
+}
+
+/// Default NVIDIA CUDA toolkit lib dir when present on the host.
+pub fn default_cuda_lib_dir() -> Option<PathBuf> {
+    for candidate in ["/usr/local/cuda/lib64", "/usr/local/cuda/lib"] {
+        let p = PathBuf::from(candidate);
+        if p.is_dir() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+/// Best-effort cuDNN lib discovery (explicit env, then document-parser venv).
+pub fn detect_cudnn_lib_dir() -> Option<PathBuf> {
+    if let Ok(dir) = std::env::var("CUDNN_LIB_DIR") {
+        let p = PathBuf::from(dir);
+        if p.is_dir() {
+            return Some(p);
+        }
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        let venv_lib = PathBuf::from(home).join("document-parser/venv/lib");
+        if let Ok(entries) = fs::read_dir(&venv_lib) {
+            for entry in entries.flatten() {
+                let cudnn = entry.path().join("site-packages/nvidia/cudnn/lib");
+                if cudnn.is_dir() {
+                    return Some(cudnn);
+                }
+            }
+        }
+    }
+    None
+}
 
 /// Read first non-comment `port:` value from a YAML-ish config file.
 pub fn read_server_port(config_path: &Path) -> Option<u16> {
@@ -472,5 +550,23 @@ mod tests {
         std::fs::write(models.join("ggml-large-v3.bin"), b"stub").unwrap();
         // large-v3 too small
         assert!(!whisper_pack_satisfied(dir.path(), WhisperModelsPack::All));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn voice_cli_cuda_bundle_requires_all_files() {
+        let dir = TempDir::new().unwrap();
+        assert!(!voice_cli_cuda_bundle_present(dir.path()));
+        for name in VOICE_CLI_CUDA_BUNDLE_FILES {
+            std::fs::write(dir.path().join(name), b"x").unwrap();
+        }
+        assert!(voice_cli_cuda_bundle_present(dir.path()));
+    }
+
+    #[test]
+    #[cfg(not(target_os = "linux"))]
+    fn voice_cli_cuda_bundle_not_applicable_off_linux() {
+        let dir = TempDir::new().unwrap();
+        assert!(!voice_cli_cuda_bundle_present(dir.path()));
     }
 }

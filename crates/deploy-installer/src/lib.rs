@@ -22,7 +22,9 @@ pub use bundles::{
     WhisperModelsPack, bundled_binary_path, bundled_templates_dir, copy_if_exists,
     default_document_parser_install_dir, default_voice_cli_install_dir, deploy_asset_version,
     deploy_root, deploy_version, make_executable, optional_venv_download_url,
-    optional_whisper_download_url, platform_vendor_key, whisper_download_url_from_base,
+    optional_voice_cli_cuda_url, optional_whisper_download_url, platform_vendor_key,
+    voice_cli_cuda_archive_filename, voice_cli_cuda_download_url_from_base,
+    whisper_download_url_from_base,
 };
 pub use checks::{
     CheckItem, CheckSeverity, PrecheckOptions, PrecheckReport, current_user, group_for_user,

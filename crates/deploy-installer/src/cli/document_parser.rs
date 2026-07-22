@@ -132,6 +132,8 @@ fn install_full(args: &SetupArgs) -> Result<()> {
         user: None,
         no_start: false,
         dry_run: false,
+        cuda_lib_dir: None,
+        cudnn_lib_dir: None,
     }))?;
     let config_path = install_dir.join(CONFIG_FILENAME);
     let port = read_server_port(&config_path).unwrap_or(DEFAULT_PORT);

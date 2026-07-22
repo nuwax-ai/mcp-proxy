@@ -1,24 +1,22 @@
-# deploy-installer 文档
+# deploy-installer 文档索引
 
-统一部署 CLI（`nuwax-deploy-installer` npm 包）的用户文档。
+统一部署 CLI（npm 包 `nuwax-deploy-installer`，命令 `deploy-installer`）。
 
-| 文档 | 说明 |
+## 我该看哪份？
+
+| 场景 | 文档 |
 |------|------|
-| [mac-mini-quickstart.md](./mac-mini-quickstart.md) | **Mac Mini 一键部署**（document-parser + voice-cli） |
-| [voice-cli-roadmap.md](./voice-cli-roadmap.md) | voice-cli 与 document-parser 差距 / 二期 |
-| [RELEASE.md](./RELEASE.md) | **维护者发布**：先 beta → 验证 → 正式 latest |
-| [npm-package.md](./npm-package.md) | npm 包结构与国内安装 |
-| [oss-optional-assets.md](./oss-optional-assets.md) | 可选 OSS 资源（venv、Whisper 模型包） |
-| [troubleshooting-mac.md](./troubleshooting-mac.md) | Mac 常见问题 |
+| **Mac Mini 日常部署 / 运维** | [mac-mini-quickstart.md](./mac-mini-quickstart.md) |
+| **发布 npm、打包 OSS、Linux CUDA** | [MAINTAINER.md](./MAINTAINER.md) |
 
-## 与各服务内置命令的关系
+## 平台支持（当前）
 
-- **小白用户**：`npm i -g nuwax-deploy-installer` → `deploy-installer document-parser|voice-cli …`
-- **高级用户**：仅二进制时仍可用 `document-parser service` / `voice-cli service`（底层同一套 `deploy-installer` 库）
+| 平台 | 状态 | 说明 |
+|------|------|------|
+| macOS Apple Silicon | ✅ 一期 | npm `vendor/darwin-arm64/`，LaunchAgent，OSS venv + Whisper |
+| Linux x86_64 + NVIDIA | ✅ 二期 | OSS CUDA bundle + systemd（见 [MAINTAINER.md](./MAINTAINER.md)） |
 
-## 平台支持（第一期）
+## 命令关系
 
-| 平台 | npm vendor 目录 | 服务管理 |
-|------|-----------------|----------|
-| macOS Apple Silicon | `vendor/darwin-arm64/` | launchd LaunchAgent |
-| Linux x86_64 | 规划中 | systemd |
+- **推荐**：`npm i -g nuwax-deploy-installer@beta` → `deploy-installer voice-cli|document-parser …`
+- **高级**：单独二进制仍可用 `voice-cli service` / `document-parser service`（同一套渲染逻辑）

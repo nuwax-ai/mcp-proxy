@@ -27,7 +27,7 @@ pub enum Commands {
         #[command(subcommand)]
         action: DocumentParserAction,
     },
-    /// voice-cli deployment commands (Mac Mini phase 1; Linux CUDA via binary `voice-cli service`)
+    /// voice-cli deployment commands (macOS launchd + Linux CUDA systemd)
     VoiceCli {
         #[command(subcommand)]
         action: VoiceCliAction,
@@ -105,6 +105,18 @@ pub struct VoiceCliSetupArgs {
     /// OSS base URL prefix for voice-cli optional assets
     #[arg(long)]
     pub oss_base: Option<String>,
+    /// Download prebuilt voice-cli CUDA bundle from OSS (default on Linux x86_64)
+    #[arg(long)]
+    pub use_oss_cuda: bool,
+    /// Skip OSS CUDA bundle download (use vendor binary or existing install)
+    #[arg(long)]
+    pub skip_oss_cuda: bool,
+    /// NVIDIA CUDA toolkit lib dir for systemd LD_LIBRARY_PATH (Linux CUDA)
+    #[arg(long)]
+    pub cuda_lib_dir: Option<PathBuf>,
+    /// cuDNN lib dir for systemd LD_LIBRARY_PATH (Linux CUDA)
+    #[arg(long)]
+    pub cudnn_lib_dir: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -126,6 +138,12 @@ pub struct ServiceDirArgs {
     pub no_start: bool,
     #[arg(long)]
     pub dry_run: bool,
+    /// NVIDIA CUDA toolkit lib dir (voice-cli Linux CUDA only)
+    #[arg(long)]
+    pub cuda_lib_dir: Option<PathBuf>,
+    /// cuDNN lib dir (voice-cli Linux CUDA only)
+    #[arg(long)]
+    pub cudnn_lib_dir: Option<PathBuf>,
 }
 
 pub fn run(cli: Cli) -> Result<()> {

@@ -160,4 +160,4 @@ cargo run -p voice-cli -- service install --dry-run --install-dir .
 
 ## Mac Mini 一键部署（deploy-installer）
 
-见 [mac-mini-quickstart.md](../../deploy-installer/doc/mac-mini-quickstart.md) 与 [voice-cli-roadmap.md](../../deploy-installer/doc/voice-cli-roadmap.md)。
+See [mac-mini-quickstart.md](../../crates/deploy-installer/doc/mac-mini-quickstart.md)（Mac）与 [MAINTAINER.md](../../crates/deploy-installer/doc/MAINTAINER.md)（Linux CUDA / 发布）。
