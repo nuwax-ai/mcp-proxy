@@ -62,8 +62,8 @@ PKG_DIR="$ROOT/npm/nuwax-deploy-installer"
 
 TGZ="$PKG_DIR/nuwax-deploy-installer-${VERSION}.tgz"
 log "packed → $TGZ"
-log "manifest venv URL template:"
-node -e "const m=require('$PKG_DIR/vendor/templates/manifest.json'); console.log(m.optionalAssets.venv['darwin-arm64'].replaceAll('{version}','${VERSION%%-*}'));"
+log "manifest venv URL (assetVersion):"
+node -e "const m=require('$PKG_DIR/vendor/templates/manifest.json'); const v=m.assetVersion||'${VERSION%%-*}'; console.log(m.optionalAssets.venv['darwin-arm64'].replaceAll('{version}',v));"
 
 if [[ "$DO_PUBLISH" -eq 1 ]]; then
   [[ -n "${NPM_TOKEN:-}" ]] || {

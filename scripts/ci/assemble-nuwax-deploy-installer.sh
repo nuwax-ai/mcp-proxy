@@ -53,6 +53,9 @@ const fs = require('fs');
 const p = '$PKG/vendor/templates/manifest.json';
 const m = JSON.parse(fs.readFileSync(p, 'utf8'));
 m.version = '$VERSION';
+if (!m.assetVersion) {
+  m.assetVersion = '$VERSION'.split('-')[0];
+}
 fs.writeFileSync(p, JSON.stringify(m, null, 2) + '\n');
 "
 

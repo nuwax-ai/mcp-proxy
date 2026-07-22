@@ -98,6 +98,8 @@ npm view nuwax-deploy-installer dist-tags
 
 大文件不进 npm，由 `vendor/templates/manifest.json` 的 `optionalAssets` 提供 URL。
 
+**`assetVersion`**（与 npm `version` 解耦）：OSS 文件名中的 `{version}` 占位符使用 `assetVersion`（例如 `0.2.1`），beta 包（`0.2.3-beta.N`）可复用同一份 OSS 资源。上传新 OSS 包后手动 bump `assetVersion`。
+
 ### Mac（一期）
 
 | 键 | 文件 | 用途 |

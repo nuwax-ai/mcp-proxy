@@ -2,6 +2,9 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, serde::Deserialize)]
 struct DeployManifest {
+    /// OSS tarball version (e.g. `0.2.1`). Decoupled from npm package `version`.
+    #[serde(default, rename = "assetVersion")]
+    asset_version: Option<String>,
     #[serde(default, rename = "optionalAssets")]
     optional_assets: OptionalAssets,
 }
@@ -91,12 +94,29 @@ pub fn deploy_version() -> String {
     std::env::var("NUWAX_DEPLOY_VERSION").unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string())
 }
 
-/// SemVer core used for OSS optional assets (`0.2.1-beta.2` → `0.2.1`).
+/// SemVer core used for OSS optional assets.
 ///
-/// Prebuilt venv tarballs are published once per stable X.Y.Z and reused by beta builds.
+/// Prefer `assetVersion` in `vendor/templates/manifest.json` so beta npm releases
+/// (e.g. `0.2.3-beta.2`) can reuse stable OSS tarballs (`0.2.1`). Falls back to
+/// stripping prerelease from the package version when `assetVersion` is absent.
 pub fn deploy_asset_version() -> String {
-    let v = deploy_version();
-    v.split('-').next().unwrap_or(&v).to_string()
+    manifest_asset_version().unwrap_or_else(|| {
+        let v = deploy_version();
+        v.split('-').next().unwrap_or(&v).to_string()
+    })
+}
+
+fn load_manifest() -> Option<DeployManifest> {
+    let path = deploy_root().join("templates/manifest.json");
+    let content = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
+/// Read `assetVersion` from manifest when set and non-empty.
+fn manifest_asset_version() -> Option<String> {
+    let manifest = load_manifest()?;
+    let v = manifest.asset_version?;
+    if v.is_empty() { None } else { Some(v) }
 }
 
 /// `vendor/<platform>/document-parser` bundled binary.
@@ -131,9 +151,7 @@ pub fn optional_venv_download_url() -> Option<String> {
 }
 
 fn optional_asset_url(pick: impl FnOnce(&OptionalAssets) -> Option<&String>) -> Option<String> {
-    let path = deploy_root().join("templates/manifest.json");
-    let content = std::fs::read_to_string(path).ok()?;
-    let manifest: DeployManifest = serde_json::from_str(&content).ok()?;
+    let manifest = load_manifest()?;
     let template = pick(&manifest.optional_assets)?;
     let version = deploy_asset_version();
     Some(template.replace("{version}", &version))
@@ -201,8 +219,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn asset_version_strips_prerelease() {
+    fn asset_version_strips_prerelease_when_manifest_missing_asset_version() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../npm/nuwax-deploy-installer/vendor");
         unsafe {
+            std::env::set_var("NUWAX_DEPLOY_ROOT", root.display().to_string());
             std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.1-beta.2");
         }
         assert_eq!(deploy_asset_version(), "0.2.1");
@@ -210,6 +231,27 @@ mod tests {
             std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.1");
         }
         assert_eq!(deploy_asset_version(), "0.2.1");
+    }
+
+    #[test]
+    fn asset_version_from_manifest_overrides_newer_package_version() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../npm/nuwax-deploy-installer/vendor");
+        unsafe {
+            std::env::set_var("NUWAX_DEPLOY_ROOT", root.display().to_string());
+            std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.3-beta.2");
+        }
+        assert_eq!(
+            deploy_asset_version(),
+            "0.2.1",
+            "manifest assetVersion should pin OSS filenames"
+        );
+        let url = optional_whisper_download_url(WhisperModelsPack::LargeV3).unwrap();
+        assert!(
+            url.contains("whisper-ggml-large-v3-0.2.1.tar.gz"),
+            "got {url}"
+        );
+        assert!(!url.contains("0.2.3"));
     }
 
     #[test]
