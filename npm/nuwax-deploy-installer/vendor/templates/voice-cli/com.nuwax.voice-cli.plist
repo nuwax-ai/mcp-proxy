@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.nuwax.voice-cli</string>
+    <key>WorkingDirectory</key>
+    <string>__INSTALL_DIR__</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>__INSTALL_DIR__/voice-cli</string>
+        <string>server</string>
+        <string>run</string>
+        <string>--config</string>
+        <string>__INSTALL_DIR__/config.yml</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>HOME</key>
+        <string>__HOME__</string>
+        <key>TMPDIR</key>
+        <string>/tmp</string>
+        <key>RUST_LOG</key>
+        <string>info</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>__INSTALL_DIR__/logs/launchd.stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>__INSTALL_DIR__/logs/launchd.stderr.log</string>
+</dict>
+</plist>

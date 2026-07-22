@@ -26,6 +26,8 @@ npm 包：[`nuwax-deploy-installer`](https://www.npmjs.com/package/nuwax-deploy-
 - [ ] `feat-deploy`（或发布分支）已包含要发布的代码并 push
 - [ ] 预编译 venv 已上传 OSS，URL 与 `vendor/templates/manifest.json` 一致  
   当前：`https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/document-parser/venv-macos-arm64-0.2.1.tar.gz`
+- [ ] voice-cli Whisper **large-v3** 包已上传 OSS（`whisper-ggml-large-v3-{X.Y.Z}.tar.gz`）  
+  当前模板：`https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/whisper-ggml-large-v3-0.2.1.tar.gz`
 - [ ] Secrets：`NPM_TOKEN` 已配置
 
 ### 1. 发 beta

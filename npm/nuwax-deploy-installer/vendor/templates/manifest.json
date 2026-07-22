@@ -3,6 +3,12 @@
   "optionalAssets": {
     "venv": {
       "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/document-parser/venv-macos-arm64-{version}.tar.gz"
+    },
+    "whisperLargeV3": {
+      "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/whisper-ggml-large-v3-{version}.tar.gz"
+    },
+    "whisperAll": {
+      "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/whisper-ggml-all-{version}.tar.gz"
     }
   }
 }

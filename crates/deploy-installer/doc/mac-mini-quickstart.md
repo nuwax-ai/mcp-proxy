@@ -1,202 +1,155 @@
-# Mac Mini 快速部署 document-parser
+# Mac Mini 快速部署（document-parser + voice-cli）
 
-适用于 **Apple Silicon（M 系列）Mac Mini**，通过 npm 安装统一部署 CLI，**无需访问 GitHub Release**（二进制已打进 npm 包）。
+适用于 **Apple Silicon Mac Mini**。安装 CLI 后，**默认目录**为 `~/voice-cli` 与 `~/document-parser`，命令里一般**不必写 `--install-dir`**。
 
-> **版本说明（2026-07）**  
-> - 验证 / 新能力（去掉 `run-server.sh`、进程内加载 `.env`）：请装 **`nuwax-deploy-installer@beta`（≥ 0.2.3-beta.1）**，或等正式版 **`0.2.3`**。  
-> - 默认 `npm install -g nuwax-deploy-installer` 会装 **`@latest`**（在 `0.2.3` 发布前仍是 `0.2.2`，行为偏旧）。
+> 新能力请用 **`npm install -g nuwax-deploy-installer@beta`**（≥ `0.2.3-beta.1`）。
 
-## 前置条件
+## 最快路径（复制粘贴）
 
 ```bash
-# 命令行工具（若未安装）
+# ① 一次性准备
 xcode-select --install
-
-# Apple Silicon 上确保 Homebrew 在 PATH（SSH / 非登录壳常缺这一步）
 eval "$(/opt/homebrew/bin/brew shellenv)"
-
-# Node.js 18+ 与 uv（有预编译 venv 时 uv 仅作兜底）
-brew install node uv
-```
-
-国内 npm 可选用镜像：
-
-```bash
-npm config set registry https://registry.npmmirror.com
-```
-
-## 安装目录注意
-
-请把服务装到 **家目录** 下（文档推荐 `~/document-parser`），**不要**装到：
-
-- `~/Documents/...`、`~/Desktop/...`、iCloud 同步目录（macOS 会拦截 LaunchAgent，报 `Operation not permitted`）
-- 网络盘 / 无执行权限的路径
-
-## LaunchAgent 前提（重要）
-
-`service install` 注册的是 **用户级 LaunchAgent**，绑定当前用户的 **图形界面会话（`gui/<uid>`）**：
-
-- 执行安装的用户（如 `soddy`）必须已在本机 **桌面登录**（可锁屏，但不要只停在登录窗口）。
-- 若控制台登录的是别人（如 `louis`），你只通过 SSH 以 `soddy` 登录，**没有** `gui/soddy`，`service install` 会失败（常见 exit 134 / `Domain does not support specified action`）。
-- 纯 SSH 场景可先手工验证服务（见下文「SSH 临时验证」），自启等坐到机器前用该用户登录桌面后再 `service install`。
-
-## 一键部署（推荐）
-
-使用 OSS **预编译 venv**（约 300MB，远快于本地 `uv-init`）：
-
-```bash
-eval "$(/opt/homebrew/bin/brew shellenv)"
-
-# 1. 安装 CLI
-# 验证新版本 / 当前推荐：
+brew install node
 npm install -g nuwax-deploy-installer@beta
-# 正式版（0.2.3 发布后）：
-# npm install -g nuwax-deploy-installer
+deploy-installer doctor
 
-deploy-installer --version   # 期望 ≥ 0.2.3-beta.1（或正式 0.2.3）
+# ② voice-cli（约 3GB 模型下载，已存在则跳过）
+deploy-installer voice-cli install
+# 安装结束会自动探测 /health，也可手动：
+curl -fsS http://127.0.0.1:8077/health
 
-# 2. 初始化 + 下载 venv（会请求同系列稳定版包名，如 0.2.3-beta.1 → venv-…-0.2.3.tar.gz）
-deploy-installer document-parser setup \
-  --install-dir ~/document-parser \
-  --use-prebuilt-venv
+# ③ document-parser（约 300MB venv + 需业务 OSS 密钥）
+export OSS_ACCESS_KEY_ID=你的Key
+export OSS_ACCESS_KEY_SECRET=你的Secret
+deploy-installer document-parser install
+curl -fsS http://127.0.0.1:8087/health
+```
 
-# 3. 填写 OSS 密钥（不要写 export 前缀）
+| 服务 | 目录 | 端口 | API 文档 |
+|------|------|------|----------|
+| voice-cli | `~/voice-cli` | 8077 | http://127.0.0.1:8077/api/docs |
+| document-parser | `~/document-parser` | 8087 | http://127.0.0.1:8087/api/docs |
+
+**注意**
+- 装在家目录（`~/voice-cli`、`~/document-parser`），不要用 `Documents` / `Desktop`（LaunchAgent 会报 `Operation not permitted`）。
+- `service install` 需要**本用户已桌面登录**（`doctor` 会检查 `gui/<uid>`）。纯 SSH 见 [附录](#附录)。
+
+---
+
+## 分步说明
+
+### 1. 安装 CLI
+
+```bash
+# 国内可选
+npm config set registry https://registry.npmmirror.com
+
+npm install -g nuwax-deploy-installer@beta
+deploy-installer doctor
+```
+
+`doctor` 会显示默认安装路径、Node/curl 等依赖，以及 LaunchAgent 所需的 GUI 会话。
+
+### 2. voice-cli
+
+默认从 OSS 下载 **Whisper large-v3**（约 **3GB**），注册 LaunchAgent，并等待 `/health` 就绪。
+
+```bash
+deploy-installer voice-cli install
+```
+
+模型已存在时会**自动跳过下载**（重装 / 升级更快）。
+
+### 3. document-parser
+
+Mac 默认拉 OSS **预编译 venv**（约 300MB）。还需配置**业务 OSS 密钥**（用于上传解析结果）。
+
+```bash
+deploy-installer document-parser install
+```
+
+若密钥未配置，CLI 会提示。任选一种方式后**再执行一次** `install`：
+
+**方式 A — 环境变量（推荐，适合脚本）**
+
+```bash
+export OSS_ACCESS_KEY_ID=你的Key
+export OSS_ACCESS_KEY_SECRET=你的Secret
+deploy-installer document-parser install
+```
+
+**方式 B — 编辑配置文件**
+
+```bash
 vim ~/document-parser/.document-parser.env
 # OSS_ACCESS_KEY_ID=...
 # OSS_ACCESS_KEY_SECRET=...
-
-# 4. 在「本用户已桌面登录」的前提下：注册并启动 LaunchAgent
-#    （直接 exec document-parser；.env 由二进制启动时加载）
-deploy-installer document-parser service install --install-dir ~/document-parser
+deploy-installer document-parser install
 ```
 
-也可在填好密钥后用一条命令（会先 setup，密钥齐全则自动注册服务）：
+---
+
+## 常用运维
 
 ```bash
-deploy-installer document-parser install \
-  --install-dir ~/document-parser \
-  --use-prebuilt-venv
-```
+# 状态（默认目录，无需 --install-dir）
+deploy-installer voice-cli service status
+deploy-installer document-parser service status
 
-首次启动会做 MinerU / MarkItDown 环境检查，通常 **数秒到一两分钟**；通过后再访问 health。
+# 重启
+deploy-installer voice-cli service restart
+deploy-installer document-parser service restart
 
-修改 `.document-parser.env` 后执行 `service restart` 即可生效（无需改 plist）。
-
-旧安装目录若仍有 `run-server.sh`，可手动删除；**0.2.3+** LaunchAgent 已改为直接启动二进制。
-
-### SSH 临时验证（无 gui 会话时）
-
-```bash
-# setup + 填好 .env 之后：
-~/document-parser/document-parser --config ~/document-parser/config.yml server
-# 另开终端：
-curl -fsS http://127.0.0.1:8087/health
-```
-
-确认正常后，再在桌面登录下执行 `service install`；若已有手工进程，先停掉以免端口占用：
-
-```bash
-pkill -f '/Users/[^/]*/document-parser/document-parser' || true
-# 或按实际路径：pkill -f "$HOME/document-parser/document-parser"
-```
-
-## 验证
-
-```bash
-deploy-installer document-parser service status --install-dir ~/document-parser
-curl -fsS http://127.0.0.1:8087/health
-```
-
-期望类似：
-
-```json
-{"code":"0000","message":"操作成功","data":"health"}
-```
-
-可选：确认 plist 无 `run-server.sh`：
-
-```bash
-plutil -p ~/Library/LaunchAgents/com.nuwax.document-parser.plist | head -40
-```
-
-若 `status` 显示 running 但 health 长时间不通：
-
-```bash
-tail -f ~/document-parser/logs/launchd.stdout.log
-tail -f ~/document-parser/logs/launchd.stderr.log
-```
-
-## 分步命令
-
-```bash
-eval "$(/opt/homebrew/bin/brew shellenv)"
-deploy-installer doctor
-deploy-installer document-parser setup --install-dir ~/document-parser --use-prebuilt-venv
-deploy-installer document-parser service install --install-dir ~/document-parser
-deploy-installer document-parser service restart --install-dir ~/document-parser
-deploy-installer document-parser service status --install-dir ~/document-parser
-deploy-installer document-parser service uninstall --install-dir ~/document-parser
-```
-
-不使用预编译包、本地装 Python 依赖（较慢）：
-
-```bash
-deploy-installer document-parser setup --install-dir ~/document-parser
-```
-
-## Mac 配置说明
-
-`setup` 会自动将 `config.yml` 中 `mineru.device` 设为 `mps`（Metal GPU）。
-
-- **起服务 / `/health`**：即使 bucket 仍是模板占位，一般也能启动。  
-- **真正解析并上传 OSS**：须把 bucket（及 endpoint）改成你的资源：
-
-```yaml
-mineru:
-  backend: "pipeline"
-  device: "mps"
-storage:
-  oss:
-    public_bucket: "你的-bucket"
-    private_bucket: "你的-bucket"
-```
-
-## 可选：显式指定 OSS 前缀
-
-默认从 npm 包内 `manifest.json` 解析下载地址。也可手动指定：
-
-```bash
-deploy-installer document-parser setup \
-  --install-dir ~/document-parser \
-  --use-prebuilt-venv \
-  --oss-base https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/document-parser
-```
-
-公开 URL 示例（与 CLI 版本对齐；`0.2.3-beta.1` → `0.2.3`）：
-
-```
-https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/document-parser/venv-macos-arm64-0.2.3.tar.gz
-```
-
-说明：
-
-- `@beta`（如 `0.2.3-beta.1`）会复用同系列稳定版 venv 文件名（`0.2.3`），**无需**单独打 beta venv。  
-- 发新的 `X.Y.Z` / `X.Y.Z-beta.N` 前，须先上传对应的 `venv-macos-arm64-X.Y.Z.tar.gz`，否则 `--use-prebuilt-venv` 会 404。
-
-详见 [oss-optional-assets.md](./oss-optional-assets.md)。
-
-## 升级
-
-```bash
-eval "$(/opt/homebrew/bin/brew shellenv)"
-# 验证通道：
+# 升级 npm 包里的二进制后
 npm install -g nuwax-deploy-installer@beta
-# 或正式版：
-# npm update -g nuwax-deploy-installer
+deploy-installer voice-cli upgrade
+deploy-installer document-parser upgrade
+deploy-installer voice-cli service restart
+deploy-installer document-parser service restart
 
-deploy-installer document-parser upgrade --install-dir ~/document-parser
-deploy-installer document-parser service install --install-dir ~/document-parser
-deploy-installer document-parser service restart --install-dir ~/document-parser
+# 日志
+tail -f ~/voice-cli/logs/launchd.stdout.log
+tail -f ~/document-parser/logs/launchd.stdout.log
 ```
 
-维护者发布流程见 [RELEASE.md](./RELEASE.md)。更多故障见 [troubleshooting-mac.md](./troubleshooting-mac.md)。
+---
+
+## 附录
+
+### 对照：OSS 大文件从哪来
+
+| 服务 | OSS 包 | 大小 | 是否需密钥 |
+|------|--------|------|------------|
+| voice-cli | `whisper-ggml-large-v3-{version}.tar.gz` | ~3GB | 否（公开 URL） |
+| document-parser | `venv-macos-arm64-{version}.tar.gz` | ~300MB | 否；但业务上传要 AK/SK |
+
+维护者打包上传见 [oss-optional-assets.md](./oss-optional-assets.md)。
+
+### 可选参数
+
+```bash
+# voice-cli：全档模型 tiny…large-v3（~5GB+）
+deploy-installer voice-cli install --models all
+
+# 已有模型 / 离线
+deploy-installer voice-cli install --skip-models
+
+# document-parser：不用预编译 venv，本地 uv-init（慢）
+deploy-installer document-parser install --no-prebuilt-venv
+```
+
+### SSH 无 gui 时临时验证
+
+```bash
+~/voice-cli/voice-cli server run --config ~/voice-cli/config.yml
+~/document-parser/document-parser --config ~/document-parser/config.yml server
+```
+
+回到机器桌面登录后，再执行各服务的 `install` 注册自启。
+
+### 更多
+
+- 故障排查：[troubleshooting-mac.md](./troubleshooting-mac.md)
+- Linux / CUDA：[voice-cli/deploy/README.md](../../voice-cli/deploy/README.md)
+- 发布维护：[RELEASE.md](./RELEASE.md)

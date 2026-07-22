@@ -33,6 +33,39 @@ deploy-installer document-parser setup \
 
 `vendor/templates/manifest.json` 记录 URL 模板，CI 发布时可更新 version 字段。
 
+## 预编译 Whisper ggml（voice-cli，macOS ARM64）
+
+| 文件 | 说明 |
+|------|------|
+| `whisper-ggml-large-v3-{version}.tar.gz` | **默认**：仅 `models/ggml-large-v3.bin`（~3GB） |
+| `whisper-ggml-all-{version}.tar.gz` | 可选：`tiny` … `large-v3` 全档（~5GB+） |
+
+OSS 路径示例：
+
+```
+https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/whisper-ggml-large-v3-0.2.1.tar.gz
+```
+
+使用（Mac 上 **默认开启**；省略时从 `manifest.json` 读 URL）：
+
+```bash
+deploy-installer voice-cli install --install-dir ~/voice-cli
+```
+
+全档模型：
+
+```bash
+deploy-installer voice-cli install --install-dir ~/voice-cli --models all
+```
+
+显式 OSS 前缀：
+
+```bash
+deploy-installer voice-cli install \
+  --install-dir ~/voice-cli \
+  --oss-base https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli
+```
+
 ## 维护者：本地打包 venv 并上传 OSS
 
 在 **Apple Silicon Mac** 上执行（耗时约 10–30 分钟，取决于网络）：
@@ -73,6 +106,45 @@ bash scripts/ci/verify-oss-venv-url.sh --extract \
 
 把公开 URL 发给维护者或在 Issue 中确认即可；`manifest.json` 已按该 URL 模板配置。
 
+## 维护者：打包 Whisper ggml 并上传 OSS
+
+任意可联网机器（推荐国内，从 ModelScope 拉模型）：
+
+```bash
+# 默认：仅 large-v3（~3GB 下载源）
+bash scripts/ci/pack-voice-cli-whisper-ggml.sh 0.2.1
+
+# 全档 tiny … large-v3
+bash scripts/ci/pack-voice-cli-whisper-ggml.sh --all 0.2.1
+
+# 使用本地已有 models/
+bash scripts/ci/pack-voice-cli-whisper-ggml.sh --local-dir ~/voice-cli/models 0.2.1
+```
+
+产物：
+
+| 文件 | 说明 |
+|------|------|
+| `dist/voice-cli/v{VERSION}/whisper-ggml-large-v3-{VERSION}.tar.gz` | 默认部署包 |
+| `dist/voice-cli/v{VERSION}/whisper-ggml-all-{VERSION}.tar.gz` | 全档（`--all`） |
+| `*.meta.json` | sha256 / 公开 URL |
+
+上传：
+
+```
+oss://nuwa-packages/uploads/voice-cli/whisper-ggml-large-v3-{VERSION}.tar.gz
+oss://nuwa-packages/uploads/voice-cli/whisper-ggml-all-{VERSION}.tar.gz
+```
+
+验证：
+
+```bash
+bash scripts/ci/verify-oss-whisper-url.sh \
+  https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/whisper-ggml-large-v3-0.2.1.tar.gz
+bash scripts/ci/verify-oss-whisper-url.sh --all \
+  https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/whisper-ggml-all-0.2.1.tar.gz
+```
+
 ## 维护者：npm 发布
 
 **先 beta、后正式**，完整步骤见 [RELEASE.md](./RELEASE.md)。
@@ -99,6 +171,10 @@ bash scripts/ci/publish-nuwax-deploy-installer.sh 0.2.1
 
 或手动触发 workflow `Deploy Installer Release`（选 channel=`beta` / `latest`）。
 
-## 后续（voice-cli CUDA）
+## 后续（voice-cli TTS / Linux CUDA，二期）
 
-Linux NVIDIA 服务器上的预编译 sherpa CUDA 包将使用相同模式，由 `deploy-installer voice-cli install` 拉取（第二期）。
+TTS/Kokoro 预置包、Linux NVIDIA sherpa CUDA 一键 OSS，将复用同一 `optionalAssets` 模式。
+
+**一期（已落地）**：Mac Mini 通过 `deploy-installer voice-cli install` 拉 OSS **large-v3** 并注册 LaunchAgent。见 [mac-mini-quickstart.md](./mac-mini-quickstart.md)。
+
+当前 Linux CUDA 路径仍见 [crates/voice-cli/deploy/README.md](../../voice-cli/deploy/README.md)。

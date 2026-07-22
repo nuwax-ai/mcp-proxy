@@ -157,3 +157,7 @@ cd crates/voice-cli
 cargo run -p voice-cli -- service install --dry-run --install-dir .
 # 只打印 unit，不写 /etc、不创建文件
 ```
+
+## Mac Mini 一键部署（deploy-installer）
+
+见 [mac-mini-quickstart.md](../../deploy-installer/doc/mac-mini-quickstart.md) 与 [voice-cli-roadmap.md](../../deploy-installer/doc/voice-cli-roadmap.md)。

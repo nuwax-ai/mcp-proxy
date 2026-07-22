@@ -28,16 +28,20 @@ nuwax-deploy-installer/
 └── vendor/
     ├── darwin-arm64/
     │   ├── deploy-installer
-    │   └── document-parser
+    │   ├── document-parser
+    │   └── voice-cli
     └── templates/
         ├── manifest.json
-        └── document-parser/
+        ├── document-parser/
+        │   ├── config.example.yml
+        │   ├── .document-parser.env.example
+        │   └── com.nuwax.document-parser.plist
+        └── voice-cli/
             ├── config.example.yml
-            ├── .document-parser.env.example
-            └── com.nuwax.document-parser.plist   # 参考模板；实际由 CLI 渲染
+            └── com.nuwax.voice-cli.plist
 ```
 
-> 说明：LaunchAgent 直接 `exec document-parser`；`.document-parser.env` 由二进制在启动时加载（不覆盖已有环境变量）。旧安装中的 `run-server.sh` 可手动删除。
+> 说明：LaunchAgent 直接 exec 二进制。document-parser 的 `.document-parser.env` 由进程启动时加载。voice-cli **Whisper 模型走 OSS 公开包**（不进 npm），见 [mac-mini-quickstart.md](./mac-mini-quickstart.md)。
 
 环境变量（由 Node 垫片注入）：
 

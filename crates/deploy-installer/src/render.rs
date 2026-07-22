@@ -127,7 +127,12 @@ pub fn render_unit(spec: &ServiceSpec) -> Result<String> {
     if let Some(env_file) = &spec.env_file {
         s.push_str(&format!("EnvironmentFile={}\n", sanitize_path(env_file)?));
     }
-    s.push_str(&format!("ExecStart={}\n", shell_join(&spec.exec_start)?));
+    let exec_start = if spec.exec_start.is_empty() {
+        crate::exec_argv::default_exec_argv(spec)
+    } else {
+        spec.exec_start.clone()
+    };
+    s.push_str(&format!("ExecStart={}\n", shell_join(&exec_start)?));
     for (k, v) in &spec.extra_env {
         let key = sanitize_unit_value("Environment.key", k)?;
         let value = sanitize_unit_value("Environment.value", v)?;

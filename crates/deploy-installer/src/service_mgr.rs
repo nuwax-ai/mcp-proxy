@@ -13,10 +13,9 @@ use service_manager::{
     RestartPolicy, ServiceInstallCtx, ServiceLabel, ServiceLevel, ServiceManager, ServiceStartCtx,
     ServiceStatus, ServiceStatusCtx, ServiceStopCtx, ServiceUninstallCtx,
 };
-use std::ffi::OsString;
 use std::fs;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 const LAUNCHD_PATH: &str = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Library/Frameworks/Python.framework/Versions/Current/bin";
 
@@ -80,23 +79,24 @@ fn build_install_ctx(
                 Some(c) => c,
                 None => render_launchd_plist(spec, run_at_load)?,
             };
-            let program = spec
-                .exec_start
-                .first()
-                .map(PathBuf::from)
-                .unwrap_or_else(|| spec.install_dir.join("document-parser"));
-            let args: Vec<OsString> = if spec.exec_start.len() > 1 {
-                spec.exec_start[1..]
-                    .iter()
-                    .map(|s| OsString::from(s.as_str()))
-                    .collect()
-            } else {
-                vec![
-                    OsString::from("--config"),
-                    OsString::from(spec.install_dir.join("config.yml")),
-                    OsString::from("server"),
-                ]
-            };
+            let (program, args) = crate::exec_argv::program_and_args(spec);
+            let mut environment = vec![
+                ("PATH".into(), LAUNCHD_PATH.into()),
+                (
+                    "HOME".into(),
+                    std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()),
+                ),
+                (
+                    "TMPDIR".into(),
+                    std::env::var("TMPDIR").unwrap_or_else(|_| "/tmp".into()),
+                ),
+            ];
+            for (k, v) in &spec.extra_env {
+                if environment.iter().any(|(ek, _)| ek == k) {
+                    continue;
+                }
+                environment.push((k.clone(), v.clone()));
+            }
             Ok(ServiceInstallCtx {
                 label,
                 program,
@@ -104,30 +104,13 @@ fn build_install_ctx(
                 contents: Some(plist),
                 username: None,
                 working_directory: Some(spec.install_dir.clone()),
-                environment: Some(vec![
-                    ("PATH".into(), LAUNCHD_PATH.into()),
-                    (
-                        "HOME".into(),
-                        std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()),
-                    ),
-                    (
-                        "TMPDIR".into(),
-                        std::env::var("TMPDIR").unwrap_or_else(|_| "/tmp".into()),
-                    ),
-                ]),
+                environment: Some(environment),
                 autostart,
                 restart_policy: RestartPolicy::OnFailure { delay_secs: None },
             })
         }
         ServiceBackend::Systemd => {
-            let bin = spec
-                .exec_start
-                .first()
-                .ok_or(InstallerError::EmptyExecStart)?;
-            let args = spec.exec_start[1..]
-                .iter()
-                .map(|s| OsString::from(s.as_str()))
-                .collect();
+            let (program, args) = crate::exec_argv::program_and_args(spec);
             let env = if spec.extra_env.is_empty() {
                 None
             } else {
@@ -139,7 +122,7 @@ fn build_install_ctx(
             };
             Ok(ServiceInstallCtx {
                 label,
-                program: PathBuf::from(bin),
+                program,
                 args,
                 contents: Some(unit),
                 username: Some(spec.identity.user.clone()),

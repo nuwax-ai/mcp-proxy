@@ -7,6 +7,7 @@
 mod bundles;
 mod checks;
 mod error;
+mod exec_argv;
 mod installer;
 mod platform;
 mod render;
@@ -18,15 +19,17 @@ mod systemd;
 pub mod cli;
 
 pub use bundles::{
-    bundled_binary_path, bundled_templates_dir, copy_if_exists,
-    default_document_parser_install_dir, deploy_asset_version, deploy_root, deploy_version,
-    make_executable, optional_venv_download_url, platform_vendor_key,
+    WhisperModelsPack, bundled_binary_path, bundled_templates_dir, copy_if_exists,
+    default_document_parser_install_dir, default_voice_cli_install_dir, deploy_asset_version,
+    deploy_root, deploy_version, make_executable, optional_venv_download_url,
+    optional_whisper_download_url, platform_vendor_key, whisper_download_url_from_base,
 };
 pub use checks::{
     CheckItem, CheckSeverity, PrecheckOptions, PrecheckReport, current_user, group_for_user,
     precheck, resolve_service_user,
 };
 pub use error::{InstallerError, Result};
+pub use exec_argv::{default_exec_argv, program_and_args};
 pub use installer::{
     InstallOptions, install, path_exists, restart, restart_in_dir, status, status_in_dir,
     uninstall, uninstall_in_dir, write_user_file,

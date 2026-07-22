@@ -3,9 +3,9 @@ use crate::spec::ServiceSpec;
 
 /// Render a macOS LaunchAgent plist from `ServiceSpec`.
 ///
-/// `ProgramArguments` exec the binary directly. Secrets stay in `.document-parser.env`,
-/// which `document-parser` loads at startup (launchd has no `EnvironmentFile=`).
-/// `PATH` / `HOME` / `TMPDIR` remain in the plist for launchd's minimal environment.
+/// `ProgramArguments` exec the binary directly. Secrets stay in dotenv files loaded by the
+/// service binary when needed (launchd has no `EnvironmentFile=`).
+/// Always injects `PATH` / `HOME` / `TMPDIR`; also emits `spec.extra_env` (e.g. `RUST_LOG`).
 pub fn render_launchd_plist(spec: &ServiceSpec, run_at_load: bool) -> Result<String> {
     let label = spec.launchd_label();
     let install_dir = crate::render::sanitize_path(&spec.install_dir)?;
@@ -17,6 +17,7 @@ pub fn render_launchd_plist(spec: &ServiceSpec, run_at_load: bool) -> Result<Str
     let home = crate::render::sanitize_unit_value("HOME", &home)?;
     let tmpdir = std::env::var("TMPDIR").unwrap_or_else(|_| "/tmp".into());
     let tmpdir = crate::render::sanitize_unit_value("TMPDIR", &tmpdir)?;
+    let extra_env_xml = launchd_extra_env_xml(spec)?;
     let run_at_load_xml = if run_at_load { "<true/>" } else { "<false/>" };
     let keep_alive_block = if run_at_load {
         r#"    <key>KeepAlive</key>
@@ -49,7 +50,7 @@ pub fn render_launchd_plist(spec: &ServiceSpec, run_at_load: bool) -> Result<Str
         <string>{home}</string>
         <key>TMPDIR</key>
         <string>{tmpdir}</string>
-    </dict>
+{extra_env_xml}    </dict>
     <key>RunAtLoad</key>
     {run_at_load_xml}
 {keep_alive_block}    <key>StandardOutPath</key>
@@ -62,23 +63,36 @@ pub fn render_launchd_plist(spec: &ServiceSpec, run_at_load: bool) -> Result<Str
     ))
 }
 
-fn launchd_program_arguments(spec: &ServiceSpec) -> Result<String> {
-    let args = if spec.exec_start.is_empty() {
-        let bin = crate::render::sanitize_path(&spec.install_dir.join("document-parser"))?;
-        let cfg = crate::render::sanitize_path(&spec.install_dir.join("config.yml"))?;
-        vec![bin, "--config".into(), cfg, "server".into()]
-    } else {
-        let mut out = Vec::with_capacity(spec.exec_start.len());
-        for (i, arg) in spec.exec_start.iter().enumerate() {
-            if i == 0 || looks_like_path(arg) {
-                out.push(crate::render::sanitize_path(std::path::Path::new(arg))?);
-            } else {
-                out.push(crate::render::sanitize_unit_value("ProgramArguments", arg)?);
-            }
+fn launchd_extra_env_xml(spec: &ServiceSpec) -> Result<String> {
+    let mut out = String::new();
+    for (key, value) in &spec.extra_env {
+        if matches!(key.as_str(), "PATH" | "HOME" | "TMPDIR") {
+            continue;
         }
-        out
+        let key = crate::render::sanitize_unit_value("EnvironmentVariables", key)?;
+        let value = crate::render::sanitize_unit_value("EnvironmentVariables", value)?;
+        out.push_str(&format!(
+            "        <key>{key}</key>\n        <string>{value}</string>\n"
+        ));
+    }
+    Ok(out)
+}
+
+fn launchd_program_arguments(spec: &ServiceSpec) -> Result<String> {
+    let argv = if spec.exec_start.is_empty() {
+        crate::exec_argv::default_exec_argv(spec)
+    } else {
+        spec.exec_start.clone()
     };
-    Ok(args
+    let mut out = Vec::with_capacity(argv.len());
+    for (i, arg) in argv.iter().enumerate() {
+        if i == 0 || looks_like_path(arg) {
+            out.push(crate::render::sanitize_path(std::path::Path::new(arg))?);
+        } else {
+            out.push(crate::render::sanitize_unit_value("ProgramArguments", arg)?);
+        }
+    }
+    Ok(out
         .into_iter()
         .map(|a| format!("        <string>{a}</string>\n"))
         .collect())
@@ -134,5 +148,39 @@ mod tests {
         assert!(plist.contains("<string>/opt/document-parser/config.yml</string>"));
         assert!(plist.contains("<string>server</string>"));
         assert!(!plist.contains("run-server.sh"));
+    }
+
+    #[test]
+    fn render_plist_includes_extra_env() {
+        let spec = ServiceSpec {
+            name: "voice-cli".into(),
+            description: "test".into(),
+            identity: ServiceIdentity {
+                user: "u".into(),
+                group: "g".into(),
+            },
+            install_dir: PathBuf::from("/opt/voice-cli"),
+            exec_start: vec![
+                "/opt/voice-cli/voice-cli".into(),
+                "server".into(),
+                "run".into(),
+                "--config".into(),
+                "/opt/voice-cli/config.yml".into(),
+            ],
+            env_file: None,
+            extra_env: vec![("RUST_LOG".into(), "info".into())],
+            kill_signal: None,
+            timeout_stop_sec: None,
+            syslog_identifier: None,
+            drop_ins: vec![],
+            supplementary_groups: vec![],
+            required_paths: vec![],
+            listen_port: None,
+        };
+        let plist = render_launchd_plist(&spec, true).unwrap();
+        assert!(plist.contains("<key>RUST_LOG</key>"));
+        assert!(plist.contains("<string>info</string>"));
+        assert!(plist.contains("<string>server</string>"));
+        assert!(plist.contains("<string>run</string>"));
     }
 }

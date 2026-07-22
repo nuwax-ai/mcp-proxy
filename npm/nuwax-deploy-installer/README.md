@@ -5,11 +5,12 @@ Unified deployment CLI for nuwax services. **Binaries are bundled inside this np
 ## Quick start (Mac Apple Silicon)
 
 ```bash
-npm install -g nuwax-deploy-installer
+npm install -g nuwax-deploy-installer@beta
 deploy-installer document-parser install --install-dir ~/document-parser
+deploy-installer voice-cli install --install-dir ~/voice-cli
 ```
 
-See [crates/deploy-installer/doc/mac-mini-quickstart.md](../crates/deploy-installer/doc/mac-mini-quickstart.md) for full guide.
+See [mac-mini-quickstart.md](../../crates/deploy-installer/doc/mac-mini-quickstart.md).
 
 ## Commands
 
@@ -18,6 +19,8 @@ deploy-installer doctor
 deploy-installer document-parser setup --install-dir ~/document-parser
 deploy-installer document-parser install --install-dir ~/document-parser
 deploy-installer document-parser service status --install-dir ~/document-parser
+deploy-installer voice-cli setup --install-dir ~/voice-cli
+deploy-installer voice-cli service install --install-dir ~/voice-cli
 ```
 
 ## Supported platforms (phase 1)
