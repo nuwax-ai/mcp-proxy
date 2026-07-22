@@ -30,10 +30,11 @@ tail -f ~/document-parser/logs/launchd.stdout.log
 
 常见原因：
 
+- 安装用户未在本机 **图形界面登录**：LaunchAgent 需要 `gui/<uid>`。控制台是别人、你只 SSH 进来时，`service install` 常失败（exit 134 / `Domain does not support specified action`）。请用安装用户登录桌面后再装；或先手工跑二进制验证（见 [mac-mini-quickstart.md](./mac-mini-quickstart.md)「SSH 临时验证」）
 - 安装目录在 `~/Documents` / Desktop / iCloud：会报 `Operation not permitted`，请改用 `~/document-parser`
 - `.document-parser.env` 密钥未填或格式错误（不要用 `export` 前缀）；改密钥后需 `service restart`
-- 端口 8087 被占用：修改 `config.yml` 的 `server.port`
-- `venv` 未就绪：重新 `deploy-installer document-parser setup --use-prebuilt-venv`
+- 端口 8087 被占用：修改 `config.yml` 的 `server.port`；或先 `pkill` 掉手工启动的 `document-parser`
+- `venv` 未就绪 / OSS 404：确认已上传 `venv-macos-arm64-{X.Y.Z}.tar.gz`（beta 用同系列稳定版文件名），再 `setup --use-prebuilt-venv`
 - 首次启动卡在 MinerU 检查：等 1–2 分钟再 `curl http://127.0.0.1:8087/health`；旧版若 plist 含 `ProcessType=Background` 会导致 MPS 卡住，请升级 CLI 后重新 `service install`
 - 确认 LaunchAgent 直接启动二进制（`ProgramArguments` 应为 `document-parser --config … server`，不应再有 `run-server.sh`）：
   `plutil -p ~/Library/LaunchAgents/com.nuwax.document-parser.plist`
