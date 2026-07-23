@@ -6,14 +6,17 @@
 
 # FastEmbed
 
-High-performance local embedding HTTP service built on [fastembed-rs](https://crates.io/crates/fastembed) + ONNX Runtime. Runs entirely on-device — text, image, and sparse embeddings with optional GPU acceleration.
+High-performance local embedding HTTP service built on [fastembed-rs](https://crates.io/fastembed) + ONNX Runtime. Runs entirely on-device — text, image, and sparse embeddings with optional GPU acceleration.
 
 ## Features
 
 - **Multi-type embeddings**: dense `text`, dense `image`, and `sparse` (SPLADE / BGE-M3) via one endpoint
+- **40+ text models** auto-discovered from fastembed-rs, zero maintenance
 - **GPU acceleration**: CoreML (macOS) / CUDA (Linux) / DirectML (Windows), configurable per device
 - **Local-first**: models cached on disk, no data leaves the process
-- **Concurrent caching**: per-(type, model) `DashMap` cache, lazy-initialized
+- **OSS model distribution**: pull pre-packaged models from OSS/HTTP URLs at startup, skip HuggingFace downloads entirely
+- **Concurrent caching**: per-(type, model) `DashMap` cache, lazy-initialized with per-model locks
+- **Concurrency limiting**: semaphore-based, auto-sized to 2× CPU cores (configurable)
 - **OpenAPI docs**: Swagger UI at `/swagger-ui`
 
 ## Quick Start
@@ -28,21 +31,21 @@ High-performance local embedding HTTP service built on [fastembed-rs](https://cr
 # Start server (default port 8068)
 fastembed server
 
-# Custom port
-fastembed server --port 8081
+# Custom port + model pre-download from OSS
+fastembed server --port 8081 \
+    --model-url "https://your-bucket.oss.example.com/models/bge-large-zh-v1.5.tar.gz"
 ```
 
 ### Pre-download a model
 
 ```bash
-# Text model (variant name or HF code)
+# From HuggingFace (variant name or HF code)
 fastembed models download --type text --model AllMiniLML6V2
 
-# Image model
-fastembed models download --type image --model ClipVitB32
-
-# Sparse model
-fastembed models download --type sparse --model SPLADEPPV1
+# From OSS / HTTP URL (tar.gz package)
+fastembed models pull \
+    --url "https://your-bucket.oss.example.com/models/bge-large-zh-v1.5.tar.gz" \
+    --cache-dir .fastembed_cache
 
 # List downloaded models
 fastembed models list --type text
@@ -112,7 +115,8 @@ fastembed:
   default_sparse_model: SPLADEPPV1    # sparse
   batch_size: 256
   device: auto                        # auto | cpu | coreml | cuda | directml
-  pool_size: 1                        # 实例池大小（并发推理上限；>1 代价 N× 内存）
+  pool_size: 1                        # instance pool size (concurrency; >1 = N× memory)
+  model_url:                          # optional: OSS/HTTP URL to download model bundle at startup
 ```
 
 ### Environment variable overrides
@@ -124,29 +128,55 @@ fastembed:
 | `FASTEMBED_MODEL` | default text model |
 | `FASTEMBED_IMAGE_MODEL` | default image model |
 | `FASTEMBED_SPARSE_MODEL` | default sparse model |
-| `FASTEMBED_DEVICE` | compute device |
+| `FASTEMBED_DEVICE` | compute device (auto/cpu/coreml/cuda/directml) |
 | `FASTEMBED_BATCH_SIZE` | batch size |
 | `FASTEMBED_POOL_SIZE` | instance pool size (concurrency; >1 = N× memory) |
+| `FASTEMBED_MODEL_URL` | model bundle download URL at startup |
+| `FASTEMBED_MAX_CONCURRENT` | max concurrent embedding requests (default: 2× CPU cores) |
+
+### CLI overrides (highest priority)
+
+```bash
+fastembed server --port 8081 --model-url <URL> --cache-dir /data/cache
+```
+
+Precedence: **CLI** > **env** > **config file** > **defaults**.
 
 ## Design Notes
 
-- **Warmup scope**: only the text default model (`default_model`) is pre-warmed at startup; image / sparse models lazy-load on first request (slow first hit, cached thereafter). Pre-download with `fastembed models download` to be ready sooner.
-- **Concurrent init**: first loads of all models share one global lock (serialized) to avoid ort conflicts when initializing the same cached model concurrently. Only the slow first-load path is affected; runtime inference is lock-free.
-- **Instance pool**: `pool_size` caps per-model concurrent inference. `=1` (default) serializes on a single instance (usually optimal on CPU); `>1` spins up N independent ONNX sessions for concurrency (costs N× memory).
+- **Warmup scope**: all three configured default models (text + image + sparse) are pre-warmed at startup. Text gets a test inference; image/sparse only load the ONNX session. Failures are logged but don't block startup.
+- **Concurrent init**: each (type, model) pair gets its own init lock — different models can initialize in parallel. Only concurrent first-loads of the **same** model are serialized to avoid ort conflicts. Runtime inference is lock-free.
+- **Instance pool**: `pool_size` caps per-model concurrent inference. `=1` (default) serializes on a single instance (usually optimal on CPU); `>1` spins up N independent ONNX sessions for N-way concurrency (costs N× memory).
+- **Concurrency limiting**: embedding requests are gated by a semaphore (default 2× CPU cores, min 4, max 64). Overflow requests queue instead of exhausting the tokio blocking thread pool.
+- **Request timeout**: each embedding request has a 120-second hard timeout. Timed-out requests return HTTP 504.
 - **Error classification**: a non-existent image path returns **400** (client error); model init / inference failures return **500**.
-- **Out-of-catalog models**: `/api/models/available` and `models list` scan the built-in catalog only; out-of-catalog models downloaded via HF code are not listed (the CLI prints a WARNING on completion).
+- **Model catalog**: auto-populated from `fastembed-rs` at first use — 40+ text models, zero manual maintenance. `model_url` pre-download puts files in the hf-hub cache format so fastembed skips the HuggingFace download.
 - **Dimension semantics**: `dim=0` in responses means sparse model or unknown out-of-catalog model (in-catalog dense models carry the real dimension).
-- **Config location**: defaults to `./config.yml` in the working directory (the repo's `crates/fastembed/config.yml` is just an example). For production, prefer env overrides or a mounted config. Precedence: CLI > env > file > defaults.
-- **Progress bar**: only `models download` shows download progress; lazy loads triggered by runtime requests do not print a progress bar (keeps logs clean).
+- **Config location**: defaults to `./config.yml` in the working directory. For production, prefer env overrides or a mounted config.
+- **Progress bar**: `models download` and `models pull` show download progress; lazy loads triggered by runtime requests do not (keeps logs clean).
 - **BYO mode**: the CLI flags `--onnx/--tokenizer/...` are retained but **not yet implemented**; passing them fails fast (never silently ignored).
 
-## Supported Models
+## Code Structure
 
-**Text** (Xenova ONNX namespace): `BGELargeZHV15` (Xenova/bge-large-zh-v1.5, 1024d), `BGESmallZHV15` (512d), `BGEBaseENV15` (768d), `BGESmallENV15` (384d), `BGELargeENV15` (1024d), `AllMiniLML6V2` (384d), `AllMiniLML12V2` (384d). Any model recognized by fastembed's `EmbeddingModel::from_str` is also accepted (dim reported as 0).
-
-**Image**: `ClipVitB32` (512d), `Resnet50` (2048d), `UnicomVitB16` (768d), `UnicomVitB32` (512d), `NomicEmbedVisionV15` (768d).
-
-**Sparse**: `SPLADEPPV1` (Qdrant/Splade_PP_en_v1), `BGEM3` (BAAI/bge-m3).
+```
+src/
+├── main.rs               CLI entry point
+├── config.rs             AppConfig, Device enum, env override macros
+├── cli/
+│   ├── mod.rs            CLI argument definitions (server, models download/list/pull)
+│   └── models.rs         download/list/pull command implementations
+├── handlers/
+│   ├── embeddings.rs     POST /api/embeddings (semaphore + timeout + spawn_blocking)
+│   ├── health.rs         GET /health
+│   └── models.rs         GET /api/models/available
+├── server/
+│   └── mod.rs            Axum router, AppState (Semaphore, AtomicBool), warmup, shutdown
+└── models/
+    ├── mod.rs            EmbeddingType, InitializedModel, resolve, get_or_init_model, GPU EP, tests
+    ├── pool.rs           ModelPool<T> (round-robin), MODEL_CACHE, INIT_LOCKS (per-model)
+    ├── catalog.rs        ModelEntry, dynamic catalog (from fastembed-rs API), ModelInfo, listing
+    └── download.rs       download_model_from_url, download_file (progress), extract_tar_gz
+```
 
 ## Development
 

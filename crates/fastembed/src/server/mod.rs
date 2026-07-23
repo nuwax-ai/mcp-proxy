@@ -3,9 +3,11 @@ use axum::{
     Router,
     routing::{get, post},
 };
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 use tokio::signal;
+use tokio::sync::Semaphore;
 use tower_http::{
     cors::{Any, CorsLayer},
     limit::RequestBodyLimitLayer,
@@ -55,20 +57,33 @@ use crate::handlers::{
 )]
 struct ApiDoc;
 
-/// 应用状态
+/// Application state
 #[derive(Clone)]
 pub struct AppState {
     pub config: AppConfig,
     pub start_time: Instant,
-    pub model_cache_ready: Arc<Mutex<bool>>,
+    pub model_cache_ready: Arc<AtomicBool>,
+    /// Limits concurrent embedding requests to avoid thread pool exhaustion
+    pub embed_semaphore: Arc<Semaphore>,
 }
 
 impl AppState {
     pub fn new(config: AppConfig) -> Self {
+        // Default: 2x CPU cores, min 4, max 64
+        let max_concurrent = std::env::var("FASTEMBED_MAX_CONCURRENT")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or_else(|| {
+                let cpus = std::thread::available_parallelism()
+                    .map(|n| n.get())
+                    .unwrap_or(4);
+                (cpus * 2).clamp(4, 64)
+            });
         Self {
             config,
             start_time: Instant::now(),
-            model_cache_ready: Arc::new(Mutex::new(false)),
+            model_cache_ready: Arc::new(AtomicBool::new(false)),
+            embed_semaphore: Arc::new(Semaphore::new(max_concurrent)),
         }
     }
 }
@@ -105,13 +120,30 @@ pub async fn start_server(config: AppConfig) -> Result<()> {
     let port = config.server.port;
     let addr = format!("{}:{}", host, port);
 
+    // 如果配置了 model_url，启动前先从 URL 下载模型包
+    if let Some(ref url) = config.fastembed.model_url {
+        let cache_dir = std::path::PathBuf::from(&config.fastembed.cache_dir);
+        tracing::info!("配置了 model_url，启动前先拉取模型包...");
+        match crate::models::download_model_from_url(url, &cache_dir).await {
+            Ok(()) => {
+                tracing::info!("模型包拉取成功，继续启动...");
+            }
+            Err(e) => {
+                // 下载失败不阻止启动：可能缓存已存在，或可 fallback 到 HF
+                tracing::warn!(
+                    "模型包下载失败: {:?}，将继续启动（可能从 HuggingFace 按需下载或使用已有缓存）",
+                    e
+                );
+            }
+        }
+    }
+
     let state = Arc::new(AppState::new(config.clone()));
 
     // 预热模型：init + 推理均同步阻塞，放 spawn_blocking 避免占用 async worker
     let warmup_state = state.clone();
-    let warmup_config = config.clone();
     tokio::task::spawn_blocking(move || {
-        if let Err(e) = warmup_model(warmup_state, warmup_config) {
+        if let Err(e) = warmup_model(warmup_state, &config) {
             tracing::warn!("Model warm-up failed: {:?}", e);
         }
     });
@@ -138,43 +170,58 @@ pub async fn start_server(config: AppConfig) -> Result<()> {
     Ok(())
 }
 
-/// 模型预热（同步：init + 一次微型推理，由调用方放 spawn_blocking）
-fn warmup_model(state: Arc<AppState>, config: AppConfig) -> Result<()> {
+/// Warm up models: init ONNX sessions for all configured model types.
+/// Text model gets a test inference; image/sparse only load (no inference).
+fn warmup_model(state: Arc<AppState>, config: &AppConfig) -> Result<()> {
     use crate::models::{EmbeddingType, get_or_init_model};
 
-    tracing::info!("Start preheating model: {}", config.fastembed.default_model);
+    let models: [(EmbeddingType, &str); 3] = [
+        (EmbeddingType::Text, &config.fastembed.default_model),
+        (EmbeddingType::Image, &config.fastembed.default_image_model),
+        (
+            EmbeddingType::Sparse,
+            &config.fastembed.default_sparse_model,
+        ),
+    ];
+
     let start = Instant::now();
 
-    let (pool, _info) = get_or_init_model(
-        EmbeddingType::Text,
-        &config.fastembed.default_model,
-        Some(config.fastembed.cache_dir.clone()),
-        None, // 使用模型默认的 max_length
-        &config.fastembed.device,
-        config.fastembed.pool_size,
-        true, // 启动期预热允许显示下载进度
-    )?;
+    for (model_type, model_name) in &models {
+        tracing::info!("warming up {:?}: {}", model_type, model_name);
+        match get_or_init_model(
+            *model_type,
+            model_name,
+            Some(config.fastembed.cache_dir.clone()),
+            None,
+            config.fastembed.device,
+            config.fastembed.pool_size,
+            true,
+        ) {
+            Ok((pool, _)) => {
+                // run a test inference for text models only
+                if *model_type == EmbeddingType::Text {
+                    let warmup_text = vec!["passage: warmup".to_string()];
+                    let instance = pool.pick();
+                    let mut guard = instance
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    if let Err(e) = guard.embed(warmup_text, Some(1)) {
+                        tracing::warn!(
+                            "{:?} warmup inference failed (init ok): {:?}",
+                            model_type,
+                            e
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("{:?} warmup failed: {:?}", model_type, e);
+            }
+        }
+    }
 
-    // 执行一次微型嵌入（从池中取一个实例）
-    let warmup_text = vec!["passage: warmup".to_string()];
-    let instance = pool.pick();
-    let mut model_guard = instance
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    model_guard.embed(warmup_text, Some(1))?;
-
-    let elapsed = start.elapsed();
-
-    // 标记预热完成
-    *state
-        .model_cache_ready
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner()) = true;
-
-    tracing::info!(
-        "✅ Model preheating completed, time consuming: {:?}",
-        elapsed
-    );
+    state.model_cache_ready.store(true, Ordering::Release);
+    tracing::info!("model warmup completed, total time: {:?}", start.elapsed());
 
     Ok(())
 }

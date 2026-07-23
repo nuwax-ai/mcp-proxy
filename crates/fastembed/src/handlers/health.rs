@@ -1,6 +1,7 @@
 use axum::{Json, extract::State};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use utoipa::ToSchema;
 
 use crate::server::AppState;
@@ -36,9 +37,6 @@ pub async fn handle_health(State(state): State<Arc<AppState>>) -> Json<HealthRes
     Json(HealthResponse {
         status: "ok".to_string(),
         uptime_ms: uptime.as_millis(),
-        model_cache_ready: *state
-            .model_cache_ready
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        model_cache_ready: state.model_cache_ready.load(Ordering::Acquire),
     })
 }

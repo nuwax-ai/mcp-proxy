@@ -2,7 +2,7 @@ use axum::{Json, extract::State, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use utoipa::ToSchema;
 
 use crate::models::{EmbedOutput, EmbeddingType, ModelInfo, get_or_init_model};
@@ -188,97 +188,132 @@ pub async fn handle_embed(
         },
     };
     let cache_dir = state.config.fastembed.cache_dir.clone();
-    let device = state.config.fastembed.device.clone();
+    let device = state.config.fastembed.device;
     let pool_size = state.config.fastembed.pool_size;
     let batch_size = req.batch_size.unwrap_or(state.config.fastembed.batch_size);
 
-    // 初始化 + 推理均同步阻塞（可能含网络下载、ONNX 推理），放 spawn_blocking 避免阻塞 async worker。
-    // 闭包返回 PipelineOutcome：把 init / 路径校验 / 推理 三类结果显式分类，
-    // 便于 handler 映射到正确的 HTTP 状态码（坏路径→400，init/推理失败→500）。
-    let joined = tokio::task::spawn_blocking(move || -> PipelineOutcome {
-        let (pool, info) = match get_or_init_model(
-            model_type,
-            &model_name,
-            Some(cache_dir),
-            None,
-            &device,
-            pool_size,
-            false, // 请求触发的懒加载：不刷下载进度条到日志
-        ) {
-            Ok(x) => x,
-            Err(e) => return PipelineOutcome::InitFailed(e),
-        };
+    // acquire concurrency permit before spawning blocking task
+    let _permit = state
+        .embed_semaphore
+        .clone()
+        .acquire_owned()
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(ErrorResponse {
+                    error: "SHUTTING_DOWN".to_string(),
+                    message: "服务正在关闭".to_string(),
+                    status: 503,
+                }),
+            )
+        })?;
 
-        // image 类型：embed 前校验路径存在。坏路径属客户端错误（400）而非服务端 500。
-        if model_type == EmbeddingType::Image {
-            for p in &inputs {
-                if !std::path::Path::new(p).exists() {
-                    return PipelineOutcome::BadRequest(format!("图片路径不存在: {}", p));
+    // spawn_blocking + timeout: hard cap at 120s per embedding request
+    let joined = tokio::time::timeout(
+        Duration::from_secs(120),
+        tokio::task::spawn_blocking(move || -> PipelineOutcome {
+            let (pool, info) = match get_or_init_model(
+                model_type,
+                &model_name,
+                Some(cache_dir),
+                None,
+                device,
+                pool_size,
+                false, // 请求触发的懒加载：不刷下载进度条到日志
+            ) {
+                Ok(x) => x,
+                Err(e) => return PipelineOutcome::InitFailed(e),
+            };
+
+            // image 类型：embed 前校验路径存在。坏路径属客户端错误（400）而非服务端 500。
+            if model_type == EmbeddingType::Image {
+                for p in &inputs {
+                    if !std::path::Path::new(p).exists() {
+                        return PipelineOutcome::BadRequest(format!("图片路径不存在: {}", p));
+                    }
                 }
             }
-        }
 
-        // round-robin 取实例（pool_size>1 时允许并发推理）；单实例上排队（fastembed embed 需 &mut self）。
-        // lock 毒化（某次请求持锁时 panic）时恢复，避免拖垮后续请求。
-        let instance = pool.pick();
-        let mut guard = instance
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        match guard.embed(inputs, Some(batch_size)) {
-            Ok(output) => PipelineOutcome::Success(info, output),
-            Err(e) => PipelineOutcome::InferFailed(e),
-        }
-    })
+            // round-robin 取实例（pool_size>1 时允许并发推理）；单实例上排队（fastembed embed 需 &mut self）。
+            // lock 毒化（某次请求持锁时 panic）时恢复，避免拖垮后续请求。
+            let instance = pool.pick();
+            let mut guard = instance
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            match guard.embed(inputs, Some(batch_size)) {
+                Ok(output) => PipelineOutcome::Success(info, output),
+                Err(e) => PipelineOutcome::InferFailed(e),
+            }
+        }),
+    )
     .await;
 
-    let (model_info, output) = match joined {
-        Ok(PipelineOutcome::Success(info, out)) => (info, out),
-        Ok(PipelineOutcome::BadRequest(msg)) => {
-            tracing::warn!("Embedding bad request: {}", msg);
+    let model_output = match joined {
+        // timeout elapsed
+        Err(_elapsed) => {
+            tracing::error!("Embedding request timed out after 120s");
             return Err((
-                StatusCode::BAD_REQUEST,
+                StatusCode::GATEWAY_TIMEOUT,
                 Json(ErrorResponse {
-                    error: "INVALID_INPUT".to_string(),
-                    message: msg,
-                    status: 400,
+                    error: "TIMEOUT".to_string(),
+                    message: "嵌入请求超时".to_string(),
+                    status: 504,
                 }),
             ));
         }
-        Ok(PipelineOutcome::InitFailed(e)) => {
-            tracing::error!("Model initialization failed: {:?}", e);
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "MODEL_INIT_ERROR".to_string(),
-                    message: format!("模型初始化失败: {}", e),
-                    status: 500,
-                }),
-            ));
-        }
-        Ok(PipelineOutcome::InferFailed(e)) => {
-            tracing::error!("Embedding calculation failed: {:?}", e);
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "EMBED_ERROR".to_string(),
-                    message: format!("嵌入计算失败: {}", e),
-                    status: 500,
-                }),
-            ));
-        }
-        // blocking 任务 panic（如 ort 内部 panic）
-        Err(join_err) => {
-            tracing::error!("Embedding blocking task panicked: {:?}", join_err);
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "EMBED_TASK_ERROR".to_string(),
-                    message: format!("嵌入任务异常: {}", join_err),
-                    status: 500,
-                }),
-            ));
-        }
+        // spawn_blocking completed (may have panicked or returned PipelineOutcome)
+        Ok(join_result) => match join_result {
+            Ok(PipelineOutcome::Success(info, out)) => (info, out),
+            Ok(PipelineOutcome::BadRequest(msg)) => {
+                tracing::warn!("Embedding bad request: {}", msg);
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: "INVALID_INPUT".to_string(),
+                        message: msg,
+                        status: 400,
+                    }),
+                ));
+            }
+            Ok(PipelineOutcome::InitFailed(e)) => {
+                tracing::error!("Model initialization failed: {:?}", e);
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "MODEL_INIT_ERROR".to_string(),
+                        message: format!("模型初始化失败: {}", e),
+                        status: 500,
+                    }),
+                ));
+            }
+            Ok(PipelineOutcome::InferFailed(e)) => {
+                tracing::error!("Embedding calculation failed: {:?}", e);
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "EMBED_ERROR".to_string(),
+                        message: format!("嵌入计算失败: {}", e),
+                        status: 500,
+                    }),
+                ));
+            }
+            // blocking task panicked
+            Err(join_err) => {
+                tracing::error!("Embedding blocking task panicked: {:?}", join_err);
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "EMBED_TASK_ERROR".to_string(),
+                        message: format!("嵌入任务异常: {}", join_err),
+                        status: 500,
+                    }),
+                ));
+            }
+        },
     };
+
+    let (model_info, output) = model_output;
 
     let (embeddings, sparse_embeddings) = match output {
         EmbedOutput::Dense(vec) => (vec, None),

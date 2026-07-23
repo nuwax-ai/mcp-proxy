@@ -2,6 +2,97 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+// ── Env override macros ──────────────────────────────────────────────────────
+
+macro_rules! env_str {
+    ($self:expr, $var:literal, $field:expr) => {
+        if let Ok(val) = std::env::var($var) {
+            tracing::info!("Env {} overrides: {}", $var, val);
+            $field = val;
+        }
+    };
+}
+
+macro_rules! env_num {
+    ($self:expr, $var:literal, $ty:ty, $field:expr) => {
+        if let Ok(val) = std::env::var($var) {
+            if let Ok(parsed) = val.parse::<$ty>() {
+                tracing::info!("Env {} overrides: {}", $var, parsed);
+                $field = parsed;
+            } else {
+                tracing::warn!("Env {} invalid ({}), ignored", $var, val);
+            }
+        }
+    };
+}
+
+macro_rules! env_opt_str {
+    ($self:expr, $var:literal, $field:expr) => {
+        if let Ok(val) = std::env::var($var) {
+            if val.is_empty() {
+                $field = None;
+            } else {
+                tracing::info!("Env {} overrides", $var);
+                $field = Some(val);
+            }
+        }
+    };
+}
+
+macro_rules! env_device {
+    ($self:expr) => {
+        if let Ok(val) = std::env::var("FASTEMBED_DEVICE") {
+            match serde_json::from_str::<$crate::config::Device>(&format!(
+                "\"{}\"",
+                val.to_lowercase()
+            )) {
+                Ok(d) => {
+                    tracing::info!("Env FASTEMBED_DEVICE overrides: {}", d);
+                    $self.fastembed.device = d;
+                }
+                Err(_) => tracing::warn!("Env FASTEMBED_DEVICE invalid ({}), ignored", val),
+            }
+        }
+    };
+}
+
+// ── Config structs ───────────────────────────────────────────────────────────
+/// Compute device for ONNX inference
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Device {
+    /// Auto-detect per platform (CoreML on macOS, CUDA on Linux, DirectML on Windows)
+    Auto,
+    /// CPU only
+    Cpu,
+    /// Apple CoreML (macOS GPU/Neural Engine)
+    #[serde(rename = "coreml")]
+    CoreML,
+    /// NVIDIA CUDA GPU
+    Cuda,
+    /// Windows DirectML GPU
+    #[serde(rename = "directml")]
+    DirectML,
+}
+
+impl Device {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Device::Auto => "auto",
+            Device::Cpu => "cpu",
+            Device::CoreML => "coreml",
+            Device::Cuda => "cuda",
+            Device::DirectML => "directml",
+        }
+    }
+}
+
+impl std::fmt::Display for Device {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// 服务器配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
@@ -56,13 +147,20 @@ pub struct FastEmbedConfig {
 
     /// 计算设备：auto（按平台自动选 GPU EP）| cpu | coreml | cuda | directml
     #[serde(default = "default_device")]
-    pub device: String,
+    pub device: Device,
 
     /// 每个模型的实例池大小（并发推理上限）。
     /// =1：单实例，并发请求排队（CPU 推理下通常最优，避免线程超订阅）。
     /// >1：创建 N 个独立 ONNX 会话，允许 N 路并发推理（代价 N× 内存）。
     #[serde(default = "default_pool_size")]
     pub pool_size: usize,
+
+    /// 模型包下载 URL（可选）。
+    /// 服务启动时自动从此 URL 下载模型包（.tar.gz）并解压到 cache_dir，
+    /// 下载完成后 fastembed 初始化时发现缓存已存在即跳过 HuggingFace 下载。
+    /// 留空则不自动下载，依赖已有的缓存或 HuggingFace 按需下载。
+    #[serde(default)]
+    pub model_url: Option<String>,
 }
 
 fn default_cache_dir() -> String {
@@ -85,8 +183,8 @@ fn default_batch_size() -> usize {
     256
 }
 
-fn default_device() -> String {
-    "auto".to_string()
+fn default_device() -> Device {
+    Device::Auto
 }
 
 fn default_pool_size() -> usize {
@@ -103,6 +201,7 @@ impl Default for FastEmbedConfig {
             batch_size: default_batch_size(),
             device: default_device(),
             pool_size: default_pool_size(),
+            model_url: None,
         }
     }
 }
@@ -140,65 +239,34 @@ impl AppConfig {
         Ok(())
     }
 
-    /// 应用环境变量覆盖
+    /// Apply environment variable overrides
     pub fn apply_env_overrides(&mut self) {
-        // 服务器
-        if let Ok(host) = std::env::var("FASTEMBED_HOST") {
-            tracing::info!("Env FASTEMBED_HOST overrides host: {}", host);
-            self.server.host = host;
-        }
-        if let Ok(port) = std::env::var("FASTEMBED_PORT") {
-            if let Ok(port) = port.parse::<u16>() {
-                tracing::info!("Env FASTEMBED_PORT overrides port: {}", port);
-                self.server.port = port;
-            } else {
-                tracing::warn!("Env FASTEMBED_PORT 非法 ({})，忽略", port);
-            }
-        }
+        // Server
+        env_str!(self, "FASTEMBED_HOST", self.server.host);
+        env_num!(self, "FASTEMBED_PORT", u16, self.server.port);
 
-        // fastembed
-        if let Ok(cache_dir) = std::env::var("FASTEMBED_CACHE_DIR") {
-            tracing::info!("Env FASTEMBED_CACHE_DIR overrides cache_dir: {}", cache_dir);
-            self.fastembed.cache_dir = cache_dir;
-        }
-        if let Ok(model) = std::env::var("FASTEMBED_MODEL") {
-            tracing::info!("Env FASTEMBED_MODEL overrides default_model: {}", model);
-            self.fastembed.default_model = model;
-        }
-        if let Ok(model) = std::env::var("FASTEMBED_IMAGE_MODEL") {
-            tracing::info!(
-                "Env FASTEMBED_IMAGE_MODEL overrides default_image_model: {}",
-                model
-            );
-            self.fastembed.default_image_model = model;
-        }
-        if let Ok(model) = std::env::var("FASTEMBED_SPARSE_MODEL") {
-            tracing::info!(
-                "Env FASTEMBED_SPARSE_MODEL overrides default_sparse_model: {}",
-                model
-            );
-            self.fastembed.default_sparse_model = model;
-        }
-        if let Ok(device) = std::env::var("FASTEMBED_DEVICE") {
-            tracing::info!("Env FASTEMBED_DEVICE overrides device: {}", device);
-            self.fastembed.device = device;
-        }
-        if let Ok(batch) = std::env::var("FASTEMBED_BATCH_SIZE") {
-            if let Ok(batch) = batch.parse::<usize>() {
-                tracing::info!("Env FASTEMBED_BATCH_SIZE overrides batch_size: {}", batch);
-                self.fastembed.batch_size = batch;
-            } else {
-                tracing::warn!("Env FASTEMBED_BATCH_SIZE 非法 ({})，忽略", batch);
-            }
-        }
-        if let Ok(pool) = std::env::var("FASTEMBED_POOL_SIZE") {
-            if let Ok(pool) = pool.parse::<usize>() {
-                tracing::info!("Env FASTEMBED_POOL_SIZE overrides pool_size: {}", pool);
-                self.fastembed.pool_size = pool;
-            } else {
-                tracing::warn!("Env FASTEMBED_POOL_SIZE 非法 ({})，忽略", pool);
-            }
-        }
+        // FastEmbed
+        env_str!(self, "FASTEMBED_CACHE_DIR", self.fastembed.cache_dir);
+        env_str!(self, "FASTEMBED_MODEL", self.fastembed.default_model);
+        env_str!(
+            self,
+            "FASTEMBED_IMAGE_MODEL",
+            self.fastembed.default_image_model
+        );
+        env_str!(
+            self,
+            "FASTEMBED_SPARSE_MODEL",
+            self.fastembed.default_sparse_model
+        );
+        env_device!(self);
+        env_num!(
+            self,
+            "FASTEMBED_BATCH_SIZE",
+            usize,
+            self.fastembed.batch_size
+        );
+        env_num!(self, "FASTEMBED_POOL_SIZE", usize, self.fastembed.pool_size);
+        env_opt_str!(self, "FASTEMBED_MODEL_URL", self.fastembed.model_url);
     }
 
     /// 加载或生成配置
@@ -255,7 +323,7 @@ mod tests {
         assert_eq!(cfg.default_model, "BGELargeZHV15");
         assert_eq!(cfg.default_image_model, "ClipVitB32");
         assert_eq!(cfg.default_sparse_model, "SPLADEPPV1");
-        assert_eq!(cfg.device, "auto");
+        assert_eq!(cfg.device, Device::Auto);
         assert_eq!(cfg.batch_size, 256);
         assert_eq!(cfg.pool_size, 1);
     }
@@ -271,7 +339,7 @@ mod tests {
         // 反序列化回来等价
         let back: AppConfig = serde_yaml::from_str(&yaml).unwrap();
         assert_eq!(back.fastembed.default_model, cfg.fastembed.default_model);
-        assert_eq!(back.fastembed.device, "auto");
+        assert_eq!(back.fastembed.device, Device::Auto);
         assert_eq!(back.server.port, 8068);
     }
 
@@ -325,7 +393,7 @@ mod tests {
         assert_eq!(cfg.fastembed.default_model, "AllMiniLML6V2");
         assert_eq!(cfg.fastembed.default_image_model, "ClipVitB32");
         assert_eq!(cfg.fastembed.default_sparse_model, "BGEM3");
-        assert_eq!(cfg.fastembed.device, "cpu");
+        assert_eq!(cfg.fastembed.device, Device::Cpu);
         assert_eq!(cfg.fastembed.batch_size, 128);
         assert_eq!(cfg.fastembed.pool_size, 4);
 

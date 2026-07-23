@@ -15,7 +15,7 @@ path = "src/main.rs"
 [dependencies]
 # Web framework
 axum = { workspace = true }
-tokio = { workspace = true, features = ["signal"] }
+tokio = { workspace = true, features = ["signal", "fs"] }
 tower-http = { workspace = true }
 
 # Serialization
@@ -32,14 +32,14 @@ tracing-subscriber = { workspace = true }
 
 # Embedding library
 # image-models：显式启用 ImageEmbedding（fastembed default 已含，这里显式声明避免被 future default 关闭）
-fastembed = { version = "5", features = [
-    "ort-download-binaries",
+fastembed = { workspace = true, features = [
+    "ort-download-binaries-native-tls",
     "hf-hub-native-tls",
     "image-models",
 ] }
 # ort 直接依赖：拿 ort::ep::{CoreML,CUDA,DirectML} 配 GPU execution provider
 # 版本须与 fastembed-rs 锁的 ort 一致（=2.0.0-rc.12）
-ort = "2.0.0-rc.12"
+ort = { workspace = true }
 
 # Concurrency and caching
 dashmap = { workspace = true }
@@ -47,6 +47,15 @@ once_cell = { workspace = true }
 
 # Error handling
 anyhow = { workspace = true }
+
+# HTTP client (model download from URL)
+reqwest = { workspace = true, features = ["stream"] }
+
+# Archive extraction (model bundle .tar.gz)
+flate2 = { workspace = true }
+tar = { workspace = true }
+tempfile = { workspace = true }
+futures = { workspace = true }
 
 # OpenAPI documentation
 utoipa = { workspace = true }

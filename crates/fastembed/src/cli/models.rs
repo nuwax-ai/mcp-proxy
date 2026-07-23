@@ -1,5 +1,8 @@
-use super::{DownloadArgs, ListArgs};
-use crate::models::{EmbeddingType, ModelInfo, get_or_init_model, list_available_models};
+use super::{DownloadArgs, ListArgs, PullArgs};
+use crate::config::Device;
+use crate::models::{
+    EmbeddingType, ModelInfo, download_model_from_url, get_or_init_model, list_available_models,
+};
 use anyhow::Result;
 use std::str::FromStr;
 
@@ -51,7 +54,7 @@ pub async fn download_model(args: DownloadArgs) -> Result<()> {
         &model_input,
         Some(args.cache_dir.to_string_lossy().to_string()),
         None,
-        "cpu",
+        Device::Cpu,
         1,
         args.progress,
     )?;
@@ -135,4 +138,26 @@ fn preview_model_info(model_type: EmbeddingType, input: &str) -> ModelInfo {
         Some(code) => ModelInfo::from_catalog(model_type, &code),
         None => ModelInfo::from_catalog(model_type, input),
     }
+}
+
+/// 从 HTTP(S) URL 拉取模型包
+pub async fn pull_model(args: PullArgs) -> Result<()> {
+    println!("⬇️ 从 URL 拉取模型包...");
+    println!("URL: {}", args.url);
+    println!("缓存目录: {}", args.cache_dir.display());
+    println!();
+
+    let start = std::time::Instant::now();
+
+    download_model_from_url(&args.url, &args.cache_dir).await?;
+
+    let elapsed = start.elapsed();
+    println!();
+    println!("✅ 模型包拉取完成！");
+    println!("总耗时: {:?}", elapsed);
+    println!("缓存位置: {}", args.cache_dir.display());
+    println!();
+    println!("💡 提示: 模型已就绪，启动服务时将自动使用缓存，不会再从 HuggingFace 下载。");
+
+    Ok(())
 }

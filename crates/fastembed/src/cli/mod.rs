@@ -31,6 +31,14 @@ pub struct ServerArgs {
     /// 配置文件路径
     #[arg(short, long)]
     pub config: Option<PathBuf>,
+
+    /// 模型包下载 URL（覆盖配置文件 / FASTEMBED_MODEL_URL）
+    #[arg(long)]
+    pub model_url: Option<String>,
+
+    /// 缓存目录（覆盖配置文件 / FASTEMBED_CACHE_DIR）
+    #[arg(long)]
+    pub cache_dir: Option<PathBuf>,
 }
 
 /// 模型管理子命令
@@ -42,11 +50,14 @@ pub struct ModelsCmd {
 
 #[derive(Subcommand, Debug)]
 pub enum ModelsSubcommand {
-    /// 下载模型到本地缓存
+    /// 下载模型到本地缓存（从 HuggingFace）
     Download(DownloadArgs),
 
     /// 列出已下载的模型
     List(ListArgs),
+
+    /// 从 HTTP(S) URL 拉取模型包（.tar.gz）到缓存目录
+    Pull(PullArgs),
 }
 
 /// 模型下载参数
@@ -99,6 +110,18 @@ pub struct ListArgs {
     /// 模型类型筛选: text | image | sparse
     #[arg(long, default_value = "text")]
     pub r#type: String,
+
+    /// 缓存目录
+    #[arg(long, default_value = ".fastembed_cache")]
+    pub cache_dir: PathBuf,
+}
+
+/// 从 URL 拉取模型包参数
+#[derive(Parser, Debug)]
+pub struct PullArgs {
+    /// 模型包下载地址（http/https）
+    #[arg(long)]
+    pub url: String,
 
     /// 缓存目录
     #[arg(long, default_value = ".fastembed_cache")]

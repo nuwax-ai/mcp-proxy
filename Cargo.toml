@@ -162,6 +162,17 @@ which = "8.0"
 # 国际化支持
 rust-i18n = "4"
 
+# Embedding library (fastembed-server 专用)
+# 版本须与上游 fastembed-rs 同步；features 由各 crate 按需添加
+fastembed = "5.17.3"
+# ort 直接依赖：拿 ort::ep::{CoreML,CUDA,DirectML} 配 GPU execution provider
+# 版本须与 fastembed-rs 锁的 ort 一致（=2.0.0-rc.12）
+ort = "=2.0.0-rc.12"
+
+# Archive extraction（document-parser / fastembed-server 共用）
+flate2 = "1.0"
+tar = "0.4"
+
 # Audio format detection and processing
 symphonia = { version = "0.6", features = ["all"] }
 tokio-stream = "0.1.18"

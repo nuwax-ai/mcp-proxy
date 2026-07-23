@@ -13,16 +13,20 @@ use config::AppConfig;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 初始化日志
+    let cli = Cli::parse();
+
+    // init tracing: server mode needs tower_http debug, CLI commands don't
+    let default_filter = match &cli.command {
+        Commands::Server(_) => "fastembed=info,tower_http=debug",
+        _ => "fastembed=info",
+    };
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "fastembed=info,tower_http=debug".into()),
+                .unwrap_or_else(|_| default_filter.into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
-
-    let cli = Cli::parse();
 
     match cli.command {
         Commands::Server(args) => {
@@ -34,7 +38,17 @@ async fn main() -> Result<()> {
                 config.server.port = port;
             }
 
-            // 启动服务器
+            // CLI model_url overrides config file / env
+            if let Some(url) = args.model_url {
+                config.fastembed.model_url = Some(url);
+            }
+
+            // CLI cache_dir overrides config file / env
+            if let Some(dir) = args.cache_dir {
+                config.fastembed.cache_dir = dir.to_string_lossy().to_string();
+            }
+
+            // Start server
             server::start_server(config).await?;
         }
         Commands::Models(models_cmd) => match models_cmd.command {
@@ -43,6 +57,9 @@ async fn main() -> Result<()> {
             }
             ModelsSubcommand::List(list_args) => {
                 cli::models::list_models(list_args).await?;
+            }
+            ModelsSubcommand::Pull(pull_args) => {
+                cli::models::pull_model(pull_args).await?;
             }
         },
     }
