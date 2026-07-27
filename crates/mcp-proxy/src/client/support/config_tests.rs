@@ -187,6 +187,61 @@ mod config_parsing_tests {
         }
     }
 
+    /// 测试 3.5: auth_token 不带 "Bearer " 前缀时，解析应自动补齐
+    ///
+    /// 回归测试：修复前 auth_token 原样写入 Authorization，导致协议探测（缺 Bearer）
+    /// 与实际连接（补 Bearer）不一致，鉴权 SSE 被误判为 Streamable HTTP。
+    #[test]
+    fn test_parse_remote_service_auth_token_normalized() {
+        let config_json = r#"{
+            "mcpServers": {
+                "auth-service": {
+                    "url": "https://api.example.com/sse",
+                    "type": "sse",
+                    "authToken": "secret-token"
+                }
+            }
+        }"#;
+
+        let args = ConvertArgs {
+            url: None,
+            config: Some(config_json.to_string()),
+            config_file: None,
+            name: None,
+            protocol: None,
+            auth: None,
+            header: vec![],
+            retries: 0,
+            allow_tools: None,
+            deny_tools: None,
+            ping_interval: 30,
+            ping_timeout: 10,
+            logging: LoggingArgs {
+                diagnostic: true,
+                log_dir: None,
+                log_file: None,
+                otlp_endpoint: None,
+                service_name: "mcp-proxy".to_string(),
+            },
+        };
+
+        let result = parse_convert_config(&args);
+        assert!(result.is_ok());
+
+        match result.unwrap() {
+            McpConfigSource::RemoteService { headers, .. } => {
+                // 裸 token 应被规范化为 "Bearer secret-token"，
+                // 使协议探测与连接使用完全一致的 Authorization 值
+                assert_eq!(
+                    headers.get("Authorization"),
+                    Some(&"Bearer secret-token".to_string()),
+                    "auth_token 应自动补 'Bearer ' 前缀"
+                );
+            }
+            _ => panic!("应解析为 RemoteService 类型"),
+        }
+    }
+
     /// 测试 4: 解析远程 URL 配置（使用 url 字段）
     #[test]
     fn test_parse_remote_service_config_url() {

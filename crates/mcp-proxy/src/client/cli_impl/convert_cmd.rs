@@ -67,11 +67,17 @@ pub async fn run_convert_command(args: ConvertArgs, verbose: bool, quiet: bool) 
         crate::client::support::McpConfigSource::DirectUrl { url } => {
             tracing::info!("Mode: direct URL");
             tracing::info!("Target URL: {}", url);
+            // 合并 CLI headers（--header 和 --auth），用于协议探测
+            let merged_headers = crate::client::support::merge_headers(
+                std::collections::HashMap::new(),
+                &args.header,
+                args.auth.as_ref(),
+            );
             // 直接 URL 模式（带自动重连）
             run_url_mode_with_retry(
                 &args,
                 &url,
-                std::collections::HashMap::new(),
+                merged_headers,
                 None,
                 tool_filter,
                 verbose,

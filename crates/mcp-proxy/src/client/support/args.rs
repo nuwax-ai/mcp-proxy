@@ -169,6 +169,10 @@ pub struct CheckArgs {
     #[arg(short, long)]
     pub auth: Option<String>,
 
+    /// 自定义 HTTP headers
+    #[arg(short = 'H', long, value_parser = parse_key_val, help = "自定义 HTTP headers (KEY=VALUE 格式)")]
+    pub header: Vec<(String, String)>,
+
     /// 超时时间
     #[arg(long, default_value = "10")]
     pub timeout: u64,
@@ -184,6 +188,10 @@ pub struct DetectArgs {
     /// 认证 header
     #[arg(short, long)]
     pub auth: Option<String>,
+
+    /// 自定义 HTTP headers
+    #[arg(short = 'H', long, value_parser = parse_key_val, help = "自定义 HTTP headers (KEY=VALUE 格式)")]
+    pub header: Vec<(String, String)>,
 }
 
 /// 健康检查参数

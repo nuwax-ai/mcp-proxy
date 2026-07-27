@@ -75,22 +75,10 @@ pub async fn integrate_server_with_axum(
         McpServerConfig::Command(_) => McpProtocol::Stdio,
         // URL config: parse type field or auto-detect
         McpServerConfig::Url(url_config) => {
-            // Merge headers + auth_token for protocol detection
-            let mut detection_headers = normalize_headers(&url_config.headers).unwrap_or_default();
-            if let Some(auth_token) = &url_config.auth_token {
-                let value = if auth_token.starts_with("Bearer ") {
-                    auth_token.clone()
-                } else {
-                    format!("Bearer {}", auth_token)
-                };
-                detection_headers.insert("Authorization".to_string(), value);
-            }
-            let detection_headers_ref = if detection_headers.is_empty() {
-                None
-            } else {
-                Some(&detection_headers)
-            };
-
+            // Merge headers + auth_token for protocol detection (same headers as backend connection)
+            let detection_headers =
+                merge_headers_with_auth(&url_config.headers, url_config.auth_token.as_deref());
+            // 空 map 等价无 header，探测函数内部按 is_empty 判定，无需 if-empty 桥接
             // Check type field first
             if let Some(type_str) = &url_config.r#type {
                 match type_str.parse::<McpProtocol>() {
@@ -106,7 +94,7 @@ pub async fn integrate_server_with_axum(
                         debug!("Protocol type '{}' unrecognized, auto-detecting", type_str);
                         let detected_protocol = crate::server::detect_mcp_protocol_with_headers(
                             url_config.get_url(),
-                            detection_headers_ref,
+                            Some(&detection_headers),
                         )
                         .await
                         .map_err(|e| {
@@ -129,7 +117,7 @@ pub async fn integrate_server_with_axum(
 
                 crate::server::detect_mcp_protocol_with_headers(
                     url_config.get_url(),
-                    detection_headers_ref,
+                    Some(&detection_headers),
                 )
                 .await
                 .map_err(|e| anyhow::anyhow!("Auto-detection failed: {}", e))?
@@ -315,20 +303,9 @@ async fn connect_stream_backend(
     );
 
     let mut config = mcp_common::McpClientConfig::new(url.to_string());
-    let normalized = normalize_headers(&url_config.headers);
-    if let Some(ref headers) = normalized {
-        for (k, v) in headers {
-            config = config.with_header(k, v);
-        }
-    }
-    // auth_token 合并到 Authorization header（与 build_sse_backend_config 逻辑一致）
-    if let Some(ref auth_token) = url_config.auth_token {
-        let value = if auth_token.starts_with("Bearer ") {
-            auth_token.clone()
-        } else {
-            format!("Bearer {}", auth_token)
-        };
-        config = config.with_header("Authorization", value);
+    let headers = merge_headers_with_auth(&url_config.headers, url_config.auth_token.as_deref());
+    for (k, v) in &headers {
+        config = config.with_header(k, v);
     }
 
     let conn = StreamClientConnection::connect(config).await?;
@@ -358,9 +335,16 @@ fn build_sse_backend_config(
             )),
             McpProtocol::Sse => {
                 info!("Connecting to SSE backend: {}", url_config.get_url());
+                // 合并 auth_token → Authorization，与探测/Stream 连接路径共用 merge_headers_with_auth
+                let headers =
+                    merge_headers_with_auth(&url_config.headers, url_config.auth_token.as_deref());
                 Ok(SseBackendConfig::SseUrl {
                     url: url_config.get_url().to_string(),
-                    headers: normalize_headers(&url_config.headers),
+                    headers: if headers.is_empty() {
+                        None
+                    } else {
+                        Some(headers)
+                    },
                 })
             }
             McpProtocol::Stream => Err(anyhow::anyhow!(
@@ -404,9 +388,18 @@ fn build_stream_backend_config(
                         "Connecting to Streamable HTTP backend: {}",
                         url_config.get_url()
                     );
+                    // 合并 auth_token → Authorization，与 SSE 后端 / 探测路径一致
+                    let headers = merge_headers_with_auth(
+                        &url_config.headers,
+                        url_config.auth_token.as_deref(),
+                    );
                     Ok(StreamBackendConfig::Url {
                         url: url_config.get_url().to_string(),
-                        headers: normalize_headers(&url_config.headers),
+                        headers: if headers.is_empty() {
+                            None
+                        } else {
+                            Some(headers)
+                        },
                     })
                 }
             }
@@ -414,19 +407,38 @@ fn build_stream_backend_config(
     }
 }
 
+/// 合并配置 headers 与 auth_token，并规范化 Authorization（补 "Bearer " 前缀）。
+///
+/// 协议探测与后端连接（SSE / Stream）共用此函数，确保两者使用完全一致的 headers，
+/// 避免出现「探测带鉴权但连接不带」（或反之）导致协议误判或连接失败。
+fn merge_headers_with_auth(
+    headers: &Option<HashMap<String, String>>,
+    auth_token: Option<&str>,
+) -> HashMap<String, String> {
+    let mut merged = normalize_headers(headers).unwrap_or_default();
+    if let Some(token) = auth_token {
+        merged.insert(
+            "Authorization".to_string(),
+            crate::client::support::normalize_authorization(token),
+        );
+    }
+    merged
+}
+
 /// 规范化 headers：确保 Authorization header 有 "Bearer " 前缀
 ///
-/// 与 client 模式 (`convert.rs:build_mcp_config`) 行为一致，
-/// 对没有 "Bearer " 前缀的 Authorization header 自动添加前缀。
+/// 与 client 模式 (`convert.rs:build_mcp_config`) 行为一致，复用
+/// [`normalize_authorization`](crate::client::support::normalize_authorization) 统一处理。
 fn normalize_headers(headers: &Option<HashMap<String, String>>) -> Option<HashMap<String, String>> {
     headers.as_ref().map(|h| {
         h.iter()
             .map(|(k, v)| {
-                if k.eq_ignore_ascii_case("Authorization") && !v.starts_with("Bearer ") {
-                    (k.clone(), format!("Bearer {}", v))
+                let value = if k.eq_ignore_ascii_case("Authorization") {
+                    crate::client::support::normalize_authorization(v)
                 } else {
-                    (k.clone(), v.clone())
-                }
+                    v.clone()
+                };
+                (k.clone(), value)
             })
             .collect()
     })

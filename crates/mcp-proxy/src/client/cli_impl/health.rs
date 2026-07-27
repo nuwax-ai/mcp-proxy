@@ -9,10 +9,11 @@ use mcp_common::McpClientConfig;
 use mcp_sse_proxy::SseClientConnection;
 use mcp_streamable_proxy::StreamClientConnection;
 
-use crate::client::protocol::detect_mcp_protocol;
+use crate::client::protocol::detect_mcp_protocol_with_headers;
 use crate::client::proxy_server::ProxyProtocol;
-use crate::client::support::HealthArgs;
+use crate::client::support::{HealthArgs, merge_headers};
 use crate::model::McpProtocol;
+use std::collections::HashMap;
 
 /// 健康检查结果
 struct HealthCheckResult {
@@ -46,7 +47,10 @@ pub async fn run_health_command(args: HealthArgs, quiet: bool) -> Result<()> {
             if !quiet {
                 eprintln!("Detecting protocol...");
             }
-            let proto = detect_mcp_protocol(&args.url).await?;
+            // 合并 --auth 与 -H 自定义 headers 用于协议探测（空 map 等价无 header）
+            let detection_headers = merge_headers(HashMap::new(), &args.header, args.auth.as_ref());
+            let proto =
+                detect_mcp_protocol_with_headers(&args.url, Some(&detection_headers)).await?;
             if !quiet {
                 eprintln!("Detected protocol: {}", protocol_display_name(&proto));
             }

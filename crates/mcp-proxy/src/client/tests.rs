@@ -415,7 +415,7 @@ mod integration_tests {
         // 2. 测试协议检测
         println!("🔍Detect protocol type...");
         let url = format!("http://{}", addr);
-        let protocol = crate::client::protocol::detect_mcp_protocol(&url).await;
+        let protocol = crate::client::protocol::detect_mcp_protocol_with_headers(&url, None).await;
 
         assert!(protocol.is_ok(), "协议检测应该成功");
 

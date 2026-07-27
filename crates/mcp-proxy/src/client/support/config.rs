@@ -159,9 +159,14 @@ pub fn parse_convert_config(args: &ConvertArgs) -> Result<McpConfigSource> {
                     });
 
             // 合并 headers：JSON 配置中的 auth_token -> Authorization
+            // 统一补 "Bearer " 前缀，与连接路径 (build_mcp_config) 及 server 端探测保持一致，
+            // 避免探测缺前缀收到 401/403 而把鉴权 SSE 误判为 Streamable HTTP
             let mut headers = url_config.headers.clone().unwrap_or_default();
             if let Some(auth_token) = &url_config.auth_token {
-                headers.insert("Authorization".to_string(), auth_token.clone());
+                headers.insert(
+                    "Authorization".to_string(),
+                    normalize_authorization(auth_token),
+                );
             }
 
             Ok(McpConfigSource::RemoteService {
@@ -194,4 +199,22 @@ pub fn merge_headers(
     }
 
     merged
+}
+
+/// 规范化 Authorization header 值，确保 Bearer token 带 `"Bearer "` 前缀。
+///
+/// `auth_token` 配置项通常只写裸 token（如 `"mytoken"`），而 MCP 鉴权服务一般要求
+/// `Authorization: Bearer <token>`。统一在此补前缀，使「协议探测」与「实际连接」使用
+/// 完全一致的 Authorization 值，避免探测因缺前缀收到 401/403 而误判协议。
+///
+/// 已带 `"Bearer "` 前缀的值原样返回。
+///
+/// 注意：CLI `--auth` 不走此函数 —— 它是用户提供的完整 header 值（如 `"Bearer xxx"`、
+/// `"Basic xxx"`），由调用方原样使用。
+pub fn normalize_authorization(value: &str) -> String {
+    if value.starts_with("Bearer ") {
+        value.to_string()
+    } else {
+        format!("Bearer {}", value)
+    }
 }

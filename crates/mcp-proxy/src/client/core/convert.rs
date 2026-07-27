@@ -5,7 +5,7 @@
 use anyhow::Result;
 use std::collections::HashMap;
 
-use crate::client::support::{ConvertArgs, protocol_name};
+use crate::client::support::{ConvertArgs, normalize_authorization, protocol_name};
 use crate::proxy::{McpClientConfig, ToolFilter};
 
 use super::sse::run_sse_mode;
@@ -76,12 +76,14 @@ pub async fn run_url_mode_with_retry(
             eprintln!("🔍 Detecting protocol...");
         }
         let detection_start = std::time::Instant::now();
-        let detected = crate::client::protocol::detect_mcp_protocol(url)
-            .await
-            .map_err(|e| {
-                tracing::error!("Protocol detection failed: {}", e);
-                e
-            })?;
+        // 空 map 等价无 header（is_sse_with_headers 内部按 is_empty 判定），无需 if-empty 桥接
+        let detected =
+            crate::client::protocol::detect_mcp_protocol_with_headers(url, Some(&merged_headers))
+                .await
+                .map_err(|e| {
+                    tracing::error!("Protocol detection failed: {}", e);
+                    e
+                })?;
         let detection_duration = detection_start.elapsed();
         tracing::info!(
             "Protocol detection completed: protocol={}, duration={:?}",
@@ -137,17 +139,14 @@ pub fn build_mcp_config(
 ) -> McpClientConfig {
     let mut config = McpClientConfig::new(url);
     for (k, v) in headers {
-        // Authorization header: 确保有 "Bearer " 前缀，与 Server 模式行为一致
-        if k.eq_ignore_ascii_case("Authorization") {
-            let value = if v.starts_with("Bearer ") {
-                v.clone()
-            } else {
-                format!("Bearer {}", v)
-            };
-            config = config.with_header(k, value);
+        // Authorization: 统一补 "Bearer " 前缀。headers 进入时通常已由 normalize_authorization
+        // 规范化（auth_token 路径），此处为防御性兜底，确保连接路径与探测路径行为完全一致。
+        let value = if k.eq_ignore_ascii_case("Authorization") {
+            normalize_authorization(v)
         } else {
-            config = config.with_header(k, v);
-        }
+            v.clone()
+        };
+        config = config.with_header(k, value);
     }
     if let Some(auth_value) = auth {
         // 命令行 --auth 参数不带 "Bearer " 前缀，直接添加

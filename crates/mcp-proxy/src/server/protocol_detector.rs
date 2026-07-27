@@ -13,14 +13,6 @@ use anyhow::Result;
 use log::info;
 use std::collections::HashMap;
 
-/// Automatically detect the MCP service protocol type
-///
-/// Convenience wrapper around [`detect_mcp_protocol_with_headers`] that passes no
-/// custom headers.
-pub async fn detect_mcp_protocol(url: &str) -> Result<McpProtocol> {
-    detect_mcp_protocol_with_headers(url, None).await
-}
-
 /// Automatically detect the MCP service protocol type, with optional custom headers
 ///
 /// Detection logic:
@@ -62,7 +54,7 @@ mod tests {
     #[tokio::test]
     async fn test_detect_invalid_url() {
         // Invalid URL should default to Stream
-        let result = detect_mcp_protocol("not-a-url").await;
+        let result = detect_mcp_protocol_with_headers("not-a-url", None).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), McpProtocol::Stream);
     }
@@ -70,7 +62,7 @@ mod tests {
     #[tokio::test]
     async fn test_detect_nonexistent_server() {
         // Non-existent server should default to Stream
-        let result = detect_mcp_protocol("http://localhost:99999/mcp").await;
+        let result = detect_mcp_protocol_with_headers("http://localhost:99999/mcp", None).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), McpProtocol::Stream);
     }

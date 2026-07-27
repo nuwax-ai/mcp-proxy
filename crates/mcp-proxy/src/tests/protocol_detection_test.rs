@@ -239,7 +239,9 @@ async fn test_howtocook_sse_protocol_detection() {
 
     // 3. 综合探测应返回 Sse
     println!("\\n--- Comprehensive protocol detection ---");
-    let detected = crate::server::detect_mcp_protocol(&url).await.unwrap();
+    let detected = crate::server::detect_mcp_protocol_with_headers(&url, None)
+        .await
+        .unwrap();
     println!("detect_mcp_protocol = {:?}", detected);
     assert_eq!(detected, McpProtocol::Sse, "综合探测应返回 Sse 协议");
 
@@ -262,7 +264,9 @@ async fn test_zimage_detection_without_headers() {
     assert!(!is_sse);
 
     // 综合探测应兜底为 Stream
-    let detected = crate::server::detect_mcp_protocol(url).await.unwrap();
+    let detected = crate::server::detect_mcp_protocol_with_headers(url, None)
+        .await
+        .unwrap();
     println!("detect_mcp_protocol = {:?}", detected);
     assert_eq!(detected, McpProtocol::Stream, "无 header 时应兜底为 Stream");
 
