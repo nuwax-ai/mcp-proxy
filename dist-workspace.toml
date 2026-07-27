@@ -1,6 +1,6 @@
 [workspace]
 # 只包含需要发布的包，排除 fastembed 等不支持所有平台的包
-members = ["cargo:mcp-proxy"]
+members = ["cargo:crates/mcp-proxy"]
 
 # Config for 'dist'
 [dist]
@@ -20,6 +20,10 @@ targets = [
 ]
 # Publish jobs to run in CI
 publish-jobs = ["npm"]
+# 只发布 mcp-stdio-proxy，避免构建 voice-cli 等带 sherpa-onnx/ort 的重依赖
+packages = ["mcp-stdio-proxy"]
+# 只构建待发布包，不用 cargo build --workspace（否则会编译 voice-cli 等全部 member）
+precise-builds = true
 # Path that installers should place binaries in
 install-path = "CARGO_HOME"
 # Whether to install an updater program

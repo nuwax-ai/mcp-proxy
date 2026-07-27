@@ -1,0 +1,25 @@
+WHITESPACE = _{ " " | "\t" }
+alpha = { 'a'..'z' | 'A'..'Z' }
+digit = { '0'..'9' }
+
+module_name = @{ alpha ~ (alpha | digit | "_")* }
+
+module_name_alias = @{ alpha ~ (alpha | digit | "_")* }
+
+import_statement = ${ "import" ~ WHITESPACE+ ~ module_name}
+
+from_import_statement = ${ "from" ~  WHITESPACE+ ~ module_name ~  WHITESPACE+ ~ ("import"  ~ WHITESPACE+ ~ module_name_alias)? }
+
+
+quote = {( "'" | "\"")}
+
+importlib_statement = { module_name_alias? ~ "="? ~ "importlib.import_module" ~ "(" ~ WHITESPACE* ~ quote ~ module_name ~ quote ~ WHITESPACE* ~ ")" }
+
+empty_line = _{ WHITESPACE* ~ ("\r\n" | "\n") }
+
+line = _{ (!("\r\n" | "\n") ~ ANY)* ~ ("\r\n" | "\n") }
+
+record = { from_import_statement| import_statement | importlib_statement | empty_line | line }
+
+file = { SOI ~ record* ~ EOI }
+

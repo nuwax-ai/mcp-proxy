@@ -36,16 +36,10 @@ RUN apt-get update && apt-get install -y \
 # 设置 libclang 路径 (bindgen 需要)
 ENV LIBCLANG_PATH=/usr/lib/llvm-14/lib
 
-# 复制源代码（复制所有 workspace 成员）
+# 复制源代码（所有 workspace 成员都在 crates/ 下，一次性拷贝；
+# 含 vendor 的 run-code-rmcp + voice-toolkit 4 个 crate，否则 workspace 加载不全）
 COPY Cargo.toml Cargo.lock ./
-COPY mcp-common/ ./mcp-common/
-COPY mcp-sse-proxy/ ./mcp-sse-proxy/
-COPY mcp-streamable-proxy/ ./mcp-streamable-proxy/
-COPY mcp-proxy/ ./mcp-proxy/
-COPY oss-client/ ./oss-client/
-COPY document-parser/ ./document-parser/
-COPY voice-cli/ ./voice-cli/
-COPY fastembed/ ./fastembed/
+COPY crates/ ./crates/
 
 # 根据 TARGETARCH 设置交叉编译环境
 RUN echo "=== Starting build process ==="

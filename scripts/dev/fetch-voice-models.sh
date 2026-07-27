@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+# 拉取 voice-cli 模型：STT whisper ggml（modelscope）+ TTS Kokoro v1_1（gh-proxy）+ 可选 ZipVoice（FETCH_ZIPVOICE=1）
+#
+# 背景：HuggingFace 阻断，故 STT 走 modelscope 镜像、TTS 走 gh-proxy。
+#   模型放到 crates/voice-cli/models/（对齐 config.yml 的 whisper.models_dir / tts.engine.models_dir）。
+#
+# 用法:
+#   bash scripts/dev/fetch-voice-models.sh                # STT 用 config.yml 的 default_model，含 TTS
+#   bash scripts/dev/fetch-voice-models.sh large-v3       # 显式指定 STT 模型（~3GB）
+#   bash scripts/dev/fetch-voice-models.sh base           # base 141MB，快速冒烟
+#   SKIP_TTS=1 bash scripts/dev/fetch-voice-models.sh     # 只拉 STT
+#
+# 可用环境变量覆盖:
+#   MODELSCOPE  modelscope whisper 仓库（默认 cjc1887415157/whisper.cpp）
+#   PROXY       GitHub 镜像（kokoro 用；不设则自动探活 ghproxy.net/gh-proxy.com/mirror.ghproxy.com 择优）
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VOICE_DIR="$SCRIPT_DIR/../../crates/voice-cli"
+MODELS_DIR="$VOICE_DIR/models"
+TTS_DIR="$MODELS_DIR/tts"
+
+MODELSCOPE="${MODELSCOPE:-https://modelscope.cn/models/cjc1887415157/whisper.cpp/resolve/master}"
+PROXY="${PROXY:-}"   # 手动指定 GitHub 镜像；留空则自动探活（kokoro 用）
+
+# GitHub 镜像列表（单个镜像偶发卡死，按序 5s 探活，首个可用即用）
+GH_MIRRORS=(
+    "https://ghproxy.net"
+    "https://gh-proxy.com"
+    "https://mirror.ghproxy.com"
+)
+
+# 选可用 GitHub 镜像（PROXY 已手动指定则跳过）。$1 = 完整 github URL。
+resolve_proxy() {
+    [ -n "$PROXY" ] && return 0
+    local target="$1"
+    local name="${1##*/}"
+    echo "🔍 探活 GitHub 镜像（${name}）..."
+    for m in "${GH_MIRRORS[@]}"; do
+        local sz
+        sz=$(curl -sL -m 5 -r 0-2000000 -o /dev/null -w '%{size_download}' "${m}/${target}" 2>/dev/null) || true
+        sz="${sz%.*}"; case "$sz" in ''|*[!0-9]*) sz=0 ;; esac
+        if [ "$sz" -gt 1000000 ]; then
+            PROXY="$m"; echo "  ✅ $m"; return 0
+        fi
+        echo "  ⚠️  ${m}（5s 内 $((sz/1024)) KB，跳过）"
+    done
+    echo "❌ 所有镜像不可用。手动指定: PROXY=https://<镜像> bash $0" >&2
+    exit 1
+}
+
+# 默认从 config.yml 读 default_model（保证 setup 拉的模型 = run 时要用的模型）
+config_default() {
+    grep -E '^\s*default_model:' "$VOICE_DIR/config.yml" | head -1 | awk '{print $2}' | tr -d '"'
+}
+STT_MODEL="${1:-$(config_default)}"
+[ -n "$STT_MODEL" ] || { echo "❌ 无法从 config.yml 读 default_model，请显式传参: bash $0 base"; exit 1; }
+
+mkdir -p "$MODELS_DIR" "$TTS_DIR"
+
+echo "=== 1) STT whisper ggml ($STT_MODEL) ← modelscope ==="
+STT_FILE="$MODELS_DIR/ggml-$STT_MODEL.bin"
+if [ -f "$STT_FILE" ]; then
+    echo "  ✅ 已存在: ggml-$STT_MODEL.bin ($(du -h "$STT_FILE" | cut -f1))"
+else
+    url="$MODELSCOPE/ggml-$STT_MODEL.bin"
+    echo "  ⬇️  $url"
+    if curl -fL --retry 3 --connect-timeout 30 -o "$STT_FILE.partial" "$url"; then
+        mv "$STT_FILE.partial" "$STT_FILE"
+        echo "  ✅ 完成: $(du -h "$STT_FILE" | cut -f1)"
+    else
+        rm -f "$STT_FILE.partial"
+        echo "  ❌ STT 下载失败: $STT_MODEL" >&2
+        echo "     modelscope 仓库可能不含该模型，试小模型: bash $0 base  (或 tiny/small/medium)" >&2
+        echo "     并把 config.yml 的 whisper.default_model 改成对应值" >&2
+        exit 1
+    fi
+fi
+
+if [ "${SKIP_TTS:-0}" = "1" ]; then
+    echo "=== 2) TTS kokoro: 跳过（SKIP_TTS=1）==="
+    echo
+    echo "✅ STT 就绪: $STT_FILE"
+    exit 0
+fi
+
+echo "=== 2) TTS kokoro-multi-lang-v1_1 ← gh-proxy ==="
+KOKORO_DIR="$TTS_DIR/kokoro-multi-lang-v1_1"
+if [ -f "$KOKORO_DIR/model.onnx" ]; then
+    echo "  ✅ 已存在: $KOKORO_DIR"
+else
+    url_target="https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-multi-lang-v1_1.tar.bz2"
+    resolve_proxy "$url_target"
+    url="${PROXY}/${url_target}"
+    echo "  ⬇️  $url"
+    tar_tmp="$TTS_DIR/kokoro.tar.bz2"
+    if curl -fSL --retry 3 --connect-timeout 30 -o "$tar_tmp" "$url"; then
+        tar xjf "$tar_tmp" -C "$TTS_DIR"
+        rm -f "$tar_tmp"
+        echo "  ✅ 完成: $KOKORO_DIR"
+    else
+        rm -f "$tar_tmp"
+        echo "  ⚠️  kokoro 下载失败（TTS 可选，不影响 STT）" >&2
+        echo "     不用 TTS 的话，确认 config.yml tts.enabled: false 即可" >&2
+        exit 1
+    fi
+fi
+
+# 可选：ZipVoice 零样本克隆（中英）。FETCH_ZIPVOICE=1 才拉（Kokoro 是默认多音色；ZipVoice 是克隆引擎，需 reference 音频+文本）。
+if [ "${FETCH_ZIPVOICE:-0}" = "1" ]; then
+    echo "=== 3) TTS ZipVoice + vocos ← gh-proxy（可选，克隆引擎）==="
+    ZV_DIR="$TTS_DIR/sherpa-onnx-zipvoice-distill-int8-zh-en-emilia"
+    if [ -f "$ZV_DIR/encoder.int8.onnx" ] && [ -f "$ZV_DIR/vocos_24khz.onnx" ]; then
+        echo "  ✅ 已存在: $ZV_DIR"
+    else
+        url_target="https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-zipvoice-distill-int8-zh-en-emilia.tar.bz2"
+        resolve_proxy "$url_target"
+        if curl -fSL --retry 3 --connect-timeout 30 -o "$TTS_DIR/zipvoice.tar.bz2" "${PROXY}/${url_target}"; then
+            tar xjf "$TTS_DIR/zipvoice.tar.bz2" -C "$TTS_DIR" && rm -f "$TTS_DIR/zipvoice.tar.bz2"
+            # vocoder（vocos_24khz.onnx）独立下载，放 ZipVoice 目录
+            vocos_target="https://github.com/k2-fsa/sherpa-onnx/releases/download/vocoder-models/vocos_24khz.onnx"
+            curl -fSL --retry 3 --connect-timeout 30 -o "$ZV_DIR/vocos_24khz.onnx" "${PROXY}/${vocos_target}"
+            echo "  ✅ 完成: $ZV_DIR（含 vocos_24khz.onnx）"
+        else
+            rm -f "$TTS_DIR/zipvoice.tar.bz2"
+            echo "  ⚠️  ZipVoice 下载失败（可选，不影响 Kokoro）" >&2
+        fi
+    fi
+fi
+
+echo
+echo "✅ voice-cli 模型就绪: $MODELS_DIR"
+echo "   STT:  ggml-$STT_MODEL.bin"
+echo "   TTS:  $KOKORO_DIR（+ ${ZV_DIR:-}，若拉了 ZipVoice）"

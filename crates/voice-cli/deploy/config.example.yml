@@ -1,0 +1,119 @@
+# Voice CLI 配置模板（纯 Rust：STT transcribe-rs + TTS sherpa-onnx Kokoro）
+# 部署时复制为 config.yml，按需修改 server.port / whisper.default_model / tts.enabled
+# 启动必须用 `voice-cli server run --config config.yml`（--config 在 server run 后，全局 -c 在 server run 时被代码忽略）
+# 字段权威源: src/models/config.rs + docs/DEPLOYMENT.md §5
+
+server:
+  host: "0.0.0.0"
+  port: 8077                       # ← 监听端口
+  max_file_size: 209715200         # 200MB 上传上限
+  cors_enabled: true
+
+whisper:
+  default_model: "base"            # 默认转写模型（CPU 用 base/tiny 加速；Metal/CUDA 可 large-v3）
+  models_dir: "./models"
+  auto_download: false             # 建议 false（联网受限），模型手动放好
+  supported_models: ["tiny", "base", "small", "medium", "large-v3"]
+  audio_processing:
+    supported_formats: ["mp3", "wav", "flac", "m4a", "ogg", "aac", "opus", "mp4"]
+    auto_convert: true             # ffmpeg-sidecar 自动转 16k/mono/s16le
+    conversion_timeout: 60
+    temp_file_cleanup: true
+    temp_file_retention: 300
+  workers:
+    transcription_workers: 3
+    channel_buffer_size: 100
+    worker_timeout: 3600
+  # engine:                        # STT 引擎配置（可选，全部有默认值）
+  #   output_script: "simplified"  # 输出脚本：simplified(默认,繁→简;英文透传) / original(原样输出)
+  #   backend: "whisper"           # STT 后端：whisper(默认) / sensevoice / fireredasr2 / funasrnano / qwen3asr。
+  #                                 #   sensevoice 仅批量（流式仍 whisper），中文 CER 优于 whisper、原生简体；
+  #                                 #   需 `--features sensevoice` 编译（Mac）/ sensevoice-cuda(Linux)。
+  #                                 #   fireredasr2/funasrnano/qwen3asr 走 sherpa-onnx（与 TTS 同库，Mac 可 CoreML GPU），
+  #                                 #   均仅批量；无需 feature 门控（sherpa-onnx C 库本就为 TTS 无条件链接）。
+  #   sensevoice:                  # 仅 backend=sensevoice 生效（模型 host 预置，无自动下载）
+  #     model_dir: "./models/sensevoice/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
+  #     quantization: "int8"       # fp32/fp16/int8(默认)/int4 → 读对应 model.<quant>.onnx
+  #     use_itn: true              # 逆文本归一化（数字/日期口语→书面）
+  #   sherpa:                      # 仅 backend=fireredasr2|funasrnano|qwen3asr 生效（sherpa-onnx 引擎池）
+  #     provider: "coreml"         # ONNX EP：留空=CPU；coreml=Mac GPU/ANE；cuda=Linux NVIDIA。per-instance（与 transcribe-rs 全局 device 独立）
+  #     pool_size: 1               # 引擎实例数（CPU 最优 1）
+  #     fireredasr2:               # FireRedASR2-AED（zh/en/20+ 方言，1.1B；Mac CoreML 受益最大）
+  #       model_dir: "./models/fireredasr2/sherpa-onnx-fire-red-asr2-zh_en-int8-2026-02-26"
+  #     funasrnano:                # Fun-ASR-Nano（800M LLM-decoder，31 语 + 热词）
+  #       model_dir: "./models/funasrnano/sherpa-onnx-funasr-nano-int8-2025-12-30"
+  #       hotwords: ""             # 热词（逗号分隔），可空
+  #     qwen3asr:                  # Qwen3-ASR-0.6B（52 语 + 22 方言 + 热词）
+  #       model_dir: "./models/qwen3asr/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25"
+  #       hotwords: ""
+  #       max_new_tokens: 1024     # 生成 token 上限（长音频调高；sherpa Rust 默认 128 偏小）
+  # streaming:                     # STT 流式（可选，全部有默认值）
+  #   engine: "whisper"           # 流式引擎（与批量 backend 解耦；默认 whisper——唯一支持 LA2 真流式；
+  #                                 #   sherpa/sensevoice 是离线模型无流式能力）。加新流式引擎见 build_streaming_decoder
+  #   model: "large-v3"           # 流式 whisper 模型（None = 回退 default_model；可与批量 whisper 默认解耦）
+  #   decode_interval_sec: 0.5     # 解码触发间隔
+  #   tail_trim_sec: 0.3           # B 解码尾部裁剪
+  #   min_agree_count: 2           # LA2 前缀稳定阈值
+  #   buffer_max_sec: 30           # 长会话 utterance 切分阈值（超时 flush+reset，详见 docs/API.md §4）
+  #   idle_timeout_sec: 30
+  #   decode_timeout_sec: 30
+  #   compare_granularity: "auto"  # auto（按 language 推断）/ char / word
+
+# TTS（sherpa-onnx；Kokoro / ZipVoice 双引擎）—— 默认禁用
+# 启用: 置 enabled: true + 放模型到 ./models/tts/<model_id>/
+#   - Kokoro（标准多音色）: kokoro-multi-lang-v1_1/（103 音色；lexicon 组合 us-en+zh，不含 gb-en）
+#   - ZipVoice（零样本克隆，中英）: zipvoice-distill-int8-zh-en-emilia/ + vocos_24khz.onnx（vocoder 独立下载）
+#     克隆需 reference 音频+文本：预置 config.tts.engine.zipvoice.voices（请求 voice:<name>）
+#     或请求期动态上传 reference_audio（base64 WAV）。
+# 模型下载见 docs/DEPLOYMENT.md §4
+tts:
+  enabled: false                   # ← true 启用（不启用时 /api/v1/tts* 返回 403，STT 正常）
+  max_text_length: 5000
+  # tasks_db_path: "./data/tts_tasks.db"   # TTS 异步任务独立 SQLite（默认；与 STT 的 ./data/tasks.db 隔离）
+  engine:
+    backend: kokoro                # TTS 引擎：kokoro（标准多音色，默认）/ zipvoice（零样本克隆）
+    pool_size: 1                   # 引擎实例数（CPU 最优 1；多实例并发但内存×N）
+    default_model: "kokoro-multi-lang-v1_1"
+    default_sid: 0                 # Kokoro 默认音色 id（0-102）
+    default_speed: 1.0             # 语速（1.0 原速）
+    default_length_scale: 1.0      # Kokoro 时长缩放（model-level，仅首次加载生效）
+    num_threads: 4
+    warmup: true                   # 启动期预热默认引擎（避免首用户 ~10-20s 加载延迟；代价启动多 ~15s；关掉则首用户触发懒加载）
+    models_dir: "./models/tts"
+    # ZipVoice 引擎配置（仅 backend: zipvoice 生效）
+    # zipvoice:
+    #   # model_dir: "./models/tts/zipvoice-distill-int8-zh-en-emilia"  # None = {models_dir}/{default_model}
+    #   # vocoder: "./models/tts/vocos_24khz.onnx"                       # None = 探测 {model_dir}/vocos_24khz.onnx
+    #   num_steps: 4                # flow-matching 步数（4 默认；调大更稳但更慢）
+    #   feat_scale: 0.1             # 4 个超参 Rust Default=0.0 会被 C++ 拒绝，必须 >0（下面是示例值）
+    #   t_shift: 0.5
+    #   target_rms: 0.1
+    #   guidance_scale: 1.0
+    #   voices:                     # 预置音色组（启动期加载缓存；请求 voice:<name> 引用）
+    #     - name: leijun
+    #       reference_wav: "./models/tts/zipvoice-distill-int8-zh-en-emilia/test_wavs/leijun-1.wav"
+    #       reference_text: "那还是三十六年前, 一九八七年. 我呢考上了武汉大学的计算机系."
+  # streaming:                     # 可选，全部有默认值
+  #   idle_timeout_sec: 30
+  #   synth_timeout_sec: 120
+  #   default_format: "pcm_s16le"
+
+logging:
+  level: "info"                    # trace/debug/info/warn/error
+  log_dir: "./logs"
+  max_file_size: "100MB"
+  max_files: 20
+
+daemon:
+  pid_file: "./voice-cli-server.pid"
+  log_file: "./logs/server-daemon.log"
+  work_dir: "./"
+
+# 异步任务队列（apalis + SQLite，STT/TTS 共用）
+task_management:
+  max_concurrent_tasks: 4
+  retry_attempts: 2
+  task_timeout_seconds: 3600
+  catch_panic: true
+  task_retention_minutes: 1440     # 24 小时
+  sqlite_db_path: "./data/tasks.db"

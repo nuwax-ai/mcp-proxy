@@ -1,0 +1,170 @@
+[package]
+name = "voice-cli"
+version.workspace = true
+edition.workspace = true
+authors = ["soddygo <soddygo@qq.com>"]
+description = "Speech-to-text HTTP service with CLI interface"
+license = "MIT"
+repository = "https://github.com/nuwax-ai/mcp-proxy"
+
+[package.metadata.dist]
+dist = false
+
+[[bin]]
+name = "voice-cli"
+path = "src/main.rs"
+
+[dependencies]
+# Web framework and HTTP handling
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+
+# OpenAPI documentation generation
+utoipa = { workspace = true, features = ["axum_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { workspace = true, features = ["axum"] }
+
+# Async runtime（workspace tokio 已含 macros/net/rt/rt-multi-thread；voice-cli 再加 signal）
+tokio = { workspace = true, features = ["signal"] }
+tokio-util = { workspace = true }
+
+# CLI argument parsing
+clap = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+
+# Configuration management
+config = { workspace = true }
+
+# Logging and tracing
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+tracing-opentelemetry = { workspace = true }
+opentelemetry = { workspace = true, features = ["trace"] }
+opentelemetry-jaeger = { workspace = true, features = ["rt-tokio"] }
+opentelemetry-semantic-conventions = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# 国际化支持
+rust-i18n = { workspace = true }
+
+# HTTP client for model downloads
+# 使用 rustls + webpki-roots（内置 Mozilla 根证书），避免动态链接系统 OpenSSL。
+# 这样产物不依赖任何版本的 libssl.so，跨发行版部署不会再出现 libssl.so.1.1 找不到的问题。
+# reqwest 0.12（**不**走 workspace 0.13）：0.13 的 rustls 拉入 aws-lc-rs（大 C 加密库），
+# 令本 STT 重二进制（whisper.cpp + ort + sherpa）启动即被 macOS jetsam SIGKILL。
+# 0.12 同 mcp-sse-proxy（rmcp 0.10 trait impl 对齐）。default-features=false + rustls-tls 免系统 TLS。
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "stream",
+    "rustls-tls",
+    "charset",
+    "http2",
+] }
+
+# Time handling
+chrono = { workspace = true, features = ["serde"] }
+
+# Utilities
+bytes = { workspace = true }
+futures = { workspace = true }
+uuid = { workspace = true, features = ["v4","v7"] }
+base64 = { workspace = true }
+tempfile = { workspace = true }
+dirs = { workspace = true }
+url = { workspace = true }
+deploy-installer = { workspace = true }
+
+# Embedded database for task persistence
+# sled = { version = "0.34", features = ["compression"] }  # Disabled due to zstd dependency conflict
+
+
+# Audio format detection with Symphonia
+symphonia = { workspace = true }
+dashmap = { workspace = true }
+infer = { workspace = true }
+
+# FFmpeg command wrapper（统一到 workspace 2.5，与 voice crates 一致）
+ffmpeg-sidecar = { workspace = true }
+
+# Task queue and persistence for async processing
+# workspace apalis 已含 tracing/limit；voice-cli 再加 timeout/catch-panic/retry/filter
+apalis = { workspace = true, features = ["timeout", "catch-panic", "retry", "filter"] }
+apalis-sql = { workspace = true }
+sqlx = { workspace = true }
+
+
+
+[target.'cfg(windows)'.dependencies]
+winapi = { workspace = true }
+
+[dependencies.voice-toolkit]
+workspace = true
+
+# STT 引擎 transcribe-rs：按平台默认 GPU feature（裸 cargo build 即带平台最优后端）
+# - macOS：默认 whisper-metal（Metal framework 系统自带，编译可靠）
+# - Linux/其他：默认 whisper-cpp（CPU）；GPU 通过 `--features cuda`/`vulkan` 显式启用
+#   （需对应 CUDA toolkit / Vulkan SDK，避免缺 SDK 时默认 build 失败）
+[target.'cfg(target_os = "macos")'.dependencies]
+transcribe-rs = { workspace = true, features = ["whisper-cpp", "whisper-metal"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+transcribe-rs = { workspace = true, features = ["whisper-cpp"] }
+
+# TTS/STT 引擎 sherpa-onnx：各平台均用 **shared** 变体。
+# - macOS：CoreML EP 仅 shared 启用（static 编译时禁用 → CPU 回退）。
+# - Linux：CUDA 预编译包（sherpa-onnx-v*cuda-12.x-cudnn-9.x-linux-x64-gpu）是 shared；
+#   CPU 用 linux-x64-shared-lib。CUDA 走 SHERPA_ONNX_LIB_DIR 指向解压后的 lib/
+#   （含 libonnxruntime_providers_cuda.so，运行时按需加载 → A6000）。
+# shared 模式 dylib 放 binary 旁 + rpath（macOS @loader_path / Linux $ORIGIN，见 .cargo/config）。
+# 编译期：SHERPA_ONNX_LIB_DIR（自定义 lib，如 CUDA 包）或 SHERPA_ONNX_ARCHIVE_DIR（自动下载缓存）。
+[target.'cfg(target_os = "macos")'.dependencies.sherpa-onnx]
+workspace = true
+features = ["shared"]
+
+[target.'cfg(not(target_os = "macos"))'.dependencies.sherpa-onnx]
+workspace = true
+features = ["shared"]
+
+# 繁→简中文转换（STT 后处理，纯 Rust ferrous-opencc）
+[dependencies.ferrous-opencc]
+workspace = true
+
+[dev-dependencies]
+tempfile = { workspace = true }
+# STT 端到端基准（见 benches/stt_engines.rs，经 HTTP 调用运行中的 server）。harness=false 走 criterion_main。
+# reqwest 的 multipart feature 在 workspace 根统一开（避免 dev-dep 与 lib normal-dep 特征集不一致 → multiple candidates）
+criterion = { workspace = true }
+# bench 经 HTTP 调用 server（localhost，无需 TLS）；0.12 与 lib 的 reqwest 0.12 同版本统一为一个 artifact
+reqwest = { version = "0.12", default-features = false, features = ["multipart"] }
+tokio = { workspace = true }
+
+# STT 引擎推理基准：测各引擎纯模型 RTF（fireredasr2/funasrnano/qwen3asr/sensevoice/whisper）。
+# 模型/音频缺省自动跳过；用法见 benches/stt_engines.rs 顶部文档。
+[[bench]]
+name = "stt_engines"
+harness = false
+
+
+[features]
+default = []
+# STT GPU 加速（transcribe-rs 后端）：
+# - macOS 默认已 whisper-metal（见上方 [target] 段），无需 --features
+# - Linux 用 cuda（NVIDIA + CUDA toolkit）或 vulkan（Vulkan SDK）
+cuda = ["transcribe-rs/whisper-cuda"]
+vulkan = ["transcribe-rs/whisper-vulkan"]
+# STT SenseVoice ONNX 引擎（transcribe-rs `onnx` 后端，与 whisper 并存）：
+# - sensevoice：CPU ONNX（Mac dev 默认，功能验证；裸 cargo build -p voice-cli --features sensevoice）
+# - sensevoice-coreml：Mac Neural Engine/GPU 加速（需 ort-coreml，可选）
+# - sensevoice-cuda：Linux NVIDIA CUDA 加速（需 ort-cuda + CUDA toolkit/cuDNN，~800MB）
+# 配 `whisper.engine.backend: sensevoice` 启用；批量转录用 SenseVoice，流式仍 whisper。
+sensevoice = ["transcribe-rs/onnx"]
+sensevoice-coreml = ["sensevoice", "transcribe-rs/ort-coreml"]
+sensevoice-cuda = ["sensevoice", "transcribe-rs/ort-cuda"]

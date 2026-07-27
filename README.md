@@ -81,7 +81,7 @@ cargo install mcp-stdio-proxy
 ```bash
 # Clone repository
 git clone https://github.com/nuwax-ai/mcp-proxy.git
-cd mcp-proxy
+cd crates/mcp-proxy
 
 # Build all workspace members
 cargo build --release
@@ -113,14 +113,14 @@ mcp-proxy check https://example.com/mcp/sse
 mcp-proxy detect https://example.com/mcp
 ```
 
-**See:** [mcp-proxy/README.md](./mcp-proxy/README.md) for detailed documentation.
+**See:** [crates/mcp-proxy/README.md](./crates/mcp-proxy/README.md) for detailed documentation.
 
 ### Document Parser
 
 High-performance document parsing service supporting PDF, Word, Excel, and PowerPoint.
 
 ```bash
-cd document-parser
+cd crates/document-parser
 
 # Initialize Python environment (first time)
 document-parser uv-init
@@ -132,14 +132,14 @@ document-parser check
 document-parser server
 ```
 
-**See:** [document-parser/README.md](./document-parser/README.md) for detailed documentation.
+**See:** [crates/document-parser/README.md](./crates/document-parser/README.md) for detailed documentation.
 
 ### Voice CLI
 
 Speech-to-text HTTP service with Whisper model support.
 
 ```bash
-cd voice-cli
+cd crates/voice-cli
 
 # Initialize server configuration
 voice-cli server init
@@ -154,7 +154,7 @@ voice-cli model list
 voice-cli model download tiny
 ```
 
-**See:** [voice-cli/README.md](./voice-cli/README.md) for detailed documentation.
+**See:** [crates/voice-cli/README.md](./crates/voice-cli/README.md) for detailed documentation.
 
 ## Architecture
 
@@ -257,10 +257,10 @@ make run
 ## Documentation
 
 - [CLAUDE.md](./CLAUDE.md) - Development guide for contributors
-- [mcp-proxy/README.md](./mcp-proxy/README.md) - MCP Proxy documentation
-- [document-parser/README.md](./document-parser/README.md) - Document Parser documentation
-- [voice-cli/README.md](./voice-cli/README.md) - Voice CLI documentation
-- [oss-client/README.md](./oss-client/README.md) - OSS Client documentation
+- [crates/mcp-proxy/README.md](./crates/mcp-proxy/README.md) - MCP Proxy documentation
+- [crates/document-parser/README.md](./crates/document-parser/README.md) - Document Parser documentation
+- [crates/voice-cli/README.md](./crates/voice-cli/README.md) - Voice CLI documentation
+- [crates/oss-client/README.md](./crates/oss-client/README.md) - OSS Client documentation
 
 ## License
 

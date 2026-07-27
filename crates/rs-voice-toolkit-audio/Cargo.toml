@@ -1,0 +1,30 @@
+[package]
+name = "rs-voice-toolkit-audio"
+version.workspace = true
+description = "Audio processing utilities for rs-voice-toolkit"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/soddygo/rs-voice-toolkit"
+keywords = ["audio", "processing", "resampling", "wav"]
+categories = ["multimedia::audio"]
+edition.workspace = true
+authors = ["rs-voice-toolkit contributors"]
+
+[package.metadata.docs.rs]
+# 禁用 FFmpeg 相关的功能，因为 docs.rs 环境没有 FFmpeg
+all-features = false
+features = []
+
+[lib]
+name = "rs_voice_toolkit_audio"
+path = "src/lib.rs"
+
+[dependencies]
+thiserror = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+log = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+# voice 专属依赖（workspace 未集中管理）
+hound = "3.5"
+rubato = "3"
+audioadapter-buffers = "3.0"
+ffmpeg-sidecar = { workspace = true }

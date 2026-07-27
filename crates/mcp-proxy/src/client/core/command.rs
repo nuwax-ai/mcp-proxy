@@ -1,0 +1,151 @@
+//! 本地命令模式处理
+//!
+//! 处理本地命令形式的 MCP 服务（通过子进程）
+
+use anyhow::Result;
+use std::collections::HashMap;
+use std::process::Stdio;
+
+use crate::proxy::{StreamProxyHandler, ToolFilter};
+
+// 使用 mcp-streamable-proxy 的类型
+use mcp_streamable_proxy::{
+    BackendNotificationBridge, ServiceExt, TokioChildProcess, UpstreamPeerRegistry, stdio,
+};
+
+use crate::client::support::utils::truncate_str;
+
+// 进程组管理（跨平台子进程清理）
+use process_wrap::tokio::{CommandWrap, KillOnDrop};
+
+#[cfg(unix)]
+use process_wrap::tokio::ProcessGroup;
+
+#[cfg(windows)]
+use process_wrap::tokio::JobObject;
+
+/// 命令模式执行（本地子进程）
+/// 使用 mcp-streamable-proxy（rmcp 0.12）实现 stdio CLI 模式
+pub async fn run_command_mode(
+    name: &str,
+    command: &str,
+    cmd_args: Vec<String>,
+    env: HashMap<String, String>,
+    tool_filter: ToolFilter,
+    quiet: bool,
+) -> Result<()> {
+    tracing::info!("Running in local command mode");
+    tracing::info!("Command: {} {:?}", command, cmd_args);
+    if !env.is_empty() {
+        tracing::debug!("Env var count: {}", env.len());
+    }
+
+    if !quiet {
+        eprintln!("🚀 MCP-Stdio-Proxy: {} (command) → stdio", name);
+        eprintln!("   Command: {} {:?}", command, cmd_args);
+        if !env.is_empty() {
+            eprintln!("   Env vars: {:?}", env);
+        }
+    }
+
+    // 显示过滤器配置
+    if !quiet && tool_filter.is_enabled() {
+        eprintln!("🔧 Tool filtering enabled");
+    }
+
+    // 诊断日志：记录子进程启动信息
+    tracing::debug!("[child-process] {} {:?}", command, cmd_args);
+
+    // 使用 process-wrap 创建子进程命令（跨平台进程清理）
+    // process-wrap 会自动处理进程组（Unix）或 Job Object（Windows）
+    // 并且在 Drop 时自动清理子进程树
+    // 子进程默认继承父进程的所有环境变量
+    let mut wrapped_cmd = CommandWrap::with_new(command, |cmd| {
+        cmd.args(&cmd_args);
+
+        // 设置 MCP JSON 配置中的环境变量（会覆盖继承的同名变量）
+        for (k, v) in &env {
+            cmd.env(k, v);
+        }
+    });
+    // Unix: 创建进程组，支持 killpg 清理整个进程树
+    #[cfg(unix)]
+    wrapped_cmd.wrap(ProcessGroup::leader());
+    // Windows: 使用 Job Object 管理进程树，并隐藏控制台窗口
+    // 使用 CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP 确保孙进程也不弹出窗口
+    #[cfg(windows)]
+    {
+        use process_wrap::tokio::CreationFlags;
+        use windows::Win32::System::Threading::{CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW};
+        wrapped_cmd.wrap(CreationFlags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP));
+        wrapped_cmd.wrap(JobObject);
+    }
+    // 所有平台: Drop 时自动清理进程
+    wrapped_cmd.wrap(KillOnDrop);
+
+    // 启动子进程
+    // 使用 builder 模式捕获 stderr，便于诊断子 MCP 服务初始化失败
+    tracing::debug!("Starting child process...");
+    let (tokio_process, child_stderr) = TokioChildProcess::builder(wrapped_cmd)
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    // 启动 stderr 日志读取任务
+    if let Some(stderr_pipe) = child_stderr {
+        mcp_common::spawn_stderr_reader(stderr_pipe, name.to_string());
+    }
+
+    if !quiet {
+        eprintln!("🔗 Starting child process...");
+    }
+
+    // 创建带通知桥的后端客户端并连接子进程
+    let bridge = BackendNotificationBridge::with_default_info(std::sync::Arc::new(
+        UpstreamPeerRegistry::new(),
+    ));
+    let running = bridge.serve(tokio_process).await?;
+
+    if !quiet {
+        eprintln!("✅ Child process started, proxying to stdio...");
+
+        // 打印工具列表
+        match running.list_tools(None).await {
+            Ok(tools_result) => {
+                let tools = &tools_result.tools;
+                if tools.is_empty() {
+                    eprintln!("⚠️  Tool list is empty (tools/list returned 0 tools)");
+                } else {
+                    eprintln!("🔧 Available tools ({}):", tools.len());
+                    for tool in tools {
+                        let desc = tool.description.as_deref().unwrap_or("no description");
+                        let desc_short = truncate_str(desc, 50);
+                        eprintln!("   - {} : {}", tool.name, desc_short);
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("⚠️  Failed to list tools: {}", e);
+            }
+        }
+
+        eprintln!("💡 You can now send JSON-RPC requests through stdin");
+    }
+
+    // 使用 StreamProxyHandler + stdio 将本地 MCP 服务透明暴露为 stdio
+    let proxy_handler =
+        StreamProxyHandler::with_tool_filter(running, name.to_string(), tool_filter);
+    let server = proxy_handler.serve(stdio()).await?;
+
+    // 设置 Ctrl+C 信号处理
+    tokio::select! {
+        result = server.waiting() => {
+            result?;
+        }
+        _ = tokio::signal::ctrl_c() => {
+            tracing::info!("Ctrl+C received, shutting down");
+            // tokio runtime 会清理资源，包括子进程
+        }
+    }
+
+    Ok(())
+}

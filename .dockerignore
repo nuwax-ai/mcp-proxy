@@ -60,6 +60,33 @@ rmcp_code/
 .kiro/
 .trae/
 
+# Python virtual environments (voice-cli / document-parser 的 .venv，含 PyTorch 等 GB 级依赖)
+.venv
+**/.venv
+venv
+**/venv
+**/__pycache__
+*.pyc
+
+# 模型文件 (whisper/TTS 运行时模型，GB 级，运行时下载)
+# 注意: 只排除运行时模型目录，不可用 **/models 递归，否则会误伤 src/models 源码模块
+models
+voice-cli/models
+voice-cli/checkpoints
+
+# fastembed 模型缓存 (1.2G，运行时下载；源码保留用于编译)
+.fastembed_cache
+**/.fastembed_cache
+
+# 递归排除嵌套的构建产物/日志/临时文件 (覆盖各子 crate 目录)
+**/target
+**/logs
+**/data
+**/tmp
+**/temp
+**/dist
+**/node_modules
+
 # CI/CD
 .github/workflows/
 

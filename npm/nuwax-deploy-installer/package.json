@@ -1,0 +1,29 @@
+{
+  "name": "nuwax-deploy-installer",
+  "version": "0.2.1",
+  "description": "Unified deployment CLI for nuwax services (document-parser, voice-cli)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nuwax-ai/mcp-proxy.git",
+    "directory": "npm/nuwax-deploy-installer"
+  },
+  "bin": {
+    "deploy-installer": "bin/deploy-installer.js"
+  },
+  "files": [
+    "bin",
+    "vendor",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "nuwax",
+    "document-parser",
+    "deploy",
+    "launchd",
+    "systemd"
+  ]
+}

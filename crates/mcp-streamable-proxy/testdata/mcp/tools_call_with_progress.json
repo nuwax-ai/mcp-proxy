@@ -1,0 +1,12 @@
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "tools/call",
+  "params": {
+    "name": "echo",
+    "arguments": { "text": "hi" },
+    "_meta": {
+      "progressToken": 42
+    }
+  }
+}

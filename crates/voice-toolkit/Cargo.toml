@@ -1,0 +1,22 @@
+[package]
+name = "voice-toolkit"
+version.workspace = true
+description = "A comprehensive Rust toolkit for voice processing including STT, TTS, and audio utilities"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/soddygo/rs-voice-toolkit"
+keywords = ["voice", "speech", "audio", "stt", "tts"]
+categories = ["multimedia::audio"]
+edition.workspace = true
+authors = ["rs-voice-toolkit contributors"]
+
+[features]
+default = ["audio"]
+audio = ["dep:rs-voice-toolkit-audio"]
+
+[dependencies]
+# 内部 crate（vendor 后改为本地 path，保留 optional + feature 门控）
+rs-voice-toolkit-audio = { path = "../rs-voice-toolkit-audio", optional = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

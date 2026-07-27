@@ -19,7 +19,7 @@ LOCALE_FILES=(
 )
 
 for crate in "${TARGET_CRATES[@]}"; do
-  target_dir="$ROOT_DIR/$crate/locales"
+  target_dir="$ROOT_DIR/crates/$crate/locales"
   mkdir -p "$target_dir"
   for locale_file in "${LOCALE_FILES[@]}"; do
     cp "$SOURCE_DIR/$locale_file" "$target_dir/$locale_file"

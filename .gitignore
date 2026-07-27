@@ -4,7 +4,7 @@
 target
 .DS_Store
 **/target
-mcp-proxy/logs
+crates/mcp-proxy/logs
 logs
 .venv
 .claude
@@ -12,35 +12,38 @@ logs
 packages
 
 
-document-parser/data/*
+crates/document-parser/data/*
 scripts/temp/*
 data/*
 temp/*
 server.log
 :memory:/*
-document-parser/:memory:/*
+crates/document-parser/:memory:/*
 
-document-parser/temp/*
+crates/document-parser/temp/*
 models/*
 dist/
-voice-cli/temp/*
-voice-cli/cluster_metadata/*
-voice-cli/shared-voice-cli/*
-voice-cli/:memory:/*
+crates/voice-cli/temp/*
+crates/voice-cli/cluster_metadata/*
+crates/voice-cli/shared-voice-cli/*
+crates/voice-cli/:memory:/*
 
 cluster_metadata
 *.pid
 
-voice-cli/build/*
-voice-cli/data/*
-voice-cli/server-config.yml
-voice-cli/server_debug.log
-voice-cli/test_audio.txt
-voice-cli/checkpoints/*
-mcp-proxy/tmp/*
+crates/voice-cli/build/*
+crates/voice-cli/data/*
+crates/voice-cli/server-config.yml
+crates/voice-cli/server*.log
+crates/voice-cli/test_audio.txt
+crates/voice-cli/checkpoints/*
+crates/mcp-proxy/tmp/*
 fastembed/.fastembed_cache
 .fastembed_cache/
-voice-cli/models/
+crates/voice-cli/models/
+
+# sherpa-onnx 预编译 C 库（docker/fetch-sherpa.sh 下载，Dockerfile 编译期注入；不入库大文件）
+docker/sherpa-cache/*.tar.bz2
 
 # Environment files
 .env
@@ -50,4 +53,12 @@ voice-cli/models/
 # Internal development tools and docs
 .qoder/
 spec/
-mcp-proxy/docs/
+crates/mcp-proxy/docs/
+
+# CI-assembled npm vendor binaries / local npm pack artifacts
+# (templates under vendor/templates/ stay in git; CI overwrites binaries on release)
+npm/nuwax-deploy-installer/vendor/darwin-arm64/
+npm/nuwax-deploy-installer/*.tgz
+
+# Local install / smoke-test trees (never commit)
+local-smoke/

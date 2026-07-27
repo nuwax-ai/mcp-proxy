@@ -9,10 +9,14 @@ permissions:
 on:
   push:
     tags:
-      - '**[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+'
+      # cargo-dist / mcp-stdio-proxy betas only (e.g. v0.2.1-beta.1).
+      # Do NOT use ** prefix — it would also match deploy-v0.2.1-beta.1.
+      - 'v[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+'
+      - '[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+'
 
 jobs:
   plan:
+    if: ${{ !startsWith(github.ref_name, 'deploy-v') }}
     runs-on: "ubuntu-22.04"
     outputs:
       val: ${{ steps.plan.outputs.manifest }}
@@ -31,25 +35,9 @@ jobs:
         run: |
           TAG="${{ github.ref_name }}"
           VERSION="${TAG#v}"
-          echo "==> Updating mcp-proxy/Cargo.toml version to: $VERSION"
-          python3 -c "
-          import re, sys
-          version = sys.argv[1]
-          with open('mcp-proxy/Cargo.toml', 'r', encoding='utf-8') as f:
-              content = f.read()
-          content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
-          with open('mcp-proxy/Cargo.toml', 'w', encoding='utf-8') as f:
-              f.write(content)
-          " "$VERSION" || python -c "
-          import re, sys
-          version = sys.argv[1]
-          with open('mcp-proxy/Cargo.toml', 'r', encoding='utf-8') as f:
-              content = f.read()
-          content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
-          with open('mcp-proxy/Cargo.toml', 'w', encoding='utf-8') as f:
-              f.write(content)
-          " "$VERSION"
-          grep '^version' mcp-proxy/Cargo.toml
+          echo "==> Updating Cargo.toml version to: $VERSION"
+          python3 scripts/ci/update-workspace-version.py "$VERSION" \
+            || python scripts/ci/update-workspace-version.py "$VERSION"
           echo "==> Regenerating Cargo.lock"
           cargo generate-lockfile
       - name: Install dist
@@ -98,25 +86,9 @@ jobs:
         run: |
           TAG="${{ github.ref_name }}"
           VERSION="${TAG#v}"
-          echo "==> Updating mcp-proxy/Cargo.toml version to: $VERSION"
-          python3 -c "
-          import re, sys
-          version = sys.argv[1]
-          with open('mcp-proxy/Cargo.toml', 'r', encoding='utf-8') as f:
-              content = f.read()
-          content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
-          with open('mcp-proxy/Cargo.toml', 'w', encoding='utf-8') as f:
-              f.write(content)
-          " "$VERSION" || python -c "
-          import re, sys
-          version = sys.argv[1]
-          with open('mcp-proxy/Cargo.toml', 'r', encoding='utf-8') as f:
-              content = f.read()
-          content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
-          with open('mcp-proxy/Cargo.toml', 'w', encoding='utf-8') as f:
-              f.write(content)
-          " "$VERSION"
-          grep '^version' mcp-proxy/Cargo.toml
+          echo "==> Updating Cargo.toml version to: $VERSION"
+          python3 scripts/ci/update-workspace-version.py "$VERSION" \
+            || python scripts/ci/update-workspace-version.py "$VERSION"
           echo "==> Regenerating Cargo.lock"
           cargo generate-lockfile
       - name: Install Rust non-interactively if not already installed
@@ -175,23 +147,8 @@ jobs:
         run: |
           TAG="${{ github.ref_name }}"
           VERSION="${TAG#v}"
-          python3 -c "
-          import re, sys
-          version = sys.argv[1]
-          with open('mcp-proxy/Cargo.toml', 'r', encoding='utf-8') as f:
-              content = f.read()
-          content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
-          with open('mcp-proxy/Cargo.toml', 'w', encoding='utf-8') as f:
-              f.write(content)
-          " "$VERSION" || python -c "
-          import re, sys
-          version = sys.argv[1]
-          with open('mcp-proxy/Cargo.toml', 'r', encoding='utf-8') as f:
-              content = f.read()
-          content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
-          with open('mcp-proxy/Cargo.toml', 'w', encoding='utf-8') as f:
-              f.write(content)
-          " "$VERSION"
+          python3 scripts/ci/update-workspace-version.py "$VERSION" \
+            || python scripts/ci/update-workspace-version.py "$VERSION"
           cargo generate-lockfile
       - name: Install cached dist
         uses: actions/download-artifact@v4
@@ -243,23 +200,8 @@ jobs:
         run: |
           TAG="${{ github.ref_name }}"
           VERSION="${TAG#v}"
-          python3 -c "
-          import re, sys
-          version = sys.argv[1]
-          with open('mcp-proxy/Cargo.toml', 'r', encoding='utf-8') as f:
-              content = f.read()
-          content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
-          with open('mcp-proxy/Cargo.toml', 'w', encoding='utf-8') as f:
-              f.write(content)
-          " "$VERSION" || python -c "
-          import re, sys
-          version = sys.argv[1]
-          with open('mcp-proxy/Cargo.toml', 'r', encoding='utf-8') as f:
-              content = f.read()
-          content = re.sub(r'^version = \"[^\"]*\"', f'version = \"{version}\"', content, count=1, flags=re.MULTILINE)
-          with open('mcp-proxy/Cargo.toml', 'w', encoding='utf-8') as f:
-              f.write(content)
-          " "$VERSION"
+          python3 scripts/ci/update-workspace-version.py "$VERSION" \
+            || python scripts/ci/update-workspace-version.py "$VERSION"
           cargo generate-lockfile
       - name: Install cached dist
         uses: actions/download-artifact@v4

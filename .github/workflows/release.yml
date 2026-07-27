@@ -47,6 +47,8 @@ on:
 jobs:
   # Run 'dist plan' (or host) to determine what tasks we need to do
   plan:
+    # nuwax-deploy-installer uses deploy-v* tags; skip cargo-dist for those.
+    if: ${{ github.event_name == 'pull_request' || !startsWith(github.ref_name, 'deploy-v') }}
     runs-on: "ubuntu-22.04"
     outputs:
       val: ${{ steps.plan.outputs.manifest }}

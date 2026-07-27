@@ -1,0 +1,204 @@
+use crate::VoiceCliError;
+use crate::models::Config;
+use crate::models::config::{EnvProvider, StdEnv};
+use config::{Config as ConfigRs, Environment, File};
+use serde::Deserialize;
+use std::path::PathBuf;
+
+// Instead of implementing TryFrom, we'll create a default config file and load it
+fn create_default_config_source() -> Result<ConfigRs, VoiceCliError> {
+    // Create a temporary config with defaults
+    let default_config = Config::default();
+
+    // Serialize to YAML and then parse back as config source
+    let yaml_content = serde_yaml::to_string(&default_config)?;
+
+    // Create config from YAML content
+    let config_rs = ConfigRs::builder()
+        .add_source(File::from_str(&yaml_content, config::FileFormat::Yaml))
+        .build()?;
+
+    Ok(config_rs)
+}
+
+/// Configuration settings that can be overridden via CLI arguments
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct CliOverrides {
+    /// Server host override
+    pub host: Option<String>,
+    /// Server port override
+    pub port: Option<u16>,
+    /// Log level override
+    pub log_level: Option<String>,
+    /// Models directory override
+    pub models_dir: Option<String>,
+    /// Default model override
+    pub default_model: Option<String>,
+    /// Transcription workers override
+    pub transcription_workers: Option<usize>,
+}
+
+/// Configuration loader using config-rs with proper hierarchy
+pub struct ConfigRsLoader;
+
+impl ConfigRsLoader {
+    /// Load configuration with proper hierarchy: CLI args > env vars > config files
+    pub fn load(
+        config_path: Option<&PathBuf>,
+        cli_overrides: &CliOverrides,
+        service_type: Option<crate::config::ServiceType>,
+    ) -> Result<Config, VoiceCliError> {
+        Self::load_with_env(config_path, cli_overrides, service_type, &StdEnv)
+    }
+
+    /// Load configuration with an injected env source（生产传 [`StdEnv`]；测试传 MapEnv）。
+    /// 在 config-rs 加载后，额外应用文档约定的扁平 `VOICE_CLI_*` 变量（与 README 一致），
+    /// 修复生产里 `VOICE_CLI_PORT` 等扁平变量不生效的 gap。
+    pub fn load_with_env(
+        config_path: Option<&PathBuf>,
+        cli_overrides: &CliOverrides,
+        service_type: Option<crate::config::ServiceType>,
+        env: &dyn EnvProvider,
+    ) -> Result<Config, VoiceCliError> {
+        let mut config_rs = ConfigRs::builder();
+
+        // 1. Load default configuration (built-in defaults)
+        let default_config_source = create_default_config_source()?;
+        config_rs = config_rs.add_source(default_config_source);
+
+        // 2. Load configuration from file if specified or from default location
+        if let Some(path) = config_path {
+            if path.exists() {
+                config_rs = config_rs.add_source(File::from(path.clone()));
+            }
+        } else if let Some(service_type) = service_type {
+            // Try to load service-specific default config
+            let default_config_path =
+                std::env::current_dir()?.join(service_type.default_config_filename());
+            if default_config_path.exists() {
+                config_rs = config_rs.add_source(File::from(default_config_path));
+            }
+        }
+
+        // 3. Load environment variables (config-rs 嵌套约定 VOICE_CLI_SERVER__PORT 等)
+        config_rs = config_rs.add_source(
+            Environment::with_prefix("VOICE_CLI")
+                .prefix_separator("_")
+                .separator("__")
+                .try_parsing(true)
+                .ignore_empty(true),
+        );
+
+        // 4. Build + deserialize
+        let built_config = config_rs.build()?;
+        let mut config: Config = built_config.try_deserialize()?;
+
+        // 5. 应用文档约定的扁平 VOICE_CLI_* 变量（env 注入）
+        config.apply_env_overrides(env)?;
+
+        // 6. Apply CLI overrides (highest priority)
+        Self::apply_cli_overrides(&mut config, cli_overrides);
+
+        // 7. Apply service-specific settings
+        if let Some(service_type) = service_type {
+            Self::apply_service_specific_settings(&mut config, service_type)?;
+        }
+
+        // 8. Validate configuration
+        config.validate()?;
+
+        Ok(config)
+    }
+
+    /// Apply CLI argument overrides to configuration
+    fn apply_cli_overrides(config: &mut Config, cli_overrides: &CliOverrides) {
+        if let Some(host) = &cli_overrides.host {
+            config.server.host = host.clone();
+        }
+
+        if let Some(port) = cli_overrides.port {
+            config.server.port = port;
+        }
+
+        if let Some(log_level) = &cli_overrides.log_level {
+            config.logging.level = log_level.clone();
+        }
+
+        if let Some(models_dir) = &cli_overrides.models_dir {
+            config.whisper.models_dir = models_dir.clone();
+        }
+
+        if let Some(default_model) = &cli_overrides.default_model {
+            config.whisper.default_model = default_model.clone();
+        }
+
+        if let Some(workers) = cli_overrides.transcription_workers {
+            config.whisper.workers.transcription_workers = workers;
+        }
+    }
+
+    /// Apply service-specific settings based on service type
+    fn apply_service_specific_settings(
+        config: &mut Config,
+        service_type: crate::config::ServiceType,
+    ) -> Result<(), VoiceCliError> {
+        match service_type {
+            crate::config::ServiceType::Server => {
+                config.daemon.pid_file = "./voice-cli-server.pid".to_string();
+            }
+        }
+        Ok(())
+    }
+
+    /// Generate CLI overrides from command line arguments
+    pub fn generate_cli_overrides_from_args(
+        args: &crate::cli::Cli,
+    ) -> Result<CliOverrides, VoiceCliError> {
+        let overrides = CliOverrides::default();
+
+        if let crate::cli::Commands::Server { action } = &args.command
+            && let crate::cli::ServerAction::Run { .. } = action
+        {
+            // Server run command can have port overrides
+            // These will be extracted from the action in the main handler
+        }
+
+        Ok(overrides)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_config_loading_hierarchy() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("test_config.yml");
+
+        // Create a test config file
+        let test_config = Config::default();
+        test_config.save(&config_path).unwrap();
+
+        let cli_overrides = CliOverrides::default();
+        let result = ConfigRsLoader::load(Some(&config_path), &cli_overrides, None);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_cli_overrides_application() {
+        let mut config = Config::default();
+        let cli_overrides = CliOverrides {
+            port: Some(9090),
+            log_level: Some("debug".to_string()),
+            ..Default::default()
+        };
+
+        ConfigRsLoader::apply_cli_overrides(&mut config, &cli_overrides);
+
+        assert_eq!(config.server.port, 9090);
+        assert_eq!(config.logging.level, "debug");
+    }
+}

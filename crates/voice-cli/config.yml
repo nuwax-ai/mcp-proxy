@@ -1,0 +1,95 @@
+# Voice CLI Server Configuration with TTS support
+
+server:
+  # Server binding address (0.0.0.0 for all interfaces)
+  host: "0.0.0.0"
+  # Server port
+  port: 8087
+  # Maximum file size for uploads (in bytes) - 200MB default
+  max_file_size: 209715200
+  # Enable CORS for web browser access
+  cors_enabled: true
+
+whisper:
+  # Default model to use for transcription
+  default_model: "large-v3"
+  # Directory to store whisper models
+  models_dir: "./models"
+  # Automatically download models when needed
+  auto_download: true
+  # List of supported whisper models
+  supported_models:
+    - "tiny"
+    - "tiny.en"
+    - "base"
+    - "base.en"
+    - "small"
+    - "small.en"
+    - "medium"
+    - "medium.en"
+    - "large-v1"
+    - "large-v2"
+    - "large-v3"
+  
+  # Audio processing settings
+  audio_processing:
+    supported_formats: ["mp3", "wav", "flac", "m4a", "ogg", "aac", "opus", "amr", "wma", "aiff", "caf", "mp4", "mov", "avi", "mkv", "webm", "3gp", "flv", "wmv", "mpeg", "mxf"]
+    auto_convert: true
+    conversion_timeout: 60  # seconds
+    temp_file_cleanup: true
+    temp_file_retention: 300  # 5 minutes
+    
+  # Worker-based concurrency settings
+  workers:
+    transcription_workers: 3  # Number of worker threads for transcription
+    channel_buffer_size: 100  # Channel buffer size for task queue
+    worker_timeout: 3600  # Worker processing timeout in seconds
+
+# TTS (Text-to-Speech) — sherpa-onnx Kokoro
+tts:
+  # 是否启用 TTS（默认 false；启用后 /api/v1/tts* 可用，不阻塞 STT）
+  enabled: false
+  max_text_length: 5000
+  engine:
+    pool_size: 1                 # 引擎实例数（CPU 最优 1；多实例并发但内存×N）
+    default_model: "kokoro-multi-lang-v1_0"
+    default_sid: 0               # 默认音色 id（0-52）
+    default_speed: 1.0
+    default_length_scale: 1.0
+    num_threads: 4
+    models_dir: "./models/tts"
+  streaming:
+    idle_timeout_sec: 30
+    synth_timeout_sec: 120
+    default_format: "pcm_s16le"
+
+logging:
+  # Log level (trace, debug, info, warn, error)
+  level: "info"
+  # Directory for log files
+  log_dir: "./logs"
+  # Maximum size per log file
+  max_file_size: "100MB"
+  # Maximum number of log files to keep
+  max_files: 20
+
+daemon:
+  # PID file for daemon mode
+  pid_file: "./voice-cli-server.pid"
+  # Log file for daemon output
+  log_file: "./logs/server-daemon.log"
+  # Working directory for daemon
+  work_dir: "./"
+
+# Async task management configuration
+task_management:
+  
+  # Apalis worker configuration
+  max_concurrent_tasks: 4  # Max concurrent async tasks
+  retry_attempts: 2  # Number of retry attempts for failed tasks
+  task_timeout_seconds: 3600  # Task processing timeout in seconds
+  catch_panic: true  # Catch panics in execution and pipe them as errors
+  task_retention_minutes: 1440 # task retention in minutes (1440 minutes = 24 hours)
+  
+  # SQLite database configuration  
+  sqlite_db_path: "./data/tasks.db"  # Path to SQLite database file

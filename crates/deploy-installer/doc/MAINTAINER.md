@@ -1,0 +1,239 @@
+# deploy-installer 维护者手册
+
+发布 npm、打包 OSS、Linux CUDA 部署。Mac 日常用户请看 [mac-mini-quickstart.md](./mac-mini-quickstart.md)。
+
+**当前 npm**（发版后）：`@latest` → `0.2.3`，`@beta` 为预发布线（`npm view nuwax-deploy-installer dist-tags` 可查最新）。
+
+---
+
+## 1. npm 包结构
+
+| 项目 | 值 |
+|------|-----|
+| npm 包名 | `nuwax-deploy-installer` |
+| CLI | `deploy-installer` |
+| Rust crate | `deploy-installer` |
+
+```
+npm/nuwax-deploy-installer/
+├── bin/deploy-installer.js      # Node 垫片 → vendor/<platform>/deploy-installer
+└── vendor/
+    ├── darwin-arm64/            # 一期：Mac 三件套 + voice-cli dylib
+    │   ├── deploy-installer
+    │   ├── document-parser
+    │   ├── voice-cli
+    │   ├── libsherpa-onnx-c-api.dylib
+    │   └── libonnxruntime*.dylib
+    └── templates/
+        ├── manifest.json        # OSS 可选资源 URL + assetVersion
+        ├── document-parser/
+        └── voice-cli/
+```
+
+垫片注入环境变量：
+
+| 变量 | 含义 |
+|------|------|
+| `NUWAX_DEPLOY_ROOT` | `vendor/` 根目录 |
+| `NUWAX_DEPLOY_VERSION` | npm 包版本（如 `0.2.3-beta.3`） |
+
+---
+
+## 2. `manifest.json` 与 `assetVersion`
+
+OSS 大文件 URL 模板在 `vendor/templates/manifest.json`：
+
+```json
+{
+  "version": "0.2.3-beta.3",
+  "assetVersion": "0.2.1",
+  "optionalAssets": {
+    "venv": { "darwin-arm64": ".../venv-macos-arm64-{version}.tar.gz" },
+    "whisperLargeV3": { "darwin-arm64": ".../whisper-ggml-large-v3-{version}.tar.gz" },
+    "whisperAll": { "darwin-arm64": ".../whisper-ggml-all-{version}.tar.gz" },
+    "voiceCliCuda": { "linux-x64": ".../voice-cli-cuda-linux-x64-{version}.tar.gz" }
+  }
+}
+```
+
+| 字段 | 作用 |
+|------|------|
+| `version` | 随 npm 包版本更新（assemble / CI 写入） |
+| `assetVersion` | **OSS 文件名**中的 `{version}` 占位符（如 `0.2.1`） |
+| `optionalAssets` | 各平台 URL 模板 |
+
+**规则**：
+
+- beta 发版（`0.2.3-beta.N`）**不必**每次重传 OSS；保持 `assetVersion: "0.2.1"` 即可复用已有包。
+- 上传了新版 OSS（如 `venv-macos-arm64-0.2.4.tar.gz`）后，在仓库里 **手动 bump `assetVersion`** 再发 npm。
+- `assemble-nuwax-deploy-installer.sh` 只更新 `version`；**不会覆盖**已有 `assetVersion`（缺失时才用 `VERSION` 去掉 prerelease 自动填）。
+
+代码侧：`deploy_asset_version()` 优先读 `assetVersion`，无则回退到 npm 版本去掉 `-beta` 后缀。
+
+---
+
+## 3. 发布流程（先 beta → Mac 验证 → 正式 latest）
+
+Workflow：[`.github/workflows/deploy-installer-release.yml`](../../../.github/workflows/deploy-installer-release.yml)（`macos-14` 构建 + npm publish + smoke）
+
+| 阶段 | Git tag 示例 | npm version | dist-tag | 用户安装 |
+|------|--------------|-------------|----------|----------|
+| Beta | `deploy-v0.2.3-beta.3` | `0.2.3-beta.3` | `@beta` | `npm i -g nuwax-deploy-installer@beta` |
+| 正式 | `deploy-v0.2.3` | `0.2.3` | `@latest` | `npm i -g nuwax-deploy-installer` |
+
+**Tag 规则**：
+
+- 必须以 `deploy-v` 开头（避免触发 cargo-dist 的 `Release` workflow）
+- beta 必须带 `-beta.N`；正式只能是 `X.Y.Z`
+- **不要用** `v0.2.3` 这类 tag 发本包
+
+### 发 beta（推荐：打 tag 触发 CI）
+
+```bash
+git status && git push origin HEAD
+git tag -a deploy-v0.2.3-beta.4 -m "nuwax-deploy-installer 0.2.3-beta.4"
+git push origin deploy-v0.2.3-beta.4
+```
+
+CI 自动：更新 workspace 版本 → assemble → `npm publish --tag beta` → smoke test。
+
+### Mac Mini 验证清单
+
+```bash
+npm install -g nuwax-deploy-installer@beta
+deploy-installer --version    # 期望 0.2.3-beta.N
+deploy-installer doctor       # 安装账号须已桌面登录（gui/<uid>）
+
+deploy-installer voice-cli install
+curl -fsS http://127.0.0.1:8077/health
+
+export OSS_ACCESS_KEY_ID=... OSS_ACCESS_KEY_SECRET=...
+deploy-installer document-parser install
+curl -fsS http://127.0.0.1:8087/health
+```
+
+注意：
+
+- **≥ `0.2.3-beta.3`** 才包含 `assetVersion` 修复；更早 beta 可能 OSS 404。
+- LaunchAgent 需要**执行 install 的用户**在本机 GUI 登录，不能仅靠 SSH（见 [mac-mini-quickstart.md](./mac-mini-quickstart.md)）。
+
+### 发正式
+
+beta 在 Mac Mini 全流程测通后：
+
+```bash
+git tag -a deploy-v0.2.3 -m "nuwax-deploy-installer 0.2.3"
+git push origin deploy-v0.2.3
+```
+
+### 手动触发 Actions（workflow_dispatch）
+
+GitHub → **Deploy Installer Release** → Run workflow：
+
+| version | channel |
+|---------|---------|
+| `0.2.3-beta.4` | `beta` |
+| `0.2.3` | `latest` |
+
+channel 与 version 形状不匹配时 CI 会直接失败。
+
+### 本地组装（不经 CI）
+
+```bash
+bash scripts/ci/assemble-nuwax-deploy-installer.sh 0.2.3-beta.4 aarch64-apple-darwin
+bash scripts/ci/smoke-nuwax-deploy-installer.sh /tmp/doc-parser-smoke
+bash scripts/ci/publish-nuwax-deploy-installer.sh 0.2.3-beta.4          # assemble + smoke + npm pack
+# 发布：NPM_TOKEN=*** bash scripts/ci/publish-nuwax-deploy-installer.sh 0.2.3-beta.4 --publish
+```
+
+```bash
+npm view nuwax-deploy-installer dist-tags
+```
+
+---
+
+## 4. OSS 可选资源
+
+大文件不进 npm。打包脚本里的版本号应使用 **`assetVersion`**（当前 `0.2.1`），不是 npm beta 号。
+
+### Mac（一期）
+
+| manifest 键 | OSS 文件（`{version}` = `assetVersion`） | 用途 |
+|-------------|-------------------------------------------|------|
+| `venv.darwin-arm64` | `venv-macos-arm64-{version}.tar.gz` | document-parser Python 环境 |
+| `whisperLargeV3.darwin-arm64` | `whisper-ggml-large-v3-{version}.tar.gz` | voice-cli 默认模型 |
+| `whisperAll.darwin-arm64` | `whisper-ggml-all-{version}.tar.gz` | 全档模型 |
+
+公开 URL 前缀：
+
+```
+https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/document-parser/
+https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/
+```
+
+#### 打包 venv（Mac 上执行）
+
+```bash
+bash scripts/ci/pack-document-parser-venv-macos-arm64.sh 0.2.1
+# 上传: oss://nuwa-packages/uploads/document-parser/venv-macos-arm64-0.2.1.tar.gz
+bash scripts/ci/verify-oss-venv-url.sh --extract \
+  https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/document-parser/venv-macos-arm64-0.2.1.tar.gz
+```
+
+上传新 venv 后：改 `manifest.json` 的 `assetVersion` → 发 npm beta 验证。
+
+#### 打包 Whisper ggml
+
+```bash
+bash scripts/ci/pack-voice-cli-whisper-ggml.sh 0.2.1          # 默认 large-v3
+bash scripts/ci/pack-voice-cli-whisper-ggml.sh --all 0.2.1    # 全档
+# 上传: oss://nuwa-packages/uploads/voice-cli/whisper-ggml-large-v3-0.2.1.tar.gz
+bash scripts/ci/verify-oss-whisper-url.sh \
+  https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/whisper-ggml-large-v3-0.2.1.tar.gz
+```
+
+### Linux CUDA（二期）
+
+| manifest 键 | OSS 文件 | 说明 |
+|-------------|----------|------|
+| `voiceCliCuda.linux-x64` | `voice-cli-cuda-linux-x64-{version}.tar.gz` | binary + 4× `.so`，~360MB |
+
+```bash
+bash scripts/ci/pack-voice-cli-cuda-linux-x64.sh 0.2.1
+# 上传: oss://nuwa-packages/uploads/voice-cli/voice-cli-cuda-linux-x64-0.2.1.tar.gz
+bash scripts/ci/verify-oss-voice-cli-cuda-url.sh \
+  https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/voice-cli-cuda-linux-x64-0.2.1.tar.gz
+```
+
+Linux 用户安装（Whisper 模型需自备；manifest 暂未配 Linux whisper URL）：
+
+```bash
+deploy-installer voice-cli install --install-dir ~/voice-cli
+# 可选: --cuda-lib-dir /usr/local/cuda/lib64 --cudnn-lib-dir <path>
+```
+
+---
+
+## 5. 路线图摘要
+
+| 能力 | document-parser | voice-cli Mac | voice-cli Linux CUDA |
+|------|-----------------|---------------|----------------------|
+| `deploy-installer` 子命令 | ✅ | ✅ | ✅ |
+| npm vendor 二进制 | ✅ darwin-arm64 | ✅ + dylib | ❌（走 OSS bundle） |
+| 大依赖 OSS | venv | Whisper | CUDA bundle |
+| 服务管理 | LaunchAgent / systemd | 同左 | systemd + cuda drop-in |
+
+**未做（三期）**：TTS/Kokoro OSS、npm `vendor/linux-x64/`、同机 GPU 共存调优文档、Linux Whisper OSS manifest。
+
+---
+
+## 6. 发布前检查
+
+- [ ] 发布分支已 push
+- [ ] `manifest.json` 中 **`assetVersion`** 与 OSS 上实际文件名一致
+- [ ] 若只发 CLI 小改、OSS 未变：**不要**误改 `assetVersion`
+- [ ] venv + whisper-large-v3（及 Linux CUDA 若相关）已上传并 `verify-oss-*` 通过
+- [ ] GitHub `NPM_TOKEN` 已配置
+- [ ] Mac Mini：`doctor` + `voice-cli install` +（可选）`document-parser install` 测通
+- [ ] Mac Mini 验证使用 **≥ 当前 beta** 且安装账号已 **桌面登录**
+- [ ] 正式 `deploy-vX.Y.Z` 仅在 beta 验证通过后打 tag

@@ -1,0 +1,23 @@
+[package]
+name = "deploy-installer"
+version.workspace = true
+edition.workspace = true
+description = "Unified service deployment installer (systemd / launchd via service-manager)"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[[bin]]
+name = "deploy-installer"
+path = "src/main.rs"
+
+[dependencies]
+thiserror = { workspace = true }
+tempfile = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+anyhow = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+service-manager = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
