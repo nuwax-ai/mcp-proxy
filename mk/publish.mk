@@ -40,7 +40,7 @@ mcp-version-update:
 			exit 1; \
 		}; \
 	done; \
-	echo "✅ workspace 版本更新完成：$$NEW_VERSION（所有 crate 已继承）"
+	echo "✅ workspace 版本更新完成：$${NEW_VERSION}（所有 crate 已继承）"
 
 # 显示当前 workspace 版本号 + 内部依赖版本串（全部读根 Cargo.toml）
 .PHONY: mcp-version-show
