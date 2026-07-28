@@ -33,6 +33,7 @@
 pub mod client;
 pub mod config;
 pub mod detector;
+pub mod fallback;
 pub mod server;
 pub mod server_builder;
 pub mod sse_handler;
@@ -50,6 +51,7 @@ pub use server_builder::{BackendConfig, SseServerBuilder, SseServerBuilderConfig
 
 // Re-export client connection types
 pub use client::{SseClientConnection, ToolInfo};
+pub use fallback::{DiscoverySnapshot, FallbackMetadata};
 pub use mcp_common::McpClientConfig;
 
 // Re-export commonly used rmcp types

@@ -3471,6 +3471,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "mcp-proxy-args"
+version = "0.2.2"
+dependencies = [
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "mcp-sse-proxy"
 version = "0.2.2"
 dependencies = [
@@ -3514,6 +3524,7 @@ dependencies = [
  "http",
  "log",
  "mcp-common",
+ "mcp-proxy-args",
  "mcp-sse-proxy",
  "mcp-streamable-proxy",
  "moka",
@@ -3531,6 +3542,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",

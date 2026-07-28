@@ -1,0 +1,19 @@
+[package]
+name = "mcp-proxy-args"
+version.workspace = true
+edition.workspace = true
+authors = ["nuwax-ai"]
+description = "Argument loading and file rewriting utilities for mcp-proxy convert"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/nuwax-ai/mcp-proxy"
+keywords = ["mcp", "proxy", "arguments", "cli"]
+categories = ["command-line-utilities"]
+
+[dependencies]
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

@@ -48,6 +48,12 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
                     deny_tools: None,
                     ping_interval: 30, // 默认 30 秒 ping 一次
                     ping_timeout: 10,  // 默认 10 秒超时
+                    import_initialize: None,
+                    import_initialize_file: None,
+                    import_tools: None,
+                    import_tools_file: None,
+                    export_initialize: None,
+                    export_tools: None,
                     logging: crate::client::support::LoggingArgs {
                         diagnostic: true,    // 默认启用诊断模式
                         log_dir: None,       // 默认无日志目录（将在 init_logging 中自动设置）

@@ -9,6 +9,7 @@ members = [
     "crates/rs-voice-toolkit-audio",
     "crates/document-parser",
     "crates/mcp-common",
+    "crates/mcp-proxy-args",
     "crates/mcp-proxy",
     "crates/mcp-sse-proxy",
     "crates/mcp-streamable-proxy",
@@ -20,6 +21,7 @@ members = [
 ]
 default-members = [
     "crates/mcp-common",
+    "crates/mcp-proxy-args",
     "crates/mcp-proxy",
     "crates/mcp-sse-proxy",
     "crates/mcp-streamable-proxy",
@@ -39,6 +41,7 @@ edition = "2024"
 # 内部 crate（依赖版本串也集中在此，配合 [workspace.package] 实现根一处维护）
 mcp-proxy = { version = "0.2.2", path = "crates/mcp-proxy" }
 mcp-common = { version = "0.2.2", path = "crates/mcp-common" }
+mcp-proxy-args = { version = "0.2.2", path = "crates/mcp-proxy-args" }
 mcp-sse-proxy = { version = "0.2.2", path = "crates/mcp-sse-proxy" }
 mcp-streamable-proxy = { version = "0.2.2", path = "crates/mcp-streamable-proxy" }
 oss-client = { version = "0.2.2", path = "crates/oss-client" }
@@ -90,6 +93,7 @@ log = "0.4"
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde", "now"] }
 thiserror = "2.0"
+sha2 = "0.10"
 axum = { version = "0.8", features = [
     "http2",
     "query",

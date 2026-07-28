@@ -5,6 +5,129 @@
 use std::future::Future;
 use std::time::Duration;
 
+use anyhow::{Context, Result};
+
+const INITIAL_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(30);
+const MAX_INITIAL_ATTEMPTS: u32 = 3;
+const INITIAL_BACKOFF_SECS: u64 = 2;
+const MAX_INITIAL_BACKOFF_SECS: u64 = 4;
+
+pub(super) enum InitialConnectOutcome<C> {
+    Connected {
+        connection: C,
+        elapsed: Duration,
+    },
+    Exhausted {
+        error: anyhow::Error,
+        elapsed: Duration,
+    },
+}
+
+pub(super) async fn connect_with_timeout<C, Fut>(connect: Fut) -> Result<C>
+where
+    Fut: Future<Output = Result<C>>,
+{
+    tokio::time::timeout(INITIAL_CONNECT_TIMEOUT, connect)
+        .await
+        .with_context(|| {
+            format!(
+                "backend connection timed out after {}s",
+                INITIAL_CONNECT_TIMEOUT.as_secs()
+            )
+        })?
+}
+
+pub(super) async fn discovery_with_timeout<T, Fut>(
+    protocol: &str,
+    operation: &'static str,
+    discovery: Fut,
+) -> Result<T>
+where
+    Fut: Future<Output = Result<T>>,
+{
+    tokio::time::timeout(DISCOVERY_TIMEOUT, discovery)
+        .await
+        .with_context(|| {
+            format!(
+                "{protocol} {operation} timed out after {}s",
+                DISCOVERY_TIMEOUT.as_secs()
+            )
+        })?
+}
+
+/// SSE 与 Streamable HTTP 共用的初始连接策略。
+pub(super) async fn connect_with_initial_retry<C, F, Fut>(
+    protocol: &str,
+    quiet: bool,
+    mut connect: F,
+) -> InitialConnectOutcome<C>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = anyhow::Result<C>>,
+{
+    tracing::info!(
+        protocol,
+        per_attempt_timeout_secs = INITIAL_CONNECT_TIMEOUT.as_secs(),
+        max_attempts = MAX_INITIAL_ATTEMPTS,
+        "Connecting to backend"
+    );
+
+    let started = std::time::Instant::now();
+    let mut last_error = None;
+    let mut backoff_secs = INITIAL_BACKOFF_SECS;
+
+    for attempt in 1..=MAX_INITIAL_ATTEMPTS {
+        match connect_with_timeout(connect()).await {
+            Ok(connection) => {
+                if attempt > 1 {
+                    tracing::info!(
+                        protocol,
+                        attempt,
+                        max_attempts = MAX_INITIAL_ATTEMPTS,
+                        "Backend connection succeeded"
+                    );
+                }
+                return InitialConnectOutcome::Connected {
+                    connection,
+                    elapsed: started.elapsed(),
+                };
+            }
+            Err(error) => {
+                tracing::warn!(
+                    protocol,
+                    attempt,
+                    max_attempts = MAX_INITIAL_ATTEMPTS,
+                    %error,
+                    "Backend connection attempt failed"
+                );
+                last_error = Some(error.context("backend connection failed"));
+            }
+        }
+
+        if attempt < MAX_INITIAL_ATTEMPTS {
+            if !quiet {
+                eprintln!(
+                    "⚠️ Connection attempt {attempt}/{MAX_INITIAL_ATTEMPTS} failed, retrying in {backoff_secs}s..."
+                );
+            }
+            tokio::time::sleep(Duration::from_secs(backoff_secs)).await;
+            backoff_secs = (backoff_secs * 2).min(MAX_INITIAL_BACKOFF_SECS);
+        }
+    }
+
+    let error = match last_error {
+        Some(error) => error,
+        None => {
+            anyhow::anyhow!("initial connection retry loop completed without recording an error")
+        }
+    };
+    InitialConnectOutcome::Exhausted {
+        error,
+        elapsed: started.elapsed(),
+    }
+}
+
 /// 健康检查能力 trait
 ///
 /// 抽象 SSE 和 Stream handler 的共同行为

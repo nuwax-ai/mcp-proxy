@@ -20,6 +20,7 @@
 //! ```
 
 use dashmap::DashMap;
+use dashmap::mapref::entry::Entry;
 use futures::Stream;
 use rmcp::{
     model::{ClientJsonRpcMessage, ServerJsonRpcMessage},
@@ -97,20 +98,20 @@ impl ProxyAwareSessionManager {
         if self.handler.isolation() == crate::backend_connector::BackendIsolation::PerSession {
             return true;
         }
-        if let Some(meta) = self.session_versions.get(session_id.as_ref()) {
-            let current_version = self.handler.get_backend_version();
-            if meta.backend_version != current_version {
+        let current_version = self.handler.get_backend_version();
+        match self.session_versions.entry(session_id.to_string()) {
+            Entry::Occupied(entry) if entry.get().backend_version != current_version => {
                 warn!(
                     "[Session version mismatch] session_id={}, creation version={}, current version={}, MCP ID: {}",
                     session_id,
-                    meta.backend_version,
+                    entry.get().backend_version,
                     current_version,
                     self.handler.mcp_id()
                 );
-                return false;
+                false
             }
+            Entry::Occupied(_) | Entry::Vacant(_) => true,
         }
-        true
     }
 
     fn backend_ready_for_session_ops(&self) -> bool {
@@ -283,25 +284,20 @@ impl SessionManager for ProxyAwareSessionManager {
         id: &SessionId,
         last_event_id: String,
     ) -> Result<impl Stream<Item = ServerSseMessage> + Send + 'static, Self::Error> {
-        // 关键：检查后端版本
-        if let Some(meta) = self.session_versions.get(id.as_ref()) {
-            let current_version = self.handler.get_backend_version();
-            if meta.backend_version != current_version {
-                warn!(
-                    "[Session recovery failed] session_id={}, reason: backend version change ({} -> {}), MCP ID: {}",
-                    id,
-                    meta.backend_version,
-                    current_version,
-                    self.handler.mcp_id()
-                );
-
-                // 清理失效 session
-                drop(meta); // 释放 DashMap 的读锁
-                self.session_versions.remove(id.as_ref());
-                let _ = self.inner.close_session(id).await;
-
-                return Err(LocalSessionManagerError::SessionNotFound(id.clone()));
-            }
+        let current_version = self.handler.get_backend_version();
+        // This entry guard is dropped before close_session().await below.
+        let stale_version =
+            remove_stale_session_version(&self.session_versions, id.as_ref(), current_version);
+        if let Some(previous_version) = stale_version {
+            warn!(
+                "[Session recovery failed] session_id={}, reason: backend version change ({} -> {}), MCP ID: {}",
+                id,
+                previous_version,
+                current_version,
+                self.handler.mcp_id()
+            );
+            let _ = self.inner.close_session(id).await;
+            return Err(LocalSessionManagerError::SessionNotFound(id.clone()));
         }
 
         if !self.backend_ready_for_session_ops() {
@@ -320,5 +316,82 @@ impl SessionManager for ProxyAwareSessionManager {
             self.handler.mcp_id()
         );
         self.inner.resume(id, last_event_id).await
+    }
+}
+
+fn remove_stale_session_version(
+    versions: &DashMap<String, SessionMetadata>,
+    session_id: &str,
+    current_version: u64,
+) -> Option<u64> {
+    match versions.entry(session_id.to_owned()) {
+        Entry::Occupied(entry) if entry.get().backend_version != current_version => {
+            let previous = entry.get().backend_version;
+            entry.remove();
+            Some(previous)
+        }
+        Entry::Occupied(_) | Entry::Vacant(_) => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Barrier};
+
+    use super::*;
+
+    #[test]
+    fn stale_version_removal_does_not_remove_replacement() {
+        let versions = DashMap::new();
+        versions.insert("session".to_owned(), SessionMetadata { backend_version: 1 });
+
+        assert_eq!(
+            remove_stale_session_version(&versions, "session", 2),
+            Some(1)
+        );
+        versions.insert("session".to_owned(), SessionMetadata { backend_version: 2 });
+
+        assert_eq!(remove_stale_session_version(&versions, "session", 2), None);
+        assert_eq!(
+            versions
+                .entry("session".to_owned())
+                .or_insert(SessionMetadata { backend_version: 0 })
+                .backend_version,
+            2
+        );
+    }
+
+    #[test]
+    fn concurrent_version_change_uses_atomic_entry_operations() {
+        let versions = Arc::new(DashMap::new());
+        versions.insert("session".to_owned(), SessionMetadata { backend_version: 1 });
+        let stale_removed = Arc::new(Barrier::new(2));
+        let replacement_inserted = Arc::new(Barrier::new(2));
+
+        let worker_versions = versions.clone();
+        let worker_stale_removed = stale_removed.clone();
+        let worker_replacement_inserted = replacement_inserted.clone();
+        let worker = std::thread::spawn(move || {
+            let removed = remove_stale_session_version(&worker_versions, "session", 2);
+            worker_stale_removed.wait();
+            worker_replacement_inserted.wait();
+            let second_removal = remove_stale_session_version(&worker_versions, "session", 2);
+            (removed, second_removal)
+        });
+
+        stale_removed.wait();
+        versions.insert("session".to_owned(), SessionMetadata { backend_version: 2 });
+        replacement_inserted.wait();
+
+        let (removed, second_removal) = worker.join().expect("worker thread must finish");
+        assert_eq!(removed, Some(1));
+        assert_eq!(second_removal, None);
+        assert_eq!(
+            versions
+                .entry("session".to_owned())
+                .or_insert(SessionMetadata { backend_version: 0 })
+                .backend_version,
+            2
+        );
     }
 }

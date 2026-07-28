@@ -123,8 +123,8 @@ async fn run_server_mode() -> Result<()> {
     eprintln!("Version: {}", env!("CARGO_PKG_VERSION"));
     eprintln!("Configuration loaded:");
     eprintln!("  - Port: {}", app_config.server.port);
-    eprintln!("  - Log directory: {}", &app_config.log.path);
-    eprintln!("  - Log level: {}", &app_config.log.level);
+    eprintln!("  - Log directory: {}", app_config.log.path);
+    eprintln!("  - Log level: {}", app_config.log.level);
     eprintln!("  - Log retention days: {}", app_config.log.retain_days);
     mcp_stdio_proxy::env_init::init(&app_config);
     eprintln!("========================================");

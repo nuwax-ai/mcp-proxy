@@ -31,7 +31,7 @@ struct HealthCheckResult {
 /// 成功返回 Ok(())，失败返回 Err。
 pub async fn run_health_command(args: HealthArgs, quiet: bool) -> Result<()> {
     if !quiet {
-        eprintln!("Checking health for: {}", &args.url);
+        eprintln!("Checking health for: {}", args.url);
     }
 
     // 1. 确定协议类型

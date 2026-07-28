@@ -4,27 +4,41 @@
 
 use anyhow::Result;
 use std::collections::HashMap;
+use std::time::Duration;
 
-use crate::client::support::{ConvertArgs, normalize_authorization, protocol_name};
-use crate::proxy::{McpClientConfig, ToolFilter};
-
+use super::remote_runtime::RuntimeOptions;
 use super::sse::run_sse_mode;
 use super::stream::run_stream_mode;
+use crate::client::protocol::McpProtocol;
+use crate::client::proxy_server::ProxyProtocol;
+use crate::client::support::{ConvertArgs, merge_headers, protocol_name};
+use crate::proxy::{McpClientConfig, ToolFilter};
+
+pub struct UrlModeTarget {
+    pub url: String,
+    pub headers: HashMap<String, String>,
+    pub protocol: Option<crate::client::protocol::McpProtocol>,
+    pub timeout_secs: Option<u64>,
+}
 
 /// URL 模式执行（带自动重连）
 /// 使用分支逻辑：根据协议类型调用不同的处理函数
 pub async fn run_url_mode_with_retry(
-    args: &ConvertArgs,
-    url: &str,
-    merged_headers: HashMap<String, String>,
-    config_protocol: Option<crate::client::protocol::McpProtocol>,
+    args: ConvertArgs,
+    target: UrlModeTarget,
     tool_filter: ToolFilter,
     verbose: bool,
     quiet: bool,
 ) -> Result<()> {
+    let UrlModeTarget {
+        url,
+        headers,
+        protocol: config_protocol,
+        timeout_secs,
+    } = target;
     tracing::info!("Starting protocol conversion");
     tracing::info!("Target URL: {url}");
-    tracing::debug!("Header count: {}", merged_headers.len());
+    tracing::debug!("Header count: {}", headers.len());
     tracing::debug!(
         "Ping interval: {}s, ping timeout: {}s",
         args.ping_interval,
@@ -32,7 +46,7 @@ pub async fn run_url_mode_with_retry(
     );
     tracing::debug!("Retry count: {} (0 = unlimited)", args.retries);
 
-    if !quiet && merged_headers.is_empty() {
+    if !quiet && headers.is_empty() {
         eprintln!("🚀 MCP-Stdio-Proxy: {} → stdio", url);
     }
 
@@ -46,66 +60,28 @@ pub async fn run_url_mode_with_retry(
         }
     }
 
-    // 确定协议类型：命令行参数 > 配置文件 > 自动检测
-    let protocol = if let Some(ref proto) = args.protocol {
-        let detected = match proto {
-            crate::client::proxy_server::ProxyProtocol::Sse => {
-                crate::client::protocol::McpProtocol::Sse
-            }
-            crate::client::proxy_server::ProxyProtocol::Stream => {
-                crate::client::protocol::McpProtocol::Stream
-            }
-        };
-        tracing::info!(
-            "Using protocol from CLI argument: {}",
-            protocol_name(&detected)
-        );
-        if !quiet {
-            eprintln!("🔧 Using protocol from CLI: {}", protocol_name(&detected));
-        }
-        detected
-    } else if let Some(proto) = config_protocol {
-        tracing::info!("Using protocol from config: {}", protocol_name(&proto));
-        if !quiet {
-            eprintln!("🔧 Using protocol from config: {}", protocol_name(&proto));
-        }
-        proto
-    } else {
-        tracing::info!("Detecting protocol...");
-        if !quiet {
-            eprintln!("🔍 Detecting protocol...");
-        }
-        let detection_start = std::time::Instant::now();
-        // 空 map 等价无 header（is_sse_with_headers 内部按 is_empty 判定），无需 if-empty 桥接
-        let detected =
-            crate::client::protocol::detect_mcp_protocol_with_headers(url, Some(&merged_headers))
-                .await
-                .map_err(|e| {
-                    tracing::error!("Protocol detection failed: {}", e);
-                    e
-                })?;
-        let detection_duration = detection_start.elapsed();
-        tracing::info!(
-            "Protocol detection completed: protocol={}, duration={:?}",
-            protocol_name(&detected),
-            detection_duration
-        );
-        if !quiet {
-            eprintln!("🔍 Detected protocol: {}", protocol_name(&detected));
-        }
-        detected
-    };
+    let discovery_mode = super::discovery_options::prepare(&args, config_protocol.as_ref())?;
+    let runtime_options = RuntimeOptions::from_args(&args, verbose, quiet);
+
+    let protocol = resolve_protocol(
+        args.protocol.as_ref(),
+        config_protocol,
+        &url,
+        &headers,
+        quiet,
+    )
+    .await?;
 
     // 构建 McpClientConfig
     tracing::debug!("Building MCP client config...");
-    let config = build_mcp_config(url, &merged_headers, args.auth.as_ref());
+    let config = build_mcp_config(&url, &headers, None, timeout_secs);
     tracing::debug!("MCP client config ready");
 
     // 根据协议类型分支处理
     tracing::info!("Using protocol: {}", protocol_name(&protocol));
     match protocol {
         crate::client::protocol::McpProtocol::Sse => {
-            run_sse_mode(config, args.clone(), tool_filter, verbose, quiet)
+            run_sse_mode(config, discovery_mode, tool_filter, runtime_options)
                 .await
                 .map_err(|e| {
                     tracing::error!("SSE mode failed: {:?}", e);
@@ -114,7 +90,7 @@ pub async fn run_url_mode_with_retry(
                 })
         }
         crate::client::protocol::McpProtocol::Stream => {
-            run_stream_mode(config, args.clone(), tool_filter, verbose, quiet)
+            run_stream_mode(config, discovery_mode, tool_filter, runtime_options)
                 .await
                 .map_err(|e| {
                     tracing::error!("Stream mode failed: {:?}", e);
@@ -131,26 +107,114 @@ pub async fn run_url_mode_with_retry(
     }
 }
 
+async fn resolve_protocol(
+    cli_protocol: Option<&ProxyProtocol>,
+    config_protocol: Option<McpProtocol>,
+    url: &str,
+    headers: &HashMap<String, String>,
+    quiet: bool,
+) -> Result<McpProtocol> {
+    if let Some(protocol) = cli_protocol {
+        let resolved = match protocol {
+            ProxyProtocol::Sse => McpProtocol::Sse,
+            ProxyProtocol::Stream => McpProtocol::Stream,
+        };
+        tracing::info!(protocol = protocol_name(&resolved), "Using CLI protocol");
+        if !quiet {
+            eprintln!("🔧 Using protocol from CLI: {}", protocol_name(&resolved));
+        }
+        return Ok(resolved);
+    }
+
+    if let Some(protocol) = config_protocol {
+        tracing::info!(
+            protocol = protocol_name(&protocol),
+            "Using configured protocol"
+        );
+        if !quiet {
+            eprintln!(
+                "🔧 Using protocol from config: {}",
+                protocol_name(&protocol)
+            );
+        }
+        return Ok(protocol);
+    }
+
+    if !quiet {
+        eprintln!("🔍 Detecting protocol...");
+    }
+    let started = std::time::Instant::now();
+    let detected =
+        crate::client::protocol::detect_mcp_protocol_with_headers(url, Some(headers)).await?;
+    tracing::info!(
+        protocol = protocol_name(&detected),
+        elapsed = ?started.elapsed(),
+        "Protocol detection completed"
+    );
+    if !quiet {
+        eprintln!("🔍 Detected protocol: {}", protocol_name(&detected));
+    }
+    Ok(detected)
+}
+
 /// 构建 McpClientConfig
 pub fn build_mcp_config(
     url: &str,
     headers: &HashMap<String, String>,
     auth: Option<&String>,
+    timeout_secs: Option<u64>,
 ) -> McpClientConfig {
     let mut config = McpClientConfig::new(url);
-    for (k, v) in headers {
-        // Authorization: 统一补 "Bearer " 前缀。headers 进入时通常已由 normalize_authorization
-        // 规范化（auth_token 路径），此处为防御性兜底，确保连接路径与探测路径行为完全一致。
-        let value = if k.eq_ignore_ascii_case("Authorization") {
-            normalize_authorization(v)
-        } else {
-            v.clone()
-        };
-        config = config.with_header(k, value);
+    let final_headers = merge_headers(headers.clone(), &[], auth);
+    for (key, value) in final_headers {
+        config = config.with_header(key, value);
     }
-    if let Some(auth_value) = auth {
-        // 命令行 --auth 参数不带 "Bearer " 前缀，直接添加
-        config = config.with_header("Authorization", auth_value);
+    if let Some(timeout_secs) = timeout_secs {
+        let timeout = Duration::from_secs(timeout_secs);
+        config = config
+            .with_connect_timeout(timeout)
+            .with_read_timeout(timeout);
     }
     config
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remote_timeout_applies_to_connect_and_read() {
+        let config = build_mcp_config("http://localhost", &HashMap::new(), None, Some(7));
+
+        assert_eq!(config.connect_timeout, Some(Duration::from_secs(7)));
+        assert_eq!(config.read_timeout, Some(Duration::from_secs(7)));
+    }
+
+    #[test]
+    fn complete_authorization_header_is_not_rewritten() {
+        let mut headers = HashMap::new();
+        headers.insert("Authorization".to_string(), "ApiKey secret".to_string());
+
+        let config = build_mcp_config("http://localhost", &headers, None, None);
+
+        assert_eq!(
+            config.headers.get("Authorization").map(String::as_str),
+            Some("ApiKey secret")
+        );
+    }
+
+    #[test]
+    fn explicit_auth_argument_remains_complete_and_wins() {
+        let mut headers = HashMap::new();
+        headers.insert("authorization".to_string(), "Bearer old".to_string());
+        let auth = "Basic final".to_string();
+
+        let config = build_mcp_config("http://localhost", &headers, Some(&auth), None);
+
+        assert_eq!(config.headers.len(), 1);
+        assert_eq!(
+            config.headers.get("Authorization").map(String::as_str),
+            Some("Basic final")
+        );
+    }
 }
