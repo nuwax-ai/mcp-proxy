@@ -20,7 +20,7 @@ impl ProxyHandler {
     pub(super) fn extract_server_info(client: &BackendRunningService, mcp_id: &str) -> ServerInfo {
         client
             .peer_info()
-            .map(|peer_info| (*peer_info).clone())
+            .map(|peer_info| super::peer_info_to_server_info((*peer_info).clone()))
             .unwrap_or_else(|| Self::default_server_info(mcp_id))
     }
 

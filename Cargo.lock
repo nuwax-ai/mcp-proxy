@@ -630,6 +630,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
+name = "base64"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b25655df2c3cdd83c5e5b293b88acd880332b2ddadd7c30ac43144fdc0033da9"
+
+[[package]]
 name = "base64ct"
 version = "1.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3572,7 +3578,7 @@ dependencies = [
  "mcp-common",
  "process-wrap 9.1.0",
  "reqwest 0.13.4",
- "rmcp-soddygo",
+ "rmcp 3.1.0",
  "serde",
  "serde_json",
  "tokio",
@@ -5545,6 +5551,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "rmcp"
+version = "3.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad26b216c966e987e80e86daf784a455c039c43d98575ceed57b8faa259e5695"
+dependencies = [
+ "async-trait",
+ "base64 0.23.0",
+ "bytes",
+ "chrono",
+ "futures",
+ "http",
+ "http-body",
+ "http-body-util",
+ "pastey 0.2.3",
+ "pin-project-lite",
+ "process-wrap 9.1.0",
+ "rand 0.10.1",
+ "reqwest 0.13.4",
+ "rmcp-macros 3.1.0",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sse-stream",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tower-service",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "rmcp-macros"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5571,43 +5610,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "rmcp-soddygo"
-version = "2.2.0"
+name = "rmcp-macros"
+version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3fa4881b5527e4d058ff0cae3fb639639059a88524a3465f0d0c1e020c2fcb19"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "bytes",
- "chrono",
- "futures",
- "http",
- "http-body",
- "http-body-util",
- "pastey 0.2.3",
- "pin-project-lite",
- "process-wrap 9.1.0",
- "rand 0.10.1",
- "reqwest 0.13.4",
- "rmcp-soddygo-macros",
- "schemars",
- "serde",
- "serde_json",
- "sse-stream",
- "thiserror 2.0.18",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "tower-service",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "rmcp-soddygo-macros"
-version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d76aec092894735384b91b466ad9ef4a1f48b36b33884e502067e37b14bbdf6"
+checksum = "41bc748630c2be2a71b614c2f40d27bc0df0060696d224e1692c72345b7e0b79"
 dependencies = [
  "darling 0.23.0",
  "proc-macro2",

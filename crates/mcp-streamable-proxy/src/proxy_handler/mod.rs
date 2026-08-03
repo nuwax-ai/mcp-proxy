@@ -10,14 +10,12 @@ pub use mcp_common::ToolFilter;
 use rmcp::{
     ErrorData, RoleClient, RoleServer, ServerHandler, ServiceError,
     model::{
-        CallToolRequest, CallToolRequestParams, CallToolResponse, CallToolResult, CancelTaskParams,
-        CancelTaskRequest, ClientRequest, ContentBlock, CreateTaskResult, GetPromptResponse,
-        GetTaskParams, GetTaskPayloadParams, GetTaskPayloadRequest, GetTaskRequest, GetTaskResult,
-        Implementation, InitializeRequestParams, InitializeResult, ListTasksRequest,
-        ListTasksResult, ListToolsResult, PaginatedRequestParams, ProtocolVersion,
-        ReadResourceResponse, RequestMetaObject, RequestParamsMeta, ServerInfo, ServerResult,
-        SetLevelRequestMethod, SubscribeRequestMethod, SubscribeRequestParams,
-        UnsubscribeRequestMethod, UnsubscribeRequestParams,
+        CallToolRequestParams, CallToolResponse, CallToolResult, CancelTaskParams, ClientRequest,
+        ContentBlock, GetPromptResponse, GetTaskParams, GetTaskRequest, GetTaskResult,
+        Implementation, InitializeRequestParams, InitializeResult, ListToolsResult,
+        PaginatedRequestParams, ProtocolVersion, ReadResourceResponse, RequestMetaObject,
+        RequestParamsMeta, ServerInfo, ServerResult, SetLevelRequestMethod, SubscribeRequestMethod,
+        SubscribeRequestParams, UnsubscribeRequestMethod, UnsubscribeRequestParams,
     },
     service::{NotificationContext, Peer, RequestContext, RunningService},
 };
@@ -63,6 +61,25 @@ fn negotiate_protocol_version(
         );
         server_fallback
     }
+}
+
+/// Convert a backend's [`ServerPeerInfo`] (rmcp 3.1.0 `peer_info()`) into the
+/// [`ServerInfo`] (= `InitializeResult`) shape stored in the discovery cache.
+///
+/// rmcp 3.1.0 narrowed the peer-info type from `InitializeResult` to
+/// `ServerPeerInfo`; the proxy caches the full `ServerInfo`, so we rebuild it.
+/// `InitializeResult` is `#[non_exhaustive]`, so we use its builder instead of a
+/// struct literal. `_meta` has no setter and is dropped (consistent with
+/// `default_server_info`, which also omits it).
+pub(crate) fn peer_info_to_server_info(peer: rmcp::model::ServerPeerInfo) -> ServerInfo {
+    let mut info = InitializeResult::new(peer.capabilities).with_protocol_version(peer.protocol_version);
+    if let Some(server_info) = peer.server_info {
+        info = info.with_server_info(server_info);
+    }
+    if let Some(instructions) = peer.instructions {
+        info = info.with_instructions(instructions);
+    }
+    info
 }
 
 /// Running backend service with notification bridge.

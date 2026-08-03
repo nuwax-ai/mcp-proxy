@@ -15,7 +15,7 @@ use rmcp::{
     model::{
         ClientCapabilities, ClientInfo, Implementation, ProgressNotificationParam, ProgressToken,
         ResourceUpdatedNotificationParam, ServerNotification, TaskStatus, TaskStatusNotification,
-        TaskStatusNotificationParam, TasksCapability,
+        TaskStatusNotificationParams,
     },
     service::{NotificationContext, Peer, ServiceError},
 };
@@ -167,10 +167,10 @@ impl UpstreamPeerRegistry {
     }
 
     /// Deliver a task-status notification to the owning upstream peer only.
-    pub async fn deliver_task_status(&self, params: TaskStatusNotificationParam) {
-        let task_id = params.task.task_id.clone();
+    pub async fn deliver_task_status(&self, params: TaskStatusNotificationParams) {
+        let task_id = params.task.task.task_id.clone();
         let terminal = matches!(
-            params.task.status,
+            params.task.status(),
             TaskStatus::Completed | TaskStatus::Failed | TaskStatus::Cancelled
         );
 
@@ -350,11 +350,7 @@ impl BackendNotificationBridge {
 
 /// Default [`ClientInfo`] for proxy→backend handshake (enables task notifications).
 pub fn default_backend_client_info() -> ClientInfo {
-    #[allow(deprecated)]
-    let capabilities = ClientCapabilities::builder()
-        .enable_experimental()
-        .enable_tasks_with(TasksCapability::client_default())
-        .build();
+    let capabilities = ClientCapabilities::builder().enable_tasks().build();
     ClientInfo::new(
         capabilities,
         Implementation::new("mcp-streamable-proxy-client", env!("CARGO_PKG_VERSION")),
@@ -479,7 +475,7 @@ impl ClientHandler for BackendNotificationBridge {
 
     async fn on_task_status(
         &self,
-        params: TaskStatusNotificationParam,
+        params: TaskStatusNotificationParams,
         _context: NotificationContext<RoleClient>,
     ) {
         match &self.target {

@@ -22,9 +22,10 @@ impl ProxyHandler {
             "prompts/get" => get_prompt(peer, params).await,
             "completion/complete" => complete(peer, params).await,
             "logging/setLevel" => set_log_level(peer, params).await,
-            "tasks/list" => list_tasks(peer, params).await,
+            "tasks/list" => forward_raw(peer, "tasks/list", params).await,
             "tasks/get" => get_task(peer, params).await,
-            "tasks/result" => get_task_result(peer, params).await,
+            "tasks/result" => forward_raw(peer, "tasks/result", params).await,
+            "tasks/update" => update_task(peer, params).await,
             "tasks/cancel" => cancel_task(peer, params).await,
             _ => Err(format!("unsupported method: {method}")),
         }
@@ -39,6 +40,17 @@ impl ProxyHandler {
             return Err("backend transport is closed".to_string());
         }
         Ok(inner.peer.clone())
+    }
+
+    /// Forward an arbitrary JSON-RPC method to the backend verbatim (transparent bridge).
+    ///
+    /// Unlike [`call_peer_method`](Self::call_peer_method) (a whitelist dispatcher),
+    /// this forwards ANY method string to the backend as a custom request, so the
+    /// proxy stays transparent for legacy methods (`tasks/list`, `tasks/result`) and
+    /// vendor extensions alike. Used by `ServerHandler::on_custom_request`.
+    pub(super) async fn forward_to_backend(&self, method: &str, params: Value) -> JsonResult {
+        let peer = self.raw_peer()?;
+        forward_raw(peer, method, params).await
     }
 }
 
@@ -71,19 +83,6 @@ async fn list_tools(peer: Peer<RoleClient>, params: Value) -> JsonResult {
 
 async fn call_tool(peer: Peer<RoleClient>, params: Value) -> JsonResult {
     let request: CallToolRequestParams = parse(params, "tools/call")?;
-    if request.task.is_some() {
-        let result = peer
-            .send_request(ClientRequest::CallToolRequest(CallToolRequest::new(
-                request,
-            )))
-            .await
-            .map_err(|error| format!("tools/call task enqueue failed: {error:?}"))?;
-        return match result {
-            ServerResult::CreateTaskResult(result) => serialize(result),
-            other => Err(format!("unexpected tools/call task response: {other:?}")),
-        };
-    }
-
     match peer
         .call_tool_once(request)
         .await
@@ -91,6 +90,7 @@ async fn call_tool(peer: Peer<RoleClient>, params: Value) -> JsonResult {
     {
         CallToolResponse::Complete(result) => serialize(result),
         CallToolResponse::InputRequired(result) => serialize(result),
+        CallToolResponse::Task(result) => serialize(result),
         other => Err(format!("unsupported tools/call response: {other:?}")),
     }
 }
@@ -124,6 +124,7 @@ async fn list_resource_templates(peer: Peer<RoleClient>, params: Value) -> JsonR
     serialize(result)
 }
 
+#[allow(deprecated)]
 async fn subscribe(peer: Peer<RoleClient>, params: Value) -> JsonResult {
     peer.subscribe(parse(params, "resources/subscribe")?)
         .await
@@ -131,6 +132,7 @@ async fn subscribe(peer: Peer<RoleClient>, params: Value) -> JsonResult {
     Ok(serde_json::json!({}))
 }
 
+#[allow(deprecated)]
 async fn unsubscribe(peer: Peer<RoleClient>, params: Value) -> JsonResult {
     peer.unsubscribe(parse(params, "resources/unsubscribe")?)
         .await
@@ -175,21 +177,6 @@ async fn set_log_level(peer: Peer<RoleClient>, params: Value) -> JsonResult {
     Ok(serde_json::json!({}))
 }
 
-async fn list_tasks(peer: Peer<RoleClient>, params: Value) -> JsonResult {
-    let result = peer
-        .send_request(ClientRequest::ListTasksRequest(ListTasksRequest {
-            method: Default::default(),
-            params: page_params(params, "tasks/list")?,
-            extensions: Default::default(),
-        }))
-        .await
-        .map_err(|error| format!("tasks/list failed: {error:?}"))?;
-    match result {
-        ServerResult::ListTasksResult(result) => serialize(result),
-        other => Err(format!("unexpected tasks/list response: {other:?}")),
-    }
-}
-
 async fn get_task(peer: Peer<RoleClient>, params: Value) -> JsonResult {
     let request = GetTaskRequest::new(parse(params, "tasks/get")?);
     let result = peer
@@ -202,26 +189,38 @@ async fn get_task(peer: Peer<RoleClient>, params: Value) -> JsonResult {
     }
 }
 
-async fn get_task_result(peer: Peer<RoleClient>, params: Value) -> JsonResult {
-    let request = GetTaskPayloadRequest::new(parse(params, "tasks/result")?);
-    let result = peer
-        .send_request(ClientRequest::GetTaskPayloadRequest(request))
+async fn update_task(peer: Peer<RoleClient>, params: Value) -> JsonResult {
+    let request: rmcp::model::UpdateTaskParams = parse(params, "tasks/update")?;
+    peer.update_task(request)
         .await
-        .map_err(|error| format!("tasks/result failed: {error:?}"))?;
-    match result {
-        ServerResult::GetTaskPayloadResult(result) => serialize(result),
-        other => Err(format!("unexpected tasks/result response: {other:?}")),
-    }
+        .map_err(|error| format!("tasks/update failed: {error:?}"))?;
+    Ok(serde_json::json!({}))
 }
 
 async fn cancel_task(peer: Peer<RoleClient>, params: Value) -> JsonResult {
-    let request = CancelTaskRequest::new(parse(params, "tasks/cancel")?);
-    let result = peer
-        .send_request(ClientRequest::CancelTaskRequest(request))
+    let request: rmcp::model::CancelTaskParams = parse(params, "tasks/cancel")?;
+    peer.cancel_task(request)
         .await
         .map_err(|error| format!("tasks/cancel failed: {error:?}"))?;
+    Ok(serde_json::json!({}))
+}
+
+/// Forward a method to the backend verbatim as a custom JSON-RPC request.
+///
+/// Used for legacy methods (`tasks/list`, `tasks/result`) whose typed
+/// request/result were dropped in rmcp 3.1.0 (SEP-2663 Tasks redesign) but
+/// that older backends may still implement. Keeps the proxy a transparent,
+/// version-tolerant bridge instead of hard-failing on spec-removed methods.
+async fn forward_raw(peer: Peer<RoleClient>, method: &str, params: Value) -> JsonResult {
+    let result = peer
+        .send_request(ClientRequest::CustomRequest(rmcp::model::CustomRequest::new(
+            method.to_string(),
+            Some(params),
+        )))
+        .await
+        .map_err(|error| format!("{method} failed: {error:?}"))?;
     match result {
-        ServerResult::CancelTaskResult(result) => serialize(result),
-        other => Err(format!("unexpected tasks/cancel response: {other:?}")),
+        ServerResult::CustomResult(result) => Ok(result.0),
+        other => Err(format!("unexpected {method} response: {other:?}")),
     }
 }

@@ -160,6 +160,17 @@ impl ServerHandler for ProxyHandler {
         let result =
             self.finish_call_tool(request_id, tool_name.as_ref(), start.elapsed(), call_result);
 
+        // SEP-2663: when the backend materializes a task for this call, register
+        // its notification route so backend task-status updates reach the caller.
+        // Shared isolation routes via the registry; per-session bridges 1:1 via
+        // notify_slot and needs no registry entry.
+        if let CallToolResponse::Task(ref task_result) = result
+            && self.isolation == BackendIsolation::Shared
+        {
+            self.upstream_peers
+                .register_task(task_result.task.task_id.clone(), context.peer.clone());
+        }
+
         info!(
             "[call_tool:{}] Completed - Tool: {}, total time taken: {}ms",
             request_id,
@@ -306,6 +317,7 @@ impl ServerHandler for ProxyHandler {
         Ok(result)
     }
 
+    #[allow(deprecated)]
     async fn subscribe(
         &self,
         request: SubscribeRequestParams,
@@ -328,6 +340,7 @@ impl ServerHandler for ProxyHandler {
         }
     }
 
+    #[allow(deprecated)]
     async fn unsubscribe(
         &self,
         request: UnsubscribeRequestParams,
@@ -366,74 +379,12 @@ impl ServerHandler for ProxyHandler {
         .await
     }
 
-    async fn enqueue_task(
-        &self,
-        mut request: CallToolRequestParams,
-        context: RequestContext<RoleServer>,
-    ) -> Result<CreateTaskResult, ErrorData> {
-        let tasks = self.capabilities().tasks.clone();
-        if tasks.as_ref().is_none_or(|t| !t.supports_tools_call()) {
-            return Err(ErrorData::internal_error(
-                "Backend does not support task-based tools/call".to_string(),
-                None,
-            ));
-        }
-        merge_context_meta_into_params(&mut request, &context.meta);
-        let _progress_guard = self.maybe_progress_guard(&context);
-        let result = self
-            .forward_backend(&context, |peer| async move {
-                let result = peer
-                    .send_request(ClientRequest::CallToolRequest(CallToolRequest::new(
-                        request,
-                    )))
-                    .await?;
-                match result {
-                    ServerResult::CreateTaskResult(r) => Ok(r),
-                    _ => Err(ServiceError::UnexpectedResponse),
-                }
-            })
-            .await?;
-
-        // Shared isolation: route task notifications via registry.
-        // Per-session: bridge delivers 1:1 via notify_slot; no registry entry needed.
-        if self.isolation == BackendIsolation::Shared {
-            self.upstream_peers
-                .register_task(result.task.task_id.clone(), context.peer.clone());
-        }
-        Ok(result)
-    }
-
-    async fn list_tasks(
-        &self,
-        request: Option<PaginatedRequestParams>,
-        context: RequestContext<RoleServer>,
-    ) -> Result<ListTasksResult, ErrorData> {
-        let tasks = self.capabilities().tasks.clone();
-        if tasks.as_ref().is_none_or(|t| !t.supports_list()) {
-            return Err(ErrorData::method_not_found::<rmcp::model::ListTasksMethod>());
-        }
-        self.forward_backend(&context, |peer| async move {
-            let result = peer
-                .send_request(ClientRequest::ListTasksRequest(ListTasksRequest {
-                    method: Default::default(),
-                    params: request,
-                    extensions: Default::default(),
-                }))
-                .await?;
-            match result {
-                ServerResult::ListTasksResult(r) => Ok(r),
-                _ => Err(ServiceError::UnexpectedResponse),
-            }
-        })
-        .await
-    }
-
-    async fn get_task_info(
+    async fn get_task(
         &self,
         request: GetTaskParams,
         context: RequestContext<RoleServer>,
     ) -> Result<GetTaskResult, ErrorData> {
-        if self.capabilities().tasks.is_none() {
+        if !self.capabilities().supports_tasks() {
             return Err(ErrorData::method_not_found::<rmcp::model::GetTaskMethod>());
         }
         self.forward_backend(&context, |peer| async move {
@@ -448,55 +399,31 @@ impl ServerHandler for ProxyHandler {
         .await
     }
 
-    async fn get_task_result(
+    async fn update_task(
         &self,
-        request: GetTaskPayloadParams,
+        request: rmcp::model::UpdateTaskParams,
         context: RequestContext<RoleServer>,
-    ) -> Result<rmcp::model::GetTaskPayloadResult, ErrorData> {
-        if self.capabilities().tasks.is_none() {
-            return Err(ErrorData::method_not_found::<
-                rmcp::model::GetTaskPayloadMethod,
-            >());
+    ) -> Result<(), ErrorData> {
+        if !self.capabilities().supports_tasks() {
+            return Err(ErrorData::method_not_found::<rmcp::model::UpdateTaskMethod>());
         }
-        self.forward_backend(&context, |peer| async move {
-            let result = peer
-                .send_request(ClientRequest::GetTaskPayloadRequest(
-                    GetTaskPayloadRequest::new(request),
-                ))
-                .await?;
-            match result {
-                ServerResult::GetTaskPayloadResult(r) => Ok(r),
-                _ => Err(ServiceError::UnexpectedResponse),
-            }
-        })
-        .await
+        self.forward_backend(&context, |peer| async move { peer.update_task(request).await })
+            .await
     }
 
     async fn cancel_task(
         &self,
         request: CancelTaskParams,
         context: RequestContext<RoleServer>,
-    ) -> Result<rmcp::model::CancelTaskResult, ErrorData> {
-        let tasks = self.capabilities().tasks.clone();
-        if tasks.as_ref().is_none_or(|t| !t.supports_cancel()) {
+    ) -> Result<(), ErrorData> {
+        if !self.capabilities().supports_tasks() {
             return Err(ErrorData::method_not_found::<rmcp::model::CancelTaskMethod>());
         }
         let task_id = request.task_id.clone();
-        let result = self
-            .forward_backend(&context, |peer| async move {
-                let result = peer
-                    .send_request(ClientRequest::CancelTaskRequest(CancelTaskRequest::new(
-                        request,
-                    )))
-                    .await?;
-                match result {
-                    ServerResult::CancelTaskResult(r) => Ok(r),
-                    _ => Err(ServiceError::UnexpectedResponse),
-                }
-            })
+        self.forward_backend(&context, |peer| async move { peer.cancel_task(request).await })
             .await?;
         self.upstream_peers.unregister_task(&task_id);
-        Ok(result)
+        Ok(())
     }
 
     async fn on_initialized(&self, context: NotificationContext<RoleServer>) {
@@ -585,5 +512,30 @@ impl ServerHandler for ProxyHandler {
                 error!("Error notifying cancelled: {:?}", err);
             }
         }
+    }
+
+    /// Forward non-standard / legacy methods to the backend verbatim.
+    ///
+    /// rmcp 3.1.0 routes any method it does not recognise as a standard MCP
+    /// method here — including spec-removed ones like `tasks/list` and
+    /// `tasks/result` that older clients/backends may still use, plus any vendor
+    /// extension. Delegating to [`ProxyHandler::forward_to_backend`] keeps the
+    /// proxy a fully transparent, version-tolerant bridge: every non-standard
+    /// method is forwarded as a custom request and the backend is the source of
+    /// truth. Standard methods never reach this handler.
+    async fn on_custom_request(
+        &self,
+        request: rmcp::model::CustomRequest,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<rmcp::model::CustomResult, ErrorData> {
+        let method = request.method.clone();
+        let params = request.params.unwrap_or_default();
+        let value = self
+            .forward_to_backend(&method, params)
+            .await
+            .map_err(|error| {
+                ErrorData::internal_error(format!("{method} backend error: {error}"), None)
+            })?;
+        Ok(rmcp::model::CustomResult::new(value))
     }
 }

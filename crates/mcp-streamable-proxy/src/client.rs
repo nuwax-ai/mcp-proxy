@@ -216,7 +216,11 @@ impl StreamClientConnection {
 
     /// Get the peer info from the server
     pub fn peer_info(&self) -> Option<Arc<rmcp::model::ServerInfo>> {
-        self.inner.peer_info()
+        // rmcp 3.1.0 narrowed peer_info() to ServerPeerInfo; rebuild the full
+        // ServerInfo (InitializeResult) shape the proxy caches/exposes.
+        self.inner
+            .peer_info()
+            .map(|p| Arc::new(crate::proxy_handler::peer_info_to_server_info((*p).clone())))
     }
 
     /// Convert this connection into a ProxyHandler for serving

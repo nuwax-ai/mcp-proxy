@@ -215,7 +215,7 @@ impl StreamServerBuilder {
                 .with_max_sessions(self.server_config.max_sessions);
             let handler_for_service = handler.clone();
             let mut server_config = StreamableHttpServerConfig::default();
-            server_config.stateful_mode = true;
+            server_config.legacy_session_mode = true;
             let service = StreamableHttpService::new(
                 move || Ok((*handler_for_service).clone()),
                 session_manager.into(),
@@ -256,7 +256,7 @@ impl StreamServerBuilder {
             .with_max_sessions(self.server_config.max_sessions);
 
         let mut server_config = StreamableHttpServerConfig::default();
-        server_config.stateful_mode = true;
+        server_config.legacy_session_mode = true;
         let service = StreamableHttpService::new(
             move || {
                 Ok(ProxyHandler::new_per_session(
