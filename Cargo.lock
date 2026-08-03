@@ -1573,7 +1573,7 @@ dependencies = [
 
 [[package]]
 name = "deploy-installer"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "clap",
@@ -1749,7 +1749,7 @@ dependencies = [
 
 [[package]]
 name = "document-parser"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "aliyun-oss-rust-sdk",
  "anyhow",
@@ -3454,7 +3454,7 @@ dependencies = [
 
 [[package]]
 name = "mcp-common"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -3478,7 +3478,7 @@ dependencies = [
 
 [[package]]
 name = "mcp-proxy-args"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "serde_json",
  "sha2",
@@ -3488,7 +3488,7 @@ dependencies = [
 
 [[package]]
 name = "mcp-sse-proxy"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -3511,7 +3511,7 @@ dependencies = [
 
 [[package]]
 name = "mcp-stdio-proxy"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -3567,7 +3567,7 @@ dependencies = [
 
 [[package]]
 name = "mcp-streamable-proxy"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -4270,7 +4270,7 @@ dependencies = [
 
 [[package]]
 name = "oss-client"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "aliyun-oss-rust-sdk",
  "async-trait",
@@ -5638,7 +5638,7 @@ dependencies = [
 
 [[package]]
 name = "rs-voice-toolkit-audio"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "audioadapter-buffers",
  "ffmpeg-sidecar",
@@ -5717,7 +5717,7 @@ dependencies = [
 
 [[package]]
 name = "run_code_rmcp"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -8028,7 +8028,7 @@ dependencies = [
 
 [[package]]
 name = "voice-cli"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "apalis",
@@ -8079,7 +8079,7 @@ dependencies = [
 
 [[package]]
 name = "voice-toolkit"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "rs-voice-toolkit-audio",
  "thiserror 2.0.18",
