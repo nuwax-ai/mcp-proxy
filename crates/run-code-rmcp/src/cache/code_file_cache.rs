@@ -14,7 +14,7 @@ impl CodeFileCache {
         // 使用BLAKE3计算哈希，更快速且安全
         let hash = blake3::hash(code.as_bytes());
         let hash_str = hash.to_hex().to_string();
-        info!("计算代码hash值: {}", &hash_str);
+        info!("计算代码hash值: {}", hash_str);
         hash_str
     }
 

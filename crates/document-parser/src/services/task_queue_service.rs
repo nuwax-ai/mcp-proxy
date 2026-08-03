@@ -537,7 +537,7 @@ impl TaskQueueService {
                         // 记录处理时间样本
                         {
                             let tasks = processing_tasks.read().await;
-                            for (_, context) in tasks.iter() {
+                            for context in tasks.values() {
                                 let elapsed = now.duration_since(context.started_at);
                                 processing_times.push_back(elapsed);
 

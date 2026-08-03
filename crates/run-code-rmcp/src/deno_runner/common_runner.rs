@@ -24,13 +24,13 @@ where
 
     let run_code_script_file_tuple = if cache_exist {
         let cache_code = CodeFileCache::get_code_file_cache(&hash, &lang).await;
-        debug!("从缓存中读取代码:hash值 {:?}", &hash);
+        debug!("从缓存中读取代码:hash值 {:?}", hash);
         cache_code?
     } else {
         let wrapped_code = prepare_code_fn(code, true);
         CodeFileCache::save_code_file_cache(&hash, &wrapped_code, &lang).await?;
         let code_script_file_tuple = CodeFileCache::get_code_file_cache(&hash, &lang).await?;
-        debug!("创建脚本缓存:hash值 {:?}", &hash);
+        debug!("创建脚本缓存:hash值 {:?}", hash);
         code_script_file_tuple
     };
 
@@ -72,13 +72,13 @@ where
         None
     };
 
-    debug!("Deno命令[{:?}]: {:?}", lang, &execute_command);
+    debug!("Deno命令[{:?}]: {:?}", lang, execute_command);
 
     let executor = match timeout_seconds {
         Some(timeout) => CommandExecutor::with_timeout(execute_command.output(), timeout),
         None => CommandExecutor::default(execute_command.output()),
     };
-    info!("执行命令: {:?}", &execute_command);
+    info!("执行命令: {:?}", execute_command);
 
     let executor_result = executor.await;
     let output = match executor_result {

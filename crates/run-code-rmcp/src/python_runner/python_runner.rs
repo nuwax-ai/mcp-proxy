@@ -32,7 +32,7 @@ impl RunCode for PythonRunner {
             // 从缓存中读取代码
             let cache_code =
                 CodeFileCache::get_code_file_cache(&hash, &LanguageScript::Python).await;
-            debug!("从缓存中读取代码:hash值 {:?}", &hash);
+            debug!("从缓存中读取代码:hash值 {:?}", hash);
             cache_code?
         } else {
             // 分析用户python代码依赖
@@ -66,7 +66,7 @@ impl RunCode for PythonRunner {
                 }
 
                 // 打印 cmd 命令,可以直接复制执行的命令字符串
-                let cmd_str = format!("{:?}", &cmd);
+                let cmd_str = format!("{:?}", cmd);
                 info!("uv命令字符串: {cmd_str}");
 
                 let cmd_output = match cmd.kill_on_drop(true).output().await {
@@ -87,7 +87,7 @@ impl RunCode for PythonRunner {
                     warn!("添加依赖失败，状态码: {}", cmd_output.status);
                 }
             }
-            debug!("创建脚本缓存:hash值 {:?}", &hash);
+            debug!("创建脚本缓存:hash值 {:?}", hash);
             code_script_file_tuple
         };
 
@@ -131,7 +131,7 @@ impl RunCode for PythonRunner {
             None
         };
 
-        info!("执行命令: {:?}", &execute_command);
+        info!("执行命令: {:?}", execute_command);
 
         //限制command 的执行超时时间
         let executor = match timeout_seconds {
