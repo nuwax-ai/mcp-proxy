@@ -49,7 +49,8 @@
 - import 参数会被忽略；
 - 记录一条 warn 日志；
 - 不读取 import 文件，也不解析 import JSON；
-- LocalCommand 按原有流程执行。
+- `--export-*` 只对远程 URL 模式有效：若配置解析为 LocalCommand 时却传了 export 参数，会直接报错并启动失败（本地命令没有远程上游可采集，所以 export 不像 import 那样被忽略）；不传则不受影响；
+- import 相关参数被忽略后，LocalCommand 按原有流程执行。
 
 `mcp-proxy proxy` 不在本功能范围内。
 
