@@ -227,7 +227,7 @@ pub async fn run_stream_server(
     // 或 `.disable_allowed_hosts()`（后者不推荐用于公网）。
     let handler_for_service = handler.clone();
     let mut server_config = StreamableHttpServerConfig::default();
-    server_config.stateful_mode = true; // 关键：启用有状态模式
+    server_config.legacy_session_mode = true; // 关键：启用有状态（legacy session）模式
     let service = StreamableHttpService::new(
         move || Ok((*handler_for_service).clone()),
         session_manager.into(), // 转换为 Arc<dyn SessionManager>

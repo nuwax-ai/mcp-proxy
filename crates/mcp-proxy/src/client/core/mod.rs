@@ -5,6 +5,9 @@
 pub mod command;
 pub mod common;
 pub mod convert;
+mod discovery_options;
+mod export;
+mod remote_runtime;
 pub mod sse;
 pub mod stream;
 
@@ -12,4 +15,4 @@ pub mod stream;
 // 注意: run_sse_mode 和 run_stream_mode 是内部实现细节，
 // 只被 convert 模块使用，不需要对外暴露
 pub use command::run_command_mode;
-pub use convert::run_url_mode_with_retry;
+pub use convert::{UrlModeTarget, run_url_mode_with_retry};

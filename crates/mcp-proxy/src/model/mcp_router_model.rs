@@ -238,7 +238,7 @@ pub struct McpJsonServerParameters {
 impl McpJsonServerParameters {
     //check里面的hashmap是否只有一个,如果没问题,尝试返回第一个
     pub fn try_get_first_mcp_server(&self) -> Result<McpServerConfig> {
-        debug!("mcp_servers: {:?}", &self.mcp_servers);
+        debug!("mcp_servers: {:?}", self.mcp_servers);
         if self.mcp_servers.len() == 1 {
             let vals = self.mcp_servers.values().next();
             if let Some(val) = vals {
@@ -256,7 +256,7 @@ impl McpJsonServerParameters {
         } else {
             error!(
                 "mcp_servers must have exactly one MCP plug-in, mcp_servers: {:?}",
-                &self.mcp_servers
+                self.mcp_servers
             );
             Err(anyhow::anyhow!(
                 "mcp_servers must contain exactly one MCP plugin"

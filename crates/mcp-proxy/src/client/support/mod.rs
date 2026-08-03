@@ -13,7 +13,8 @@ mod config_tests;
 
 // 导出常用类型
 pub use args::{CheckArgs, ConvertArgs, DetectArgs, HealthArgs, LoggingArgs};
-pub use config::{McpConfigSource, merge_headers, normalize_authorization, parse_convert_config};
+pub use config::{McpConfigSource, merge_headers, parse_convert_config};
+pub(crate) use config::{merge_config_headers_checked, merge_headers_checked};
 pub use diagnostic::{classify_error, print_diagnostic_report, summarize_error};
 pub use logging::{init_logging, init_logging_with_config};
-pub use utils::{protocol_name, truncate_str};
+pub use utils::protocol_name;

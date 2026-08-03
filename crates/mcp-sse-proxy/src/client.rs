@@ -18,6 +18,7 @@ use std::time::Duration;
 use std::time::Instant;
 use tracing::{debug, info};
 
+use crate::fallback::DiscoverySnapshot;
 use crate::sse_handler::SseHandler;
 use mcp_common::ToolFilter;
 
@@ -73,11 +74,11 @@ impl SseRetryPolicy for CappedExponentialBackoff {
             return None;
         }
 
-        // 计算指数退避时间
-        let exponential_delay = self.base_duration * (2u32.pow(current_times as u32));
-
-        // 限制最大间隔
-        Some(exponential_delay.min(self.max_interval))
+        Some(mcp_common::capped_exponential_delay(
+            self.base_duration,
+            self.max_interval,
+            current_times,
+        ))
     }
 }
 
@@ -190,6 +191,53 @@ impl SseClientConnection {
             .collect())
     }
 
+    /// Fetch an unfiltered, complete discovery snapshot from the real upstream.
+    pub async fn fetch_discovery_snapshot(&self) -> Result<DiscoverySnapshot> {
+        use std::collections::HashSet;
+
+        const MAX_PAGES: usize = 10_000;
+        let server_info = self
+            .peer_info()
+            .cloned()
+            .context("SSE upstream did not return initialize server info")?;
+        let mut tools = Vec::new();
+        let mut cursor = None;
+        let mut seen = HashSet::new();
+
+        for _ in 0..MAX_PAGES {
+            let result = self
+                .inner
+                .list_tools(
+                    cursor
+                        .clone()
+                        .map(|cursor| rmcp::model::PaginatedRequestParam {
+                            cursor: Some(cursor),
+                        }),
+                )
+                .await
+                .context("failed to list SSE upstream tools")?;
+            tools.extend(result.tools);
+            match result.next_cursor {
+                Some(next) => {
+                    if !seen.insert(next.clone()) {
+                        anyhow::bail!("SSE tools pagination returned a repeated cursor");
+                    }
+                    cursor = Some(next);
+                }
+                None => {
+                    return Ok(DiscoverySnapshot {
+                        server_info,
+                        tools: rmcp::model::ListToolsResult {
+                            tools,
+                            next_cursor: None,
+                        },
+                    });
+                }
+            }
+        }
+        anyhow::bail!("SSE tools pagination exceeded {MAX_PAGES} pages")
+    }
+
     /// Check if the connection is closed
     pub fn is_closed(&self) -> bool {
         use std::ops::Deref;
@@ -239,7 +287,7 @@ fn build_http_client(config: &McpClientConfig) -> Result<reqwest::Client> {
             .with_context(|| format!("Invalid header name: {}", key))?;
         let header_value = value
             .parse()
-            .with_context(|| format!("Invalid header value for {}: {}", key, value))?;
+            .with_context(|| format!("Invalid header value for {key}"))?;
         headers.insert(header_name, header_value);
     }
 
@@ -288,6 +336,16 @@ mod tests {
         };
         assert_eq!(info.name, "test_tool");
         assert_eq!(info.description, Some("A test tool".to_string()));
+    }
+
+    #[test]
+    fn invalid_header_error_does_not_expose_value() {
+        let secret = "secret-token\ninvalid";
+        let config = McpClientConfig::new("http://localhost").with_header("Authorization", secret);
+        let error = build_http_client(&config).expect_err("invalid header must fail");
+
+        assert!(error.to_string().contains("Authorization"));
+        assert!(!error.to_string().contains("secret-token"));
     }
 
     #[test]
@@ -349,5 +407,14 @@ mod tests {
         assert_eq!(policy.retry(0), Some(Duration::from_secs(1)));
         assert_eq!(policy.retry(5), Some(Duration::from_secs(32)));
         assert_eq!(policy.retry(10), Some(Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn test_capped_exponential_backoff_never_overflows() {
+        let policy = CappedExponentialBackoff::default();
+
+        assert_eq!(policy.retry(31), Some(Duration::from_secs(60)));
+        assert_eq!(policy.retry(32), Some(Duration::from_secs(60)));
+        assert_eq!(policy.retry(usize::MAX), Some(Duration::from_secs(60)));
     }
 }

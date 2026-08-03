@@ -153,6 +153,30 @@ pub struct ConvertArgs {
     )]
     pub ping_timeout: u64,
 
+    /// initialize 结果的内联 fallback JSON
+    #[arg(long)]
+    pub import_initialize: Option<String>,
+
+    /// initialize 结果的 fallback JSON 文件
+    #[arg(long)]
+    pub import_initialize_file: Option<PathBuf>,
+
+    /// 完整 tools/list 结果的内联 fallback JSON
+    #[arg(long)]
+    pub import_tools: Option<String>,
+
+    /// 完整 tools/list 结果的 fallback JSON 文件
+    #[arg(long)]
+    pub import_tools_file: Option<PathBuf>,
+
+    /// 将真实 initialize 结果导出到文件；使用 - 输出到 stdout
+    #[arg(long)]
+    pub export_initialize: Option<PathBuf>,
+
+    /// 将真实完整 tools/list 结果导出到文件；使用 - 输出到 stdout
+    #[arg(long)]
+    pub export_tools: Option<PathBuf>,
+
     /// 日志配置（使用通用结构）
     #[command(flatten)]
     pub logging: LoggingArgs,

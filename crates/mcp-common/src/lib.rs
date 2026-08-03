@@ -38,6 +38,7 @@ pub mod diagnostic;
 pub mod i18n;
 pub mod mirror;
 pub mod process_compat;
+pub mod retry;
 pub mod tool_filter;
 
 #[cfg(feature = "telemetry")]
@@ -51,6 +52,7 @@ pub use process_compat::check_windows_command;
 pub use process_compat::ensure_runtime_path;
 pub use process_compat::resolve_windows_command;
 pub use process_compat::spawn_stderr_reader;
+pub use retry::capped_exponential_delay;
 pub use tool_filter::ToolFilter;
 
 // Re-export i18n types

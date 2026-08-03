@@ -37,6 +37,7 @@ pub mod backend_connector;
 pub mod client;
 pub mod config;
 pub mod detector;
+pub mod fallback;
 pub mod proxy_handler;
 pub mod server;
 pub mod server_builder;
@@ -63,6 +64,7 @@ pub use server_builder::{BackendConfig, StreamServerBuilder, StreamServerConfig}
 
 // Re-export client connection types
 pub use client::{StreamClientConnection, ToolInfo};
+pub use fallback::{DiscoverySnapshot, FallbackMetadata};
 pub use mcp_common::McpClientConfig;
 
 // Re-export commonly used rmcp types

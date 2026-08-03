@@ -12,7 +12,7 @@ use crate::client::support::{CheckArgs, DetectArgs, merge_headers};
 /// 运行检查命令
 pub async fn run_check_command(args: CheckArgs, _verbose: bool, quiet: bool) -> Result<()> {
     if !quiet {
-        eprintln!("Checking service health: {}", &args.url);
+        eprintln!("Checking service health: {}", args.url);
     }
 
     // 合并 --auth 与 -H 自定义 headers 用于协议探测。

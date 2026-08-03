@@ -4,7 +4,7 @@
 
 use anyhow::{Result, bail};
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::args::ConvertArgs;
 
@@ -123,7 +123,10 @@ pub fn parse_convert_config(args: &ConvertArgs) -> Result<McpConfigSource> {
         (name.clone(), config)
     } else if servers.len() == 1 {
         // 单服务且未指定名称，自动使用
-        servers.into_iter().next().unwrap()
+        servers
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("配置中没有找到任何 MCP 服务"))?
     } else {
         // 多服务且未指定名称
         bail!(
@@ -158,16 +161,10 @@ pub fn parse_convert_config(args: &ConvertArgs) -> Result<McpConfigSource> {
                         _ => None,
                     });
 
-            // 合并 headers：JSON 配置中的 auth_token -> Authorization
-            // 统一补 "Bearer " 前缀，与连接路径 (build_mcp_config) 及 server 端探测保持一致，
-            // 避免探测缺前缀收到 401/403 而把鉴权 SSE 误判为 Streamable HTTP
-            let mut headers = url_config.headers.clone().unwrap_or_default();
-            if let Some(auth_token) = &url_config.auth_token {
-                headers.insert(
-                    "Authorization".to_string(),
-                    normalize_authorization(auth_token),
-                );
-            }
+            let headers = merge_config_headers_checked(
+                url_config.headers.clone().unwrap_or_default(),
+                url_config.auth_token.as_deref(),
+            )?;
 
             Ok(McpConfigSource::RemoteService {
                 name,
@@ -186,19 +183,92 @@ pub fn merge_headers(
     cli_headers: &[(String, String)],
     cli_auth: Option<&String>,
 ) -> HashMap<String, String> {
-    let mut merged = config_headers;
+    let mut config_entries = config_headers.into_iter().collect::<Vec<_>>();
+    config_entries.sort_by(|(left, _), (right, _)| {
+        left.to_ascii_lowercase()
+            .cmp(&right.to_ascii_lowercase())
+            .then_with(|| left.cmp(right))
+    });
 
-    // 命令行 -H 参数覆盖配置
+    let mut merged = HashMap::new();
+    for (key, value) in config_entries {
+        insert_header_case_insensitive(&mut merged, key, value);
+    }
     for (key, value) in cli_headers {
-        merged.insert(key.clone(), value.clone());
+        insert_header_case_insensitive(&mut merged, key.clone(), value.clone());
     }
-
-    // 命令行 --auth 参数优先级最高
     if let Some(auth_value) = cli_auth {
-        merged.insert("Authorization".to_string(), auth_value.clone());
+        insert_header_case_insensitive(
+            &mut merged,
+            "Authorization".to_string(),
+            auth_value.clone(),
+        );
     }
-
     merged
+}
+
+pub(crate) fn merge_headers_checked(
+    config_headers: HashMap<String, String>,
+    cli_headers: &[(String, String)],
+    cli_auth: Option<&String>,
+) -> Result<HashMap<String, String>> {
+    validate_unique_header_names(
+        "configured headers",
+        config_headers.keys().map(String::as_str),
+    )?;
+    validate_unique_header_names(
+        "CLI headers",
+        cli_headers.iter().map(|(name, _)| name.as_str()),
+    )?;
+    Ok(merge_headers(config_headers, cli_headers, cli_auth))
+}
+
+pub(crate) fn merge_config_headers_checked(
+    config_headers: HashMap<String, String>,
+    auth_token: Option<&str>,
+) -> Result<HashMap<String, String>> {
+    validate_unique_header_names(
+        "configured headers",
+        config_headers.keys().map(String::as_str),
+    )?;
+    let mut merged = merge_headers(config_headers, &[], None);
+    if let Some(token) = auth_token {
+        insert_header_case_insensitive(
+            &mut merged,
+            "Authorization".to_string(),
+            normalize_authorization(token),
+        );
+    }
+    Ok(merged)
+}
+
+fn validate_unique_header_names<'a>(
+    source: &str,
+    names: impl IntoIterator<Item = &'a str>,
+) -> Result<()> {
+    let mut seen = HashSet::new();
+    for name in names {
+        let normalized = name.to_ascii_lowercase();
+        if !seen.insert(normalized) {
+            bail!("{source} contains duplicate header name ignoring ASCII case: {name}");
+        }
+    }
+    Ok(())
+}
+
+fn insert_header_case_insensitive(
+    headers: &mut HashMap<String, String>,
+    key: String,
+    value: String,
+) {
+    if let Some(existing) = headers
+        .keys()
+        .find(|existing| existing.eq_ignore_ascii_case(&key))
+        .cloned()
+    {
+        headers.remove(&existing);
+    }
+    headers.insert(key, value);
 }
 
 /// 规范化 Authorization header 值，确保 Bearer token 带 `"Bearer "` 前缀。
@@ -216,5 +286,57 @@ pub fn normalize_authorization(value: &str) -> String {
         value.to_string()
     } else {
         format!("Bearer {}", value)
+    }
+}
+
+#[cfg(test)]
+mod header_tests {
+    use super::*;
+
+    #[test]
+    fn auth_token_is_the_only_source_that_adds_bearer() {
+        let mut configured = HashMap::new();
+        configured.insert("X-Test".to_string(), "configured".to_string());
+
+        let merged =
+            merge_config_headers_checked(configured, Some("secret")).expect("valid headers");
+
+        assert_eq!(
+            merged.get("Authorization").map(String::as_str),
+            Some("Bearer secret")
+        );
+    }
+
+    #[test]
+    fn complete_authorization_values_are_preserved_and_override_case_insensitively() {
+        let mut configured = HashMap::new();
+        configured.insert("authorization".to_string(), "Bearer old".to_string());
+        let cli_headers = vec![(
+            "AUTHORIZATION".to_string(),
+            "ApiKey from-header".to_string(),
+        )];
+        let cli_auth = "Basic final".to_string();
+
+        let merged = merge_headers_checked(configured, &cli_headers, Some(&cli_auth))
+            .expect("valid headers");
+
+        assert_eq!(merged.len(), 1);
+        assert_eq!(
+            merged.get("Authorization").map(String::as_str),
+            Some("Basic final")
+        );
+    }
+
+    #[test]
+    fn duplicate_header_names_in_one_source_fail_fast() {
+        let cli_headers = vec![
+            ("Authorization".to_string(), "Bearer one".to_string()),
+            ("authorization".to_string(), "Bearer two".to_string()),
+        ];
+
+        let error = merge_headers_checked(HashMap::new(), &cli_headers, None)
+            .expect_err("case-insensitive duplicates must fail");
+
+        assert!(error.to_string().contains("duplicate header name"));
     }
 }

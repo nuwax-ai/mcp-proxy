@@ -44,6 +44,7 @@ pub struct LogConfig {
 }
 
 /// Default log files to retain
+#[allow(dead_code)]
 fn default_retain_days() -> u32 {
     5
 }

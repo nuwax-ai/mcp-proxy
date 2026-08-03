@@ -18,6 +18,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::backend_client::{BackendNotificationBridge, UpstreamPeerRegistry};
+use crate::fallback::DiscoverySnapshot;
 use crate::proxy_handler::{BackendRunningService, ProxyHandler};
 use mcp_common::ToolFilter;
 
@@ -73,11 +74,11 @@ impl SseRetryPolicy for CappedExponentialBackoff {
             return None;
         }
 
-        // 计算指数退避时间
-        let exponential_delay = self.base_duration * (2u32.pow(current_times as u32));
-
-        // 限制最大间隔
-        Some(exponential_delay.min(self.max_interval))
+        Some(mcp_common::capped_exponential_delay(
+            self.base_duration,
+            self.max_interval,
+            current_times,
+        ))
     }
 }
 
@@ -155,6 +156,58 @@ impl StreamClientConnection {
             .collect())
     }
 
+    /// Fetch an unfiltered, complete discovery snapshot from the real upstream.
+    pub async fn fetch_discovery_snapshot(&self) -> Result<DiscoverySnapshot> {
+        use std::collections::HashSet;
+
+        const MAX_PAGES: usize = 10_000;
+        let server_info = self
+            .peer_info()
+            .map(|info| (*info).clone())
+            .context("Streamable HTTP upstream did not return initialize server info")?;
+        let mut tools = Vec::new();
+        let mut cursor: Option<String> = None;
+        let mut seen = HashSet::new();
+        let mut response_envelope = None;
+
+        for _ in 0..MAX_PAGES {
+            let request = cursor.clone().map(|cursor| {
+                rmcp::model::PaginatedRequestParams::default().with_cursor(Some(cursor))
+            });
+            let mut result = self
+                .inner
+                .list_tools(request)
+                .await
+                .context("failed to list Streamable HTTP upstream tools")?;
+            tools.append(&mut result.tools);
+            let next_cursor = result.next_cursor.take();
+            if response_envelope.is_none() {
+                response_envelope = Some(result);
+            }
+            match next_cursor {
+                Some(next) => {
+                    if !seen.insert(next.clone()) {
+                        anyhow::bail!(
+                            "Streamable HTTP tools pagination returned a repeated cursor"
+                        );
+                    }
+                    cursor = Some(next);
+                }
+                None => {
+                    let mut complete = response_envelope
+                        .context("Streamable HTTP tools pagination returned no response")?;
+                    complete.tools = tools;
+                    complete.next_cursor = None;
+                    return Ok(DiscoverySnapshot {
+                        server_info,
+                        tools: complete,
+                    });
+                }
+            }
+        }
+        anyhow::bail!("Streamable HTTP tools pagination exceeded {MAX_PAGES} pages")
+    }
+
     /// Check if the connection is closed
     pub fn is_closed(&self) -> bool {
         use std::ops::Deref;
@@ -163,7 +216,11 @@ impl StreamClientConnection {
 
     /// Get the peer info from the server
     pub fn peer_info(&self) -> Option<Arc<rmcp::model::ServerInfo>> {
-        self.inner.peer_info()
+        // rmcp 3.1.0 narrowed peer_info() to ServerPeerInfo; rebuild the full
+        // ServerInfo (InitializeResult) shape the proxy caches/exposes.
+        self.inner
+            .peer_info()
+            .map(|p| Arc::new(crate::proxy_handler::peer_info_to_server_info((*p).clone())))
     }
 
     /// Convert this connection into a ProxyHandler for serving
@@ -204,7 +261,7 @@ fn build_http_client(config: &McpClientConfig) -> Result<reqwest::Client> {
             .with_context(|| format!("Invalid header name: {}", key))?;
         let header_value = value
             .parse()
-            .with_context(|| format!("Invalid header value for {}: {}", key, value))?;
+            .with_context(|| format!("Invalid header value for {key}"))?;
         headers.insert(header_name, header_value);
     }
 
@@ -233,6 +290,16 @@ mod tests {
         };
         assert_eq!(info.name, "test_tool");
         assert_eq!(info.description, Some("A test tool".to_string()));
+    }
+
+    #[test]
+    fn invalid_header_error_does_not_expose_value() {
+        let secret = "secret-token\ninvalid";
+        let config = McpClientConfig::new("http://localhost").with_header("Authorization", secret);
+        let error = build_http_client(&config).expect_err("invalid header must fail");
+
+        assert!(error.to_string().contains("Authorization"));
+        assert!(!error.to_string().contains("secret-token"));
     }
 
     #[test]
@@ -266,5 +333,14 @@ mod tests {
         assert_eq!(policy.retry(2), Some(Duration::from_secs(4)));
         // 超过最大次数
         assert_eq!(policy.retry(3), None);
+    }
+
+    #[test]
+    fn test_capped_exponential_backoff_never_overflows() {
+        let policy = CappedExponentialBackoff::default();
+
+        assert_eq!(policy.retry(31), Some(Duration::from_secs(60)));
+        assert_eq!(policy.retry(32), Some(Duration::from_secs(60)));
+        assert_eq!(policy.retry(usize::MAX), Some(Duration::from_secs(60)));
     }
 }

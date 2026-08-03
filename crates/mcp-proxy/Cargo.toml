@@ -24,6 +24,7 @@ default = []
 [dependencies]
 # 共享类型和工具
 mcp-common = { workspace = true, features = ["otlp"] }
+mcp-proxy-args = { workspace = true }
 
 # 国际化支持
 rust-i18n = { workspace = true }
@@ -47,6 +48,7 @@ hostname = { workspace = true }
 log = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
+tempfile = { workspace = true }
 once_cell = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -87,6 +89,7 @@ path = "src/main.rs"
 criterion = "0.6"
 env_logger = "0.11"
 futures-util = "0.3.31"
+tokio = { workspace = true, features = ["test-util"] }
 
 
 [[bench]]
