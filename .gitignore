@@ -62,3 +62,4 @@ npm/nuwax-deploy-installer/*.tgz
 
 # Local install / smoke-test trees (never commit)
 local-smoke/
+.qoder/
