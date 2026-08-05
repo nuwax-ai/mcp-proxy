@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
@@ -443,10 +443,10 @@ impl SseServerBuilder {
             for (key, value) in config_headers {
                 req_headers.insert(
                     reqwest::header::HeaderName::try_from(key)
-                        .map_err(|e| anyhow::anyhow!("Invalid header name '{}': {}", key, e))?,
-                    value.parse().map_err(|e| {
-                        anyhow::anyhow!("Invalid header value for '{}': {}", key, e)
-                    })?,
+                        .with_context(|| format!("Invalid header name '{key}'"))?,
+                    value
+                        .parse()
+                        .with_context(|| format!("Invalid header value for '{key}'"))?,
                 );
             }
         }
@@ -454,7 +454,7 @@ impl SseServerBuilder {
         let http_client = reqwest::Client::builder()
             .default_headers(req_headers)
             .build()
-            .map_err(|e| anyhow::anyhow!("Failed to create HTTP client: {}", e))?;
+            .context("Failed to create HTTP client")?;
 
         // Create SSE client configuration
         let sse_config = SseClientConfig {

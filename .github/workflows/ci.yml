@@ -1,0 +1,65 @@
+# 代码质量门禁：fmt / clippy / test
+#
+# 说明：
+# - 仓库已有 .pre-commit-config.yaml，但仅本地自愿执行，此 workflow 为强制兜底。
+# - clippy/test 只覆盖 workspace default-members（不含 fastembed：ort-sys 编译期需联网
+#   下载预编译库且耗时数分钟；显式 -p fastembed-server 或 --workspace 才会碰它）。
+# - check-heavy 额外校验可离线编译的重型 crate；voice-cli 因 sherpa-onnx 需在编译期
+#   从 GitHub releases 下载预编译库（依赖网络与缓存），暂不纳入硬性门禁。
+
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  fmt:
+    name: Format check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: cargo fmt --check
+        run: cargo fmt --check
+
+  clippy:
+    name: Clippy (default members)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+  test:
+    name: Tests (default members)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo test
+        run: cargo test
+
+  check-heavy:
+    name: Check heavy crates (best-effort scope)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo check
+        run: >
+          cargo check -p document-parser -p deploy-installer
+          -p voice-toolkit -p rs-voice-toolkit-audio

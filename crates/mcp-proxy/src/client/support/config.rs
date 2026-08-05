@@ -2,7 +2,7 @@
 //!
 //! 解析 JSON 配置文件，支持多种服务配置格式
 
-use anyhow::{Result, bail};
+use anyhow::{Context as _, Result, bail};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 
@@ -91,7 +91,7 @@ pub fn parse_convert_config(args: &ConvertArgs) -> Result<McpConfigSource> {
     let json_str = if let Some(ref config) = args.config {
         config.clone()
     } else if let Some(ref path) = args.config_file {
-        std::fs::read_to_string(path).map_err(|e| anyhow::anyhow!("读取配置文件失败: {}", e))?
+        std::fs::read_to_string(path).context("读取配置文件失败")?
     } else {
         bail!("必须提供 URL、--config 或 --config-file 参数之一");
     };

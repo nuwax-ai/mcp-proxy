@@ -407,8 +407,11 @@ impl ServerHandler for ProxyHandler {
         if !self.capabilities().supports_tasks() {
             return Err(ErrorData::method_not_found::<rmcp::model::UpdateTaskMethod>());
         }
-        self.forward_backend(&context, |peer| async move { peer.update_task(request).await })
-            .await
+        self.forward_backend(
+            &context,
+            |peer| async move { peer.update_task(request).await },
+        )
+        .await
     }
 
     async fn cancel_task(
@@ -420,8 +423,11 @@ impl ServerHandler for ProxyHandler {
             return Err(ErrorData::method_not_found::<rmcp::model::CancelTaskMethod>());
         }
         let task_id = request.task_id.clone();
-        self.forward_backend(&context, |peer| async move { peer.cancel_task(request).await })
-            .await?;
+        self.forward_backend(
+            &context,
+            |peer| async move { peer.cancel_task(request).await },
+        )
+        .await?;
         self.upstream_peers.unregister_task(&task_id);
         Ok(())
     }

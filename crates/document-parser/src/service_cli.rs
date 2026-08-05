@@ -30,7 +30,7 @@ pub fn ensure_config_yml(install_dir: &Path, create: bool) -> Result<(PathBuf, A
     }
     let cfg =
         AppConfig::load_base_config_with_path(Some(config_path.to_string_lossy().into_owned()))
-            .map_err(|e| anyhow::anyhow!("failed to load {}: {e}", config_path.display()))?;
+            .with_context(|| format!("failed to load {}", config_path.display()))?;
     Ok((config_path, cfg))
 }
 
@@ -39,7 +39,7 @@ pub fn ensure_env_file(install_dir: &Path, create: bool) -> Result<PathBuf> {
     let env_path = install_dir.join(ENV_FILENAME);
     if !env_path.exists() && create {
         write_user_file(&env_path, ENV_EXAMPLE, Some(0o600))
-            .map_err(|e| anyhow::anyhow!("failed to create {ENV_FILENAME}: {e}"))?;
+            .with_context(|| format!("failed to create {ENV_FILENAME}"))?;
         println!(
             "✅ Created {} from template — fill OSS_ACCESS_KEY_ID / OSS_ACCESS_KEY_SECRET",
             env_path.display()

@@ -3,8 +3,6 @@
 // 注意：这会影响所有 Windows 平台的运行，独立运行时也不会有控制台输出
 // 日志会写入文件（默认 ./logs/），可以通过日志文件查看运行状态
 
-mod config;
-
 use anyhow::Result;
 use backtrace::Backtrace;
 use clap::Parser;

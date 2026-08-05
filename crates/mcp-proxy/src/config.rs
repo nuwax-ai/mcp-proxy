@@ -8,7 +8,6 @@ use std::path::Path;
 const DEFAULT_CONFIG_YAML: &str = include_str!("../config.yml");
 
 /// config.yml 中 mirror 段的结构
-#[allow(dead_code)]
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct MirrorYamlConfig {
     #[serde(default)]
@@ -17,7 +16,6 @@ pub struct MirrorYamlConfig {
     pub pypi_index_url: String,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {
     pub server: ServerConfig,
@@ -25,13 +23,11 @@ pub struct AppConfig {
     #[serde(default)]
     pub mirror: MirrorYamlConfig,
 }
-#[allow(dead_code)]
 #[derive(Debug, Deserialize, Clone)]
 pub struct ServerConfig {
     /// The port to listen on for incoming connections
     pub port: u16,
 }
-#[allow(dead_code)]
 #[derive(Debug, Deserialize, Clone)]
 pub struct LogConfig {
     /// The log level to use
@@ -44,12 +40,10 @@ pub struct LogConfig {
 }
 
 /// Default log files to retain
-#[allow(dead_code)]
 fn default_retain_days() -> u32 {
     5
 }
 
-#[allow(dead_code)]
 impl AppConfig {
     /// Load the config file from the following sources:
     /// 1. /app/config.yml

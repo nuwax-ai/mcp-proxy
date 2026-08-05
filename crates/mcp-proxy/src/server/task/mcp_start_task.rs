@@ -120,7 +120,7 @@ pub async fn integrate_server_with_axum(
                     Some(&detection_headers),
                 )
                 .await
-                .map_err(|e| anyhow::anyhow!("Auto-detection failed: {}", e))?
+                .context("Auto-detection failed")?
             }
         }
     };

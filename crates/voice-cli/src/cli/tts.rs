@@ -1,3 +1,4 @@
+use anyhow::Context as _;
 use clap::Subcommand;
 use std::path::PathBuf;
 
@@ -77,7 +78,7 @@ pub async fn handle_tts_test(config: &crate::Config, params: TtsTestParams) -> a
     let model_id = config.tts.engine.default_model.clone();
     let svc = TtsModelService::new(&config.tts.engine.models_dir);
     svc.ensure_model(&model_id, &config.tts.engine)
-        .map_err(|e| anyhow::anyhow!("TTS 模型未就绪: {e}"))?;
+        .context("TTS 模型未就绪")?;
 
     let fmt = AudioFormat::parse(&format);
     let opts = TtsOptions {
@@ -104,16 +105,16 @@ pub async fn handle_tts_test(config: &crate::Config, params: TtsTestParams) -> a
         Ok((bytes, fmt))
     })
     .await
-    .map_err(|e| anyhow::anyhow!("TTS join 失败: {e}"))??;
+    .context("TTS join 失败")??;
 
     let (bytes, fmt) = result;
     tokio::fs::create_dir_all("./data/tts")
         .await
-        .map_err(|e| anyhow::anyhow!("创建输出目录失败: {e}"))?;
+        .context("创建输出目录失败")?;
     let out = output.unwrap_or_else(|| PathBuf::from(format!("./data/tts/tts_test.{}", fmt.ext())));
     tokio::fs::write(&out, &bytes)
         .await
-        .map_err(|e| anyhow::anyhow!("写入输出文件失败: {e}"))?;
+        .context("写入输出文件失败")?;
 
     println!("✅ TTS test successful! {} bytes", bytes.len());
     println!("📁 Output file: {}", out.display());

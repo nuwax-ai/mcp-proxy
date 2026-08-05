@@ -72,7 +72,8 @@ fn negotiate_protocol_version(
 /// struct literal. `_meta` has no setter and is dropped (consistent with
 /// `default_server_info`, which also omits it).
 pub(crate) fn peer_info_to_server_info(peer: rmcp::model::ServerPeerInfo) -> ServerInfo {
-    let mut info = InitializeResult::new(peer.capabilities).with_protocol_version(peer.protocol_version);
+    let mut info =
+        InitializeResult::new(peer.capabilities).with_protocol_version(peer.protocol_version);
     if let Some(server_info) = peer.server_info {
         info = info.with_server_info(server_info);
     }
