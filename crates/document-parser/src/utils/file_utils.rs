@@ -1,6 +1,11 @@
 use crate::error::AppError;
 use regex::Regex;
 use std::path::Path;
+use std::sync::LazyLock;
+
+/// 文件名中的不安全字符（路径分隔符、控制字符等），模块级共享只编译一次
+static UNSAFE_FILENAME_CHARS: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"[<>:"/\\|?*\x00-\x1f]"#).expect("静态正则编译失败"));
 
 /// 检查文件是否存在
 pub fn file_exists(file_path: &str) -> bool {
@@ -48,8 +53,7 @@ pub fn sanitize_filename(filename: &str) -> Result<String, AppError> {
     }
 
     // 移除路径分隔符和其他不安全字符
-    let unsafe_chars = Regex::new(r#"[<>:"/\\|?*\x00-\x1f]"#).unwrap();
-    let sanitized = unsafe_chars.replace_all(filename, "_").to_string();
+    let sanitized = UNSAFE_FILENAME_CHARS.replace_all(filename, "_").to_string();
 
     // 移除开头和结尾的点和空格
     let sanitized = sanitized.trim_matches(|c| c == '.' || c == ' ').to_string();

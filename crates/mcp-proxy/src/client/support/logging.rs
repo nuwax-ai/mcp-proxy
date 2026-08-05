@@ -2,7 +2,7 @@
 //!
 //! 处理日志文件的创建、日志级别配置和 OpenTelemetry 追踪初始化
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use mcp_common::{TracingConfig, TracingGuard};
 use once_cell::sync::OnceCell;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
@@ -83,8 +83,7 @@ fn determine_log_file_path(
         let name_part = mcp_name.unwrap_or("unknown");
         let filename = format!("mcp-proxy-{}-{}-{}.log", name_part, date, session_id);
 
-        std::fs::create_dir_all(log_dir)
-            .map_err(|e| anyhow::anyhow!("Failed to create log directory: {}", e))?;
+        std::fs::create_dir_all(log_dir).context("Failed to create log directory")?;
         Ok(Some(log_dir.join(filename)))
     } else if logging.diagnostic {
         // diagnostic=true 时，使用系统临时目录
@@ -131,8 +130,7 @@ fn init_with_file_and_otlp(
     quiet: bool,
     verbose: bool,
 ) -> Result<()> {
-    let file = std::fs::File::create(file_path)
-        .map_err(|e| anyhow::anyhow!("Failed to create log file: {}", e))?;
+    let file = std::fs::File::create(file_path).context("Failed to create log file")?;
 
     if !quiet {
         eprintln!("📝 Log file: {}", file_path.display());
@@ -171,8 +169,7 @@ fn init_with_file_only(
     quiet: bool,
     verbose: bool,
 ) -> Result<()> {
-    let file = std::fs::File::create(file_path)
-        .map_err(|e| anyhow::anyhow!("Failed to create log file: {}", e))?;
+    let file = std::fs::File::create(file_path).context("Failed to create log file")?;
 
     if !quiet {
         eprintln!("📝 Log file: {}", file_path.display());

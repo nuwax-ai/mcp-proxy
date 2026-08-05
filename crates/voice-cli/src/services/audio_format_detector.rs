@@ -1,3 +1,4 @@
+use anyhow::Context as _;
 use bytes::Bytes;
 use infer::{self, Type};
 use std::io::Cursor;
@@ -18,8 +19,8 @@ pub struct AudioFormatDetector;
 impl AudioFormatDetector {
     /// Detect audio format using infer library (magic number detection)
     pub fn detect_format_from_path(path: &Path) -> anyhow::Result<Option<Type>> {
-        let kind = infer::get_from_path(path)
-            .map_err(|e| anyhow::anyhow!("Failed to read file for format detection: {}", e))?;
+        let kind =
+            infer::get_from_path(path).context("Failed to read file for format detection")?;
         Ok(kind)
     }
 

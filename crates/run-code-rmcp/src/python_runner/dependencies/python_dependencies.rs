@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use log::{debug, info};
 use pest::Parser;
 use pest_derive::Parser;
@@ -211,8 +211,7 @@ fn parse_python_imports(python_code: &str) -> Result<Vec<String>> {
     };
     debug!("Processing input: {input:?}");
 
-    let pairs = ImportParser::parse(Rule::file, &input)
-        .map_err(|e| anyhow::anyhow!("Failed to parse input: {}", e))?;
+    let pairs = ImportParser::parse(Rule::file, &input).context("Failed to parse input")?;
     debug!("Initial parse successful");
 
     let mut imported_modules = Vec::new();

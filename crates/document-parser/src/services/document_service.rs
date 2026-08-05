@@ -181,6 +181,51 @@ impl DocumentService {
         }
     }
 
+    /// 本地解析文档（CLI 场景）：只执行解析，不做图片/Markdown 的 OSS 上传，
+    /// 也不做任务持久化。图片保留在解析输出目录中（见 [`ParseResult::output_dir`]），
+    /// 由调用方自行处理。
+    pub async fn parse_document_local(&self, file_path: &str) -> AnyhowResult<ParseResult> {
+        let path = std::path::Path::new(file_path);
+        if !path.exists() {
+            return Err(anyhow::anyhow!("文件不存在: {}", path.display()));
+        }
+        let absolute_path = path
+            .canonicalize()
+            .context("无法获取文件绝对路径")?
+            .to_string_lossy()
+            .to_string();
+
+        // 文件大小限制校验（与服务器路径保持一致）
+        let metadata = tokio::fs::metadata(path)
+            .await
+            .with_context(|| format!("获取文件信息失败: {}", path.display()))?;
+        let global_config = GlobalFileSizeConfig::new();
+        if metadata.len() > global_config.max_file_size.bytes() {
+            return Err(anyhow::anyhow!(
+                "文件大小超过限制: {} > {} bytes",
+                metadata.len(),
+                global_config.max_file_size.bytes()
+            ));
+        }
+
+        info!("Start parsing the document locally: {}", absolute_path);
+        let result = timeout(self.config.task_timeout, async {
+            self.dual_parser
+                .parse_document_auto(&absolute_path)
+                .await
+                .with_context(|| "文档解析失败[parse_document_local]".to_string())
+        })
+        .await;
+
+        match result {
+            Ok(parse_result) => parse_result,
+            Err(_) => Err(anyhow::anyhow!(
+                "文档解析超时 ({}s)",
+                self.config.task_timeout.as_secs()
+            )),
+        }
+    }
+
     /// Internal document parsing implementation
     async fn parse_document_internal(
         &self,
@@ -201,7 +246,7 @@ impl DocumentService {
         // 获取文件的绝对路径
         let absolute_path = std::path::Path::new(file_path)
             .canonicalize()
-            .map_err(|e| anyhow::anyhow!("无法获取文件绝对路径: {}", e))?
+            .context("无法获取文件绝对路径")?
             .to_string_lossy()
             .to_string();
         debug!("Absolute file path: {}", absolute_path);
@@ -1263,7 +1308,7 @@ impl DocumentService {
                 None,
             )
             .await
-            .map_err(|e| anyhow::anyhow!("创建任务失败: {}", e))?;
+            .context("创建任务失败")?;
 
         Ok(task.id)
     }
@@ -1437,7 +1482,7 @@ impl DocumentService {
         let upload_result = oss_client
             .upload_content(content_bytes, &object_key, Some("text/markdown"))
             .await
-            .map_err(|e| anyhow::anyhow!("上传Markdown内容到OSS失败: {}: {}", object_key, e))?;
+            .with_context(|| format!("上传Markdown内容到OSS失败: {object_key}"))?;
 
         info!(
             "Markdown content uploaded successfully: {} -> {}",

@@ -4,10 +4,14 @@ use anyhow::{Context, Result};
 use regex::Regex;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use tokio::fs;
 use tokio::sync::Mutex;
 use tracing::{debug, info, instrument, warn};
+
+/// Markdown 图片引用模式：![alt](dest)，模块级共享只编译一次
+static MARKDOWN_IMAGE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"!\[([^\]]*)\]\(([^)]+)\)").expect("静态正则编译失败"));
 
 /// 图片处理服务配置
 #[derive(Debug, Clone)]
@@ -201,7 +205,7 @@ impl ImageProcessor {
     #[instrument(skip(self, markdown_content))]
     pub async fn replace_markdown_images(&self, markdown_content: &str) -> Result<String> {
         // 正则表达式匹配Markdown图片语法
-        let image_regex = Regex::new(r"!\[([^\]]*)\]\(([^)]+)\)").unwrap();
+        let image_regex = &*MARKDOWN_IMAGE_RE;
         let mut result = markdown_content.to_string();
         let mut replacements = Vec::new();
 
@@ -256,7 +260,7 @@ impl ImageProcessor {
 
     /// 从Markdown内容中提取所有图片路径
     pub fn extract_image_paths(markdown_content: &str) -> Vec<String> {
-        let image_regex = Regex::new(r"!\[([^\]]*)\]\(([^)]+)\)").unwrap();
+        let image_regex = &*MARKDOWN_IMAGE_RE;
         let mut image_paths = Vec::new();
 
         for cap in image_regex.captures_iter(markdown_content) {

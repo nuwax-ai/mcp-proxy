@@ -1101,8 +1101,9 @@ pub async fn get_task_result(
         } => {
             Some(TaskProcessingStats {
                 processing_time: Some(format!("{}ms", processing_time.as_millis())),
-                word_count: None, // TODO: 从结果数据中提取
-                page_count: None, // TODO: 从结果数据中提取
+                // 任务查询路径暂无字数/页数统计来源（解析结果未持久化这些字段），保持 None
+                word_count: None,
+                page_count: None,
             })
         }
         _ => None,

@@ -7,7 +7,7 @@ use std::{
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 
 use super::mcp_config::McpType;
 
@@ -293,7 +293,7 @@ impl TryFrom<String> for FlexibleMcpConfig {
 
         // 如果标准格式失败，尝试灵活格式
         let parsed_value: serde_json::Value =
-            serde_json::from_str(&json_str).map_err(|e| anyhow::anyhow!("JSON 解析失败: {}", e))?;
+            serde_json::from_str(&json_str).context("JSON 解析失败")?;
 
         // 递归查找服务配置
         fn find_services(

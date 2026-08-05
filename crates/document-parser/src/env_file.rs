@@ -12,12 +12,13 @@ const ENV_FILENAME: &str = ".document-parser.env";
 pub fn candidate_env_paths(config: Option<&Path>) -> Vec<PathBuf> {
     let mut paths = Vec::new();
     if let Some(cfg) = config
-        && let Some(parent) = cfg.parent() {
-            let beside = parent.join(ENV_FILENAME);
-            if !paths.iter().any(|p| p == &beside) {
-                paths.push(beside);
-            }
+        && let Some(parent) = cfg.parent()
+    {
+        let beside = parent.join(ENV_FILENAME);
+        if !paths.iter().any(|p| p == &beside) {
+            paths.push(beside);
         }
+    }
     let cwd = PathBuf::from(ENV_FILENAME);
     if !paths.iter().any(|p| p == &cwd) {
         paths.push(cwd);

@@ -213,10 +213,9 @@ async fn cancel_task(peer: Peer<RoleClient>, params: Value) -> JsonResult {
 /// version-tolerant bridge instead of hard-failing on spec-removed methods.
 async fn forward_raw(peer: Peer<RoleClient>, method: &str, params: Value) -> JsonResult {
     let result = peer
-        .send_request(ClientRequest::CustomRequest(rmcp::model::CustomRequest::new(
-            method.to_string(),
-            Some(params),
-        )))
+        .send_request(ClientRequest::CustomRequest(
+            rmcp::model::CustomRequest::new(method.to_string(), Some(params)),
+        ))
         .await
         .map_err(|error| format!("{method} failed: {error:?}"))?;
     match result {

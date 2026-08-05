@@ -24,7 +24,7 @@
 //! RUST_LOG=debug cargo test -p mcp-stdio-proxy test_coze_streamable_to_sse_proxy
 //! ```
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use std::time::Duration;
 use tokio::net::TcpListener;
 
@@ -120,14 +120,14 @@ async fn test_coze_streamable_to_sse_proxy() -> Result<()> {
     )
     .await
     .map_err(|_| anyhow::anyhow!("SSE connection timeout (30s)"))?
-    .map_err(|e| anyhow::anyhow!("SSE connection failed: {}", e))?;
+    .context("SSE connection failed")?;
     println!("✅ SSE client connected to {}", sse_url);
 
     // Step 7: Get tools list using the high-level API
     let tools = tokio::time::timeout(Duration::from_secs(30), conn.list_tools())
         .await
         .map_err(|_| anyhow::anyhow!("list_tools timeout (30s)"))?
-        .map_err(|e| anyhow::anyhow!("list_tools failed: {}", e))?;
+        .context("list_tools failed")?;
     println!("📋 Received tools/list response: {} tools", tools.len());
 
     // Step 8: Verify response structure

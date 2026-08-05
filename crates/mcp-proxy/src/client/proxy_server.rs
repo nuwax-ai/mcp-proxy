@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::Once;
 use std::time::Duration;
 
-use anyhow::{Result, bail};
+use anyhow::{Context as _, Result, bail};
 use clap::Parser;
 use serde::Deserialize;
 use tracing::{error, info, warn};
@@ -194,10 +194,10 @@ pub async fn run_proxy_command(args: ProxyArgs, verbose: bool, quiet: bool) -> R
     // 5. 端口提前绑定（在重试循环之前），确保 ServiceManager 的 TCP 健康检查能检测到进程存活
     let bind_addr = format!("{}:{}", args.host, args.port);
     let std_listener = std::net::TcpListener::bind(&bind_addr)
-        .map_err(|e| anyhow::anyhow!("端口绑定失败 {}: {}", bind_addr, e))?;
+        .with_context(|| format!("端口绑定失败 {bind_addr}"))?;
     std_listener
         .set_nonblocking(true)
-        .map_err(|e| anyhow::anyhow!("设置非阻塞失败: {}", e))?;
+        .context("设置非阻塞失败")?;
     info!("[Port Binding] Binded {}", bind_addr);
 
     // 6. 主循环 - 支持子进程崩溃后自动重启（指数退避，有上限）
@@ -328,7 +328,7 @@ fn parse_config(args: &ProxyArgs) -> Result<ParsedConfig> {
     let json_str = if let Some(ref config) = args.config {
         config.clone()
     } else if let Some(ref path) = args.config_file {
-        std::fs::read_to_string(path).map_err(|e| anyhow::anyhow!("读取配置文件失败: {}", e))?
+        std::fs::read_to_string(path).context("读取配置文件失败")?
     } else {
         bail!("必须提供 --config 或 --config-file 参数");
     };
