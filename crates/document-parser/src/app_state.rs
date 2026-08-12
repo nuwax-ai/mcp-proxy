@@ -22,6 +22,8 @@ pub struct AppState {
     pub private_oss_client: Option<Arc<dyn OssClientTrait + Send + Sync>>,
     pub storage_service: Arc<StorageService>,
     pub task_queue: Arc<TaskQueueService>,
+    /// 同步解析接口（/parse-sync）并发限流信号量，MinerU 为重资源
+    pub sync_parse_semaphore: Arc<tokio::sync::Semaphore>,
 }
 
 impl AppState {
@@ -138,6 +140,11 @@ impl AppState {
             .map_err(|e| crate::error::AppError::Internal(format!("启动任务队列失败: {e}")))?;
         let task_queue = Arc::new(task_queue);
 
+        // 同步解析接口限流信号量（并发上限来自配置）
+        let sync_parse_semaphore = Arc::new(tokio::sync::Semaphore::new(
+            config.document_parser.sync_parse_max_concurrent,
+        ));
+
         Ok(Self {
             config: Arc::new(config),
             db: db_arc,
@@ -147,6 +154,7 @@ impl AppState {
             private_oss_client,
             storage_service,
             task_queue,
+            sync_parse_semaphore,
         })
     }
 

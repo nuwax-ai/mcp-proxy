@@ -1,11 +1,12 @@
+//! 文档上传与 URL 下载解析接口
+
+use super::detection::detect_document_format_enhanced;
 use crate::app_state::AppState;
-use crate::config::GlobalFileSizeConfig;
 use crate::error::AppError;
 use crate::handlers::response::{ApiResponse, FileInfo, UploadResponse};
 use crate::handlers::validation::{FileNameSanitizer, RequestValidator};
-use crate::models::{DocumentFormat, SourceType, StructuredDocument};
+use crate::models::{DocumentFormat, SourceType};
 use crate::processors::MarkdownProcessorConfig;
-use crate::utils::file_utils::get_file_extension;
 use axum::{
     Json,
     extract::{Multipart, Query, State},
@@ -13,7 +14,6 @@ use axum::{
     response::IntoResponse,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::path::Path;
 use tokio::fs::File;
 use tokio::io::{AsyncWriteExt, BufWriter};
@@ -41,7 +41,6 @@ pub struct UploadDocumentRequest {
 /// 上传配置
 #[derive(Debug, Clone)]
 pub struct UploadConfig {
-    pub max_file_size: u64,
     pub allowed_extensions: Vec<String>,
     // temp_dir removed - now uses current directory approach
     pub chunk_size: usize,
@@ -51,9 +50,11 @@ pub struct UploadConfig {
 
 impl UploadConfig {
     /// 使用全局配置创建上传配置
+    ///
+    /// 注意：文件大小限制由 HTTP middleware（`DefaultBodyLimit`）统一管理，
+    /// 此处不再配置大小上限。
     pub fn with_global_config() -> Self {
         Self {
-            max_file_size: GlobalFileSizeConfig::default().max_file_size.bytes(),
             allowed_extensions: vec![
                 "pdf".to_string(),
                 "docx".to_string(),
@@ -124,44 +125,11 @@ pub struct ParseOssDocumentRequest {
     pub max_toc_depth: Option<usize>,
 }
 
-/// 生成结构化文档请求参数
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct GenerateStructuredDocumentRequest {
-    pub markdown_content: String,
-    pub enable_toc: Option<bool>,
-    pub max_toc_depth: Option<usize>,
-    pub enable_anchors: Option<bool>,
-}
-
 /// 文档解析响应
 #[derive(Debug, Serialize, ToSchema)]
 pub struct DocumentParseResponse {
     pub task_id: String,
     pub message: String,
-}
-
-/// 结构化文档响应
-#[derive(Debug, Serialize, ToSchema)]
-pub struct StructuredDocumentResponse {
-    pub document: StructuredDocument,
-}
-
-/// 支持格式响应
-#[derive(Debug, Serialize, ToSchema)]
-pub struct SupportedFormatsResponse {
-    pub formats: Vec<DocumentFormat>,
-}
-
-/// 解析器统计响应
-#[derive(Debug, Serialize, ToSchema)]
-pub struct ParserStatsResponse {
-    pub stats: HashMap<String, serde_json::Value>,
-}
-
-/// 处理器缓存统计响应
-#[derive(Debug, Serialize, ToSchema)]
-pub struct ProcessorCacheStatsResponse {
-    pub cache_stats: HashMap<String, serde_json::Value>,
 }
 
 /// 上传文档处理器
@@ -201,7 +169,6 @@ pub async fn upload_document(
     }
 
     let upload_config = UploadConfig::with_global_config();
-    let max_size = upload_config.max_file_size;
 
     // 2. 先创建任务以获取 task_id
     let task = match state
@@ -227,12 +194,7 @@ pub async fn upload_document(
     let upload_timeout = std::time::Duration::from_secs(upload_config.upload_timeout_secs);
     let upload_result = tokio::time::timeout(
         upload_timeout,
-        process_multipart_upload_streaming_with_task_id(
-            &mut multipart,
-            &upload_config,
-            max_size,
-            &task_id,
-        ),
+        process_multipart_upload_streaming_with_task_id(&mut multipart, &upload_config, &task_id),
     )
     .await;
 
@@ -355,31 +317,46 @@ pub async fn upload_document(
 async fn process_multipart_upload_streaming(
     multipart: &mut Multipart,
     config: &UploadConfig,
-    max_size: u64,
 ) -> Result<(String, String, u64, DocumentFormat), AppError> {
     process_multipart_upload_streaming_with_task_id(
         multipart,
         config,
-        max_size,
         &uuid::Uuid::new_v4().to_string(),
     )
     .await
 }
 
+/// 将 multipart 读取错误转换为 AppError
+///
+/// 请求体超过大小限制（`DefaultBodyLimit`，由 `Limited` body 在读取时产生）时
+/// 返回 413 语义的 [`AppError::PayloadTooLarge`]，其余解析错误由 `fallback`
+/// 决定具体错误类型。
+fn map_multipart_read_error(
+    err: axum::extract::multipart::MultipartError,
+    fallback: impl FnOnce(axum::extract::multipart::MultipartError) -> AppError,
+) -> AppError {
+    if err.status() == StatusCode::PAYLOAD_TOO_LARGE {
+        AppError::PayloadTooLarge("请求体超过大小限制".to_string())
+    } else {
+        fallback(err)
+    }
+}
+
 /// 处理multipart文件上传（带task_id）
-async fn process_multipart_upload_streaming_with_task_id(
+///
+/// 文件大小限制由 HTTP middleware（`DefaultBodyLimit`）统一管理，此处不再校验大小。
+pub(crate) async fn process_multipart_upload_streaming_with_task_id(
     multipart: &mut Multipart,
     config: &UploadConfig,
-    max_size: u64,
     task_id: &str,
 ) -> Result<(String, String, u64, DocumentFormat), AppError> {
     let mut file_count = 0;
 
-    while let Some(field) = multipart
-        .next_field()
-        .await
-        .map_err(|e| AppError::Validation(format!("解析multipart数据失败: {e}")))?
-    {
+    while let Some(field) = multipart.next_field().await.map_err(|e| {
+        map_multipart_read_error(e, |e| {
+            AppError::Validation(format!("解析multipart数据失败: {e}"))
+        })
+    })? {
         if field.name().is_some() {
             file_count += 1;
 
@@ -414,7 +391,6 @@ async fn process_multipart_upload_streaming_with_task_id(
             let (file_size, detected_format) = stream_write_file_with_validation(
                 field,
                 &temp_file_path,
-                max_size,
                 config.chunk_size,
                 &extension,
             )
@@ -427,13 +403,46 @@ async fn process_multipart_upload_streaming_with_task_id(
     Err(AppError::Validation("未找到文件字段".to_string()))
 }
 
+/// 部分写入文件的兜底清理器（RAII）
+///
+/// 流式写入过程中 future 被取消（超时/连接中断）或异常退出时，删除已创建的部分文件，
+/// 防止临时文件泄漏。成功完成写入后调用 [`disarm`](Self::disarm) 取消清理，
+/// 文件所有权移交给调用方（由其负责后续清理）。
+pub(crate) struct TempFileCleaner {
+    file_path: String,
+    armed: bool,
+}
+
+impl TempFileCleaner {
+    /// 创建清理器并武装（Drop 时删除文件）
+    pub(crate) fn new(file_path: &str) -> Self {
+        Self {
+            file_path: file_path.to_string(),
+            armed: true,
+        }
+    }
+
+    /// 取消清理，文件保留（由调用方接管）
+    pub(crate) fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for TempFileCleaner {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = std::fs::remove_file(&self.file_path);
+        }
+    }
+}
+
 /// 处理multipart文件上传（改进的流式处理）
 ///
-/// 流式写入文件（带验证和进度监控）
+/// 流式写入文件（带验证）。文件大小限制由 HTTP middleware（`DefaultBodyLimit`）
+/// 统一管理，此处不再校验大小。
 async fn stream_write_file_with_validation(
     mut field: axum::extract::multipart::Field<'_>,
     file_path: &str,
-    max_size: u64,
     chunk_size: usize,
     expected_extension: &str,
 ) -> Result<(u64, DocumentFormat), AppError> {
@@ -441,57 +450,30 @@ async fn stream_write_file_with_validation(
         .await
         .map_err(|e| AppError::File(format!("创建文件失败: {e}")))?;
 
+    // 兜底清理：写入中途 future 被取消（超时）时删除部分文件
+    let mut cleaner = TempFileCleaner::new(file_path);
     let mut writer = BufWriter::with_capacity(chunk_size, file);
     let mut total_size = 0u64;
     let mut first_chunk: Option<Vec<u8>> = None;
     let mut chunk_count = 0u64;
 
-    // 创建进度监控
-    let progress_interval = std::cmp::max(1, max_size / 100); // 每1%报告一次进度
-    let mut next_progress_report = progress_interval;
-
-    while let Some(chunk) = field
-        .chunk()
-        .await
-        .map_err(|e| AppError::File(format!("读取文件块失败: {e}")))?
-    {
+    while let Some(chunk) = field.chunk().await.map_err(|e| {
+        map_multipart_read_error(e, |e| AppError::File(format!("读取文件块失败: {e}")))
+    })? {
         chunk_count += 1;
         let chunk_len = chunk.len() as u64;
         total_size += chunk_len;
-
-        // 检查文件大小限制
-        if total_size > max_size {
-            // 清理已创建的文件
-            let _ = tokio::fs::remove_file(file_path).await;
-            return Err(AppError::Validation(format!(
-                "文件大小超过限制: {total_size} > {max_size} 字节"
-            )));
-        }
 
         // 保存第一个块用于格式检测
         if first_chunk.is_none() && !chunk.is_empty() {
             first_chunk = Some(chunk.to_vec());
         }
 
-        // 写入文件
-        writer.write_all(&chunk).await.map_err(|e| {
-            // 写入失败时清理文件
-            let file_path_owned = file_path.to_string();
-            tokio::spawn(async move {
-                let _ = tokio::fs::remove_file(file_path_owned).await;
-            });
-            AppError::File(format!("写入文件失败: {e}"))
-        })?;
-
-        // 进度报告
-        if total_size >= next_progress_report {
-            let progress = (total_size * 100) / max_size;
-            info!(
-                "File upload progress: {}% ({} / {} bytes)",
-                progress, total_size, max_size
-            );
-            next_progress_report += progress_interval;
-        }
+        // 写入文件（失败时由 TempFileCleaner 的 Drop 兜底删除，无需在此手动清理）
+        writer
+            .write_all(&chunk)
+            .await
+            .map_err(|e| AppError::File(format!("写入文件失败: {e}")))?;
     }
 
     // 确保所有数据都写入磁盘
@@ -500,14 +482,12 @@ async fn stream_write_file_with_validation(
         .await
         .map_err(|e| AppError::File(format!("刷新文件缓冲区失败: {e}")))?;
 
-    // 验证最小文件大小
+    // 验证最小文件大小（不满足时由 TempFileCleaner 的 Drop 兜底删除，无需手动清理）
     if total_size == 0 {
-        let _ = tokio::fs::remove_file(file_path).await;
         return Err(AppError::Validation("文件为空".to_string()));
     }
 
     if total_size < 10 {
-        let _ = tokio::fs::remove_file(file_path).await;
         return Err(AppError::Validation("文件过小，可能已损坏".to_string()));
     }
 
@@ -519,6 +499,9 @@ async fn stream_write_file_with_validation(
         "File upload completed: {} bytes, {} blocks, format: {:?}",
         total_size, chunk_count, detected_format
     );
+
+    // 写入完成，取消兜底清理，文件由调用方接管
+    cleaner.disarm();
 
     Ok((total_size, detected_format))
 }
@@ -563,199 +546,6 @@ fn create_temp_file_for_task(
     }
 
     Ok(file_path.to_string_lossy().to_string())
-}
-
-/// 增强的文档格式检测
-fn detect_document_format_enhanced(
-    file_path: &str,
-    first_chunk: Option<&[u8]>,
-    expected_extension: &str,
-) -> Result<DocumentFormat, AppError> {
-    // 1. 通过文件扩展名检测
-    let extension_format = if let Some(extension) = get_file_extension(file_path) {
-        DocumentFormat::from_extension(&extension)
-    } else {
-        DocumentFormat::from_extension(expected_extension)
-    };
-
-    // 2. 通过文件内容检测（魔数）
-    let content_format = if let Some(chunk) = first_chunk {
-        detect_format_by_magic_number_enhanced(chunk).unwrap_or(extension_format.clone())
-    } else {
-        extension_format.clone()
-    };
-
-    // 3. 验证格式一致性
-    if !formats_compatible(&extension_format, &content_format) {
-        warn!(
-            "File extension and content format mismatch: {:?} vs {:?}",
-            extension_format, content_format
-        );
-
-        // 如果内容检测更可靠，使用内容格式
-        if is_reliable_magic_number_detection(&content_format) {
-            return Ok(content_format);
-        }
-    }
-
-    // 4. 返回最终格式
-    Ok(extension_format)
-}
-
-/// 检查两种格式是否兼容
-fn formats_compatible(format1: &DocumentFormat, format2: &DocumentFormat) -> bool {
-    match (format1, format2) {
-        (DocumentFormat::Text, DocumentFormat::Txt)
-        | (DocumentFormat::Txt, DocumentFormat::Text)
-        | (DocumentFormat::Text, DocumentFormat::Md)
-        | (DocumentFormat::Md, DocumentFormat::Text) => true,
-        (a, b) => a == b,
-    }
-}
-
-/// 检查是否为可靠的魔数检测
-fn is_reliable_magic_number_detection(format: &DocumentFormat) -> bool {
-    matches!(
-        format,
-        DocumentFormat::PDF | DocumentFormat::Image | DocumentFormat::Audio
-    )
-}
-
-/// 增强的魔数检测文件格式
-fn detect_format_by_magic_number_enhanced(data: &[u8]) -> Result<DocumentFormat, AppError> {
-    if data.len() < 4 {
-        return Err(AppError::Validation("文件数据不足以检测格式".to_string()));
-    }
-
-    // PDF: %PDF
-    if data.starts_with(b"%PDF") {
-        return Ok(DocumentFormat::PDF);
-    }
-
-    // ZIP-based formats: PK\x03\x04 或 PK\x05\x06 或 PK\x07\x08
-    if data.len() >= 4 && data.starts_with(b"PK") {
-        // 进一步检测ZIP内容类型
-        return detect_zip_based_format(data);
-    }
-
-    // 图片格式
-    if let Ok(format) = detect_image_format(data) {
-        return Ok(format);
-    }
-
-    // 音频格式
-    if let Ok(format) = detect_audio_format(data) {
-        return Ok(format);
-    }
-
-    // HTML/XML格式
-    if let Ok(format) = detect_text_format(data) {
-        return Ok(format);
-    }
-
-    Err(AppError::Validation("无法通过文件内容检测格式".to_string()))
-}
-
-/// 检测ZIP格式的具体类型
-fn detect_zip_based_format(data: &[u8]) -> Result<DocumentFormat, AppError> {
-    // 这里可以通过读取ZIP文件的目录结构来判断具体格式
-    // 简化实现，返回Word格式作为默认
-    if data.len() >= 30 {
-        // 检查是否包含Office文档的特征
-        let data_str = String::from_utf8_lossy(&data[0..std::cmp::min(512, data.len())]);
-        if data_str.contains("word/") {
-            return Ok(DocumentFormat::Word);
-        } else if data_str.contains("xl/") {
-            return Ok(DocumentFormat::Excel);
-        } else if data_str.contains("ppt/") {
-            return Ok(DocumentFormat::PowerPoint);
-        }
-    }
-
-    // 默认返回Word格式
-    Ok(DocumentFormat::Word)
-}
-
-/// 检测图片格式
-fn detect_image_format(data: &[u8]) -> Result<DocumentFormat, AppError> {
-    if data.len() < 8 {
-        return Err(AppError::Validation("数据不足".to_string()));
-    }
-
-    // JPEG: FF D8 FF
-    if data.starts_with(&[0xFF, 0xD8, 0xFF]) {
-        return Ok(DocumentFormat::Image);
-    }
-
-    // PNG: 89 50 4E 47 0D 0A 1A 0A
-    if data.starts_with(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) {
-        return Ok(DocumentFormat::Image);
-    }
-
-    // GIF: GIF87a 或 GIF89a
-    if data.starts_with(b"GIF87a") || data.starts_with(b"GIF89a") {
-        return Ok(DocumentFormat::Image);
-    }
-
-    // BMP: BM
-    if data.starts_with(b"BM") {
-        return Ok(DocumentFormat::Image);
-    }
-
-    // TIFF: II*\0 或 MM\0*
-    if data.starts_with(&[0x49, 0x49, 0x2A, 0x00]) || data.starts_with(&[0x4D, 0x4D, 0x00, 0x2A]) {
-        return Ok(DocumentFormat::Image);
-    }
-
-    Err(AppError::Validation("不是图片格式".to_string()))
-}
-
-/// 检测音频格式
-fn detect_audio_format(data: &[u8]) -> Result<DocumentFormat, AppError> {
-    if data.len() < 4 {
-        return Err(AppError::Validation("数据不足".to_string()));
-    }
-
-    // MP3: ID3 或 FF FB/FF F3/FF F2
-    if data.starts_with(b"ID3") || (data.len() >= 2 && data[0] == 0xFF && (data[1] & 0xE0) == 0xE0)
-    {
-        return Ok(DocumentFormat::Audio);
-    }
-
-    // WAV: RIFF....WAVE
-    if data.len() >= 12 && data.starts_with(b"RIFF") && &data[8..12] == b"WAVE" {
-        return Ok(DocumentFormat::Audio);
-    }
-
-    // M4A/AAC: ftyp
-    if data.len() >= 8 && &data[4..8] == b"ftyp" {
-        return Ok(DocumentFormat::Audio);
-    }
-
-    Err(AppError::Validation("不是音频格式".to_string()))
-}
-
-/// 检测文本格式
-fn detect_text_format(data: &[u8]) -> Result<DocumentFormat, AppError> {
-    let data_str = String::from_utf8_lossy(data).to_lowercase();
-
-    // HTML
-    if data_str.contains("<html") || data_str.contains("<!doctype html") {
-        return Ok(DocumentFormat::HTML);
-    }
-
-    // XML
-    if data_str.starts_with("<?xml") {
-        return Ok(DocumentFormat::HTML); // 将XML归类为HTML处理
-    }
-
-    // Markdown (简单检测)
-    if data_str.contains("# ") || data_str.contains("## ") || data_str.contains("```") {
-        return Ok(DocumentFormat::Md);
-    }
-
-    // 默认文本
-    Ok(DocumentFormat::Text)
 }
 
 /// 清理临时文件
@@ -876,191 +666,6 @@ pub async fn download_document_from_url(
     };
 
     ApiResponse::success_with_status(response, StatusCode::ACCEPTED).into_response()
-}
-
-/// 生成结构化文档处理器
-#[utoipa::path(
-    post,
-    path = "/api/v1/documents/structured",
-    request_body = GenerateStructuredDocumentRequest,
-    responses(
-        (status = 200, description = "结构化文档生成成功", body = StructuredDocumentResponse),
-        (status = 400, description = "请求参数错误")
-    ),
-    tag = "documents"
-)]
-pub async fn generate_structured_document(
-    State(state): State<AppState>,
-    Json(request): Json<GenerateStructuredDocumentRequest>,
-) -> impl axum::response::IntoResponse {
-    info!("Generate structured document request starts");
-
-    // 验证Markdown内容
-    if let Err(e) = RequestValidator::validate_markdown_content(&request.markdown_content) {
-        return ApiResponse::from_app_error::<StructuredDocumentResponse>(e).into_response();
-    }
-
-    // 验证TOC配置
-    let (_enable_toc, _max_toc_depth) =
-        match RequestValidator::validate_toc_config(request.enable_toc, request.max_toc_depth) {
-            Ok(config) => config,
-            Err(e) => {
-                return ApiResponse::from_app_error::<StructuredDocumentResponse>(e)
-                    .into_response();
-            }
-        };
-
-    // 使用全局配置的 Markdown 处理器（无需在此处创建配置）
-
-    // 直接处理Markdown内容
-    match state
-        .document_service
-        .generate_structured_document_simple(&request.markdown_content)
-        .await
-    {
-        Ok(document) => {
-            info!("Structured document generated successfully");
-
-            let response = StructuredDocumentResponse { document };
-
-            ApiResponse::success(response).into_response()
-        }
-        Err(e) => {
-            error!("Structured document generation failed: {}", e);
-            ApiResponse::from_app_error::<StructuredDocumentResponse>(e.into()).into_response()
-        }
-    }
-}
-
-/// 获取支持的文档格式
-#[utoipa::path(
-    get,
-    path = "/api/v1/documents/formats",
-    responses(
-        (status = 200, description = "支持的文档格式列表", body = SupportedFormatsResponse)
-    ),
-    tag = "documents"
-)]
-pub async fn get_supported_formats(
-    State(_state): State<AppState>,
-) -> impl axum::response::IntoResponse {
-    let formats = vec![
-        DocumentFormat::PDF,
-        DocumentFormat::Word,
-        DocumentFormat::Excel,
-        DocumentFormat::PowerPoint,
-        DocumentFormat::Image,
-        DocumentFormat::Audio,
-        DocumentFormat::HTML,
-        DocumentFormat::Text,
-        DocumentFormat::Txt,
-        DocumentFormat::Md,
-    ];
-
-    let response = SupportedFormatsResponse { formats };
-    ApiResponse::success(response).into_response()
-}
-
-/// 获取解析器统计信息
-#[utoipa::path(
-    get,
-    path = "/api/v1/documents/parser/stats",
-    responses(
-        (status = 200, description = "解析器统计信息", body = ParserStatsResponse)
-    ),
-    tag = "documents"
-)]
-pub async fn get_parser_stats(State(state): State<AppState>) -> impl axum::response::IntoResponse {
-    let stats_data = state.document_service.get_parser_stats();
-    let mut stats = HashMap::new();
-    stats.insert(
-        "mineru_name".to_string(),
-        serde_json::Value::String(stats_data.mineru_name),
-    );
-    stats.insert(
-        "mineru_description".to_string(),
-        serde_json::Value::String(stats_data.mineru_description),
-    );
-    stats.insert(
-        "markitdown_name".to_string(),
-        serde_json::Value::String(stats_data.markitdown_name),
-    );
-    stats.insert(
-        "markitdown_description".to_string(),
-        serde_json::Value::String(stats_data.markitdown_description),
-    );
-    stats.insert(
-        "supported_formats".to_string(),
-        serde_json::to_value(stats_data.supported_formats).unwrap_or_default(),
-    );
-
-    let response = ParserStatsResponse { stats };
-    ApiResponse::success(response).into_response()
-}
-
-/// 检查解析器健康状态
-#[utoipa::path(
-    get,
-    path = "/api/v1/documents/parser/health",
-    responses(
-        (status = 200, description = "解析器健康状态"),
-        (status = 500, description = "解析器不健康")
-    ),
-    tag = "documents"
-)]
-pub async fn check_parser_health(State(state): State<AppState>) -> impl IntoResponse {
-    match state.document_service.check_parser_health().await {
-        Ok(health_status) => ApiResponse::success(health_status).into_response(),
-        Err(e) => {
-            error!("Failed to check parser health status: {}", e);
-            ApiResponse::from_app_error::<HashMap<String, bool>>(e.into()).into_response()
-        }
-    }
-}
-
-/// 清理处理器缓存
-#[utoipa::path(
-    delete,
-    path = "/api/v1/documents/processor/cache",
-    responses(
-        (status = 200, description = "处理器缓存已清空")
-    ),
-    tag = "documents"
-)]
-pub async fn clear_processor_cache(
-    State(state): State<AppState>,
-) -> impl axum::response::IntoResponse {
-    match state.document_service.clear_processor_cache().await {
-        Ok(_) => ApiResponse::message("处理器缓存已清空".to_string()).into_response(),
-        Err(e) => ApiResponse::from_app_error::<String>(e.into()).into_response(),
-    }
-}
-
-/// 获取处理器缓存统计
-#[utoipa::path(
-    get,
-    path = "/api/v1/documents/processor/cache/stats",
-    responses(
-        (status = 200, description = "处理器缓存统计信息", body = ProcessorCacheStatsResponse)
-    ),
-    tag = "documents"
-)]
-pub async fn get_processor_cache_stats(
-    State(state): State<AppState>,
-) -> impl axum::response::IntoResponse {
-    let cache_statistics = state.document_service.get_processor_cache_stats().await;
-    let mut cache_stats = std::collections::HashMap::new();
-    cache_stats.insert(
-        "total_entries".to_string(),
-        serde_json::Value::Number(serde_json::Number::from(cache_statistics.total_entries)),
-    );
-    cache_stats.insert(
-        "expired_entries".to_string(),
-        serde_json::Value::Number(serde_json::Number::from(cache_statistics.expired_entries)),
-    );
-
-    let response = ProcessorCacheStatsResponse { cache_stats };
-    ApiResponse::success(response).into_response()
 }
 
 /// 验证上传请求参数

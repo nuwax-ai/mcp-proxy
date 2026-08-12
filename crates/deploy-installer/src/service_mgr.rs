@@ -106,7 +106,11 @@ fn build_install_ctx(
                 working_directory: Some(spec.install_dir.clone()),
                 environment: Some(environment),
                 autostart,
-                restart_policy: RestartPolicy::OnFailure { delay_secs: None },
+                restart_policy: RestartPolicy::OnFailure {
+                    delay_secs: None,
+                    max_retries: None,
+                    reset_after_secs: None,
+                },
             })
         }
         ServiceBackend::Systemd => {
@@ -131,6 +135,8 @@ fn build_install_ctx(
                 autostart,
                 restart_policy: RestartPolicy::OnFailure {
                     delay_secs: Some(5),
+                    max_retries: None,
+                    reset_after_secs: None,
                 },
             })
         }

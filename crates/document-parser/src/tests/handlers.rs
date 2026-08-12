@@ -103,6 +103,122 @@ mod document_handler_tests {
 
         // 测试缺少必需字段的错误处理
     }
+
+    // ===== 同步解析接口（/parse-sync）相关测试 =====
+
+    #[test]
+    fn test_temp_cleanup_guard_removes_file_and_dir() {
+        use crate::handlers::document_handler::TempCleanupGuard;
+
+        // 创建临时文件和目录（目录内再放一个文件）
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("upload.bin");
+        std::fs::write(&file_path, b"test content").unwrap();
+
+        let nested_dir = temp_dir.path().join("mineru_output");
+        std::fs::create_dir_all(&nested_dir).unwrap();
+        let nested_file = nested_dir.join("image.png");
+        std::fs::write(&nested_file, b"fake png").unwrap();
+
+        // 注册后立即 Drop，触发清理
+        {
+            let mut guard = TempCleanupGuard::new();
+            guard.register(file_path.clone());
+            guard.register(nested_dir.clone());
+        }
+
+        // 断言文件与目录均已被清理
+        assert!(!file_path.exists(), "临时文件应被清理");
+        assert!(!nested_dir.exists(), "临时目录应被递归清理");
+    }
+
+    #[test]
+    fn test_temp_cleanup_guard_ignores_missing_paths() {
+        use crate::handlers::document_handler::TempCleanupGuard;
+
+        // 注册不存在的路径不应 panic
+        let mut guard = TempCleanupGuard::new();
+        guard.register(std::path::PathBuf::from(
+            "/tmp/not_exist_document_parser_file.bin",
+        ));
+        guard.register(std::path::PathBuf::from(
+            "/tmp/not_exist_document_parser_dir",
+        ));
+        drop(guard);
+    }
+
+    #[test]
+    fn test_temp_file_cleaner_removes_partial_file_on_drop() {
+        use crate::handlers::document_handler::TempFileCleaner;
+
+        // 模拟写入中途 future 被取消：武装状态下 Drop 应删除部分文件
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("partial_upload.bin");
+        std::fs::write(&file_path, b"partial content").unwrap();
+
+        {
+            let _cleaner = TempFileCleaner::new(file_path.to_str().unwrap());
+            // 不调用 disarm，模拟写入中断
+        }
+
+        assert!(!file_path.exists(), "写入中断时部分文件应被清理");
+    }
+
+    #[test]
+    fn test_temp_file_cleaner_keeps_file_after_disarm() {
+        use crate::handlers::document_handler::TempFileCleaner;
+
+        // 写入成功后 disarm：文件保留，由调用方接管
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("completed_upload.bin");
+        std::fs::write(&file_path, b"full content").unwrap();
+
+        {
+            let mut cleaner = TempFileCleaner::new(file_path.to_str().unwrap());
+            cleaner.disarm();
+        }
+
+        assert!(file_path.exists(), "disarm 后文件应保留");
+        assert_eq!(std::fs::read_to_string(&file_path).unwrap(), "full content");
+    }
+
+    #[test]
+    fn test_sync_parse_response_serialization() {
+        use crate::handlers::document_handler::SyncParseResponse;
+        use crate::models::{DocumentFormat, ParserEngine};
+
+        let response = SyncParseResponse {
+            markdown_content: "# 标题\n\n正文".to_string(),
+            format: DocumentFormat::Md,
+            engine: ParserEngine::MarkItDown,
+            processing_time_ms: 123,
+            word_count: Some(5),
+            filename: "test.md".to_string(),
+            file_size: 1024,
+        };
+
+        let value = serde_json::to_value(&response).unwrap();
+        assert_eq!(value["markdown_content"], "# 标题\n\n正文");
+        assert_eq!(value["format"], "Md");
+        assert_eq!(value["engine"], "MarkItDown");
+        assert_eq!(value["processing_time_ms"], 123);
+        assert_eq!(value["word_count"], 5);
+        assert_eq!(value["filename"], "test.md");
+        assert_eq!(value["file_size"], 1024);
+    }
+
+    #[test]
+    fn test_payload_too_large_maps_to_413() {
+        use crate::handlers::response::ApiResponse;
+        use axum::response::IntoResponse;
+
+        // 请求体超限（middleware `DefaultBodyLimit`）应映射为 413
+        let response = ApiResponse::from_app_error::<serde_json::Value>(
+            crate::error::AppError::PayloadTooLarge("请求体超过大小限制".to_string()),
+        )
+        .into_response();
+        assert_eq!(response.status(), axum::http::StatusCode::PAYLOAD_TOO_LARGE);
+    }
 }
 
 #[cfg(test)]

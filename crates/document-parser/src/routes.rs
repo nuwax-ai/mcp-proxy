@@ -24,7 +24,16 @@ pub fn create_routes(state: AppState) -> Router {
         // OpenAPI 文档路由 - 使用 utoipa-swagger-ui 内置支持
         .merge(SwaggerUi::new("/api/docs").url("/api/docs/openapi.json", ApiDoc::openapi()))
         // 文档处理路由
-        .nest("/api/v1/documents", document_routes())
+        .nest(
+            "/api/v1/documents",
+            document_routes(
+                state
+                    .config
+                    .document_parser
+                    .sync_parse_max_file_size
+                    .bytes() as usize,
+            ),
+        )
         // 任务管理路由
         .nest("/api/v1/tasks", task_routes())
         // OSS 服务路由
@@ -42,7 +51,15 @@ pub fn create_routes(state: AppState) -> Router {
 }
 
 /// 文档处理相关路由
-fn document_routes() -> Router<AppState> {
+///
+/// `sync_parse_max_file_size`：同步解析接口（/parse-sync）专属请求体大小上限，
+/// 由路由级 [`DefaultBodyLimit`] 承载，覆盖全局限制（middleware 统一管理文件大小）。
+fn document_routes(sync_parse_max_file_size: usize) -> Router<AppState> {
+    // 同步解析接口单独挂载路由级 body 限制：仅该路由生效，不影响其他文档路由
+    let parse_sync_router = Router::new()
+        .route("/parse-sync", post(document_handler::parse_document_sync))
+        .route_layer(DefaultBodyLimit::max(sync_parse_max_file_size));
+
     Router::new()
         // 文档上传和解析
         .route("/upload", post(document_handler::upload_document))
@@ -50,6 +67,8 @@ fn document_routes() -> Router<AppState> {
             "/uploadFromUrl",
             post(document_handler::download_document_from_url),
         )
+        // 同步解析（仅供测试验证，同一请求内同步返回 Markdown）
+        .merge(parse_sync_router)
         // 结构化文档生成
         .route(
             "/structured",

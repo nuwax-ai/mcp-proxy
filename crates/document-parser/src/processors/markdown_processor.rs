@@ -809,8 +809,9 @@ impl MarkdownProcessor {
         let mut hasher = Sha256::new();
         hasher.update(content.as_bytes());
         let hash = hasher.finalize();
+        let hex: String = hash.iter().map(|b| format!("{b:02x}")).collect();
 
-        format!("md_{hash:x}")
+        format!("md_{hex}")
     }
 
     /// 提取章节内容

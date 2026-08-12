@@ -72,6 +72,7 @@ pub fn get_default_config() -> AppConfig {
         handlers::document_handler::get_supported_formats,
         handlers::document_handler::get_parser_stats,
         handlers::document_handler::check_parser_health,
+        handlers::document_handler::parse_document_sync,
 
         // 任务管理接口
         handlers::task_handler::create_task,
@@ -132,6 +133,7 @@ pub fn get_default_config() -> AppConfig {
             handlers::document_handler::StructuredDocumentResponse,
             handlers::document_handler::SupportedFormatsResponse,
             handlers::document_handler::ParserStatsResponse,
+            handlers::document_handler::SyncParseResponse,
 
 
             // 任务管理相关

@@ -1,9 +1,11 @@
+use super::mineru_parser::ActiveTaskGuard;
 use super::parser_trait::DocumentParser;
 use crate::config::GlobalFileSizeConfig;
 use crate::error::AppError;
 use crate::models::{DocumentFormat, ParseResult, ParserEngine};
 use crate::parsers::FormatDetector;
 use async_trait::async_trait;
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Stdio;
@@ -12,7 +14,7 @@ use std::time::{Duration, Instant};
 use tokio::fs;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
-use tokio::sync::{Mutex, RwLock, mpsc};
+use tokio::sync::{RwLock, mpsc};
 use tokio::time::timeout;
 use tracing::{debug, info, warn};
 use uuid::{NoContext, Timestamp, Uuid};
@@ -264,37 +266,27 @@ impl MarkItDownParser {
         let start_time = Instant::now();
         let task_id = Uuid::new_v7(Timestamp::now(NoContext)).to_string();
 
-        // 注册取消令牌
+        // 注册取消令牌（RAII 守卫：future 取消时 Drop 自动从 active_tasks 移除，不泄漏）
         let token = cancellation_token.unwrap_or_default();
-        {
-            let mut tasks = self.active_tasks.lock().await;
-            tasks.insert(task_id.clone(), token.clone());
-        }
+        let _task_guard =
+            ActiveTaskGuard::new(self.active_tasks.clone(), task_id.clone(), token.clone());
 
-        let result = self
-            .parse_internal_with_progress(
-                file_path,
-                format,
-                &task_id,
-                progress_callback,
-                token.clone(),
-                start_time,
-            )
-            .await;
-
-        // 清理任务
-        {
-            let mut tasks = self.active_tasks.lock().await;
-            tasks.remove(&task_id);
-        }
-
-        result
+        self.parse_internal_with_progress(
+            file_path,
+            format,
+            &task_id,
+            progress_callback,
+            token.clone(),
+            start_time,
+        )
+        .await
     }
 
     /// 取消指定任务
     pub async fn cancel_task(&self, task_id: &str) -> Result<(), AppError> {
-        let tasks = self.active_tasks.lock().await;
-        if let Some(token) = tasks.get(task_id) {
+        // 锁内取出 token 克隆后立即释放锁，避免持锁跨 await
+        let token = self.active_tasks.lock().get(task_id).cloned();
+        if let Some(token) = token {
             token.cancel().await;
             info!("MarkItDown parsing task canceled: {}", task_id);
             Ok(())
@@ -304,9 +296,8 @@ impl MarkItDownParser {
     }
 
     /// 获取活跃任务数量
-    pub async fn get_active_task_count(&self) -> usize {
-        let tasks = self.active_tasks.lock().await;
-        tasks.len()
+    pub fn get_active_task_count(&self) -> usize {
+        self.active_tasks.lock().len()
     }
 
     /// 验证格式支持
@@ -986,7 +977,7 @@ impl MarkItDownParser {
     pub async fn get_parse_statistics(&self) -> HashMap<String, serde_json::Value> {
         let mut stats = HashMap::new();
 
-        let active_count = self.get_active_task_count().await;
+        let active_count = self.get_active_task_count();
         stats.insert(
             "active_tasks".to_string(),
             serde_json::Value::Number(active_count.into()),
@@ -1226,7 +1217,7 @@ mod tests {
 
         assert_eq!(parser.config().python_path, config.python_path);
         assert_eq!(parser.config().enable_plugins, config.enable_plugins);
-        assert_eq!(parser.get_active_task_count().await, 0);
+        assert_eq!(parser.get_active_task_count(), 0);
     }
 
     #[tokio::test]
@@ -1578,7 +1569,7 @@ mod tests {
         let progress_callback = move |progress: MarkItDownProgress| {
             let updates = progress_updates_clone.clone();
             tokio::spawn(async move {
-                let mut updates = updates.lock().await;
+                let mut updates = updates.lock();
                 updates.push(progress);
             });
         };
@@ -1595,7 +1586,7 @@ mod tests {
             .await;
 
         // 验证至少收到了一些进度更新
-        let updates = progress_updates.lock().await;
+        let updates = progress_updates.lock();
         if !updates.is_empty() {
             assert!(
                 updates

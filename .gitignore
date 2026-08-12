@@ -10,6 +10,7 @@ logs
 .claude
 /tmp
 packages
+.zcode
 
 
 crates/document-parser/data/*

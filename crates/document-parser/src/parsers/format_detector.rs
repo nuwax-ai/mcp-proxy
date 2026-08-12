@@ -1175,7 +1175,7 @@ mod tests {
 
         // 测试默认安全配置
         let security_config = &detector.security_config;
-        assert_eq!(security_config.max_allowed_size, 200 * 1024 * 1024); // 200MB
+        assert_eq!(security_config.max_allowed_size, 500 * 1024 * 1024); // 500MB
         assert_eq!(security_config.dangerous_extensions.len(), 9); // 默认包含9个危险扩展名
     }
 

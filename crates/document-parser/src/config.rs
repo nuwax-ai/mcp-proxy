@@ -92,7 +92,7 @@ pub struct GlobalFileSizeConfig {
 impl Default for GlobalFileSizeConfig {
     fn default() -> Self {
         Self {
-            max_file_size: FileSize(200 * 1024 * 1024), // 200MB
+            max_file_size: FileSize(500 * 1024 * 1024), // 500MB
             large_document_threshold: FileSize(50 * 1024 * 1024), // 50MB
         }
     }
@@ -441,6 +441,31 @@ pub struct DocumentParserConfig {
     pub queue_size: usize,
     pub download_timeout: u32,
     pub processing_timeout: u32,
+    /// 同步解析接口（/parse-sync）请求体大小上限，由路由级 `DefaultBodyLimit`
+    /// middleware 承载（超限返回 413），仅供测试验证使用
+    #[serde(default = "default_sync_parse_max_file_size")]
+    pub sync_parse_max_file_size: FileSize,
+    /// 同步解析接口（/parse-sync）最大并发数，MinerU 为重资源，默认限流 2 路
+    #[serde(default = "default_sync_parse_max_concurrent")]
+    pub sync_parse_max_concurrent: usize,
+    /// 同步解析接口（/parse-sync）整体超时（秒），默认 600 = 10 分钟
+    #[serde(default = "default_sync_parse_timeout_secs")]
+    pub sync_parse_timeout_secs: u32,
+}
+
+/// 同步解析接口默认最大文件大小（500MB）
+fn default_sync_parse_max_file_size() -> FileSize {
+    FileSize::from_mb(500)
+}
+
+/// 同步解析接口默认最大并发数
+fn default_sync_parse_max_concurrent() -> usize {
+    2
+}
+
+/// 同步解析接口默认整体超时（10 分钟）
+fn default_sync_parse_timeout_secs() -> u32 {
+    600
 }
 
 impl DocumentParserConfig {
@@ -479,6 +504,42 @@ impl DocumentParserConfig {
             return Err(ConfigError::Validation {
                 field: "document_parser.processing_timeout".to_string(),
                 message: "处理超时时间不能为0".to_string(),
+            });
+        }
+
+        // 同步解析接口配置校验
+        if self.sync_parse_max_file_size.bytes() == 0 {
+            return Err(ConfigError::Validation {
+                field: "document_parser.sync_parse_max_file_size".to_string(),
+                message: "同步解析接口最大文件大小不能为0".to_string(),
+            });
+        }
+
+        if self.sync_parse_max_file_size.bytes() > 10 * 1024 * 1024 * 1024 {
+            return Err(ConfigError::Validation {
+                field: "document_parser.sync_parse_max_file_size".to_string(),
+                message: "同步解析接口最大文件大小不能超过10GB".to_string(),
+            });
+        }
+
+        if self.sync_parse_max_concurrent == 0 {
+            return Err(ConfigError::Validation {
+                field: "document_parser.sync_parse_max_concurrent".to_string(),
+                message: "同步解析接口最大并发数不能为0".to_string(),
+            });
+        }
+
+        if self.sync_parse_max_concurrent > 16 {
+            return Err(ConfigError::Validation {
+                field: "document_parser.sync_parse_max_concurrent".to_string(),
+                message: "同步解析接口最大并发数不能超过16".to_string(),
+            });
+        }
+
+        if self.sync_parse_timeout_secs == 0 {
+            return Err(ConfigError::Validation {
+                field: "document_parser.sync_parse_timeout_secs".to_string(),
+                message: "同步解析接口超时时间不能为0".to_string(),
             });
         }
 
@@ -869,6 +930,9 @@ impl Default for DocumentParserConfig {
             queue_size: 1000,
             download_timeout: 3600,
             processing_timeout: 3600,
+            sync_parse_max_file_size: default_sync_parse_max_file_size(),
+            sync_parse_max_concurrent: default_sync_parse_max_concurrent(),
+            sync_parse_timeout_secs: default_sync_parse_timeout_secs(),
         }
     }
 }
@@ -1202,6 +1266,24 @@ impl AppConfig {
                 "DOCUMENT_PARSER_PROCESSING_TIMEOUT",
                 &processing_timeout_str,
             )?;
+        }
+        if let Some(sync_size_str) = env.get("DOCUMENT_PARSER_SYNC_PARSE_MAX_FILE_SIZE") {
+            self.document_parser.sync_parse_max_file_size = FileSize(
+                parse_file_size(&sync_size_str).map_err(|e| ConfigError::EnvVar {
+                    var: "DOCUMENT_PARSER_SYNC_PARSE_MAX_FILE_SIZE".to_string(),
+                    message: e,
+                })?,
+            );
+        }
+        if let Some(sync_concurrent_str) = env.get("DOCUMENT_PARSER_SYNC_PARSE_MAX_CONCURRENT") {
+            self.document_parser.sync_parse_max_concurrent = Self::parse_env_var(
+                "DOCUMENT_PARSER_SYNC_PARSE_MAX_CONCURRENT",
+                &sync_concurrent_str,
+            )?;
+        }
+        if let Some(sync_timeout_str) = env.get("DOCUMENT_PARSER_SYNC_PARSE_TIMEOUT_SECS") {
+            self.document_parser.sync_parse_timeout_secs =
+                Self::parse_env_var("DOCUMENT_PARSER_SYNC_PARSE_TIMEOUT_SECS", &sync_timeout_str)?;
         }
         Ok(())
     }
@@ -1625,6 +1707,9 @@ mod tests {
             queue_size: 100,
             download_timeout: 3600,
             processing_timeout: 1800,
+            sync_parse_max_file_size: default_sync_parse_max_file_size(),
+            sync_parse_max_concurrent: default_sync_parse_max_concurrent(),
+            sync_parse_timeout_secs: default_sync_parse_timeout_secs(),
         };
 
         assert!(config.validate().is_ok());
@@ -1636,6 +1721,39 @@ mod tests {
 
         // 测试过大的并发数
         invalid_config.max_concurrent = 200;
+        assert!(invalid_config.validate().is_err());
+    }
+
+    #[test]
+    fn test_document_parser_sync_config_validation() {
+        let config = DocumentParserConfig {
+            max_concurrent: 3,
+            queue_size: 100,
+            download_timeout: 3600,
+            processing_timeout: 1800,
+            sync_parse_max_file_size: default_sync_parse_max_file_size(),
+            sync_parse_max_concurrent: default_sync_parse_max_concurrent(),
+            sync_parse_timeout_secs: default_sync_parse_timeout_secs(),
+        };
+
+        assert!(config.validate().is_ok());
+
+        // 默认同步文件大小上限为 500MB
+        assert_eq!(config.sync_parse_max_file_size.bytes(), 500 * 1024 * 1024);
+
+        // 同步文件大小上限不能为 0
+        let mut invalid_config = config.clone();
+        invalid_config.sync_parse_max_file_size = FileSize(0);
+        assert!(invalid_config.validate().is_err());
+
+        // 同步并发数不能为 0
+        invalid_config = config.clone();
+        invalid_config.sync_parse_max_concurrent = 0;
+        assert!(invalid_config.validate().is_err());
+
+        // 同步超时不能为 0
+        invalid_config = config.clone();
+        invalid_config.sync_parse_timeout_secs = 0;
         assert!(invalid_config.validate().is_err());
     }
 

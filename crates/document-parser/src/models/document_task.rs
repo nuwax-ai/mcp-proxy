@@ -544,7 +544,7 @@ mod tests {
         });
 
         // Set file size to exceed limit
-        task.file_size = Some(250 * 1024 * 1024); // 250MB > 200MB limit (from config.yml)
+        task.file_size = Some(600 * 1024 * 1024); // 600MB > 500MB limit (from config.yml)
         assert!(task.validate().is_err());
     }
 
@@ -564,7 +564,7 @@ mod tests {
         });
 
         // Set file size within limit
-        task.file_size = Some(50 * 1024 * 1024); // 50MB < 200MB limit (from config.yml)
+        task.file_size = Some(50 * 1024 * 1024); // 50MB < 500MB limit (from config.yml)
         assert!(task.validate().is_ok());
     }
 

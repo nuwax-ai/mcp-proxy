@@ -18,6 +18,7 @@ tokio = { workspace = true, features = [
     "signal",
     "io-util",
     "process",
+    "sync",
 ] }
 tokio-stream = "0.1"
 tokio-util = { version = "0.7", features = ["io"] }

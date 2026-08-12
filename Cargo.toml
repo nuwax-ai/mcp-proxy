@@ -72,8 +72,8 @@ sherpa-onnx = { version = "1.13.3", default-features = false }
 ferrous-opencc = "0.4"
 
 # Note: rmcp 依赖由各子项目独立管理（mcp-sse-proxy 用 0.10，mcp-streamable-proxy 用 3.1.1）
-tokio = { version = "1.52", features = ["macros", "net", "rt", "rt-multi-thread"] }
-tokio-util = "0.7"
+tokio = { version = "1.53", features = ["macros", "net", "rt", "rt-multi-thread"] }
+tokio-util = "0.7.19"
 
 # Logging and tracing
 tracing = "0.1"
@@ -93,7 +93,7 @@ log = "0.4"
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde", "now"] }
 thiserror = "2.0"
-sha2 = "0.10"
+sha2 = "0.11"
 axum = { version = "0.8", features = [
     "http2",
     "query",
@@ -128,16 +128,16 @@ serde_with = "3.21"
 # voice-cli / mcp-sse-proxy 各自 0.12 inline（见各 Cargo.toml：rmcp trait 对齐 + 避免 0.13 的 aws-lc-rs
 # 令 STT 重二进制启动被 macOS jetsam SIGKILL）。0.13 default features 即 rustls（无 native TLS）。
 reqwest = { version = "0.13", features = ["json"] }
-http = "1.4"
+http = "1.5"
 aliyun-oss-rust-sdk = { version = "0.2", default-features = false, features = ["async"] }
 clap = { version = "4.6", features = ["derive", "env"] }
 futures = "0.3"
 
 derive_builder = "0.20"
 bytes = "1.12"
-base64 = "0.22"
+base64 = "0.23"
 tempfile = "3.27"
-service-manager = "0.10"
+service-manager = "0.11"
 dotenvy = "0.15"
 dirs = "6.0"
 scopeguard = "1.2"
@@ -146,11 +146,11 @@ scopeguard = "1.2"
 # config-rs（the `config` crate）：YAML/JSON/TOML 配置加载
 config = { version = "0.15", features = ["yaml", "json", "toml"] }
 url = "2.5"
-infer = "0.19"
+infer = "0.22"
 # Windows 仅：窗口/进程信息（voice-cli daemon 模式）
 winapi = { version = "0.3", features = ["winuser", "processthreadsapi"] }
 
-async-trait = "0.1"
+async-trait = "0.1.92"
 
 # Task queue and persistence for async processing
 apalis = { version = "0.7", features = ["tracing", "limit"] }
@@ -164,7 +164,7 @@ sled = "0.34"
 which = "8.0"
 
 # 国际化支持
-rust-i18n = "4"
+rust-i18n = "4.2"
 
 # Embedding library (fastembed-server 专用)
 # 版本须与上游 fastembed-rs 同步；features 由各 crate 按需添加
@@ -179,7 +179,7 @@ tar = "0.4"
 
 # Audio format detection and processing
 symphonia = { version = "0.6", features = ["all"] }
-tokio-stream = "0.1.18"
+tokio-stream = "0.1.19"
 backtrace = "0.3"
 tracing-futures = "0.2.5"
 urlencoding = "2.1.3"

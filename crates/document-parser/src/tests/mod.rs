@@ -123,6 +123,9 @@ pub mod test_helpers {
                         queue_size: 10,
                         download_timeout: 300,
                         processing_timeout: 1800,
+                        sync_parse_max_file_size: crate::config::FileSize::from_mb(500),
+                        sync_parse_max_concurrent: 2,
+                        sync_parse_timeout_secs: 600,
                     },
                     file_size_config: crate::config::GlobalFileSizeConfig {
                         max_file_size: crate::config::FileSize::from_mb(100), // 100MB

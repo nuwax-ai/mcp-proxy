@@ -21,6 +21,11 @@ document_parser:
   download_timeout: 3600
   processing_timeout: 3600  # 60分钟，用于MinerU和MarkItDown解析超时
 
+  # 同步解析接口（/parse-sync）配置，仅供测试验证使用
+  sync_parse_max_file_size: "500MB"  # 同步接口请求体大小上限（路由级 middleware 限制，超限返回 413）
+  sync_parse_max_concurrent: 2      # 同步接口并发上限（MinerU 为重资源，限流 2 路）
+  sync_parse_timeout_secs: 600      # 同步接口整体超时（10分钟）
+
 # MinerU配置
 mineru:
   # 后端选择：pipeline|vlm-engine|hybrid-engine|vlm-http-client|hybrid-http-client，有 cuda 推荐 hybrid-engine（mineru 3.4 默认）
@@ -75,7 +80,7 @@ storage:
 
 # 全局文件大小配置
 file_size_config:
-  max_file_size: "200MB"
+  max_file_size: "500MB"
   large_document_threshold: "50MB"
 
 # 外部集成配置

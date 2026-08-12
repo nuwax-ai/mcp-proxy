@@ -55,6 +55,7 @@ impl ApiResponse {
             }
             AppError::Database(_) | AppError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::Oss(_) => StatusCode::BAD_GATEWAY,
+            AppError::PayloadTooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
 

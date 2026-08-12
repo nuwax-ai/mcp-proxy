@@ -78,6 +78,10 @@ pub enum AppError {
     /// 处理错误
     #[error("{0}")]
     Processing(String),
+
+    /// 请求体超过大小限制（HTTP 413）
+    #[error("{0}")]
+    PayloadTooLarge(String),
 }
 
 impl AppError {
@@ -302,6 +306,7 @@ impl AppError {
             AppError::VirtualEnvironmentPath(_) => "E017",
             AppError::Permission(_) => "E018",
             AppError::Path(_) => "E019",
+            AppError::PayloadTooLarge(_) => "E020",
         }
     }
 
@@ -341,6 +346,9 @@ impl AppError {
                 t!("errors.document_parser.suggestions.permission").to_string()
             }
             AppError::Path(_) => t!("errors.document_parser.suggestions.path").to_string(),
+            AppError::PayloadTooLarge(_) => {
+                t!("errors.document_parser.suggestions.payload_too_large").to_string()
+            }
         }
     }
 
