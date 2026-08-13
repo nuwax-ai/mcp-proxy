@@ -171,12 +171,10 @@ pub async fn parse_document_sync(
         // 2. 注册临时文件清理（成功/失败/超时均会清理）
         let mut cleanup_guard = TempCleanupGuard::new();
         cleanup_guard.register(PathBuf::from(&file_path));
-        // 预注册解析引擎的中间产物目录兜底：parse 过程中 MinerU/MarkItDown 子进程
-        // 即会创建 temp/<engine>/<task_id>/，若 parse 超时或失败，下面的精确注册
-        //（output_dir/work_dir）来不及执行，此处按固定路径模式预注册，
-        // 确保所有路径下中间产物都不泄漏（幂等：不存在则 Drop 时跳过）。
-        cleanup_guard.register(PathBuf::from(format!("temp/mineru/{task_id}")));
-        cleanup_guard.register(PathBuf::from(format!("temp/markitdown/{task_id}")));
+        // 注意：parser 内部使用独立的 task_id（UUID v7），与此处的上传 task_id（v4）
+        // 不同，无法预注册 temp/<engine>/<task_id>/ 路径。成功路径依赖 ParseResult
+        // 返回的 work_dir/output_dir 精确注册（见步骤 4）；超时路径的中间产物为
+        // 已知限制（parser 子进程可能继续运行至自然结束，残留由运维定期清理）。
 
         // 3. 同步解析（内部自带大小校验与解析超时）
         let parse_result = state

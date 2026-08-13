@@ -457,7 +457,15 @@ impl MarkItDownParser {
         result.set_processing_time(processing_time.as_secs_f64());
         result.set_error_count(0);
 
-        // 注意：不在此处清理工作目录，交由上层在过期清理时统一清理
+        // 记录工作目录供上层清理（与 MinerU 一致）：同步解析接口在请求结束后
+        // 通过 ParseResult.work_dir 精确注册到 cleanup_guard 统一清理
+        result.work_dir = Some(
+            work_dir
+                .canonicalize()
+                .unwrap_or(work_dir.clone())
+                .to_string_lossy()
+                .to_string(),
+        );
 
         progress_callback(MarkItDownProgress {
             stage: ProcessingStage::Completed,
