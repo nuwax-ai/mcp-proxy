@@ -148,41 +148,6 @@ mod document_handler_tests {
     }
 
     #[test]
-    fn test_temp_file_cleaner_removes_partial_file_on_drop() {
-        use crate::handlers::document_handler::TempFileCleaner;
-
-        // 模拟写入中途 future 被取消：武装状态下 Drop 应删除部分文件
-        let temp_dir = tempfile::tempdir().unwrap();
-        let file_path = temp_dir.path().join("partial_upload.bin");
-        std::fs::write(&file_path, b"partial content").unwrap();
-
-        {
-            let _cleaner = TempFileCleaner::new(file_path.to_str().unwrap());
-            // 不调用 disarm，模拟写入中断
-        }
-
-        assert!(!file_path.exists(), "写入中断时部分文件应被清理");
-    }
-
-    #[test]
-    fn test_temp_file_cleaner_keeps_file_after_disarm() {
-        use crate::handlers::document_handler::TempFileCleaner;
-
-        // 写入成功后 disarm：文件保留，由调用方接管
-        let temp_dir = tempfile::tempdir().unwrap();
-        let file_path = temp_dir.path().join("completed_upload.bin");
-        std::fs::write(&file_path, b"full content").unwrap();
-
-        {
-            let mut cleaner = TempFileCleaner::new(file_path.to_str().unwrap());
-            cleaner.disarm();
-        }
-
-        assert!(file_path.exists(), "disarm 后文件应保留");
-        assert_eq!(std::fs::read_to_string(&file_path).unwrap(), "full content");
-    }
-
-    #[test]
     fn test_sync_parse_response_serialization() {
         use crate::handlers::document_handler::SyncParseResponse;
         use crate::models::{DocumentFormat, ParserEngine};

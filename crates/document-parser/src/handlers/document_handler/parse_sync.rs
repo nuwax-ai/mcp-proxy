@@ -2,6 +2,9 @@
 //!
 //! 上传文档并在同一请求内同步返回 Markdown 结果，不创建任务、不进行 OSS 上传。
 
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
+
 use super::upload::{UploadConfig, process_multipart_upload_streaming_with_task_id};
 use crate::app_state::AppState;
 use crate::error::AppError;
@@ -46,7 +49,7 @@ pub struct SyncParseResponse {
 /// 用于同步解析接口，确保成功、失败、超时等所有路径下都不会泄漏临时文件。
 /// 目录按目录整体递归删除（MinerU 输出的图片目录），文件按单文件删除。
 pub(crate) struct TempCleanupGuard {
-    paths: Vec<std::path::PathBuf>,
+    paths: Vec<PathBuf>,
 }
 
 impl TempCleanupGuard {
@@ -56,7 +59,7 @@ impl TempCleanupGuard {
     }
 
     /// 注册一个需要清理的路径（文件或目录）
-    pub(crate) fn register(&mut self, path: std::path::PathBuf) {
+    pub(crate) fn register(&mut self, path: PathBuf) {
         self.paths.push(path);
     }
 }
@@ -131,7 +134,7 @@ pub async fn parse_document_sync(
     mut multipart: Multipart,
 ) -> axum::response::Response {
     let sync_timeout_secs = state.config.document_parser.sync_parse_timeout_secs as u64;
-    let sync_timeout = std::time::Duration::from_secs(sync_timeout_secs);
+    let sync_timeout = Duration::from_secs(sync_timeout_secs);
 
     info!("Synchronous document parsing request starts");
 
@@ -148,7 +151,7 @@ pub async fn parse_document_sync(
     };
 
     // 记录起始时间（不含信号量排队等待时间），用于统计解析耗时
-    let start_time = std::time::Instant::now();
+    let start_time = Instant::now();
 
     // 整体超时包裹：上传 + 解析 + 构造响应，超时后内部 future 被取消，
     // TempCleanupGuard 的 Drop 仍会执行，临时文件不会泄漏
@@ -167,15 +170,13 @@ pub async fn parse_document_sync(
 
         // 2. 注册临时文件清理（成功/失败/超时均会清理）
         let mut cleanup_guard = TempCleanupGuard::new();
-        cleanup_guard.register(std::path::PathBuf::from(&file_path));
+        cleanup_guard.register(PathBuf::from(&file_path));
         // 预注册解析引擎的中间产物目录兜底：parse 过程中 MinerU/MarkItDown 子进程
         // 即会创建 temp/<engine>/<task_id>/，若 parse 超时或失败，下面的精确注册
         //（output_dir/work_dir）来不及执行，此处按固定路径模式预注册，
         // 确保所有路径下中间产物都不泄漏（幂等：不存在则 Drop 时跳过）。
-        cleanup_guard.register(std::path::PathBuf::from(format!("temp/mineru/{task_id}")));
-        cleanup_guard.register(std::path::PathBuf::from(format!(
-            "temp/markitdown/{task_id}"
-        )));
+        cleanup_guard.register(PathBuf::from(format!("temp/mineru/{task_id}")));
+        cleanup_guard.register(PathBuf::from(format!("temp/markitdown/{task_id}")));
 
         // 3. 同步解析（内部自带大小校验与解析超时）
         let parse_result = state
@@ -186,10 +187,10 @@ pub async fn parse_document_sync(
 
         // 4. 注册解析产生的中间产物目录（MinerU 输出的图片/工作目录）
         if let Some(output_dir) = &parse_result.output_dir {
-            cleanup_guard.register(std::path::PathBuf::from(output_dir));
+            cleanup_guard.register(PathBuf::from(output_dir));
         }
         if let Some(work_dir) = &parse_result.work_dir {
-            cleanup_guard.register(std::path::PathBuf::from(work_dir));
+            cleanup_guard.register(PathBuf::from(work_dir));
         }
 
         // 5. 构造响应

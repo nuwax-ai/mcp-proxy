@@ -779,7 +779,7 @@ impl DocumentService {
             hasher.update(&buffer[..n]);
         }
         let digest = hasher.finalize();
-        Ok(digest.iter().map(|b| format!("{b:02x}")).collect())
+        Ok(hex::encode(digest))
     }
 
     /// 查找匹配的OSS URL（通过文件名匹配）

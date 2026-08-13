@@ -86,6 +86,8 @@ moka = { workspace = true, features = ["future"] }
 regex = "1.11.1"
 tempfile = "3.20.0"
 sha2 = "0.10"
+hex = { workspace = true }
+scopeguard = { workspace = true }
 async-recursion = "1.0"
 num_cpus = "1.16"
 rand = { workspace = true }

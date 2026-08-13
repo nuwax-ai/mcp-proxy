@@ -403,39 +403,6 @@ pub(crate) async fn process_multipart_upload_streaming_with_task_id(
     Err(AppError::Validation("未找到文件字段".to_string()))
 }
 
-/// 部分写入文件的兜底清理器（RAII）
-///
-/// 流式写入过程中 future 被取消（超时/连接中断）或异常退出时，删除已创建的部分文件，
-/// 防止临时文件泄漏。成功完成写入后调用 [`disarm`](Self::disarm) 取消清理，
-/// 文件所有权移交给调用方（由其负责后续清理）。
-pub(crate) struct TempFileCleaner {
-    file_path: String,
-    armed: bool,
-}
-
-impl TempFileCleaner {
-    /// 创建清理器并武装（Drop 时删除文件）
-    pub(crate) fn new(file_path: &str) -> Self {
-        Self {
-            file_path: file_path.to_string(),
-            armed: true,
-        }
-    }
-
-    /// 取消清理，文件保留（由调用方接管）
-    pub(crate) fn disarm(&mut self) {
-        self.armed = false;
-    }
-}
-
-impl Drop for TempFileCleaner {
-    fn drop(&mut self) {
-        if self.armed {
-            let _ = std::fs::remove_file(&self.file_path);
-        }
-    }
-}
-
 /// 处理multipart文件上传（改进的流式处理）
 ///
 /// 流式写入文件（带验证）。文件大小限制由 HTTP middleware（`DefaultBodyLimit`）
@@ -450,8 +417,10 @@ async fn stream_write_file_with_validation(
         .await
         .map_err(|e| AppError::File(format!("创建文件失败: {e}")))?;
 
-    // 兜底清理：写入中途 future 被取消（超时）时删除部分文件
-    let mut cleaner = TempFileCleaner::new(file_path);
+    // 兜底清理：写入中途 future 被取消（超时）时删除部分文件（scopeguard Drop 时执行）
+    let cleaner = scopeguard::guard(file_path.to_string(), |path| {
+        let _ = std::fs::remove_file(path);
+    });
     let mut writer = BufWriter::with_capacity(chunk_size, file);
     let mut total_size = 0u64;
     let mut first_chunk: Option<Vec<u8>> = None;
@@ -469,7 +438,7 @@ async fn stream_write_file_with_validation(
             first_chunk = Some(chunk.to_vec());
         }
 
-        // 写入文件（失败时由 TempFileCleaner 的 Drop 兜底删除，无需在此手动清理）
+        // 写入文件（失败时由 scopeguard 兜底删除，无需在此手动清理）
         writer
             .write_all(&chunk)
             .await
@@ -482,7 +451,7 @@ async fn stream_write_file_with_validation(
         .await
         .map_err(|e| AppError::File(format!("刷新文件缓冲区失败: {e}")))?;
 
-    // 验证最小文件大小（不满足时由 TempFileCleaner 的 Drop 兜底删除，无需手动清理）
+    // 验证最小文件大小（不满足时由 scopeguard 兜底删除，无需手动清理）
     if total_size == 0 {
         return Err(AppError::Validation("文件为空".to_string()));
     }
@@ -501,7 +470,7 @@ async fn stream_write_file_with_validation(
     );
 
     // 写入完成，取消兜底清理，文件由调用方接管
-    cleaner.disarm();
+    std::mem::forget(cleaner);
 
     Ok((total_size, detected_format))
 }
