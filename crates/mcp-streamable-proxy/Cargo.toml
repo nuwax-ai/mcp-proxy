@@ -15,7 +15,7 @@ mcp-common = { workspace = true }
 
 # MCP protocol implementation - official rmcp 3.1.1
 # Fork rmcp-soddygo 已废弃：官方 3.1.1 已原生容忍子进程往 stdout 写非 JSON 日志（issue #938）
-rmcp = { version = "3.1.1", features = ["server", "client", "transport-streamable-http-server", "transport-streamable-http-client", "transport-streamable-http-client-reqwest", "transport-child-process", "transport-io", "transport-async-rw", "reqwest", "base64", "macros"] }
+rmcp = { version = "3.1.2", features = ["server", "client", "transport-streamable-http-server", "transport-streamable-http-client", "transport-streamable-http-client-reqwest", "transport-child-process", "transport-io", "transport-async-rw", "reqwest", "base64", "macros"] }
 
 # Concurrent hashmap for session management (better than Arc<RwLock<HashMap>>)
 dashmap = { workspace = true }

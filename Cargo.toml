@@ -87,7 +87,7 @@ opentelemetry_sdk = "0.32"
 opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic"] }
 tonic = "0.14"
 hostname = "0.4"
-uuid = { version = "1.23", features = ["v4", "v7"] }
+uuid = { version = "1.24", features = ["v4", "v7"] }
 rand = "0.10"
 log = "0.4"
 anyhow = "1.0"
@@ -116,7 +116,7 @@ utoipa = { version = "5.5", features = ["axum_extras", "chrono", "uuid"] }
 utoipa-rapidoc = { version = "6", features = ["axum"] }
 utoipa-redoc = { version = "6", features = ["axum"] }
 utoipa-swagger-ui = { version = "9", features = ["axum"] }
-dashmap = "6.1"
+dashmap = "6.2"
 arc-swap = "1.9"
 moka = { version = "0.12", features = ["future"] }
 criterion = "0.8"
@@ -124,7 +124,7 @@ once_cell = "1.21"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "=0.9.33"
-serde_with = "3.21"
+serde_with = "3.22"
 # reqwest：非 STT crate（mcp-proxy/oss-client/document-parser/mcp-streamable-proxy）用 workspace 0.13。
 # voice-cli / mcp-sse-proxy 各自 0.12 inline（见各 Cargo.toml：rmcp trait 对齐 + 避免 0.13 的 aws-lc-rs
 # 令 STT 重二进制启动被 macOS jetsam SIGKILL）。0.13 default features 即 rustls（无 native TLS）。
@@ -175,7 +175,7 @@ fastembed = "5.17.3"
 ort = "=2.0.0-rc.12"
 
 # Archive extraction（document-parser / fastembed-server 共用）
-flate2 = "1.0"
+flate2 = "1.1"
 tar = "0.4"
 
 # Audio format detection and processing
