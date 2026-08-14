@@ -8,8 +8,7 @@ pub mod tts_apalis_manager;
 
 // 重新导出核心服务
 pub use apalis_manager::{
-    ApalisManager, LockFreeApalisManager, StepContext, TaskStatusUpdate, TranscriptionTask,
-    init_global_apalis_manager, init_global_lock_free_apalis_manager,
+    LockFreeApalisManager, StepContext, TaskStatusUpdate, TranscriptionTask,
     transcription_pipeline_worker,
 };
 pub use audio_file_manager::AudioFileManager;

@@ -17,13 +17,10 @@ use sqlx::Row;
 use sqlx::sqlite::SqlitePoolOptions;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tracing::{debug, info, warn};
-
-/// 全局 Apalis 管理器实例（无锁版本）
-static GLOBAL_APALIS_MANAGER: OnceLock<Arc<LockFreeApalisManager>> = OnceLock::new();
 
 /// 任务类型
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -169,12 +166,6 @@ pub struct TaskStatusUpdate {
     pub status: TaskStatus,
 }
 
-/// 任务存储和状态管理
-#[derive(Debug, Clone)]
-pub struct TaskStorage {
-    pub sqlite_storage: SqliteStorage<TranscriptionTask>,
-}
-
 /// 无锁 Apalis 任务管理器
 #[derive(Debug)]
 pub struct LockFreeApalisManager {
@@ -196,14 +187,6 @@ impl Clone for LockFreeApalisManager {
             ),
         }
     }
-}
-
-/// Apalis 任务管理器（保留兼容性）
-#[derive(Debug)]
-pub struct ApalisManager {
-    pub config: TaskManagementConfig,
-    pub pool: sqlx::SqlitePool,
-    pub monitor_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 /// 保存任务信息的参数
@@ -1198,92 +1181,6 @@ impl LockFreeApalisManager {
     fn generate_task_id(&self) -> String {
         crate::utils::generate_task_id()
     }
-}
-
-impl ApalisManager {
-    /// 创建新的管理器，返回 (ApalisManager, SqliteStorage) 元组
-    pub async fn new(
-        config: TaskManagementConfig,
-        model_service: Arc<ModelService>,
-    ) -> Result<(Self, SqliteStorage<TranscriptionTask>), VoiceCliError> {
-        let (lock_free_manager, storage) =
-            LockFreeApalisManager::new(config.clone(), model_service).await?;
-
-        let manager = Self {
-            config,
-            pool: lock_free_manager.pool.clone(),
-            monitor_handle: None,
-        };
-
-        Ok((manager, storage))
-    }
-
-    /// 启动 worker（委托给无锁版本）
-    pub async fn start_worker(
-        &mut self,
-        storage: SqliteStorage<TranscriptionTask>,
-        model_service: Arc<ModelService>,
-    ) -> Result<(), VoiceCliError> {
-        let (lock_free_manager, _) =
-            LockFreeApalisManager::new(self.config.clone(), model_service.clone()).await?;
-        lock_free_manager.start_worker(storage, model_service).await
-    }
-
-    /// 其他方法委托实现...
-    pub async fn submit_task(
-        &self,
-        _storage: &mut SqliteStorage<TranscriptionTask>,
-        _audio_file_path: PathBuf,
-        _original_filename: String,
-        _model: Option<String>,
-        _response_format: Option<String>,
-    ) -> Result<String, VoiceCliError> {
-        // 简化实现，实际应该委托给 LockFreeApalisManager
-        Err(VoiceCliError::Config(
-            "请使用 LockFreeApalisManager".to_string(),
-        ))
-    }
-}
-
-/// 初始化全局无锁 Apalis 管理器
-pub async fn init_global_lock_free_apalis_manager(
-    config: TaskManagementConfig,
-    model_service: Arc<ModelService>,
-) -> Result<(Arc<LockFreeApalisManager>, SqliteStorage<TranscriptionTask>), VoiceCliError> {
-    let (manager, storage) = LockFreeApalisManager::new(config, model_service).await?;
-    let manager_arc = Arc::new(manager);
-
-    GLOBAL_APALIS_MANAGER
-        .set(manager_arc.clone())
-        .map_err(|_| VoiceCliError::Config("全局 Apalis 管理器已经初始化".to_string()))?;
-
-    Ok((manager_arc, storage))
-}
-
-/// 获取全局无锁 Apalis 管理器
-pub async fn get_global_lock_free_apalis_manager() -> Option<Arc<LockFreeApalisManager>> {
-    GLOBAL_APALIS_MANAGER.get().cloned()
-}
-
-/// 初始化全局 Apalis 管理器（兼容性）
-pub async fn init_global_apalis_manager(
-    config: TaskManagementConfig,
-    model_service: Arc<ModelService>,
-) -> Result<
-    (
-        Arc<tokio::sync::Mutex<ApalisManager>>,
-        SqliteStorage<TranscriptionTask>,
-    ),
-    VoiceCliError,
-> {
-    let (manager, storage) = ApalisManager::new(config, model_service).await?;
-    let manager_arc = Arc::new(tokio::sync::Mutex::new(manager));
-    Ok((manager_arc, storage))
-}
-
-/// 获取全局 Apalis 管理器（兼容性）
-pub async fn get_global_apalis_manager() -> Option<Arc<tokio::sync::Mutex<ApalisManager>>> {
-    None // 不再支持全局锁版本
 }
 
 /// 步骤 1: 音频预处理（包含URL下载）

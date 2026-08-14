@@ -1,4 +1,3 @@
-pub mod app_state;
 pub mod handlers;
 pub mod http_tracing;
 pub mod middleware;
