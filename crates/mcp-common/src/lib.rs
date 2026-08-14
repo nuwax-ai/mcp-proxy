@@ -14,7 +14,9 @@
 //!
 //! ## 使用方法
 //!
-//! ```rust
+//! ```rust,ignore
+//! // 注：doctest 无法通过（t! 展开依赖 #[macro_use] 注入的内部宏 _rust_i18n_t，
+//! //! 在 doctest 的独立 crate 中不可见），故标记 ignore；实际用法如下。
 //! use mcp_common::{t, set_locale, init_locale_from_env};
 //!
 //! // 初始化语言设置（程序启动时调用）
