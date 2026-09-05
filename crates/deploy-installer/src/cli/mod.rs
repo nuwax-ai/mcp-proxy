@@ -84,8 +84,8 @@ pub struct SetupArgs {
     /// Skip pre-built venv on macOS (default: use OSS venv on macOS)
     #[arg(long)]
     pub no_prebuilt_venv: bool,
-    /// Install Python venv from a local tarball (offline; takes precedence
-    /// over --use-prebuilt-venv / --no-prebuilt-venv)
+    /// Install Python venv from a local tarball (offline environments;
+    /// mutually exclusive with --use-prebuilt-venv / --no-prebuilt-venv)
     #[arg(long, conflicts_with_all = ["use_prebuilt_venv", "no_prebuilt_venv"])]
     pub venv_file: Option<PathBuf>,
     /// OSS base URL for optional assets (venv tarball)
@@ -156,5 +156,34 @@ pub fn run(cli: Cli) -> Result<()> {
         Commands::Doctor => doctor::run(),
         Commands::DocumentParser { action } => document_parser::run(action),
         Commands::VoiceCli { action } => voice_cli::run(action),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    /// --venv-file 与 --use/--no-prebuilt-venv 互斥（组合传参直接解析失败）
+    #[test]
+    fn venv_file_conflicts_with_prebuilt_flags() {
+        let combined = Cli::try_parse_from([
+            "deploy-installer",
+            "document-parser",
+            "install",
+            "--venv-file",
+            "x.tar.gz",
+            "--use-prebuilt-venv",
+        ]);
+        assert!(combined.is_err(), "组合传参应被 clap 拒绝");
+
+        let solo = Cli::try_parse_from([
+            "deploy-installer",
+            "document-parser",
+            "install",
+            "--venv-file",
+            "x.tar.gz",
+        ]);
+        assert!(solo.is_ok(), "单独传 --venv-file 应通过");
     }
 }

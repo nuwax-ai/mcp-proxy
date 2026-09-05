@@ -105,7 +105,7 @@ fn check_upload_backend(parser_dir: &std::path::Path) {
     let env_path = parser_dir.join(".document-parser.env");
     if !env_path.exists() {
         println!(
-            "  upload:     WARN (not installed yet — install 时需提供 OSS 密钥或 custom_upload 配置)"
+            "  upload:     WARN (not installed yet — provide OSS keys or custom upload config at install time)"
         );
         return;
     }
@@ -118,26 +118,25 @@ fn check_upload_backend(parser_dir: &std::path::Path) {
     if custom_upload_configured(&env_path) {
         let base_url = parse_env_file_value(&env_path, "DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL")
             .unwrap_or_default();
-        match probe_url_reachable(&base_url) {
-            Some(true) => {
-                println!("  upload:     OK (custom backend configured, {base_url} reachable)")
-            }
-            _ => println!(
+        if probe_url_reachable(&base_url) {
+            println!("  upload:     OK (custom backend configured, {base_url} reachable)");
+        } else {
+            println!(
                 "  upload:     WARN (custom backend configured, but {base_url} unreachable — check network/firewall)"
-            ),
+            );
         }
         return;
     }
 
     println!(
-        "  upload:     WARN ({} 未配置任何上传后端 — OSS_ACCESS_KEY_* 或 DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL 二选一)",
+        "  upload:     WARN (no upload backend in {} — set OSS_ACCESS_KEY_* or DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL, pick one)",
         env_path.display()
     );
 }
 
-/// 探测 URL 可达性：任意 HTTP 状态码返回 Some(true)，连接失败/超时返回 None。
-fn probe_url_reachable(url: &str) -> Option<bool> {
-    let output = std::process::Command::new("curl")
+/// 探测 URL 可达性：收到任意 HTTP 状态码（含 4xx/5xx）即 true，连接失败/超时 false。
+fn probe_url_reachable(url: &str) -> bool {
+    let Ok(output) = std::process::Command::new("curl")
         .args([
             "-s",
             "-o",
@@ -149,13 +148,15 @@ fn probe_url_reachable(url: &str) -> Option<bool> {
             url,
         ])
         .output()
-        .ok()?;
+    else {
+        return false;
+    };
     if !output.status.success() {
-        return None;
+        return false;
     }
     let code = String::from_utf8_lossy(&output.stdout).trim().to_string();
     // 000 = curl 未收到 HTTP 响应（连接层失败）
-    (!code.is_empty() && code != "000").then_some(true)
+    !code.is_empty() && code != "000"
 }
 
 #[cfg(target_os = "macos")]

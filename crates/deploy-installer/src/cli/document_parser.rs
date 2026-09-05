@@ -72,10 +72,18 @@ fn setup(args: &SetupArgs, quiet: bool, installing: bool) -> Result<PathBuf> {
         if !venv_file.is_file() {
             bail!("--venv-file not found: {}", venv_file.display());
         }
-        if venv_present(&install_dir) && !quiet {
-            println!("  venv: already exists, skipping --venv-file extraction");
+        if venv_present(&install_dir) {
+            if !quiet {
+                println!("  venv: already exists, skipping --venv-file extraction");
+            }
         } else {
             extract_tarball_at(venv_file, &install_dir, quiet, "venv (local)")?;
+            if !venv_present(&install_dir) {
+                bail!(
+                    "--venv-file archive has no top-level venv/ directory — \
+                     pack it as: tar -czf venv.tgz -C <staging_dir> venv"
+                );
+            }
         }
     } else if effective_use_prebuilt_venv(args) {
         if venv_present(&install_dir) {
@@ -122,8 +130,12 @@ fn install_full(args: &SetupArgs) -> Result<()> {
     let install_dir = setup(args, false, true)?;
     let env_path = install_dir.join(ENV_FILENAME);
 
-    // 上传后端凭证落盘：OSS 密钥与自定义上传后端变量各自独立 upsert（非空即写）
-    apply_upload_config_from_env(&env_path)?;
+    // 上传后端凭证落盘：仅在**尚未配置任何后端**时才从环境写入——
+    // 已配置的 .env 不被 shell 残留的旧 export 覆盖（用户手改凭证后重跑
+    // install 应保持文件值）
+    if !upload_backend_configured(&env_path) {
+        apply_upload_config_from_env(&env_path)?;
+    }
 
     if !upload_backend_configured(&env_path) {
         println!("\n⚠️  An upload backend is required (OSS keys OR custom upload, pick one).");

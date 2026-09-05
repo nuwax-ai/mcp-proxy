@@ -266,17 +266,23 @@ impl AppConfig {
     }
 
     /// 从环境变量加载自定义上传后端配置
+    ///
+    /// 空串视为未设置（跳过覆盖）——与 installer 侧"空=未配置"语义对齐，
+    /// 防止 `.env` 模板空值行经 dotenvy 静默禁用 config.yml 里配置的后端。
     fn load_custom_upload_config_from_env(
         &mut self,
         env: &dyn EnvProvider,
     ) -> Result<(), ConfigError> {
-        if let Some(base_url) = env.get("DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL") {
+        fn non_empty(env: &dyn EnvProvider, key: &str) -> Option<String> {
+            env.get(key).filter(|s| !s.trim().is_empty())
+        }
+        if let Some(base_url) = non_empty(env, "DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL") {
             self.storage.custom_upload.base_url = base_url;
         }
-        if let Some(api_key) = env.get("DOCUMENT_PARSER_CUSTOM_UPLOAD_API_KEY") {
+        if let Some(api_key) = non_empty(env, "DOCUMENT_PARSER_CUSTOM_UPLOAD_API_KEY") {
             self.storage.custom_upload.api_key = api_key;
         }
-        if let Some(path) = env.get("DOCUMENT_PARSER_CUSTOM_UPLOAD_PATH") {
+        if let Some(path) = non_empty(env, "DOCUMENT_PARSER_CUSTOM_UPLOAD_PATH") {
             self.storage.custom_upload.path = path;
         }
         Ok(())
@@ -350,20 +356,26 @@ impl AppConfig {
     }
 
     /// 从环境变量加载OSS配置
+    ///
+    /// 空串视为未设置（跳过覆盖）——`.env` 模板的未注释空值行经 dotenvy
+    /// 会成为空串，若不过滤会把 config.yml 的值静默打空。
     fn load_oss_config_from_env(&mut self, env: &dyn EnvProvider) -> Result<(), ConfigError> {
-        if let Some(endpoint) = env.get("ALIYUN_OSS_ENDPOINT") {
+        fn non_empty(env: &dyn EnvProvider, key: &str) -> Option<String> {
+            env.get(key).filter(|s| !s.trim().is_empty())
+        }
+        if let Some(endpoint) = non_empty(env, "ALIYUN_OSS_ENDPOINT") {
             self.storage.oss.endpoint = endpoint;
         }
-        if let Some(public_bucket) = env.get("ALIYUN_OSS_PUBLIC_BUCKET") {
+        if let Some(public_bucket) = non_empty(env, "ALIYUN_OSS_PUBLIC_BUCKET") {
             self.storage.oss.public_bucket = public_bucket;
         }
-        if let Some(private_bucket) = env.get("ALIYUN_OSS_PRIVATE_BUCKET") {
+        if let Some(private_bucket) = non_empty(env, "ALIYUN_OSS_PRIVATE_BUCKET") {
             self.storage.oss.private_bucket = private_bucket;
         }
-        if let Some(access_key_id) = env.get("OSS_ACCESS_KEY_ID") {
+        if let Some(access_key_id) = non_empty(env, "OSS_ACCESS_KEY_ID") {
             self.storage.oss.access_key_id = access_key_id;
         }
-        if let Some(access_key_secret) = env.get("OSS_ACCESS_KEY_SECRET") {
+        if let Some(access_key_secret) = non_empty(env, "OSS_ACCESS_KEY_SECRET") {
             self.storage.oss.access_key_secret = access_key_secret;
         }
         Ok(())
@@ -555,6 +567,58 @@ mod tests {
         let result = config.load_all_from_env(&env);
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_empty_env_string_does_not_override_config() {
+        // .env 模板空值行经 dotenvy 成为空串——必须视为"未设置"，
+        // 不得覆盖 config.yml / 代码默认值（installer 与运行时语义对齐）
+        let mut config = AppConfig::load_base_config().unwrap();
+        config.storage.custom_upload.base_url = "https://from-config.example.com".to_string();
+        config.storage.custom_upload.api_key = "cfg-key".to_string();
+
+        let env = MapEnv(
+            [
+                ("OSS_ACCESS_KEY_ID".to_string(), String::new()),
+                ("OSS_ACCESS_KEY_SECRET".to_string(), String::new()),
+                (
+                    "DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL".to_string(),
+                    String::new(),
+                ),
+                (
+                    "DOCUMENT_PARSER_CUSTOM_UPLOAD_API_KEY".to_string(),
+                    String::new(),
+                ),
+                (
+                    "DOCUMENT_PARSER_CUSTOM_UPLOAD_PATH".to_string(),
+                    String::new(),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        config.load_all_from_env(&env).unwrap();
+
+        assert_eq!(
+            config.storage.custom_upload.base_url, "https://from-config.example.com",
+            "空串环境变量不得覆盖 config 值"
+        );
+        assert_eq!(config.storage.custom_upload.api_key, "cfg-key");
+
+        // 非空值正常覆盖
+        let env = MapEnv(
+            [(
+                "DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL".to_string(),
+                "https://from-env.example.com".to_string(),
+            )]
+            .into_iter()
+            .collect(),
+        );
+        config.load_all_from_env(&env).unwrap();
+        assert_eq!(
+            config.storage.custom_upload.base_url,
+            "https://from-env.example.com"
+        );
     }
 
     #[test]

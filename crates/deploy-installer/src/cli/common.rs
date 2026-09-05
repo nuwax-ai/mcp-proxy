@@ -267,27 +267,6 @@ pub fn whisper_pack_satisfied(install_dir: &Path, pack: WhisperModelsPack) -> bo
     }
 }
 
-/// Apply `OSS_ACCESS_KEY_ID` / `OSS_ACCESS_KEY_SECRET` from the environment into `.env`.
-/// Returns true when both keys are now configured (file or env).
-pub fn apply_oss_keys_from_env(env_path: &Path) -> Result<bool> {
-    let id = std::env::var("OSS_ACCESS_KEY_ID")
-        .ok()
-        .filter(|s| !s.trim().is_empty());
-    let secret = std::env::var("OSS_ACCESS_KEY_SECRET")
-        .ok()
-        .filter(|s| !s.trim().is_empty());
-
-    let (Some(id), Some(secret)) = (id, secret) else {
-        return Ok(oss_keys_configured(env_path));
-    };
-
-    let mut lines: Vec<String> = read_env_lines(env_path);
-    upsert_env_line(&mut lines, "OSS_ACCESS_KEY_ID", &id);
-    upsert_env_line(&mut lines, "OSS_ACCESS_KEY_SECRET", &secret);
-    write_env_lines(env_path, &lines)?;
-    Ok(oss_keys_configured(env_path))
-}
-
 /// 上传后端相关的环境变量键：OSS 凭证 + 自定义上传后端（nuwax 风格）配置。
 ///
 /// 语义与 document-parser 侧 `load_custom_upload_config_from_env` 对齐：
@@ -303,10 +282,13 @@ pub const UPLOAD_ENV_KEYS: &[&str] = &[
 
 /// 把上传后端配置（OSS 密钥与/或自定义上传后端变量）从环境落盘到 `.env`。
 ///
-/// 与 [`apply_oss_keys_from_env`] 不同：各键**独立** upsert（环境里非空即写），
-/// 不要求 OSS 成对出现——"是否配置完成"的判定交给 [`upload_backend_configured`]。
+/// 各键**独立** upsert（环境里非空即写），不要求 OSS 成对出现——
+/// "是否配置完成"的判定交给 [`upload_backend_configured`]。
+/// 仅应在 [`upload_backend_configured`] 为 false（尚未配置任何后端）时调用：
+/// 已配置的 `.env` 不应被 shell 环境残留值覆盖。
+/// 读失败（权限/编码错误）会中止而非当作空文件——避免整份凭证被静默重写。
 pub fn apply_upload_config_from_env(env_path: &Path) -> Result<()> {
-    let mut lines = read_env_lines(env_path);
+    let mut lines = read_env_lines(env_path)?;
     let mut changed = false;
     for key in UPLOAD_ENV_KEYS {
         if let Some(value) = std::env::var(key).ok().filter(|s| !s.trim().is_empty()) {
@@ -321,11 +303,13 @@ pub fn apply_upload_config_from_env(env_path: &Path) -> Result<()> {
 }
 
 /// Whether `.document-parser.env` has non-empty OSS keys.
+///
+/// 解析语义与运行时 dotenvy 一致（**first-wins**：同键多行取首个非注释行）。
 pub fn oss_keys_configured(env_path: &Path) -> bool {
-    let Ok(content) = fs::read_to_string(env_path) else {
-        return false;
+    let values = match read_env_values(env_path) {
+        Ok(v) => v,
+        Err(_) => return false,
     };
-    let values = parse_env_file_values(&content);
     values
         .get("OSS_ACCESS_KEY_ID")
         .is_some_and(|v| !v.is_empty())
@@ -337,12 +321,12 @@ pub fn oss_keys_configured(env_path: &Path) -> bool {
 /// Whether `.document-parser.env` enables the custom upload backend
 /// (`DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL` non-empty).
 pub fn custom_upload_configured(env_path: &Path) -> bool {
-    let Ok(content) = fs::read_to_string(env_path) else {
-        return false;
-    };
-    parse_env_file_values(&content)
-        .get("DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL")
-        .is_some_and(|v| !v.is_empty())
+    match read_env_values(env_path) {
+        Ok(values) => values
+            .get("DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL")
+            .is_some_and(|v| !v.is_empty()),
+        Err(_) => false,
+    }
 }
 
 /// 上传后端是否就绪：OSS 密钥或自定义上传后端**二选一**即可。
@@ -352,14 +336,24 @@ pub fn upload_backend_configured(env_path: &Path) -> bool {
 
 /// Read a single KEY's value from an `.env`-style file (quotes stripped, None if absent).
 pub fn parse_env_file_value(env_path: &Path, key: &str) -> Option<String> {
-    let content = fs::read_to_string(env_path).ok()?;
-    parse_env_file_values(&content)
-        .into_iter()
-        .find(|(k, _)| k == key)
-        .map(|(_, v)| v)
+    read_env_values(env_path).ok()?.get(key).cloned()
 }
 
-/// Read `.env`-style lines, dropping quoted values (KEY=VALUE with optional quotes).
+/// Read and parse an `.env`-style file once (KEY=VALUE, quotes stripped).
+///
+/// 解析语义：跳过注释与空行；**同键多行取首个**（first-wins）——与运行时
+/// dotenvy 对 `.env` 的取值语义一致，也与 [`upsert_env_line`] 只改首个
+/// 匹配行的写入语义自洽（读首个、写首个）。文件不存在视为空。
+fn read_env_values(env_path: &Path) -> Result<std::collections::HashMap<String, String>> {
+    if !env_path.exists() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let content =
+        fs::read_to_string(env_path).with_context(|| format!("read {}", env_path.display()))?;
+    Ok(parse_env_file_values(&content))
+}
+
+/// Parse `.env`-style content（first-wins）.
 fn parse_env_file_values(content: &str) -> std::collections::HashMap<String, String> {
     let mut map = std::collections::HashMap::new();
     for line in content.lines() {
@@ -369,22 +363,25 @@ fn parse_env_file_values(content: &str) -> std::collections::HashMap<String, Str
         }
         if let Some((k, v)) = t.split_once('=') {
             let v = v.trim().trim_matches('"').trim_matches('\'');
-            map.insert(k.trim().to_string(), v.to_string());
+            // first-wins：首次出现的键生效（对齐 dotenvy 运行时语义）
+            map.entry(k.trim().to_string())
+                .or_insert_with(|| v.to_string());
         }
     }
     map
 }
 
-fn read_env_lines(env_path: &Path) -> Vec<String> {
-    if env_path.exists() {
-        fs::read_to_string(env_path)
-            .unwrap_or_default()
-            .lines()
-            .map(String::from)
-            .collect()
-    } else {
-        Vec::new()
+/// Read `.env` lines preserving everything (comments, order) for round-trip edits.
+///
+/// 文件存在但读失败时返回 Err（调用方中止）——**不**当作空文件，
+/// 否则后续 write_env_lines 会用残缺内容整份覆盖已配置的凭证。
+fn read_env_lines(env_path: &Path) -> Result<Vec<String>> {
+    if !env_path.exists() {
+        return Ok(Vec::new());
     }
+    let content =
+        fs::read_to_string(env_path).with_context(|| format!("read {}", env_path.display()))?;
+    Ok(content.lines().map(String::from).collect())
 }
 
 fn write_env_lines(env_path: &Path, lines: &[String]) -> Result<()> {
@@ -724,6 +721,28 @@ mod tests {
             lines
                 .last()
                 .is_some_and(|l| l == "DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL=https://x")
+        );
+    }
+
+    #[test]
+    fn duplicate_keys_first_wins_aligning_with_dotenvy() {
+        let dir = TempDir::new().unwrap();
+        // 值在前、空行在后：first-wins 取首个非空值（对齐 dotenvy 运行时语义）
+        let p = write_env(
+            &dir,
+            "OSS_ACCESS_KEY_ID=real_key\nOSS_ACCESS_KEY_ID=\nOSS_ACCESS_KEY_SECRET=real_secret\n",
+        );
+        assert!(oss_keys_configured(&p), "首个非注释行的值应生效");
+
+        // 空行在前、值在后（模板注释化后不应出现，但防御）：first-wins 取空 → 未配置
+        // 与运行时 dotenvy 行为一致（都取第一个），两侧判定不矛盾
+        let p = write_env(
+            &dir,
+            "DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL=\nDOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL=https://x\n",
+        );
+        assert!(
+            !custom_upload_configured(&p),
+            "first-wins 下首个空值生效=未配置"
         );
     }
 

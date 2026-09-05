@@ -101,6 +101,10 @@ deploy-installer document-parser install
 
 `install` 会把这些变量写入 `~/document-parser/.document-parser.env`（与 OSS 密钥二选一，install 检查通过后同样注册服务）。
 
+> 注意：macOS 上 venv 仍默认从**公开 OSS 下载源**下载（与上方"上传凭证"无关）。
+> 纯内网无法访问该下载源时，配合 `--venv-file` 离线安装：
+> `deploy-installer document-parser install --venv-file /path/to/venv-macos-arm64-x.y.z.tar.gz`（见 INSTALL.md）。
+
 
 ## 常用运维
 
@@ -227,7 +231,7 @@ rm -rf ~/voice-cli ~/document-parser   # 可选：删除数据与模型
 
 `{assetVersion}` 来自 npm 包内 `manifest.json`（当前为 **`0.2.1`**），与 `deploy-installer --version` 的 beta 号可以不同——beta 包会复用同一份 OSS 资源。
 
-业务上传解析结果仍需在 `~/document-parser/.document-parser.env` 配置 **OSS_ACCESS_KEY_ID / SECRET**。
+业务上传解析结果需在 `~/document-parser/.document-parser.env` 配置上传后端（**OSS_ACCESS_KEY_ID / SECRET 或 DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL / API_KEY 二选一**）。
 
 维护者打包上传见 [MAINTAINER.md](./MAINTAINER.md)。
 
