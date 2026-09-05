@@ -179,6 +179,10 @@ impl TaskService {
     }
 
     /// 设置任务错误
+    ///
+    /// 注意：本方法经 `update_status` 会**自增 retry_count**（消耗重试额度）。
+    /// 任务入队**前**的失败路径（handler 早退中止）请改用 [`Self::abort_task`]
+    /// （显式传当前值，不消耗额度）。
     pub async fn set_task_error(
         &self,
         task_id: &str,
@@ -319,6 +323,9 @@ impl TaskService {
             }
         };
 
+        // 与 set_error 的双出口语义对齐：顶层 error_message 供任务列表接口
+        // 直接读取（task_handler 取 task.error_message），缺失会显示 null
+        task.error_message = Some(message.clone());
         let task_error = TaskError::new(
             "E010".to_string(),
             message.clone(),

@@ -131,19 +131,49 @@ impl ApiUploadConfig {
     }
 }
 
-/// nuwax 风格上传响应信封（v1 钉死此格式）
+/// nuwax 风格响应信封（v1 钉死此格式；泛型参数为 data 字段类型）
 ///
 /// 成功判定以 `code == "0000"` 为准（契约文档钉死；`success` 键在网关类
-/// 响应中可能缺省，不作为判据——见 CUSTOM_UPLOAD_API.md）。
+/// 响应中可能缺省，不作为判据——见 CUSTOM_UPLOAD_API.md）。上传路径用
+/// `NuwaxEnvelope<NuwaxFileData>`，AK 换签路径用 `NuwaxEnvelope<String>`。
 #[derive(Debug, Deserialize)]
-struct NuwaxEnvelope {
+struct NuwaxEnvelope<T> {
     /// 业务状态码，"0000" 表示成功
     code: String,
     #[serde(default)]
     message: String,
     /// 跟踪唯一标识（排障用）
     tid: Option<String>,
-    data: Option<NuwaxFileData>,
+    data: Option<T>,
+}
+
+impl<T> NuwaxEnvelope<T> {
+    /// 契约成功判定（唯一实现，防多处漂移）：code != "0000" 即业务失败
+    fn ensure_ok(&self, ctx: &str) -> Result<()> {
+        if self.code != "0000" {
+            return Err(OssError::sdk(format!(
+                "{ctx}: code={}, message={}, tid={:?}",
+                self.code, self.message, self.tid
+            )));
+        }
+        Ok(())
+    }
+}
+
+/// 文件内容信封嗅探探测类型（只关心 code；与 AK/上传响应契约解耦）
+#[derive(Debug, Deserialize)]
+struct EnvelopeProbe {
+    code: String,
+}
+
+impl EnvelopeProbe {
+    /// 纯 ASCII 数字串才视为 nuwax 业务错误码（收窄误拒面：
+    /// 顶层 JSON 文档带非数字 code 字段是合法内容）
+    fn is_numeric_error_code(&self) -> bool {
+        !self.code.is_empty()
+            && self.code != "0000"
+            && self.code.chars().all(|c| c.is_ascii_digit())
+    }
 }
 
 /// nuwax 响应 data 字段（JSON 为 camelCase）
@@ -177,6 +207,8 @@ impl ApiFileClient {
 
     /// AK 换签单请求超时：轻量元数据 GET，不应长等（换签 + 回退下载有整体上界约束）
     const EXCHANGE_TIMEOUT: Duration = Duration::from_secs(15);
+    /// 文件 GET 单请求超时（签名 URL 与回退裸 GET 同用）
+    const DOWNLOAD_GET_TIMEOUT: Duration = Duration::from_secs(60);
 
     /// 创建客户端（自建 HTTP 客户端）
     pub fn new(config: ApiUploadConfig) -> Result<Self> {
@@ -245,15 +277,10 @@ impl ApiFileClient {
             )));
         }
 
-        let envelope: NuwaxEnvelope = serde_json::from_slice(&bytes)
+        let envelope: NuwaxEnvelope<NuwaxFileData> = serde_json::from_slice(&bytes)
             .map_err(|e| OssError::sdk(format!("自定义上传后端响应解析失败: {e}")))?;
 
-        if envelope.code != "0000" {
-            return Err(OssError::sdk(format!(
-                "自定义上传后端业务失败: code={}, message={}, tid={:?}",
-                envelope.code, envelope.message, envelope.tid
-            )));
-        }
+        envelope.ensure_ok("自定义上传后端业务失败")?;
 
         let data = envelope
             .data
@@ -348,21 +375,16 @@ impl ApiFileClient {
             )));
         }
 
-        let envelope: NuwaxAkEnvelope = serde_json::from_slice(&bytes)
+        let envelope: NuwaxEnvelope<String> = serde_json::from_slice(&bytes)
             .map_err(|e| OssError::sdk(format!("自定义上传后端 AK 换签响应解析失败: {e}")))?;
-        if envelope.code != "0000" {
-            return Err(OssError::sdk(format!(
-                "自定义上传后端 AK 换签业务失败: code={}, message={}, tid={:?}",
-                envelope.code, envelope.message, envelope.tid
-            )));
-        }
+        envelope.ensure_ok("自定义上传后端 AK 换签业务失败")?;
         envelope
             .data
             .filter(|u| !u.trim().is_empty())
             .ok_or_else(|| OssError::sdk("自定义上传后端 AK 换签响应缺少 data（签名 URL）"))
     }
 
-    /// 下载文件（完整下载协议编排，供服务端代理下载使用）
+    /// 下载文件（完整下载协议编排，供服务端**文本文件（markdown）代理下载**使用）
     ///
     /// 流程：AK 换签（15s）→ 失败回退裸 GET 原 URL（公开存储部署仍可用）→
     /// GET（60s 请求级）→ 响应防御校验 → 大小限制 → 返回字节。
@@ -388,11 +410,11 @@ impl ApiFileClient {
             }
         };
 
-        // 2. GET（请求级 60s）
+        // 2. GET（请求级 DOWNLOAD_GET_TIMEOUT）
         let response = self
             .http
             .get(&effective_url)
-            .timeout(Duration::from_secs(60))
+            .timeout(Self::DOWNLOAD_GET_TIMEOUT)
             .send()
             .await
             .map_err(|e| {
@@ -447,29 +469,20 @@ impl ApiFileClient {
         }
 
         // 6. 信封嗅探防御（content-type 正常但 body 是错误 JSON 信封的场景，
-        //    如网关以 text/plain 返回 JSON 错误）
-        if let Ok(envelope) = serde_json::from_slice::<NuwaxAkEnvelope>(&body)
-            && envelope.code != "0000"
+        //    如网关以 text/plain 返回 JSON 错误）。仅取 code 字段的独立探测类型
+        //    （与 AK 响应契约解耦），且限定为纯数字串——nuwax 业务码均为数字串，
+        //    正常 JSON 文档顶层带非数字 code 字段不会被误拒
+        if let Ok(probe) = serde_json::from_slice::<EnvelopeProbe>(&body)
+            && probe.is_numeric_error_code()
         {
             return Err(OssError::sdk(format!(
-                "自定义上传后端返回了错误信封而非文件内容: code={}, message={}, tid={:?}",
-                envelope.code, envelope.message, envelope.tid
+                "自定义上传后端返回了错误信封而非文件内容: code={}",
+                probe.code
             )));
         }
 
         Ok(body)
     }
-}
-
-/// AK 换签响应信封（`data` 直接是签名字符串，非对象）
-#[derive(Debug, Deserialize)]
-struct NuwaxAkEnvelope {
-    /// 业务状态码，"0000" 表示成功（与上传信封一致，`success` 键不作判据）
-    code: String,
-    #[serde(default)]
-    message: String,
-    tid: Option<String>,
-    data: Option<String>,
 }
 
 /// 截断字节数组用于错误日志（有损 UTF-8 容错）
@@ -1053,6 +1066,60 @@ mod tests {
         assert!(
             err.to_string().contains("过大") || err.to_string().contains("超过"),
             "应报大小超限: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_download_file_numeric_code_json_rejected_but_non_numeric_passes() {
+        // 顶层带非数字 code 字段的合法 JSON 文档（如 API 错误码参考表）不误拒
+        let server = MockServer::start().await;
+        mock_exchange_ok(&server).await;
+        Mock::given(method("GET"))
+            .and(path("/signed/content.md"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("Content-Type", "text/markdown")
+                    .set_body_string(r#"{"code": "ERR_TIMEOUT", "msg": "example doc"}"#),
+            )
+            .mount(&server)
+            .await;
+
+        let client =
+            ApiFileClient::new(test_config(server.uri(), CustomUploadType::Store)).unwrap();
+        let body = client
+            .download_file("https://backend.example.com/api/f/x.md", 1024 * 1024)
+            .await
+            .unwrap();
+        assert!(
+            String::from_utf8_lossy(&body).contains("ERR_TIMEOUT"),
+            "非数字 code 的 JSON 内容应原样返回: {body:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_download_file_numeric_error_code_envelope_rejected() {
+        // content-type 正常 + 纯数字错误码 JSON 信封 → 嗅探拒绝（text/plain 变体）
+        let server = MockServer::start().await;
+        mock_exchange_ok(&server).await;
+        Mock::given(method("GET"))
+            .and(path("/signed/content.md"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("Content-Type", "text/plain")
+                    .set_body_string(r#"{"code": "4010", "message": "未登录"}"#),
+            )
+            .mount(&server)
+            .await;
+
+        let client =
+            ApiFileClient::new(test_config(server.uri(), CustomUploadType::Store)).unwrap();
+        let err = client
+            .download_file("https://backend.example.com/api/f/x.md", 1024 * 1024)
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("4010"),
+            "数字串错误码应被嗅探拒绝: {err}"
         );
     }
 

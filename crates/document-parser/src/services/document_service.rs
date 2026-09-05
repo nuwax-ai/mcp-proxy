@@ -9,7 +9,7 @@ use tokio::sync::RwLock;
 use tokio::time::timeout;
 use tracing::{debug, error, info, instrument, warn};
 
-use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+use pulldown_cmark::{Event, LinkType, Parser, Tag, TagEnd};
 use pulldown_cmark_to_cmark::cmark;
 
 use futures_util::StreamExt;
@@ -110,6 +110,12 @@ impl DocumentService {
     /// 图片上传并发度：保守值（自定义后端多为用户系统单实例，避免压垮；
     /// OSS 无压力）。后续需要时提升为配置项。
     const IMAGE_UPLOAD_CONCURRENCY: usize = 4;
+    /// 图片 URL 换签并发度：换签是轻量元数据 GET（非文件上传），
+    /// 可高于上传并发（IMAGE_UPLOAD_CONCURRENCY）。
+    const IMAGE_SIGN_CONCURRENCY: usize = 8;
+    /// 内嵌图片换签整体预算：尽力而为的增强——超预算降级返回未换签
+    /// 内容（warn 日志），不让下载主体挂起或失败
+    const IMAGE_SIGN_BUDGET: Duration = Duration::from_secs(120);
     /// 创建新的文档服务
     pub fn new(
         dual_parser: DualEngineParser,
@@ -590,7 +596,8 @@ impl DocumentService {
     /// 受限并发（`IMAGE_UPLOAD_CONCURRENCY`）：图片密集型 PDF（MinerU 常见
     /// 100-300 张图）串行上传纯等待可达数十秒；结果收集顺序无关
     /// （`replace_image_paths_in_markdown` 按文件名匹配），天然适合并发。
-    /// `try_collect` 保持 Fail Fast：首个失败即返回（在途请求自然完成，不中断）。
+    /// `try_collect` 保持 Fail Fast：首个失败即返回——stream 被 drop 时
+    /// `buffer_unordered` 的**在途请求会被取消**（Reqwest 请求中断）。
     async fn upload_images_via(
         &self,
         ops: &dyn ImageUploadOps,
@@ -652,6 +659,79 @@ impl DocumentService {
         let mut final_result = parse_result;
         final_result.markdown_content = updated_content;
         Ok(final_result)
+    }
+
+    /// 把 Markdown 内容中指向自定义后端的内联图片/链接 URL 批量换签重写
+    ///
+    /// 基于 [`extract_inline_dest_spans`]（CommonMark 语义，跳过代码块）提取
+    /// 后并发换签（失败单张 warn 保留原文）；全部失败或无匹配时**原样返回
+    /// 输入 Vec（零拷贝）**。非 UTF-8 内容不处理，原样返回。
+    /// 调用方负责整体预算（本方法为尽力而为的增强，不应让下载主体失败）。
+    pub async fn sign_embedded_urls(
+        &self,
+        content: Vec<u8>,
+        client: &ApiFileClient,
+        base_url: &str,
+    ) -> Vec<u8> {
+        use futures::StreamExt as _;
+
+        let Ok(text) = std::str::from_utf8(&content) else {
+            return content; // 非 UTF-8（二进制）不处理
+        };
+        let base_prefix = format!("{}/api/f/", base_url.trim_end_matches('/'));
+
+        let spans = extract_inline_dest_spans(text, &base_prefix);
+        if spans.is_empty() {
+            return content; // 无匹配：零拷贝
+        }
+
+        // 去重后并发换签（轻量元数据 GET，并发高于上传）。
+        // 超时只包网络阶段（URL 字符串进出），content 所有权不进被取消的
+        // future——超预算降级为返回原内容而非丢失内容
+        let unique: Vec<String> = spans
+            .iter()
+            .map(|(dest, _)| dest.clone())
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+        info!(
+            "Exchanging signed URLs for {} embedded backend image/link(s)",
+            unique.len()
+        );
+        let exchange = futures::StreamExt::map(futures::stream::iter(unique), |url| async move {
+            client
+                .exchange_signed_url(&url)
+                .await
+                .map(|signed| (url, signed))
+        })
+        .buffer_unordered(Self::IMAGE_SIGN_CONCURRENCY)
+        .collect::<Vec<_>>();
+        let results = match tokio::time::timeout(Self::IMAGE_SIGN_BUDGET, exchange).await {
+            Ok(results) => results,
+            Err(_) => {
+                warn!(
+                    "Embedded image signed-URL rewriting timed out ({}s), returning unsigned content",
+                    Self::IMAGE_SIGN_BUDGET.as_secs()
+                );
+                return content; // 降级：原内容原样返回（零拷贝）
+            }
+        };
+
+        let signed: HashMap<String, String> = results
+            .into_iter()
+            .filter_map(|result| match result {
+                Ok(pair) => Some(pair),
+                Err(e) => {
+                    warn!("Image URL signed-exchange failed, keeping original: {e}");
+                    None
+                }
+            })
+            .collect();
+        if signed.is_empty() {
+            return content; // 全部失败：零拷贝
+        }
+
+        rebuild_with_replacements(text, &spans, &signed).into_bytes()
     }
 
     /// 递归查找 `images` 目录，并收集其下所有图片文件
@@ -1617,6 +1697,73 @@ async fn read_file_size(local_path: &Path) -> Result<u64, AppError> {
     Ok(metadata.len())
 }
 
+/// 提取匹配后端前缀的内联图片/链接 dest 及其在原文中的字节 span
+///
+/// 使用 pulldown-cmark 事件流（offset 迭代器）——**跳过 code span 与 fenced
+/// code block 内的文本**（解析器将二者折叠为 Code/CodeBlock 事件，不产生
+/// Image/Link 事件），因此代码示例里的后端 URL 不会被误改写。仅处理
+/// `LinkType::Inline`（dest 原文保证在事件 span 内；引用式链接的 dest 在
+/// 文档别处，跳过）。span 内用 `find(dest)` 相对定位原文子串，转义/实体
+/// 导致原文与 unescape 后的 dest 不一致时 find 失败即安全跳过。
+/// 返回值按 span 起点有序（offset 迭代器天然有序）。
+fn extract_inline_dest_spans(
+    content: &str,
+    base_prefix: &str,
+) -> Vec<(String, std::ops::Range<usize>)> {
+    let mut spans = Vec::new();
+    for (event, range) in Parser::new(content).into_offset_iter() {
+        let (dest_url, link_type) = match event {
+            Event::Start(Tag::Image {
+                dest_url,
+                link_type,
+                ..
+            }) => (dest_url, link_type),
+            Event::Start(Tag::Link {
+                dest_url,
+                link_type,
+                ..
+            }) => (dest_url, link_type),
+            _ => continue,
+        };
+        if link_type != LinkType::Inline {
+            continue;
+        }
+        let dest = dest_url.to_string();
+        if !dest.starts_with(base_prefix) {
+            continue;
+        }
+        // 在事件 span 内定位 dest 原文子串（span = `![alt](dest "title")` 整体）
+        if let Some(local) = content[range.clone()].find(&dest) {
+            let start = range.start + local;
+            let end = start + dest.len();
+            spans.push((dest, start..end));
+        }
+    }
+    spans
+}
+
+/// 按 span 单趟重建内容（O(M) 一次分配）
+///
+/// `signed` 缺失的 span（单张换签失败）保留原文；spans 必须按起点有序。
+fn rebuild_with_replacements(
+    content: &str,
+    spans: &[(String, std::ops::Range<usize>)],
+    signed: &HashMap<String, String>,
+) -> String {
+    let mut out = String::with_capacity(content.len());
+    let mut prev = 0;
+    for (dest, range) in spans {
+        out.push_str(&content[prev..range.start]);
+        match signed.get(dest) {
+            Some(replacement) => out.push_str(replacement),
+            None => out.push_str(&content[range.clone()]),
+        }
+        prev = range.end;
+    }
+    out.push_str(&content[prev..]);
+    out
+}
+
 /// 计算文件的 SHA-256 哈希（hex）
 async fn compute_file_sha256_hex(path: &std::path::Path) -> AnyhowResult<String> {
     let mut file = File::open(path)
@@ -1806,5 +1953,56 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.to_string().contains("b.png"));
+    }
+
+    // ===== 内嵌 URL 换签（CommonMark 语义） =====
+
+    const SIGN_TEST_PREFIX: &str = "https://agent.example.com/api/f/";
+
+    #[test]
+    fn extract_skips_urls_inside_code_blocks() {
+        // fenced code block 内的示例 URL 不收集（手写扫描器会误伤的场景）
+        let content = "# t\n\n![ok](https://agent.example.com/api/f/s3/a.png)\n\n```rust\n// demo: ![demo](https://agent.example.com/api/f/s3/b.png)\n```\n\ninline `![x](https://agent.example.com/api/f/s3/c.png)` code\n";
+        let spans = extract_inline_dest_spans(content, SIGN_TEST_PREFIX);
+        let urls: Vec<&str> = spans.iter().map(|(d, _)| d.as_str()).collect();
+        assert_eq!(urls, vec!["https://agent.example.com/api/f/s3/a.png"]);
+    }
+
+    #[test]
+    fn extract_handles_title_multiple_and_foreign_prefix() {
+        let content = "![a](https://agent.example.com/api/f/s3/x.png \"fig.1\")\n[link](https://agent.example.com/api/f/s3/x.png)\n![ext](https://other.example.com/api/f/s3/y.png)\n";
+        let spans = extract_inline_dest_spans(content, SIGN_TEST_PREFIX);
+        // 带 title 的图片 + 同 URL 的链接（Link 事件）都收集；外站前缀跳过
+        assert_eq!(spans.len(), 2);
+        assert!(
+            spans
+                .iter()
+                .all(|(d, _)| d == "https://agent.example.com/api/f/s3/x.png")
+        );
+        // span 精确指向 URL 子串
+        for (dest, range) in &spans {
+            assert_eq!(&content[range.clone()], dest);
+        }
+    }
+
+    #[test]
+    fn extract_skips_reference_links() {
+        // 引用式链接 dest 在文档别处定义，不在事件 span 内——安全跳过
+        let content = "[ref]: https://agent.example.com/api/f/s3/r.png\n\n![alt][ref]\n";
+        let spans = extract_inline_dest_spans(content, SIGN_TEST_PREFIX);
+        assert!(spans.is_empty());
+    }
+
+    #[test]
+    fn rebuild_replaces_only_signed_and_keeps_rest() {
+        let content = "pre ![a](P/U1.png) mid [b](P/U2.png) post ![c](P/U3.png) end";
+        // span 由 extract 计算（真实偏移），保证 rebuild 消费的就是生产路径的输入
+        let spans = extract_inline_dest_spans(content, "P/");
+        assert_eq!(spans.len(), 3);
+        let mut signed = HashMap::new();
+        signed.insert("P/U1.png".to_string(), "S1".to_string());
+        signed.insert("P/U3.png".to_string(), "S3".to_string()); // U2 换签失败：保留原文
+        let out = rebuild_with_replacements(content, &spans, &signed);
+        assert_eq!(out, "pre ![a](S1) mid [b](P/U2.png) post ![c](S3) end");
     }
 }

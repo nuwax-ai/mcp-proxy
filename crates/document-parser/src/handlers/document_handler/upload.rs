@@ -273,10 +273,14 @@ pub async fn upload_document(
         Ok(Ok(result)) => result,
         Ok(Err(e)) => {
             error!("File upload processing failed: {}", e);
+            // 任务已创建，中止避免僵尸 Pending（临时文件由流式写入内部的
+            // scopeguard 兜底清理，无需传路径）
+            abort_task_and_cleanup(&state, &task_id, None, format!("文件上传处理失败: {e}")).await;
             return ApiResponse::from_app_error::<UploadResponse>(e).into_response();
         }
         Err(_) => {
             error!("File upload timeout");
+            abort_task_and_cleanup(&state, &task_id, None, "文件上传超时".to_string()).await;
             return ApiResponse::error_with_status::<UploadResponse>(
                 "UPLOAD_TIMEOUT".to_string(),
                 "文件上传超时".to_string(),
@@ -292,7 +296,13 @@ pub async fn upload_document(
     // 5. 验证格式兼容性
     if let Err(e) = RequestValidator::validate_document_format(&document_format) {
         error!("Document format verification failed: {}", e);
-        let _ = cleanup_temp_file(&file_path).await;
+        abort_task_and_cleanup(
+            &state,
+            &task_id,
+            Some(&file_path),
+            format!("文档格式校验失败: {e}"),
+        )
+        .await;
         return ApiResponse::from_app_error::<UploadResponse>(e).into_response();
     }
 
@@ -302,7 +312,13 @@ pub async fn upload_document(
             Ok(config) => config,
             Err(e) => {
                 error!("TOC configuration verification failed: {}", e);
-                let _ = cleanup_temp_file(&file_path).await;
+                abort_task_and_cleanup(
+                    &state,
+                    &task_id,
+                    Some(&file_path),
+                    format!("TOC 配置校验失败: {e}"),
+                )
+                .await;
                 return ApiResponse::from_app_error::<UploadResponse>(e).into_response();
             }
         };

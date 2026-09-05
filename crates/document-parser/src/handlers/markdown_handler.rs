@@ -635,6 +635,10 @@ async fn download_from_oss(
     }
 }
 
+/// 自定义后端下载主体总预算：换签(15s) + 回退 GET(60s) + 余量
+/// （内嵌图片换签有独立预算并在 DocumentService::sign_embedded_urls 内部降级）
+const CUSTOM_DOWNLOAD_TOTAL_TIMEOUT: Duration = Duration::from_secs(180);
+
 /// 从自定义上传后端下载 Markdown
 ///
 /// 完整下载协议（AK 换签 → 回退裸 GET → 双防御 → 大小限制）封装在
@@ -671,14 +675,15 @@ async fn download_from_remote_url(
         }
     };
 
-    // 整体上界：换签(15s) + 回退 GET(60s) + 图片批量换签，防慢后端拖垮 handler
+    // 下载主体预算（换签 + 回退 GET）：防慢后端拖垮 handler；
+    // 内嵌图片换签有独立的 IMAGE_SIGN_BUDGET（见下，超时降级）
     let download_result = tokio::time::timeout(
-        Duration::from_secs(180),
+        CUSTOM_DOWNLOAD_TOTAL_TIMEOUT,
         api_client.download_file(url, max_file_size),
     )
     .await;
 
-    let content = match download_result {
+    let raw_content = match download_result {
         Ok(Ok(bytes)) => bytes,
         Ok(Err(e)) => {
             error!(
@@ -692,18 +697,26 @@ async fn download_from_remote_url(
         }
         Err(_) => {
             error!(
-                "Download from custom backend timed out (180s): task_id={}, url={}",
-                task_id, url
+                "Download from custom backend timed out ({}s): task_id={}, url={}",
+                CUSTOM_DOWNLOAD_TOTAL_TIMEOUT.as_secs(),
+                task_id,
+                url
             );
-            return ApiResponse::internal_error::<String>(
-                "下载文件超时（自定义上传后端整体超过 180s）",
-            )
+            return ApiResponse::internal_error::<String>(&format!(
+                "下载文件超时（自定义上传后端整体超过 {}s）",
+                CUSTOM_DOWNLOAD_TOTAL_TIMEOUT.as_secs()
+            ))
             .into_response();
         }
     };
 
-    // 图片 URL 换签重写：内容里的后端图片 URL 换成签名 URL（失败的单张保留原样）
-    let content = rewrite_image_urls_signed(&content, &api_client, endpoint).await;
+    // 图片 URL 换签重写（CommonMark 语义，跳过代码块）：后端图片 URL 换成
+    // 签名 URL。尽力而为的增强——方法内部有 IMAGE_SIGN_BUDGET 预算，
+    // 超预算降级返回未换签内容（warn 日志），不让下载主体挂起或失败
+    let content = state
+        .document_service
+        .sign_embedded_urls(raw_content, &api_client, &endpoint.base_url)
+        .await;
 
     info!(
         "Successfully downloaded Markdown content from custom backend: task_id={}, size={} bytes",
@@ -717,81 +730,6 @@ async fn download_from_remote_url(
         .map(|s| s.to_string());
 
     build_range_response(task_id, content, range_header)
-}
-
-/// 把 Markdown 内容中指向自定义后端的图片 URL 批量换签重写
-///
-/// 仅匹配与后端 base_url 同源且以 `/api/f/` 开头的 URL（该后端的私有文件
-/// 路由前缀）；其余 URL（OSS、外链）不动。并发换签（8 路），单张失败仅
-/// warn 并保留原 URL，不影响整体返回（Fail Fast 只作用于 markdown 本体）。
-async fn rewrite_image_urls_signed(
-    markdown: &[u8],
-    client: &oss_client::ApiFileClient,
-    endpoint: &crate::models::UploadEndpoint,
-) -> Vec<u8> {
-    use futures::StreamExt as _;
-
-    let content = match std::str::from_utf8(markdown) {
-        Ok(s) => s,
-        Err(_) => return markdown.to_vec(), // 非 UTF-8 内容不做重写
-    };
-
-    let base_prefix = format!("{}/api/f/", endpoint.base_url.trim_end_matches('/'));
-    // 提取 markdown 链接/图片 URL 中匹配后端前缀的（去重）
-    let mut urls: Vec<String> = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    let mut idx = 0;
-    while let Some(pos) = content[idx..].find("](") {
-        let start = idx + pos + 2;
-        let Some(end_rel) = content[start..].find(')') else {
-            break;
-        };
-        let candidate = &content[start..start + end_rel];
-        if candidate.starts_with(&base_prefix) && seen.insert(candidate.to_string()) {
-            urls.push(candidate.to_string());
-        }
-        idx = start + end_rel;
-    }
-
-    if urls.is_empty() {
-        return markdown.to_vec();
-    }
-    info!(
-        "Exchanging signed URLs for {} embedded backend image(s)",
-        urls.len()
-    );
-
-    // 并发换签（8 路）：map 产出 future 流，buffer_unordered 并发执行
-    let results: Vec<_> = futures::StreamExt::map(futures::stream::iter(urls), |url| async move {
-        client
-            .exchange_signed_url(&url)
-            .await
-            .map(|signed| (url, signed))
-    })
-    .buffer_unordered(8)
-    .collect::<Vec<_>>()
-    .await;
-
-    let replacements: Vec<(String, String)> = results
-        .into_iter()
-        .filter_map(|result| match result {
-            Ok(pair) => Some(pair),
-            Err(e) => {
-                warn!("Image URL signed-exchange failed, keeping original: {e}");
-                None
-            }
-        })
-        .collect();
-
-    if replacements.is_empty() {
-        return markdown.to_vec();
-    }
-
-    let mut rewritten = content.to_string();
-    for (original, signed) in replacements {
-        rewritten = rewritten.replace(&original, &signed);
-    }
-    rewritten.into_bytes()
 }
 
 /// 从结构化文档生成Markdown
@@ -929,8 +867,9 @@ pub async fn get_markdown_url(
         }
     };
 
-    // 过期时间校验（对 OSS 与 custom 后端统一执行，与 OSS 分支行为一致）
-    if params.expires_hours.unwrap_or(24) == 0 || params.expires_hours.unwrap_or(24) > 168 {
+    // 过期时间校验（对 OSS 与 custom 后端统一执行；默认 24h，上限 168h）
+    let expires_hours = params.expires_hours.unwrap_or(24);
+    if expires_hours == 0 || expires_hours > 168 {
         return ApiResponse::validation_error::<MarkdownUrlResponse>("过期时间必须在1-168小时之间")
             .into_response();
     }
@@ -977,7 +916,7 @@ pub async fn get_markdown_url(
                         // 与 download 接口的回退策略一致：换签失败不 500，
                         // 降级返回存储的原 URL（公开存储仍可用，私有存储对系统内消费方可用）
                         warn!(
-                            "AK signed-URL exchange failed, falling back to stored url:                              task_id={}, error={}",
+                            "AK signed-URL exchange failed, falling back to stored url: task_id={}, error={}",
                             task_id, e
                         );
                         build_response(oss_data.markdown_url.clone(), false)
@@ -1003,14 +942,8 @@ pub async fn get_markdown_url(
     }
 
     let generate_temp = params.temp.unwrap_or(false);
-    let expires_in_hours = params.expires_hours.unwrap_or(24); // 默认24小时过期
-
-    // 验证过期时间
-    if expires_in_hours == 0 || expires_in_hours > 168 {
-        // 最长7天
-        return ApiResponse::validation_error::<MarkdownUrlResponse>("过期时间必须在1-168小时之间")
-            .into_response();
-    }
+    // 校验已在前置块统一完成（expires_hours），此处直接消费
+    let expires_in_hours = expires_hours;
 
     if generate_temp {
         // 生成临时预签名URL
