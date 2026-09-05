@@ -18,6 +18,10 @@ A high-performance multi-format document parsing service supporting PDF, Word, E
 - 📊 **Real-time Monitoring**: Built-in performance monitoring and health checks
 - ☁️ **OSS Integration**: Alibaba Cloud OSS support for cloud storage
 
+## Installation
+
+See [INSTALL.md](INSTALL.md) for a full installation guide covering Linux, macOS, and Windows (prebuilt binaries or source build, Python engine setup via uv, configuration, and running as a system service).
+
 ## Quick Start
 
 ### 1. Environment Initialization
