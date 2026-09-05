@@ -12,39 +12,67 @@
 | 操作系统 | Ubuntu 18.04+ 等 | **14.0+**（MinerU 要求） | Windows 10 / 11 |
 | 硬件 | 8GB+ RAM，5GB+ 磁盘 | 同左（Apple Silicon 原生支持） | 同左 |
 | Python | 3.10+（uv 自动创建 venv，无需系统预装） | 同左 | 同左 |
-| Rust 工具链 | 仅源码构建需要 | 仅源码构建需要 | 仅源码构建需要 |
+| Node.js | 仅 deploy-installer 方式需要（18+） | 同左 | —（该方式不支持 Windows） |
+| Rust 工具链 | 仅 `cargo install` 方式需要 | 仅 `cargo install` 方式需要 | 仅 `cargo install` 方式需要 |
 | GPU（可选） | CUDA 加速 PDF 解析 | 不适用（MPS/CPU） | 不适用（CPU） |
 
 > 国内网络环境：安装器会自动检测并使用阿里云 PyPI 镜像与国内模型源，无需手工配置。
 
 ## 2. 安装服务二进制
 
-### 方式一：预编译二进制（推荐，无需 Rust）
+三种方式按推荐顺序排列。**deploy-installer 最省事**（自动装 venv、注册服务、等健康检查），**cargo install 不需要获取源码**，二者都不接触本仓库源码。
 
-各平台安装脚本（GitHub Releases）：
+### 方式一：deploy-installer（推荐，macOS / Linux）
 
-```bash
-# Linux / macOS
-curl -proto '=https' -tlsv1.2 -sSf https://github.com/nuwax-ai/mcp-proxy/releases/latest/download/document-parser-installer.sh | sh
-
-# Windows PowerShell
-irm https://github.com/nuwax-ai/mcp-proxy/releases/latest/download/document-parser-installer.ps1 | iex
-```
-
-或从 [GitHub Releases](https://github.com/nuwax-ai/mcp-proxy/releases) 手动下载对应平台产物（Linux x86_64 / ARM64、macOS Intel / Apple Silicon、Windows x86_64）。
-
-### 方式二：源码构建
+统一部署 CLI，以 npm 包发布、**二进制内置在包内**（无需从 GitHub Releases 下载）：
 
 ```bash
-git clone https://github.com/nuwax-ai/mcp-proxy.git
-cd mcp-proxy
-cargo build --release -p document-parser
-# 产物：target/release/document-parser
+# 需要 Node.js 18+（macOS: brew install node）
+npm install -g nuwax-deploy-installer
+
+# 环境自检（平台、二进制、磁盘空间、GUI 会话）
+deploy-installer doctor
+
+# 一键安装 document-parser：复制二进制 → 下载预编译 venv（约 300MB）
+# → 写配置 → 注册系统服务（launchd/systemd）→ 等待 /health 就绪
+deploy-installer document-parser install
+
+# 服务管理
+deploy-installer document-parser service status
 ```
 
-> Docker 交叉编译（Linux x86_64 / ARM64）：`make build-document-parser-x86_64` 等，见仓库 `Makefile`。
+document-parser 需要上传凭证，安装前先导出（也可装完后写入 `~/document-parser/.document-parser.env`）：
+
+```bash
+export OSS_ACCESS_KEY_ID=你的Key
+export OSS_ACCESS_KEY_SECRET=你的Secret
+```
+
+- 默认安装目录 `~/document-parser`，端口 8087；**不要**装在 Documents / Desktop / iCloud 目录（macOS 服务权限限制）
+- macOS 上安装命令需要当前用户在本机图形界面登录（纯 SSH 场景见 [mac-mini-quickstart.md](../deploy-installer/doc/mac-mini-quickstart.md)）
+- 支持平台：macOS Apple Silicon、Linux x86_64（含 NVIDIA CUDA 包，见 [MAINTAINER.md](../deploy-installer/doc/MAINTAINER.md)）；**Windows 不支持**，请用方式二
+- 详细步骤（含 voice-cli 组合部署、SSH 场景）见 [mac-mini-quickstart.md](../deploy-installer/doc/mac-mini-quickstart.md)
+
+### 方式二：cargo install（全平台，含 Windows）
+
+不获取源码，直接从 git 仓库编译安装到 `~/.cargo/bin`（需要 [Rust 工具链](https://rustup.rs)，仅此一次性依赖）：
+
+```bash
+cargo install --git https://github.com/nuwax-ai/mcp-proxy document-parser --locked
+document-parser --version
+```
+
+> ⚠️ 包名说明：crates.io 上的 `document-parser` 是**无关的第三方包**，不要 `cargo install document-parser`；本服务只能用 `--git` 方式安装。
+
+Windows 用户主路径即此方式（Rust MSVC 工具链 + 本命令），随后同样执行第 3 步初始化 Python 引擎。
+
+### 方式三：GitHub Releases 手动下载
+
+从 [Releases](https://github.com/nuwax-ai/mcp-proxy/releases) 下载对应平台产物（Linux x86_64 / ARM64、macOS Intel / Apple Silicon、Windows x86_64），解压到目标目录即可。适合离线环境或不想装 Node / Rust 的场景。
 
 ## 3. 初始化 Python 解析引擎
+
+> **deploy-installer 方式（方式一）已自动下载预编译 venv，跳过本节**。以下适用于 cargo install / Releases 方式。
 
 进入服务的工作目录（二进制所在目录，或任意空目录），执行：
 
@@ -123,7 +151,9 @@ document-parser troubleshoot
 
 ## 6. 设为系统服务（开机自启）
 
-内置服务安装命令（复用 deploy-installer）：
+> **deploy-installer 方式（方式一）在 install 时已注册并启动服务**，直接用 `deploy-installer document-parser service status/restart` 管理即可，跳过本节。
+
+其余安装方式使用内置服务安装命令（复用 deploy-installer 的服务管理能力）：
 
 ```bash
 document-parser service install      # 安装并启动（以当前工作目录为服务目录）
@@ -163,7 +193,7 @@ document-parser service uninstall
 
 ```
 ./
-├── document-parser      # 二进制（预编译方式）
+├── document-parser      # 二进制（cargo install 后为 ~/.cargo/bin/document-parser）
 ├── config.yml           # 配置（首次启动生成）
 ├── .document-parser.env # 凭证（可选，gitignored）
 ├── venv/                # Python 解析引擎环境（uv 管理）
