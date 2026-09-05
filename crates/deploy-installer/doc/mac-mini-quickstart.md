@@ -89,6 +89,19 @@ deploy-installer document-parser install
 
 ---
 
+### 3b. 私有部署变体：自定义上传后端（不用 OSS）
+
+解析产物上传到自建系统（nuwax 风格 REST，契约见 `crates/document-parser/CUSTOM_UPLOAD_API.md`）时，用以下环境变量**替代** OSS 密钥：
+
+```bash
+export DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL=https://your-system.example.com
+export DOCUMENT_PARSER_CUSTOM_UPLOAD_API_KEY=你的APIKey
+deploy-installer document-parser install
+```
+
+`install` 会把这些变量写入 `~/document-parser/.document-parser.env`（与 OSS 密钥二选一，install 检查通过后同样注册服务）。
+
+
 ## 常用运维
 
 ```bash

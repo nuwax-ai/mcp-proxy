@@ -52,6 +52,7 @@ pub fn run() -> Result<()> {
     check_install_dir_path(&voice_dir);
     check_install_dir_path(&parser_dir);
     check_disk_space(&voice_dir);
+    check_upload_backend(&parser_dir);
 
     if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
         if let Some(url) = crate::optional_voice_cli_cuda_url() {
@@ -91,6 +92,70 @@ fn check_bundled_binary(service: &str) -> Result<()> {
         );
         Err(anyhow::anyhow!("missing bundled binary for {service}"))
     }
+}
+
+/// 上传后端配置检查（WARN 级，不阻断 doctor）：OSS 密钥或 custom_upload 二选一。
+///
+/// 已安装且配置了 custom_upload 时，顺带对 base_url 做可达性探测——
+/// 任何 HTTP 响应（含 4xx/5xx）都算"网络可达"，连接失败/超时仅 WARN
+/// （内网 DNS、按需拉起的服务等场景避免误报阻断）。
+fn check_upload_backend(parser_dir: &std::path::Path) {
+    use crate::cli::common::{custom_upload_configured, oss_keys_configured, parse_env_file_value};
+
+    let env_path = parser_dir.join(".document-parser.env");
+    if !env_path.exists() {
+        println!(
+            "  upload:     WARN (not installed yet — install 时需提供 OSS 密钥或 custom_upload 配置)"
+        );
+        return;
+    }
+
+    if oss_keys_configured(&env_path) {
+        println!("  upload:     OK (OSS keys configured)");
+        return;
+    }
+
+    if custom_upload_configured(&env_path) {
+        let base_url = parse_env_file_value(&env_path, "DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL")
+            .unwrap_or_default();
+        match probe_url_reachable(&base_url) {
+            Some(true) => {
+                println!("  upload:     OK (custom backend configured, {base_url} reachable)")
+            }
+            _ => println!(
+                "  upload:     WARN (custom backend configured, but {base_url} unreachable — check network/firewall)"
+            ),
+        }
+        return;
+    }
+
+    println!(
+        "  upload:     WARN ({} 未配置任何上传后端 — OSS_ACCESS_KEY_* 或 DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL 二选一)",
+        env_path.display()
+    );
+}
+
+/// 探测 URL 可达性：任意 HTTP 状态码返回 Some(true)，连接失败/超时返回 None。
+fn probe_url_reachable(url: &str) -> Option<bool> {
+    let output = std::process::Command::new("curl")
+        .args([
+            "-s",
+            "-o",
+            "/dev/null",
+            "-w",
+            "%{http_code}",
+            "--max-time",
+            "5",
+            url,
+        ])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let code = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    // 000 = curl 未收到 HTTP 响应（连接层失败）
+    (!code.is_empty() && code != "000").then_some(true)
 }
 
 #[cfg(target_os = "macos")]

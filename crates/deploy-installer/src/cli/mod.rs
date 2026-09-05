@@ -38,7 +38,8 @@ pub enum Commands {
 pub enum DocumentParserAction {
     /// Initialize install directory, copy binaries/templates, set up Python venv
     Setup(SetupArgs),
-    /// Full install: setup + service registration (prompts for OSS keys if missing)
+    /// Full install: setup + service registration (requires OSS keys or
+    /// custom-upload env; bails with guidance if neither is configured)
     Install(SetupArgs),
     /// Upgrade document-parser binary in an existing install directory
     Upgrade {
@@ -83,6 +84,10 @@ pub struct SetupArgs {
     /// Skip pre-built venv on macOS (default: use OSS venv on macOS)
     #[arg(long)]
     pub no_prebuilt_venv: bool,
+    /// Install Python venv from a local tarball (offline; takes precedence
+    /// over --use-prebuilt-venv / --no-prebuilt-venv)
+    #[arg(long, conflicts_with_all = ["use_prebuilt_venv", "no_prebuilt_venv"])]
+    pub venv_file: Option<PathBuf>,
     /// OSS base URL for optional assets (venv tarball)
     #[arg(long)]
     pub oss_base: Option<String>,

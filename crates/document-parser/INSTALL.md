@@ -41,11 +41,22 @@ deploy-installer document-parser install
 deploy-installer document-parser service status
 ```
 
-document-parser 需要上传凭证，安装前先导出（也可装完后写入 `~/document-parser/.document-parser.env`）：
+document-parser 需要上传后端凭证（**OSS 或自定义上传后端二选一**），安装前先导出（也可装完后写入 `~/document-parser/.document-parser.env`）：
 
 ```bash
+# 方案 A：阿里云 OSS（云端部署）
 export OSS_ACCESS_KEY_ID=你的Key
 export OSS_ACCESS_KEY_SECRET=你的Secret
+
+# 方案 B：自建系统上传接口（私有部署，nuwax 风格——契约见 CUSTOM_UPLOAD_API.md）
+export DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL=https://your-system.example.com
+export DOCUMENT_PARSER_CUSTOM_UPLOAD_API_KEY=你的APIKey
+```
+
+纯内网环境（无法访问 OSS 下载源）可用本地 venv 包离线安装：
+
+```bash
+deploy-installer document-parser install --venv-file /path/to/venv-macos-arm64-x.y.z.tar.gz
 ```
 
 - 默认安装目录 `~/document-parser`，端口 8087；**不要**装在 Documents / Desktop / iCloud 目录（macOS 服务权限限制）

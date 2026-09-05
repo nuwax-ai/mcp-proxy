@@ -9,9 +9,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::cli::common::{
-    CONFIG_FILENAME, apply_oss_keys_from_env, canonicalize_install_dir, dispatch_service_action,
-    download_and_extract_tarball, ensure_bundled_binary, oss_keys_configured,
-    print_install_success, read_server_port, resolve_user_group, upgrade_bundled_binary,
+    CONFIG_FILENAME, apply_upload_config_from_env, canonicalize_install_dir,
+    custom_upload_configured, dispatch_service_action, download_and_extract_tarball,
+    ensure_bundled_binary, extract_tarball_at, oss_keys_configured, print_install_success,
+    read_server_port, resolve_user_group, upgrade_bundled_binary, upload_backend_configured,
 };
 use crate::cli::{DocumentParserAction, ServiceAction, ServiceDirArgs, SetupArgs};
 
@@ -66,7 +67,17 @@ fn setup(args: &SetupArgs, quiet: bool, installing: bool) -> Result<PathBuf> {
     let dst_bin = ensure_bundled_binary(SERVICE_NAME, &install_dir, quiet)?;
     copy_templates(&install_dir, quiet)?;
 
-    if effective_use_prebuilt_venv(args) {
+    // --venv-file：离线安装本地 venv 包（最高优先级；适合无法访问 OSS 下载源的内网环境）
+    if let Some(venv_file) = args.venv_file.as_deref() {
+        if !venv_file.is_file() {
+            bail!("--venv-file not found: {}", venv_file.display());
+        }
+        if venv_present(&install_dir) && !quiet {
+            println!("  venv: already exists, skipping --venv-file extraction");
+        } else {
+            extract_tarball_at(venv_file, &install_dir, quiet, "venv (local)")?;
+        }
+    } else if effective_use_prebuilt_venv(args) {
         if venv_present(&install_dir) {
             if !quiet {
                 println!("  venv: already exists, skipping download");
@@ -87,11 +98,20 @@ fn setup(args: &SetupArgs, quiet: bool, installing: bool) -> Result<PathBuf> {
         if !installing {
             let env_path = install_dir.join(ENV_FILENAME);
             if oss_keys_configured(&env_path) {
-                println!("   OSS keys: configured in {}", env_path.display());
+                println!(
+                    "   upload backend: OSS keys configured in {}",
+                    env_path.display()
+                );
+            } else if custom_upload_configured(&env_path) {
+                println!(
+                    "   upload backend: custom upload configured in {}",
+                    env_path.display()
+                );
             } else {
                 println!(
-                    "   Next: set OSS keys, then run: deploy-installer document-parser install"
+                    "   Next: configure an upload backend (OSS keys OR custom upload), then run:"
                 );
+                println!("     deploy-installer document-parser install");
             }
         }
     }
@@ -102,27 +122,27 @@ fn install_full(args: &SetupArgs) -> Result<()> {
     let install_dir = setup(args, false, true)?;
     let env_path = install_dir.join(ENV_FILENAME);
 
-    if !oss_keys_configured(&env_path) {
-        let _ = apply_oss_keys_from_env(&env_path)?;
-    }
+    // 上传后端凭证落盘：OSS 密钥与自定义上传后端变量各自独立 upsert（非空即写）
+    apply_upload_config_from_env(&env_path)?;
 
-    if !oss_keys_configured(&env_path) {
-        println!("\n⚠️  OSS keys required for document-parser upload features.");
-        println!("   Setup finished (venv/binary ready). Configure keys, then re-run install:");
-        println!("   Option A — environment variables:");
+    if !upload_backend_configured(&env_path) {
+        println!("\n⚠️  An upload backend is required (OSS keys OR custom upload, pick one).");
+        println!("   Setup finished (venv/binary ready). Configure one, then re-run install:");
+        println!("   Option A — OSS (cloud deployment):");
         println!("     export OSS_ACCESS_KEY_ID=your_key");
         println!("     export OSS_ACCESS_KEY_SECRET=your_secret");
-        println!("     deploy-installer document-parser install");
+        println!("   Option B — custom upload backend (private deployment, nuwax-style REST):");
         println!(
-            "   Option B — edit {} (no export prefix):",
+            "     export DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL=https://your-system.example.com"
+        );
+        println!("     export DOCUMENT_PARSER_CUSTOM_UPLOAD_API_KEY=your_api_key");
+        println!(
+            "   Option C — edit {} directly (no export prefix), then re-run install.",
             env_path.display()
         );
-        println!("     OSS_ACCESS_KEY_ID=...");
-        println!("     OSS_ACCESS_KEY_SECRET=...");
-        println!("     deploy-installer document-parser install");
         bail!(
-            "OSS keys not configured in {} — export OSS_ACCESS_KEY_ID / OSS_ACCESS_KEY_SECRET \
-             or edit the file above",
+            "no upload backend configured in {} — export OSS_ACCESS_KEY_* \
+             or DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL, or edit the file above",
             env_path.display()
         );
     }

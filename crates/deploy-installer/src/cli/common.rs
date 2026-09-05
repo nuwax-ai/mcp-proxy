@@ -177,6 +177,19 @@ pub fn download_and_extract_tarball(
     if !status.success() {
         bail!("failed to download {label} from {url}");
     }
+    extract_tarball_at(&archive, install_dir, quiet, label)?;
+    let _ = fs::remove_file(&archive);
+    Ok(())
+}
+
+/// Extract an existing local tarball into `install_dir`（离线安装入口，
+/// 由 `--venv-file` 等本地包参数复用；下载场景经 [`download_and_extract_tarball`]）。
+pub fn extract_tarball_at(
+    archive: &Path,
+    install_dir: &Path,
+    quiet: bool,
+    label: &str,
+) -> Result<()> {
     let status = Command::new("tar")
         .args([
             "-xzf",
@@ -187,9 +200,11 @@ pub fn download_and_extract_tarball(
         .status()
         .with_context(|| format!("extract {label}"))?;
     if !status.success() {
-        bail!("failed to extract {label} archive");
+        bail!("failed to extract {label} archive: {}", archive.display());
     }
-    let _ = fs::remove_file(&archive);
+    if !quiet {
+        println!("  {label}: extracted to {}", install_dir.display());
+    }
     Ok(())
 }
 
@@ -266,21 +281,116 @@ pub fn apply_oss_keys_from_env(env_path: &Path) -> Result<bool> {
         return Ok(oss_keys_configured(env_path));
     };
 
-    let mut lines: Vec<String> = if env_path.exists() {
-        fs::read_to_string(env_path)?
+    let mut lines: Vec<String> = read_env_lines(env_path);
+    upsert_env_line(&mut lines, "OSS_ACCESS_KEY_ID", &id);
+    upsert_env_line(&mut lines, "OSS_ACCESS_KEY_SECRET", &secret);
+    write_env_lines(env_path, &lines)?;
+    Ok(oss_keys_configured(env_path))
+}
+
+/// 上传后端相关的环境变量键：OSS 凭证 + 自定义上传后端（nuwax 风格）配置。
+///
+/// 语义与 document-parser 侧 `load_custom_upload_config_from_env` 对齐：
+/// `DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL` trim 后非空即启用自定义后端，
+/// api_key 允许为空（无鉴权部署），path 兜底 `/api/v1/file/upload`。
+pub const UPLOAD_ENV_KEYS: &[&str] = &[
+    "OSS_ACCESS_KEY_ID",
+    "OSS_ACCESS_KEY_SECRET",
+    "DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL",
+    "DOCUMENT_PARSER_CUSTOM_UPLOAD_API_KEY",
+    "DOCUMENT_PARSER_CUSTOM_UPLOAD_PATH",
+];
+
+/// 把上传后端配置（OSS 密钥与/或自定义上传后端变量）从环境落盘到 `.env`。
+///
+/// 与 [`apply_oss_keys_from_env`] 不同：各键**独立** upsert（环境里非空即写），
+/// 不要求 OSS 成对出现——"是否配置完成"的判定交给 [`upload_backend_configured`]。
+pub fn apply_upload_config_from_env(env_path: &Path) -> Result<()> {
+    let mut lines = read_env_lines(env_path);
+    let mut changed = false;
+    for key in UPLOAD_ENV_KEYS {
+        if let Some(value) = std::env::var(key).ok().filter(|s| !s.trim().is_empty()) {
+            upsert_env_line(&mut lines, key, &value);
+            changed = true;
+        }
+    }
+    if changed {
+        write_env_lines(env_path, &lines)?;
+    }
+    Ok(())
+}
+
+/// Whether `.document-parser.env` has non-empty OSS keys.
+pub fn oss_keys_configured(env_path: &Path) -> bool {
+    let Ok(content) = fs::read_to_string(env_path) else {
+        return false;
+    };
+    let values = parse_env_file_values(&content);
+    values
+        .get("OSS_ACCESS_KEY_ID")
+        .is_some_and(|v| !v.is_empty())
+        && values
+            .get("OSS_ACCESS_KEY_SECRET")
+            .is_some_and(|v| !v.is_empty())
+}
+
+/// Whether `.document-parser.env` enables the custom upload backend
+/// (`DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL` non-empty).
+pub fn custom_upload_configured(env_path: &Path) -> bool {
+    let Ok(content) = fs::read_to_string(env_path) else {
+        return false;
+    };
+    parse_env_file_values(&content)
+        .get("DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL")
+        .is_some_and(|v| !v.is_empty())
+}
+
+/// 上传后端是否就绪：OSS 密钥或自定义上传后端**二选一**即可。
+pub fn upload_backend_configured(env_path: &Path) -> bool {
+    oss_keys_configured(env_path) || custom_upload_configured(env_path)
+}
+
+/// Read a single KEY's value from an `.env`-style file (quotes stripped, None if absent).
+pub fn parse_env_file_value(env_path: &Path, key: &str) -> Option<String> {
+    let content = fs::read_to_string(env_path).ok()?;
+    parse_env_file_values(&content)
+        .into_iter()
+        .find(|(k, _)| k == key)
+        .map(|(_, v)| v)
+}
+
+/// Read `.env`-style lines, dropping quoted values (KEY=VALUE with optional quotes).
+fn parse_env_file_values(content: &str) -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+    for line in content.lines() {
+        let t = line.trim();
+        if t.starts_with('#') || t.is_empty() {
+            continue;
+        }
+        if let Some((k, v)) = t.split_once('=') {
+            let v = v.trim().trim_matches('"').trim_matches('\'');
+            map.insert(k.trim().to_string(), v.to_string());
+        }
+    }
+    map
+}
+
+fn read_env_lines(env_path: &Path) -> Vec<String> {
+    if env_path.exists() {
+        fs::read_to_string(env_path)
+            .unwrap_or_default()
             .lines()
             .map(String::from)
             .collect()
     } else {
         Vec::new()
-    };
+    }
+}
 
-    upsert_env_line(&mut lines, "OSS_ACCESS_KEY_ID", &id);
-    upsert_env_line(&mut lines, "OSS_ACCESS_KEY_SECRET", &secret);
-
+fn write_env_lines(env_path: &Path, lines: &[String]) -> Result<()> {
     let body = format!("{}\n", lines.join("\n"));
-    crate::write_user_file(env_path, &body, Some(0o600))?;
-    Ok(oss_keys_configured(env_path))
+    crate::write_user_file(env_path, &body, Some(0o600))
+        .map_err(|e| anyhow::anyhow!("write {}: {e}", env_path.display()))
 }
 
 fn upsert_env_line(lines: &mut Vec<String>, key: &str, value: &str) {
@@ -293,31 +403,6 @@ fn upsert_env_line(lines: &mut Vec<String>, key: &str, value: &str) {
     } else {
         lines.push(format!("{key}={value}"));
     }
-}
-
-/// Whether `.document-parser.env` has non-empty OSS keys.
-pub fn oss_keys_configured(env_path: &Path) -> bool {
-    let Ok(content) = fs::read_to_string(env_path) else {
-        return false;
-    };
-    let mut id_ok = false;
-    let mut secret_ok = false;
-    for line in content.lines() {
-        let t = line.trim();
-        if t.starts_with('#') || t.is_empty() {
-            continue;
-        }
-        if let Some((k, v)) = t.split_once('=') {
-            let v = v.trim().trim_matches('"').trim_matches('\'');
-            if k.trim() == "OSS_ACCESS_KEY_ID" && !v.is_empty() {
-                id_ok = true;
-            }
-            if k.trim() == "OSS_ACCESS_KEY_SECRET" && !v.is_empty() {
-                secret_ok = true;
-            }
-        }
-    }
-    id_ok && secret_ok
 }
 
 /// Default `/health` wait after install (voice-cli starts in seconds).
@@ -568,5 +653,118 @@ mod tests {
     fn voice_cli_cuda_bundle_not_applicable_off_linux() {
         let dir = TempDir::new().unwrap();
         assert!(!voice_cli_cuda_bundle_present(dir.path()));
+    }
+
+    // ===== 上传后端二选一 / env 落盘 / 本地解压 =====
+
+    fn write_env(dir: &TempDir, content: &str) -> std::path::PathBuf {
+        let p = dir.path().join(".document-parser.env");
+        std::fs::write(&p, content).unwrap();
+        p
+    }
+
+    #[test]
+    fn upload_backend_configured_three_states() {
+        let dir = TempDir::new().unwrap();
+        // 皆无 → false
+        let p = write_env(&dir, "# empty\n");
+        assert!(!oss_keys_configured(&p));
+        assert!(!custom_upload_configured(&p));
+        assert!(!upload_backend_configured(&p));
+
+        // 仅 OSS 成对 → true
+        let p = write_env(&dir, "OSS_ACCESS_KEY_ID=ak\nOSS_ACCESS_KEY_SECRET=sk\n");
+        assert!(oss_keys_configured(&p));
+        assert!(!custom_upload_configured(&p));
+        assert!(upload_backend_configured(&p));
+
+        // 仅 custom（base_url 非空，api_key 可空）→ true
+        let p = write_env(
+            &dir,
+            "DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL=https://agent.example.com\nDOCUMENT_PARSER_CUSTOM_UPLOAD_API_KEY=\n",
+        );
+        assert!(!oss_keys_configured(&p));
+        assert!(custom_upload_configured(&p));
+        assert!(upload_backend_configured(&p));
+
+        // 引号值剥壳
+        let p = write_env(
+            &dir,
+            "DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL='https://x.com'\n",
+        );
+        assert!(custom_upload_configured(&p));
+
+        // base_url 空串 = 未启用（与 document-parser 侧语义一致）
+        let p = write_env(&dir, "DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL=\n");
+        assert!(!custom_upload_configured(&p));
+
+        // 文件不存在 → false
+        assert!(!upload_backend_configured(&dir.path().join("nope.env")));
+    }
+
+    #[test]
+    fn apply_env_upsert_is_idempotent_and_skips_commented() {
+        let mut lines: Vec<String> = vec![
+            "# OSS_ACCESS_KEY_ID=old".to_string(),
+            "OSS_ACCESS_KEY_ID=first".to_string(),
+            String::new(),
+        ];
+        upsert_env_line(&mut lines, "OSS_ACCESS_KEY_ID", "second");
+        // 覆盖非注释行，不动注释行
+        assert_eq!(lines[0], "# OSS_ACCESS_KEY_ID=old");
+        assert_eq!(lines[1], "OSS_ACCESS_KEY_ID=second");
+
+        // 新键追加
+        upsert_env_line(
+            &mut lines,
+            "DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL",
+            "https://x",
+        );
+        assert!(
+            lines
+                .last()
+                .is_some_and(|l| l == "DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL=https://x")
+        );
+    }
+
+    #[test]
+    fn parse_env_file_value_reads_and_strips_quotes() {
+        let dir = TempDir::new().unwrap();
+        let p = write_env(&dir, "# comment\nFOO='quoted'\nBAR=plain\nBAZ=\"dq\"\n");
+        assert_eq!(parse_env_file_value(&p, "FOO").as_deref(), Some("quoted"));
+        assert_eq!(parse_env_file_value(&p, "BAR").as_deref(), Some("plain"));
+        assert_eq!(parse_env_file_value(&p, "BAZ").as_deref(), Some("dq"));
+        assert_eq!(parse_env_file_value(&p, "MISSING"), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn extract_tarball_at_extracts_local_venv_archive() {
+        let work = TempDir::new().unwrap();
+        let staging = work.path().join("staging");
+        let install = work.path().join("install");
+        std::fs::create_dir_all(staging.join("venv/bin")).unwrap();
+        std::fs::create_dir_all(&install).unwrap();
+        std::fs::write(staging.join("venv/bin/python"), b"#!/bin/sh\n").unwrap();
+
+        let archive = work.path().join("venv-test.tar.gz");
+        let status = std::process::Command::new("tar")
+            .args(["-czf", &archive.display().to_string(), "-C"])
+            .arg(&staging)
+            .arg("venv")
+            .status()
+            .unwrap();
+        assert!(status.success(), "打包测试归档失败");
+
+        extract_tarball_at(&archive, &install, true, "venv-test").unwrap();
+        assert!(
+            install.join("venv/bin/python").is_file(),
+            "解压后应存在 venv/bin/python"
+        );
+
+        // 损坏归档 → Err
+        let bad = work.path().join("bad.tar.gz");
+        std::fs::write(&bad, b"not a tarball").unwrap();
+        assert!(extract_tarball_at(&bad, &install, true, "bad").is_err());
     }
 }
