@@ -2,6 +2,7 @@ use crate::config::{FileSizePurpose, get_global_file_size_config};
 use crate::error::AppError;
 use crate::models::{
     DocumentFormat, OssData, ParserEngine, StructuredDocument, TaskError, TaskStatus,
+    UploadEndpoint,
 };
 use chrono::{DateTime, Duration, Utc};
 use derive_builder::Builder;
@@ -29,6 +30,11 @@ pub struct DocumentTask {
     #[serde(default)]
     #[builder(default)]
     pub bucket_dir: Option<String>,
+    /// 可选：自定义文件上传后端端点（Some 时任务产物走该后端而非 OSS）。
+    /// `retry`/`reset` 不会清除该字段，重试与服务重启恢复后仍指向同一后端。
+    #[serde(default)]
+    #[builder(default)]
+    pub upload_config: Option<UploadEndpoint>,
     #[builder(default)]
     pub document_format: Option<DocumentFormat>,
     #[builder(default)]
@@ -426,6 +432,57 @@ mod tests {
             let config = AppConfig::load_base_config().unwrap();
             init_global_config(config).unwrap();
         });
+    }
+
+    #[test]
+    fn test_legacy_task_json_without_upload_config_deserializes() {
+        // 旧版本 sled 记录没有 upload_config 字段，必须能平滑反序列化为 None
+        let legacy_json = r#"{
+            "id": "018f6b2e-0000-7000-8000-000000000001",
+            "status": {"Pending": {"queued_at": "2026-09-04T00:00:00Z"}},
+            "source_type": "Upload",
+            "source_path": "/tmp/a.pdf",
+            "bucket_dir": "proj/docs",
+            "backend": "default",
+            "progress": 0,
+            "created_at": "2026-09-04T00:00:00Z",
+            "updated_at": "2026-09-04T00:00:00Z",
+            "expires_at": "2026-09-05T00:00:00Z",
+            "retry_count": 0,
+            "max_retries": 3
+        }"#;
+        let task: DocumentTask = serde_json::from_str(legacy_json).unwrap();
+        assert!(task.upload_config.is_none());
+        assert_eq!(task.bucket_dir.as_deref(), Some("proj/docs"));
+    }
+
+    #[test]
+    fn test_task_json_with_upload_config_round_trip() {
+        init_test_config();
+        let task = DocumentTask::new(CreateTaskParams {
+            id: Uuid::new_v4().to_string(),
+            source_type: SourceType::Upload,
+            source: Some("/path/to/file.pdf".to_string()),
+            original_filename: Some("file.pdf".to_string()),
+            document_format: Some(DocumentFormat::PDF),
+            backend: Some("pipeline".to_string()),
+            expires_in_hours: Some(24),
+            max_retries: Some(3),
+        });
+        let task = DocumentTask {
+            upload_config: Some(UploadEndpoint {
+                base_url: "https://agent.example.com".to_string(),
+                path: "/api/v1/file/upload".to_string(),
+                api_key: "ak-xxx".to_string(),
+                upload_type: oss_client::CustomUploadType::Tmp,
+            }),
+            ..task
+        };
+        let json = serde_json::to_string(&task).unwrap();
+        let parsed: DocumentTask = serde_json::from_str(&json).unwrap();
+        let endpoint = parsed.upload_config.expect("upload_config 应保留");
+        assert_eq!(endpoint.base_url, "https://agent.example.com");
+        assert_eq!(endpoint.upload_type, oss_client::CustomUploadType::Tmp);
     }
 
     #[test]

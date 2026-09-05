@@ -127,6 +127,7 @@ pub fn get_default_config() -> AppConfig {
             models::DocumentStatistics,
             models::OssData,
             models::ImageInfo,
+            models::UploadEndpoint,
 
             // 文档处理相关
             handlers::document_handler::DocumentParseResponse,

@@ -73,6 +73,7 @@ impl TestEnvironment {
                     upload_directory: "test".to_string(),
                     region: "oss-rg-china-mainland".to_string(),
                 },
+                custom_upload: Default::default(),
             },
             external_integration: crate::config::ExternalIntegrationConfig {
                 webhook_url: "https://test-webhook.com".to_string(),

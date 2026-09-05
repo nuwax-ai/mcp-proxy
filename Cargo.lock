@@ -4395,11 +4395,13 @@ dependencies = [
  "reqwest 0.13.4",
  "rust-i18n",
  "serde",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
  "uuid",
+ "wiremock",
 ]
 
 [[package]]
@@ -5528,6 +5530,7 @@ dependencies = [
  "js-sys",
  "log",
  "mime",
+ "mime_guess",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
@@ -5536,6 +5539,7 @@ dependencies = [
  "rustls-platform-verifier",
  "serde",
  "serde_json",
+ "serde_urlencoded",
  "sync_wrapper",
  "tokio",
  "tokio-rustls",

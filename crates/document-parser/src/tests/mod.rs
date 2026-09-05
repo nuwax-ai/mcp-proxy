@@ -95,6 +95,9 @@ pub mod test_helpers {
                 config.storage.sled.path =
                     format!("/tmp/test_sled_{}_{}.db", unique_id, std::process::id());
                 config.storage.sled.cache_capacity = 1024 * 1024;
+                // 钉死全局自定义上传配置：测试语义以"全局未启用"为前提，
+                // 避免开发者本地 config.yml 配了 custom_upload 后测试假失败
+                config.storage.custom_upload = Default::default();
                 // temp_dir removed - now uses current directory approach
 
                 // 调整并发和队列大小以适合测试环境
@@ -145,6 +148,7 @@ pub mod test_helpers {
                             upload_directory: "test".to_string(),
                             region: "oss-rg-china-mainland".to_string(),
                         },
+                        custom_upload: Default::default(),
                     },
                     external_integration: crate::config::ExternalIntegrationConfig {
                         webhook_url: "https://test-webhook.com".to_string(),

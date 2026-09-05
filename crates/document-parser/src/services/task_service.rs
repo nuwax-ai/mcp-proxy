@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use crate::models::{
     CreateTaskParams, DocumentFormat, DocumentTask, ParserEngine, ProcessingStage, SourceType,
-    TaskStatus,
+    TaskError, TaskStatus,
 };
 use sled::Db;
 use std::sync::Arc;
@@ -294,6 +294,62 @@ impl TaskService {
             .ok_or_else(|| AppError::Task(format!("任务不存在: {task_id}")))?;
 
         task.bucket_dir = bucket_dir;
+        task.updated_at = chrono::Utc::now();
+
+        self.save_task(&task).await?;
+        Ok(())
+    }
+
+    /// 中止任务（置 Failed 但**不消耗重试额度**）
+    ///
+    /// 与 [`Self::set_task_error`] 的区别：set_task_error 经 `update_status`
+    /// 会对 Failed 自增 `retry_count`——对从未执行过的任务（handler 在入队前
+    /// 的失败路径）调用会白白烧掉一次重试额度。本方法显式传入当前值。
+    /// 自身失败会记录 error 日志（调用方无需再吞）。
+    pub async fn abort_task(&self, task_id: &str, message: String) -> Result<(), AppError> {
+        let mut task = match self.get_task(task_id).await {
+            Ok(Some(task)) => task,
+            Ok(None) => {
+                error!("Abort task failed, task not found: {task_id}");
+                return Err(AppError::Task(format!("任务不存在: {task_id}")));
+            }
+            Err(e) => {
+                error!("Abort task failed, read task error: {task_id} -> {e}");
+                return Err(e);
+            }
+        };
+
+        let task_error = TaskError::new(
+            "E010".to_string(),
+            message.clone(),
+            task.status.get_current_stage().cloned(),
+        );
+        // 显式传当前 retry_count，绕过 update_status 对 Failed 的自增副作用
+        task.status = TaskStatus::new_failed(task_error, task.retry_count);
+        task.updated_at = chrono::Utc::now();
+
+        if let Err(e) = self.save_task(&task).await {
+            error!("Abort task failed, save task error: {task_id} -> {e}");
+            return Err(e);
+        }
+        error!("Task aborted before enqueue: {task_id} -> {message}");
+        Ok(())
+    }
+
+    /// 设置任务的自定义上传端点（Some=自定义后端，None=OSS）
+    ///
+    /// 必须在任务入队前调用：worker 只携带 task_id，上传配置只能从任务读取。
+    pub async fn set_task_upload_config(
+        &self,
+        task_id: &str,
+        upload_config: Option<crate::models::UploadEndpoint>,
+    ) -> Result<(), AppError> {
+        let mut task = self
+            .get_task(task_id)
+            .await?
+            .ok_or_else(|| AppError::Task(format!("任务不存在: {task_id}")))?;
+
+        task.upload_config = upload_config;
         task.updated_at = chrono::Utc::now();
 
         self.save_task(&task).await?;

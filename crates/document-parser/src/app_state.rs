@@ -110,7 +110,7 @@ impl AppState {
             task_service.clone(),
             oss_client.clone(),
             document_service_config,
-        ));
+        )?);
 
         // 初始化任务队列（使用配置中的并发和队列大小）
         let mut task_queue = TaskQueueService::with_config(

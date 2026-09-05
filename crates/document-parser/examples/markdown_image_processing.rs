@@ -195,7 +195,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             temp_markdown_processor,
             temp_task_service,
             temp_oss_service,
-        );
+        )
+        .expect("example DocumentService");
 
         // 测试路径替换逻辑
         let replaced_content = temp_doc_service

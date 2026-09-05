@@ -36,6 +36,7 @@ extern crate rust_i18n;
 // 初始化翻译文件，使用 crate 内置 locales（支持独立发布）
 i18n!("locales", fallback = "en");
 
+pub mod api_file_client;
 pub mod config;
 pub mod error;
 pub mod private_client;
@@ -43,6 +44,10 @@ pub mod public_client;
 pub mod utils;
 
 // 重新导出主要类型
+pub use api_file_client::{
+    ApiFileClient, ApiUploadConfig, CustomUploadType, DEFAULT_AK_PATH, DEFAULT_UPLOAD_PATH,
+    UploadedFile, validate_upload_path,
+};
 pub use config::{OssConfig, defaults};
 pub use error::{OssError, Result};
 pub use private_client::PrivateOssClient;

@@ -595,7 +595,8 @@ mod integration_coverage_tests {
             markdown_processor,
             Arc::clone(&task_service),
             None, // No OSS service for testing
-        );
+        )
+        .expect("test DocumentService");
 
         // Create test document
         let test_file = env.create_test_pdf("integration_test.pdf");

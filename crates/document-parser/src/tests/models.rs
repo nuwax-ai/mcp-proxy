@@ -517,6 +517,7 @@ mod comprehensive_model_tests {
             markdown_object_key: Some("markdown/test_task/20241215_120000_document.md".to_string()),
             images: vec![image1, image2],
             bucket: "test-bucket".to_string(),
+            storage_type: None,
         };
 
         assert!(!oss_data.markdown_url.is_empty());

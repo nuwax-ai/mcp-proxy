@@ -131,6 +131,23 @@ Once the service is running, visit:
 - **OpenAPI Swagger UI**: `http://localhost:8087/swagger-ui/`
 - **OpenAPI JSON**: `http://localhost:8087/api-docs/openapi.json`
 
+### Custom File Upload Backend (optional, alternative to OSS)
+
+Besides Alibaba Cloud OSS, parse artifacts (images, Markdown) can be uploaded to
+your own system's file API (nuwax-style REST). All three entry points
+(`/upload`, `/uploadFromUrl`, `/parse-sync`) accept optional parameters
+`upload_base_url` / `upload_path` / `upload_api_key` / `upload_type`; providing
+any of them enables the custom backend. Global defaults can be configured in the
+`storage.custom_upload` section of `config.yml`.
+
+```bash
+curl -X POST "http://localhost:8087/api/v1/documents/upload?upload_base_url=https://your-system.example.com&upload_api_key=ak-xxxxxx" \
+  -F "file=@document.pdf"
+```
+
+See [CUSTOM_UPLOAD_API.md](CUSTOM_UPLOAD_API.md) for the API contract
+(upload + AK signed download).
+
 ## Performance Optimization
 
 ### GPU Acceleration

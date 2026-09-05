@@ -78,6 +78,17 @@ storage:
     region: "oss-rg-china-mainland"
     upload_directory: "document_parser"  # 上传文件的统一子目录前缀
 
+  # 自定义文件上传后端（nuwax 风格 REST API）——可选，与 OSS 二选一
+  # base_url 留空/整段缺省 = 未启用（解析产物走上面的 OSS）
+  # 配置后：不带 upload_* 请求参数的请求默认走此后端；请求级参数可逐项覆盖
+  # 接口契约：POST {base_url}{path}?type=store|tmp，Authorization: Bearer <api_key>，
+  #          multipart 字段 file；响应 code=="0000" 且 data.url/data.key 为上传结果
+  # 注意：api_key 会以明文保存在任务记录中（内网部署取舍）
+  custom_upload:
+    base_url: ""                      # 例：https://agent.example.com
+    api_key: ""                       # Bearer API Key
+    path: "/api/v1/file/upload"       # 上传接口路径（默认 nuwax 契约）
+
 # 全局文件大小配置
 file_size_config:
   max_file_size: "500MB"

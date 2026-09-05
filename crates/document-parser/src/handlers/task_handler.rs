@@ -1023,6 +1023,10 @@ pub struct TaskOssInfo {
     pub bucket: String,
     pub markdown_available: bool,
     pub images_count: usize,
+    /// 存储后端判别（向后兼容的可选字段）：OSS 任务不输出（None），
+    /// 自定义上传后端任务为 "custom"——此时 bucket 字段装的是后端 base_url
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub storage_type: Option<crate::models::StorageType>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -1092,6 +1096,7 @@ pub async fn get_task_result(
         bucket: oss.bucket.clone(),
         markdown_available: !oss.markdown_url.is_empty(),
         images_count: oss.images.len(),
+        storage_type: oss.storage_type,
     });
 
     // 构建处理统计信息

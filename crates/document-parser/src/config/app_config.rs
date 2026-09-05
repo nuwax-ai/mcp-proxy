@@ -258,9 +258,27 @@ impl AppConfig {
         self.load_log_config_from_env(env)?;
         self.load_document_parser_config_from_env(env)?;
         self.load_oss_config_from_env(env)?;
+        self.load_custom_upload_config_from_env(env)?;
         self.load_mineru_config_from_env(env)?;
         self.load_markitdown_config_from_env(env)?;
         self.load_external_integration_config_from_env(env)?;
+        Ok(())
+    }
+
+    /// 从环境变量加载自定义上传后端配置
+    fn load_custom_upload_config_from_env(
+        &mut self,
+        env: &dyn EnvProvider,
+    ) -> Result<(), ConfigError> {
+        if let Some(base_url) = env.get("DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL") {
+            self.storage.custom_upload.base_url = base_url;
+        }
+        if let Some(api_key) = env.get("DOCUMENT_PARSER_CUSTOM_UPLOAD_API_KEY") {
+            self.storage.custom_upload.api_key = api_key;
+        }
+        if let Some(path) = env.get("DOCUMENT_PARSER_CUSTOM_UPLOAD_PATH") {
+            self.storage.custom_upload.path = path;
+        }
         Ok(())
     }
 

@@ -451,6 +451,35 @@ pub async fn download_markdown(
     let markdown_source = determine_markdown_source(&task, &params);
 
     match markdown_source {
+        MarkdownSource::Oss(oss_url)
+            if task
+                .oss_data
+                .as_ref()
+                .is_some_and(|oss| oss.is_custom_storage()) =>
+        {
+            // 自定义上传后端：AK 换签 + 直接 GET 代理内容，不进 OSS 重签与 key 解析
+            match task.upload_config.clone() {
+                Some(endpoint) => {
+                    download_from_remote_url(
+                        &state,
+                        &task_id,
+                        &endpoint,
+                        &oss_url,
+                        streaming_config.max_file_size,
+                        &headers_in,
+                    )
+                    .await
+                }
+                None => {
+                    // storage_type=custom 但任务缺 upload_config（理论不可达）：数据不完整
+                    error!(
+                        "Custom storage task missing upload_config: task_id={}",
+                        task_id
+                    );
+                    ApiResponse::internal_error::<String>("任务上传配置缺失").into_response()
+                }
+            }
+        }
         MarkdownSource::Oss(oss_url) => {
             download_from_oss(&state, &task, &oss_url, &headers_in, &streaming_config).await
         }
@@ -606,6 +635,165 @@ async fn download_from_oss(
     }
 }
 
+/// 从自定义上传后端下载 Markdown
+///
+/// 完整下载协议（AK 换签 → 回退裸 GET → 双防御 → 大小限制）封装在
+/// [`oss_client::ApiFileClient::download_file`]；客户端复用 DocumentService
+/// 的共享连接池。整体超时上界约束换签 + 下载 + 图片换签的总时长。
+/// 下载成功且内容为换签后产物时，把 Markdown 内嵌的后端图片 URL 批量换签
+/// 重写，使消费方拿到的图片链接可直接访问（私有存储部署）。
+async fn download_from_remote_url(
+    state: &AppState,
+    task_id: &str,
+    endpoint: &crate::models::UploadEndpoint,
+    url: &str,
+    max_file_size: u64,
+    headers_in: &HeaderMap,
+) -> Response {
+    info!(
+        "Download Markdown from custom backend: task_id={}, url={}",
+        task_id, url
+    );
+
+    // 复用 DocumentService 的共享连接池（避免每请求新建 Client/TLS 握手）
+    let api_client = match oss_client::ApiFileClient::with_client(
+        endpoint.to_api_config(),
+        state.document_service.http_client().clone(),
+    ) {
+        Ok(client) => client,
+        Err(e) => {
+            error!(
+                "Failed to create custom backend client: task_id={}, error={}",
+                task_id, e
+            );
+            return ApiResponse::internal_error::<String>("创建自定义上传后端客户端失败")
+                .into_response();
+        }
+    };
+
+    // 整体上界：换签(15s) + 回退 GET(60s) + 图片批量换签，防慢后端拖垮 handler
+    let download_result = tokio::time::timeout(
+        Duration::from_secs(180),
+        api_client.download_file(url, max_file_size),
+    )
+    .await;
+
+    let content = match download_result {
+        Ok(Ok(bytes)) => bytes,
+        Ok(Err(e)) => {
+            error!(
+                "Download from custom backend failed: task_id={}, url={}, error={}",
+                task_id, url, e
+            );
+            return ApiResponse::internal_error::<String>(&format!(
+                "下载文件失败（自定义上传后端）: {e}"
+            ))
+            .into_response();
+        }
+        Err(_) => {
+            error!(
+                "Download from custom backend timed out (180s): task_id={}, url={}",
+                task_id, url
+            );
+            return ApiResponse::internal_error::<String>(
+                "下载文件超时（自定义上传后端整体超过 180s）",
+            )
+            .into_response();
+        }
+    };
+
+    // 图片 URL 换签重写：内容里的后端图片 URL 换成签名 URL（失败的单张保留原样）
+    let content = rewrite_image_urls_signed(&content, &api_client, endpoint).await;
+
+    info!(
+        "Successfully downloaded Markdown content from custom backend: task_id={}, size={} bytes",
+        task_id,
+        content.len()
+    );
+
+    let range_header = headers_in
+        .get(header::RANGE)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    build_range_response(task_id, content, range_header)
+}
+
+/// 把 Markdown 内容中指向自定义后端的图片 URL 批量换签重写
+///
+/// 仅匹配与后端 base_url 同源且以 `/api/f/` 开头的 URL（该后端的私有文件
+/// 路由前缀）；其余 URL（OSS、外链）不动。并发换签（8 路），单张失败仅
+/// warn 并保留原 URL，不影响整体返回（Fail Fast 只作用于 markdown 本体）。
+async fn rewrite_image_urls_signed(
+    markdown: &[u8],
+    client: &oss_client::ApiFileClient,
+    endpoint: &crate::models::UploadEndpoint,
+) -> Vec<u8> {
+    use futures::StreamExt as _;
+
+    let content = match std::str::from_utf8(markdown) {
+        Ok(s) => s,
+        Err(_) => return markdown.to_vec(), // 非 UTF-8 内容不做重写
+    };
+
+    let base_prefix = format!("{}/api/f/", endpoint.base_url.trim_end_matches('/'));
+    // 提取 markdown 链接/图片 URL 中匹配后端前缀的（去重）
+    let mut urls: Vec<String> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut idx = 0;
+    while let Some(pos) = content[idx..].find("](") {
+        let start = idx + pos + 2;
+        let Some(end_rel) = content[start..].find(')') else {
+            break;
+        };
+        let candidate = &content[start..start + end_rel];
+        if candidate.starts_with(&base_prefix) && seen.insert(candidate.to_string()) {
+            urls.push(candidate.to_string());
+        }
+        idx = start + end_rel;
+    }
+
+    if urls.is_empty() {
+        return markdown.to_vec();
+    }
+    info!(
+        "Exchanging signed URLs for {} embedded backend image(s)",
+        urls.len()
+    );
+
+    // 并发换签（8 路）：map 产出 future 流，buffer_unordered 并发执行
+    let results: Vec<_> = futures::StreamExt::map(futures::stream::iter(urls), |url| async move {
+        client
+            .exchange_signed_url(&url)
+            .await
+            .map(|signed| (url, signed))
+    })
+    .buffer_unordered(8)
+    .collect::<Vec<_>>()
+    .await;
+
+    let replacements: Vec<(String, String)> = results
+        .into_iter()
+        .filter_map(|result| match result {
+            Ok(pair) => Some(pair),
+            Err(e) => {
+                warn!("Image URL signed-exchange failed, keeping original: {e}");
+                None
+            }
+        })
+        .collect();
+
+    if replacements.is_empty() {
+        return markdown.to_vec();
+    }
+
+    let mut rewritten = content.to_string();
+    for (original, signed) in replacements {
+        rewritten = rewritten.replace(&original, &signed);
+    }
+    rewritten.into_bytes()
+}
+
 /// 从结构化文档生成Markdown
 async fn download_from_structured_document(
     task_id: &str,
@@ -740,6 +928,79 @@ pub async fn get_markdown_url(
                 .into_response();
         }
     };
+
+    // 过期时间校验（对 OSS 与 custom 后端统一执行，与 OSS 分支行为一致）
+    if params.expires_hours.unwrap_or(24) == 0 || params.expires_hours.unwrap_or(24) > 168 {
+        return ApiResponse::validation_error::<MarkdownUrlResponse>("过期时间必须在1-168小时之间")
+            .into_response();
+    }
+
+    // 自定义上传后端：OSS 重签不适用，走 AK 换签或直接透传
+    if oss_data.is_custom_storage() {
+        // 响应构造收敛（temp=true 换签路径与透传路径仅 url/temporary 两字段不同）
+        let build_response = |url: String, temporary: bool| {
+            ApiResponse::success_with_status(
+                MarkdownUrlResponse {
+                    url,
+                    task_id: task_id.clone(),
+                    temporary,
+                    expires_in_hours: None, // 签名时效由后端自管，不给虚假的过期语义
+                    file_size: None,
+                    content_type: "text/markdown; charset=utf-8".to_string(),
+                    oss_file_name: oss_data.markdown_object_key.clone(),
+                    oss_bucket: Some(oss_data.bucket.clone()),
+                },
+                StatusCode::OK,
+            )
+            .into_response()
+        };
+
+        // temp=true：用 API Key 换取带签名的临时公开 URL（无需登录态可访问）
+        if params.temp.unwrap_or(false)
+            && let Some(endpoint) = task.upload_config.as_ref()
+        {
+            // 复用 DocumentService 共享连接池
+            let client = oss_client::ApiFileClient::with_client(
+                endpoint.to_api_config(),
+                state.document_service.http_client().clone(),
+            );
+            return match client {
+                Ok(client) => match client.exchange_signed_url(&oss_data.markdown_url).await {
+                    Ok(signed_url) => {
+                        info!(
+                            "Temporary signed URL generated for custom backend: task_id={}",
+                            task_id
+                        );
+                        build_response(signed_url, true)
+                    }
+                    Err(e) => {
+                        // 与 download 接口的回退策略一致：换签失败不 500，
+                        // 降级返回存储的原 URL（公开存储仍可用，私有存储对系统内消费方可用）
+                        warn!(
+                            "AK signed-URL exchange failed, falling back to stored url:                              task_id={}, error={}",
+                            task_id, e
+                        );
+                        build_response(oss_data.markdown_url.clone(), false)
+                    }
+                },
+                Err(e) => {
+                    error!(
+                        "Failed to create custom backend client: task_id={}, error={}",
+                        task_id, e
+                    );
+                    build_response(oss_data.markdown_url.clone(), false)
+                }
+            };
+        }
+
+        // temp=false（或任务缺 upload_config 的兜底）：直接返回存储的 markdown_url
+        //（upload_type=store 为永久地址；tmp 的时效由后端自管）
+        info!(
+            "Task uses custom upload backend, returning stored markdown_url directly: task_id={}",
+            task_id
+        );
+        return build_response(oss_data.markdown_url.clone(), false);
+    }
 
     let generate_temp = params.temp.unwrap_or(false);
     let expires_in_hours = params.expires_hours.unwrap_or(24); // 默认24小时过期

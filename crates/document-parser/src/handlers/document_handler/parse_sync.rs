@@ -1,6 +1,9 @@
 //! 同步解析接口（仅供测试验证）
 //!
-//! 上传文档并在同一请求内同步返回 Markdown 结果，不创建任务、不进行 OSS 上传。
+//! 上传文档并在同一请求内同步返回 Markdown 结果，不创建任务。
+//! 可选通过 Query 参数指定自定义上传后端（`upload_*`）：此时解析产物中的图片
+//! 会上传到该后端并把 Markdown 内路径替换为远程 URL（Markdown 本身不上传，
+//! 内容直接在响应体返回）。
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -11,7 +14,7 @@ use crate::error::AppError;
 use crate::handlers::response::ApiResponse;
 use crate::models::{DocumentFormat, ParserEngine};
 use axum::{
-    extract::{Multipart, State},
+    extract::{Multipart, Query, State},
     http::StatusCode,
     response::IntoResponse,
 };
@@ -22,8 +25,10 @@ use utoipa::ToSchema;
 /// 同步解析文档响应
 ///
 /// 同步解析接口（`/parse-sync`）的响应结构，返回解析得到的 Markdown 内容及元信息。
-/// **仅供测试验证使用**：不创建任务、不进行 OSS 上传；markdown 中的图片路径为
-/// 解析时的本地临时路径，请求结束后随临时文件一并清理（不提供图片访问能力）。
+/// 不创建任务。未携带 `upload_*` 参数时：不进行任何上传，markdown 中的图片路径为
+/// 解析时的本地临时路径，请求结束后随临时文件一并清理（仅供内容验证）。
+/// 携带 `upload_*` 参数时：图片上传到自定义后端，markdown 内图片路径为后端
+/// 返回的远程 URL（store 类型为永久地址），响应自包含、请求结束后依然可用。
 /// 生产/大文件场景请使用异步任务接口 `POST /api/v1/documents/upload`。
 #[derive(Debug, Serialize, ToSchema)]
 pub struct SyncParseResponse {
@@ -61,6 +66,19 @@ impl TempCleanupGuard {
     /// 注册一个需要清理的路径（文件或目录）
     pub(crate) fn register(&mut self, path: PathBuf) {
         self.paths.push(path);
+    }
+
+    /// 注册解析结果的中间产物目录（output_dir/work_dir）
+    ///
+    /// 把"注册必须先于任何可失败的后续步骤（如图片上传）"的不变量收进
+    /// 一个原子调用——调用方无法只消费 ParseResult 而忘记注册。
+    pub(crate) fn register_parse_result(&mut self, result: &crate::models::ParseResult) {
+        if let Some(output_dir) = &result.output_dir {
+            self.register(PathBuf::from(output_dir));
+        }
+        if let Some(work_dir) = &result.work_dir {
+            self.register(PathBuf::from(work_dir));
+        }
     }
 }
 
@@ -103,13 +121,17 @@ impl Drop for TempCleanupGuard {
 /// 同步解析文档（仅供测试验证）
 ///
 /// 上传文档文件，在同一请求内同步返回解析得到的 Markdown 内容。
-/// 与异步任务接口（`/upload`）不同，本接口不创建任务、不进行 OSS 上传。
-/// markdown 中的图片路径为解析时的本地临时路径，请求结束后随临时文件
-/// 一并清理（本接口不提供图片访问能力，仅适合纯文本/表格内容验证）。
+/// 与异步任务接口（`/upload`）不同，本接口不创建任务。
+///
+/// 可选 Query 参数（`upload_base_url` / `upload_path` / `upload_api_key` / `upload_type`）：
+/// 出现任意一个即把解析产物中的图片上传到自定义后端（nuwax 风格），并把
+/// Markdown 内的图片路径替换为远程 URL——此时响应的 Markdown 自包含、请求后
+/// 依然可用；不传则保持原行为（图片为本地临时路径，请求结束后清理）。
 ///
 /// ⚠️ **仅供测试验证使用**：MinerU 解析为重型资源操作，本接口通过信号量限流
 /// （默认并发 2），且整体超时默认 10 分钟（超时后底层解析子进程可能仍在后台
-/// 运行直至自然结束）；请求体大小由路由级 `DefaultBodyLimit` 限制
+/// 运行直至自然结束；携带 `upload_*` 参数时图片上传耗时也计入该超时）；
+/// 请求体大小由路由级 `DefaultBodyLimit` 限制
 /// （`document_parser.sync_parse_max_file_size`，默认 500MB，超限返回 413）；
 /// 生产/大文件场景请使用异步任务接口 `POST /api/v1/documents/upload`。
 #[utoipa::path(
@@ -120,9 +142,15 @@ impl Drop for TempCleanupGuard {
         description = "文档文件（multipart/form-data，文件字段名为 file）",
         content_type = "multipart/form-data"
     ),
+    params(
+        ("upload_base_url" = Option<String>, Query, description = "自定义上传后端基地址；出现任意 upload_* 参数即上传解析产物图片到该后端"),
+        ("upload_path" = Option<String>, Query, description = "自定义上传接口路径，默认 /api/v1/file/upload"),
+        ("upload_api_key" = Option<String>, Query, description = "自定义上传后端 API Key（Bearer）"),
+        ("upload_type" = Option<String>, Query, description = "上传存储类型：store（默认，永久）或 tmp（临时）")
+    ),
     responses(
         (status = 200, description = "解析成功，返回 Markdown 内容（仅供测试验证）", body = SyncParseResponse),
-        (status = 400, description = "请求参数错误 / 文件格式不支持"),
+        (status = 400, description = "请求参数错误 / 文件格式不支持 / upload_* 参数无法解析出上传目标"),
         (status = 413, description = "请求体超过同步接口大小上限（document_parser.sync_parse_max_file_size）"),
         (status = 408, description = "解析超时（默认 10 分钟）"),
         (status = 500, description = "服务器内部错误（含解析失败）")
@@ -131,12 +159,23 @@ impl Drop for TempCleanupGuard {
 )]
 pub async fn parse_document_sync(
     State(state): State<AppState>,
+    Query(query): Query<crate::services::UploadTargetParams>,
     mut multipart: Multipart,
 ) -> axum::response::Response {
     let sync_timeout_secs = state.config.document_parser.sync_parse_timeout_secs as u64;
     let sync_timeout = Duration::from_secs(sync_timeout_secs);
 
     info!("Synchronous document parsing request starts");
+
+    // 0. 解析自定义上传后端（Fail Fast：早于信号量排队与超时包裹）
+    let upload_endpoint =
+        match crate::services::resolve_upload_target(&query, &state.config.storage.custom_upload) {
+            Ok(endpoint) => endpoint,
+            Err(e) => {
+                error!("Upload target resolution failed: {}", e);
+                return ApiResponse::from_app_error::<SyncParseResponse>(e).into_response();
+            }
+        };
 
     // 并发限流：MinerU 为重资源，超过并发上限时等待
     let _permit = match state.sync_parse_semaphore.acquire().await {
@@ -177,18 +216,25 @@ pub async fn parse_document_sync(
         // 已知限制（parser 子进程可能继续运行至自然结束，残留由运维定期清理）。
 
         // 3. 同步解析（内部自带大小校验与解析超时）
-        let parse_result = state
+        let mut parse_result = state
             .document_service
             .parse_document_local(&file_path)
             .await
             .map_err(AppError::from)?;
 
-        // 4. 注册解析产生的中间产物目录（MinerU 输出的图片/工作目录）
-        if let Some(output_dir) = &parse_result.output_dir {
-            cleanup_guard.register(PathBuf::from(output_dir));
-        }
-        if let Some(work_dir) = &parse_result.work_dir {
-            cleanup_guard.register(PathBuf::from(work_dir));
+        // 4. 解析成功即注册中间产物目录（MinerU 输出的图片/工作目录）。
+        //    必须先于步骤 4.1 的图片上传：上传失败或整体超时在 await 点取消
+        //    future 时，ParseResult 会被 drop，之后再无路径可注册 → 目录泄漏
+        cleanup_guard.register_parse_result(&parse_result);
+
+        // 4.1 自定义上传后端：上传产物图片并替换 Markdown 内路径
+        //     （Markdown 本身不上传，内容直接在响应体返回）
+        if let Some(ref endpoint) = upload_endpoint {
+            parse_result = state
+                .document_service
+                .upload_images_for_custom_endpoint(endpoint, parse_result)
+                .await
+                .map_err(AppError::from)?;
         }
 
         // 5. 构造响应

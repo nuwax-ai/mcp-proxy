@@ -131,6 +131,20 @@ curl "http://localhost:8087/api/v1/documents/{task_id}/status"
 - **OpenAPI Swagger UI**: `http://localhost:8087/swagger-ui/`
 - **OpenAPI JSON**: `http://localhost:8087/api-docs/openapi.json`
 
+### 自定义文件上传后端（可选，替代 OSS）
+
+除阿里云 OSS 外，解析产物（图片、Markdown）可上传到用户自建系统的文件接口
+（nuwax 风格 REST API）。三个入口（`/upload`、`/uploadFromUrl`、`/parse-sync`）
+均支持可选参数 `upload_base_url` / `upload_path` / `upload_api_key` / `upload_type`，
+出现任一参数即启用；也可在 `config.yml` 的 `storage.custom_upload` 段配置全局默认。
+
+```bash
+curl -X POST "http://localhost:8087/api/v1/documents/upload?upload_base_url=https://your-system.example.com&upload_api_key=ak-xxxxxx" \
+  -F "file=@document.pdf"
+```
+
+接口契约（上传 + AK 签名下载）详见 [CUSTOM_UPLOAD_API.md](CUSTOM_UPLOAD_API.md)。
+
 ## 性能优化
 
 ### GPU加速

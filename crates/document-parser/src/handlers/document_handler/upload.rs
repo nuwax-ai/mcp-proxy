@@ -36,6 +36,33 @@ pub struct UploadDocumentRequest {
     #[serde(default)]
     #[schema(example = "projectA/docs/v1")]
     pub bucket_dir: Option<String>,
+    /// 可选：自定义上传后端基地址（如 https://agent.example.com）。
+    /// 出现任意 upload_* 参数即启用自定义上传后端（产物不再走 OSS）
+    #[serde(default)]
+    #[schema(example = "https://agent.example.com")]
+    pub upload_base_url: Option<String>,
+    /// 可选：自定义上传接口路径，默认 /api/v1/file/upload
+    #[serde(default)]
+    #[schema(example = "/api/v1/file/upload")]
+    pub upload_path: Option<String>,
+    /// 可选：自定义上传后端 API Key（Bearer）
+    #[serde(default)]
+    pub upload_api_key: Option<String>,
+    /// 可选：上传存储类型，store（默认，永久）或 tmp（临时）
+    #[serde(default)]
+    #[schema(value_type = String, example = "store")]
+    pub upload_type: Option<oss_client::CustomUploadType>,
+}
+
+impl From<&UploadDocumentRequest> for crate::services::UploadTargetParams {
+    fn from(params: &UploadDocumentRequest) -> Self {
+        Self {
+            upload_base_url: params.upload_base_url.clone(),
+            upload_path: params.upload_path.clone(),
+            upload_api_key: params.upload_api_key.clone(),
+            upload_type: params.upload_type,
+        }
+    }
 }
 
 /// 上传配置
@@ -114,6 +141,33 @@ pub struct DownloadDocumentRequest {
     #[serde(default)]
     #[schema(example = "projectA/docs/v1")]
     pub bucket_dir: Option<String>,
+    /// 可选：自定义上传后端基地址（如 https://agent.example.com）。
+    /// 出现任意 upload_* 字段即启用自定义上传后端（产物不再走 OSS）
+    #[serde(default)]
+    #[schema(example = "https://agent.example.com")]
+    pub upload_base_url: Option<String>,
+    /// 可选：自定义上传接口路径，默认 /api/v1/file/upload
+    #[serde(default)]
+    #[schema(example = "/api/v1/file/upload")]
+    pub upload_path: Option<String>,
+    /// 可选：自定义上传后端 API Key（Bearer）
+    #[serde(default)]
+    pub upload_api_key: Option<String>,
+    /// 可选：上传存储类型，store（默认，永久）或 tmp（临时）
+    #[serde(default)]
+    #[schema(value_type = String, example = "store")]
+    pub upload_type: Option<oss_client::CustomUploadType>,
+}
+
+impl From<&DownloadDocumentRequest> for crate::services::UploadTargetParams {
+    fn from(params: &DownloadDocumentRequest) -> Self {
+        Self {
+            upload_base_url: params.upload_base_url.clone(),
+            upload_path: params.upload_path.clone(),
+            upload_api_key: params.upload_api_key.clone(),
+            upload_type: params.upload_type,
+        }
+    }
 }
 
 /// OSS文档解析请求参数
@@ -144,11 +198,15 @@ pub struct DocumentParseResponse {
     params(
         ("enable_toc" = Option<bool>, Query, description = "是否启用目录生成"),
         ("max_toc_depth" = Option<usize>, Query, description = "目录最大深度"),
-        ("bucket_dir" = Option<String>, Query, description = "上传到OSS时的子目录，将附加在系统预设路径之后")
+        ("bucket_dir" = Option<String>, Query, description = "上传到OSS时的子目录，将附加在系统预设路径之后"),
+        ("upload_base_url" = Option<String>, Query, description = "自定义上传后端基地址；出现任意 upload_* 参数即启用自定义上传后端"),
+        ("upload_path" = Option<String>, Query, description = "自定义上传接口路径，默认 /api/v1/file/upload"),
+        ("upload_api_key" = Option<String>, Query, description = "自定义上传后端 API Key（Bearer）"),
+        ("upload_type" = Option<String>, Query, description = "上传存储类型：store（默认，永久）或 tmp（临时）")
     ),
     responses(
         (status = 202, description = "文档上传成功，解析任务已启动", body = UploadResponse),
-        (status = 400, description = "请求参数错误"),
+        (status = 400, description = "请求参数错误（含 upload_* 参数无法解析出上传目标）"),
         (status = 413, description = "文件过大"),
         (status = 415, description = "不支持的文件格式"),
         (status = 408, description = "上传超时")
@@ -161,6 +219,19 @@ pub async fn upload_document(
     mut multipart: Multipart,
 ) -> impl axum::response::IntoResponse {
     info!("Document upload request starts: {:?}", params);
+
+    // 0. 解析自定义上传后端（Fail Fast：任一 upload_* 字段出现但 base_url 不可解析即 400，
+    //    早于任务创建与 multipart 读取，不产生任何资源）
+    let upload_endpoint = match crate::services::resolve_upload_target(
+        &(&params).into(),
+        &state.config.storage.custom_upload,
+    ) {
+        Ok(endpoint) => endpoint,
+        Err(e) => {
+            error!("Upload target resolution failed: {}", e);
+            return ApiResponse::from_app_error::<UploadResponse>(e).into_response();
+        }
+    };
 
     // 1. 验证请求参数
     if let Err(e) = validate_upload_request(&params) {
@@ -251,7 +322,13 @@ pub async fn upload_document(
         .await
     {
         error!("Failed to update task information: {}", e);
-        let _ = cleanup_temp_file(&file_path).await;
+        abort_task_and_cleanup(
+            &state,
+            &task_id,
+            Some(&file_path),
+            format!("更新任务信息失败: {e}"),
+        )
+        .await;
         return ApiResponse::from_app_error::<UploadResponse>(e).into_response();
     }
 
@@ -265,6 +342,25 @@ pub async fn upload_document(
         warn!("Failed to save bucket_dir: {}", e);
     }
 
+    // 8.2 保存自定义上传端点到任务（入队前；worker 只读任务，必须先落盘）。
+    // 保存失败直接中止：后端选择决定产物去向，静默回退 OSS 会产生错误语义（Fail Fast）
+    if let Some(ref endpoint) = upload_endpoint
+        && let Err(e) = state
+            .task_service
+            .set_task_upload_config(&task_id, Some(endpoint.clone()))
+            .await
+    {
+        error!("Failed to save upload_config: {}", e);
+        abort_task_and_cleanup(
+            &state,
+            &task_id,
+            Some(&file_path),
+            format!("保存自定义上传配置失败: {e}"),
+        )
+        .await;
+        return ApiResponse::from_app_error::<UploadResponse>(e).into_response();
+    }
+
     // 9. 更新任务的文件信息
     let mime_type = detect_mime_type_from_format(&document_format);
     if let Err(e) = state
@@ -273,14 +369,26 @@ pub async fn upload_document(
         .await
     {
         error!("Failed to update task file information: {}", e);
-        let _ = cleanup_temp_file(&file_path).await;
+        abort_task_and_cleanup(
+            &state,
+            &task_id,
+            Some(&file_path),
+            format!("更新任务文件信息失败: {e}"),
+        )
+        .await;
         return ApiResponse::from_app_error::<UploadResponse>(e).into_response();
     }
 
     // 10. 入队由 worker 池处理
     if let Err(e) = state.task_queue.enqueue_task(task_id.clone(), 1).await {
         error!("Failed to join the team: {}", e);
-        let _ = cleanup_temp_file(&file_path).await;
+        abort_task_and_cleanup(
+            &state,
+            &task_id,
+            Some(&file_path),
+            format!("任务入队失败: {e}"),
+        )
+        .await;
         return ApiResponse::from_app_error::<UploadResponse>(e).into_response();
     }
 
@@ -581,6 +689,18 @@ pub async fn download_document_from_url(
         return ApiResponse::from_app_error::<DocumentParseResponse>(e).into_response();
     }
 
+    // 解析自定义上传后端（Fail Fast：参数矛盾/非法即 400，早于任务创建）
+    let upload_endpoint = match crate::services::resolve_upload_target(
+        &(&request).into(),
+        &state.config.storage.custom_upload,
+    ) {
+        Ok(endpoint) => endpoint,
+        Err(e) => {
+            error!("Upload target resolution failed: {}", e);
+            return ApiResponse::from_app_error::<DocumentParseResponse>(e).into_response();
+        }
+    };
+
     // 使用原始URL，保持编码状态
     let original_url = &request.url;
 
@@ -621,9 +741,28 @@ pub async fn download_document_from_url(
         warn!("Failed to save bucket_dir: {}", e);
     }
 
+    // 保存自定义上传端点到任务（入队前；保存失败直接中止，避免 worker 静默回退 OSS）
+    if let Some(ref endpoint) = upload_endpoint
+        && let Err(e) = state
+            .task_service
+            .set_task_upload_config(&task.id, Some(endpoint.clone()))
+            .await
+    {
+        error!("Failed to save upload_config: {}", e);
+        abort_task_and_cleanup(
+            &state,
+            &task.id,
+            None, // URL 任务无本地临时文件
+            format!("保存自定义上传配置失败: {e}"),
+        )
+        .await;
+        return ApiResponse::from_app_error::<DocumentParseResponse>(e).into_response();
+    }
+
     // 入队由 worker 池处理
     if let Err(e) = state.task_queue.enqueue_task(task.id.clone(), 1).await {
         error!("URL task enqueue failed: {}", e);
+        abort_task_and_cleanup(&state, &task.id, None, format!("任务入队失败: {e}")).await;
         return ApiResponse::from_app_error::<DocumentParseResponse>(e).into_response();
     }
 
@@ -635,6 +774,23 @@ pub async fn download_document_from_url(
     };
 
     ApiResponse::success_with_status(response, StatusCode::ACCEPTED).into_response()
+}
+
+/// 任务创建后失败路径的统一中止：标记任务 Failed（不消耗重试额度）+ 清理临时文件
+///
+/// 避免任务停留在不可重试的 Pending 僵尸状态；中止动作自身失败会记录 error
+/// 日志（不再静默吞掉），随后调用方仍返回原始错误响应。
+async fn abort_task_and_cleanup(
+    state: &AppState,
+    task_id: &str,
+    temp_file_path: Option<&str>,
+    message: String,
+) {
+    if let Some(path) = temp_file_path {
+        let _ = cleanup_temp_file(path).await;
+    }
+    // abort_task 内部已对读/写失败记录 error 日志；此处尽力而为不传播
+    let _ = state.task_service.abort_task(task_id, message).await;
 }
 
 /// 验证上传请求参数

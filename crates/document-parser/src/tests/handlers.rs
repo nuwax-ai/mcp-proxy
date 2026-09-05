@@ -288,6 +288,7 @@ mod markdown_handler_tests {
             markdown_object_key: Some("markdown/test_task/test.md".to_string()),
             images: vec![],
             bucket: "test-bucket".to_string(),
+            storage_type: None,
         });
 
         _app_state
@@ -365,6 +366,7 @@ mod markdown_handler_tests {
             markdown_object_key: Some("markdown/test_task/test.md".to_string()),
             images: vec![],
             bucket: "test-bucket".to_string(),
+            storage_type: None,
         });
 
         _app_state
@@ -406,6 +408,7 @@ mod markdown_handler_tests {
             markdown_object_key: Some("markdown/test_task/test.md".to_string()),
             images: vec![],
             bucket: "test-bucket".to_string(),
+            storage_type: None,
         });
 
         _app_state
@@ -494,6 +497,7 @@ mod toc_handler_tests {
             markdown_object_key: Some("markdown/test_task/test.md".to_string()),
             images: vec![],
             bucket: "test-bucket".to_string(),
+            storage_type: None,
         });
 
         _app_state
@@ -1216,5 +1220,176 @@ mod handler_security_tests {
             .unwrap();
 
         // Should reject oversized files
+    }
+}
+
+/// 自定义上传后端（nuwax 风格）入口参数集成测试
+#[cfg(test)]
+mod custom_upload_entry_tests {
+    use crate::routes::create_routes;
+    use crate::tests::test_helpers::*;
+    use axum_test::TestServer;
+    use serde_json::json;
+
+    /// 任一 upload_* 字段出现但 base_url 无法解析 → 400（Fail Fast，不建任务）
+    #[tokio::test]
+    async fn test_upload_from_url_fails_fast_without_base_url() {
+        safe_init_global_config();
+        let state = create_test_app_state().await;
+        let server = TestServer::new(create_routes(state.clone())).unwrap();
+
+        let response = server
+            .post("/api/v1/documents/uploadFromUrl")
+            .json(&json!({
+                "url": "http://127.0.0.1:1/test.pdf",
+                "upload_api_key": "ak-xxx"
+            }))
+            .await;
+
+        assert_eq!(response.status_code(), axum::http::StatusCode::BAD_REQUEST);
+        let body = response.json::<serde_json::Value>();
+        assert!(
+            body.to_string().contains("base_url"),
+            "错误信息应说明 base_url 缺失: {body}"
+        );
+    }
+
+    /// 非法 upload_path（无前导斜杠）→ 400
+    #[tokio::test]
+    async fn test_upload_from_url_rejects_invalid_path() {
+        safe_init_global_config();
+        let state = create_test_app_state().await;
+        let server = TestServer::new(create_routes(state.clone())).unwrap();
+
+        let response = server
+            .post("/api/v1/documents/uploadFromUrl")
+            .json(&json!({
+                "url": "http://127.0.0.1:1/test.pdf",
+                "upload_base_url": "https://agent.example.com",
+                "upload_path": "no-leading-slash"
+            }))
+            .await;
+
+        assert_eq!(response.status_code(), axum::http::StatusCode::BAD_REQUEST);
+    }
+
+    /// 回归锚点：不带 upload_* 字段的请求行为不变（202），任务 upload_config=None（走 OSS）
+    #[tokio::test]
+    async fn test_upload_from_url_without_upload_params_keeps_oss_behavior() {
+        safe_init_global_config();
+        let state = create_test_app_state().await;
+        let server = TestServer::new(create_routes(state.clone())).unwrap();
+
+        let response = server
+            .post("/api/v1/documents/uploadFromUrl")
+            .json(&json!({ "url": "http://127.0.0.1:1/test.pdf" }))
+            .await;
+
+        assert_eq!(response.status_code(), axum::http::StatusCode::ACCEPTED);
+        let body = response.json::<serde_json::Value>();
+        let task_id = body["data"]["task_id"].as_str().expect("应返回 task_id");
+        let task = state
+            .task_service
+            .get_task(task_id)
+            .await
+            .unwrap()
+            .expect("任务应已创建");
+        assert!(task.upload_config.is_none(), "不带 upload_* 字段应走 OSS");
+    }
+
+    /// 携带完整 upload_* 字段 → 202 且任务持久化了自定义上传端点（入队前落盘）
+    #[tokio::test]
+    async fn test_upload_from_url_persists_upload_endpoint() {
+        safe_init_global_config();
+        let state = create_test_app_state().await;
+        let server = TestServer::new(create_routes(state.clone())).unwrap();
+
+        let response = server
+            .post("/api/v1/documents/uploadFromUrl")
+            .json(&json!({
+                "url": "http://127.0.0.1:1/test.pdf",
+                "upload_base_url": "https://agent.example.com",
+                "upload_api_key": "ak-xxx",
+                "upload_type": "tmp"
+            }))
+            .await;
+
+        assert_eq!(response.status_code(), axum::http::StatusCode::ACCEPTED);
+        let body = response.json::<serde_json::Value>();
+        let task_id = body["data"]["task_id"].as_str().expect("应返回 task_id");
+        let task = state
+            .task_service
+            .get_task(task_id)
+            .await
+            .unwrap()
+            .expect("任务应已创建");
+        let endpoint = task.upload_config.expect("upload_config 应已持久化");
+        assert_eq!(endpoint.base_url, "https://agent.example.com");
+        assert_eq!(endpoint.path, "/api/v1/file/upload");
+        assert_eq!(endpoint.api_key, "ak-xxx");
+        assert_eq!(endpoint.upload_type, oss_client::CustomUploadType::Tmp);
+    }
+
+    /// custom 任务的 expires_hours 1-168 校验与 OSS 任务一致（0 → 400）
+    #[tokio::test]
+    async fn test_custom_task_expires_hours_validation_consistent() {
+        safe_init_global_config();
+        let state = create_test_app_state().await;
+        let server = TestServer::new(create_routes(state.clone())).unwrap();
+
+        // 先构造一个带 custom upload_config 的任务（通过 uploadFromUrl 落盘）
+        let response = server
+            .post("/api/v1/documents/uploadFromUrl")
+            .json(&json!({
+                "url": "http://127.0.0.1:1/test.pdf",
+                "upload_base_url": "https://agent.example.com",
+                "upload_api_key": "ak-xxx"
+            }))
+            .await;
+        assert_eq!(response.status_code(), axum::http::StatusCode::ACCEPTED);
+        let body = response.json::<serde_json::Value>();
+        let task_id = body["data"]["task_id"].as_str().expect("task_id");
+
+        // 手动注入 oss_data（storage_type=custom），使任务走 custom 分支
+        let mut task = state
+            .task_service
+            .get_task(task_id)
+            .await
+            .unwrap()
+            .expect("task");
+        task.oss_data = Some(crate::models::OssData {
+            markdown_url: "https://agent.example.com/api/f/s3/x.md".to_string(),
+            markdown_object_key: None,
+            images: vec![],
+            bucket: "https://agent.example.com".to_string(),
+            storage_type: Some(crate::models::StorageType::Custom),
+        });
+        state.task_service.save_task(&task).await.unwrap();
+
+        // expires_hours=0 → 拒绝（与 OSS 分支同款 ApiResponse::validation_error，
+        // 存量行为为 HTTP 200 + code=VALIDATION_ERROR 业务错误体，保持兼容不改变状态码；
+        // 修复前 custom 分支完全跳过校验、静默成功）
+        let response = server
+            .get(&format!(
+                "/api/v1/tasks/{task_id}/markdown/url?temp=true&expires_hours=0"
+            ))
+            .await;
+        assert_eq!(response.status_code(), axum::http::StatusCode::OK);
+        let body = response.json::<serde_json::Value>();
+        assert_eq!(body["code"], "VALIDATION_ERROR");
+        assert!(body["message"].as_str().unwrap().contains("1-168"));
+
+        // expires_hours 缺省（24，合法）+ temp=true：换签失败（不可达后端）→
+        // 回退返回存储 URL temporary=false（修复后的统一回退策略）
+        let response = server
+            .get(&format!("/api/v1/tasks/{task_id}/markdown/url?temp=true"))
+            .await;
+        assert_eq!(response.status_code(), axum::http::StatusCode::OK);
+        let body = response.json::<serde_json::Value>();
+        assert_eq!(body["data"]["temporary"], false);
+        assert_eq!(
+            body["data"]["url"],
+            "https://agent.example.com/api/f/s3/x.md"
+        );
     }
 }
