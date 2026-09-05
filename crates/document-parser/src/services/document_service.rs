@@ -1738,14 +1738,30 @@ fn extract_inline_dest_spans(
         }
         let dest = dest_url.to_string();
         // 事件 span = `![alt](dest "title")` / `[text](dest)` 整体；dest 原文
-        // 必在 `](` 之后——从该分隔符之后查找，跳过 alt/链接文本中的同串
+        // 紧跟 text/dest 边界的 `](` 之后。用 `](dest` 模式 + **href 语法后验**
+        // 定位（从右往左找，取最后一个满足者）：真 href 的 dest 之后必是 `)`
+        // 或空白（进入 title）；title 内 `](` 字面量后的 dest 副本之后是
+        // 引号等非法字符，被后验拒绝。从右往左保证嵌套 Image-in-Link 的
+        // 外层命中自己的边界（内层 dest 在其 text 中，位置更靠左）。
+        let needle = format!("]({dest}");
         let span_text = &content[range.clone()];
-        let search_from = span_text
-            .rfind("](")
-            .map(|pos| pos + 2)
-            .unwrap_or(range.start);
-        if let Some(local) = span_text[search_from..].find(&dest) {
-            let start = range.start + search_from + local;
+        let mut search_end = span_text.len();
+        let mut located: Option<usize> = None; // span 内 dest 起点（局部坐标）
+        while let Some(pos) = span_text[..search_end].rfind(needle.as_str()) {
+            let after = pos + needle.len();
+            let href_like = after >= span_text.len()
+                || span_text[after..]
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_whitespace() || c == ')');
+            if href_like {
+                located = Some(pos + 2);
+                break;
+            }
+            search_end = pos;
+        }
+        if let Some(local) = located {
+            let start = range.start + local;
             let end = start + dest.len();
             spans.push((dest, start..end));
         }
@@ -1766,7 +1782,9 @@ fn extract_inline_dest_spans(
 
 /// 按 span 单趟重建内容（O(M) 一次分配）
 ///
-/// `signed` 缺失的 span（单张换签失败）保留原文；spans 必须按起点有序。
+/// `signed` 缺失的 span（单张换签失败）保留原文；spans 必须按起点**严格
+/// 递增且互不重叠**（重叠会使切片 start < end 而 panic）——
+/// [`extract_inline_dest_spans`] 的输出即满足此契约。
 fn rebuild_with_replacements(
     content: &str,
     spans: &[(String, std::ops::Range<usize>)],
@@ -2064,6 +2082,29 @@ mod tests {
         assert_eq!(&content2[spans2[0].1.clone()], "P/y.png");
         // span 应指向括号内（offset 10 起），而非链接文本（offset 1 起）
         assert_eq!(spans2[0].1.start, content2.find("](P/").unwrap() + 2);
+    }
+
+    #[test]
+    fn extract_title_containing_bracket_paren_locates_real_href() {
+        // title 内含 `](` 字面量（CommonMark 合法）：rfind 会越过真 href，
+        // 应回退首个 `](` 定位——真 href 被换签、title 不被污染
+        let content = "![img](P/a.png \"ti](P/a.png\")";
+        let spans = extract_inline_dest_spans(content, "P/");
+        assert_eq!(spans.len(), 1);
+        let (dest, range) = &spans[0];
+        assert_eq!(dest, "P/a.png");
+        // span 必须覆盖括号内的真 href，而非 title 里的副本
+        assert_eq!(&content[range.clone()], "P/a.png");
+        let mut signed = HashMap::new();
+        signed.insert("P/a.png".to_string(), "S".to_string());
+        let out = rebuild_with_replacements(content, &spans, &signed);
+        assert_eq!(out, "![img](S \"ti](P/a.png\")");
+
+        // title 含 `](` 但无 dest 副本：仍应命中真 href（而非静默跳过）
+        let content2 = "![img](P/b.png \"ti](tle\")";
+        let spans2 = extract_inline_dest_spans(content2, "P/");
+        assert_eq!(spans2.len(), 1, "title 含 ]( 不应导致链接被跳过");
+        assert_eq!(&content2[spans2[0].1.clone()], "P/b.png");
     }
 
     #[test]
