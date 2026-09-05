@@ -1703,14 +1703,18 @@ async fn read_file_size(local_path: &Path) -> Result<u64, AppError> {
 /// code block 内的文本**（解析器将二者折叠为 Code/CodeBlock 事件，不产生
 /// Image/Link 事件），因此代码示例里的后端 URL 不会被误改写。仅处理
 /// `LinkType::Inline`（dest 原文保证在事件 span 内；引用式链接的 dest 在
-/// 文档别处，跳过）。span 内用 `find(dest)` 相对定位原文子串，转义/实体
-/// 导致原文与 unescape 后的 dest 不一致时 find 失败即安全跳过。
-/// 返回值按 span 起点有序（offset 迭代器天然有序）。
+/// 文档别处，跳过）。span 内从 `](` 之后定位 dest 原文子串（避免命中
+/// alt/链接文本中的同串——`![url](url)` 回显形态），转义/实体导致原文与
+/// unescape 后的 dest 不一致时定位失败即安全跳过。
+///
+/// 返回值**按 span 起点严格递增且互不重叠**：事件流的前序遍历序在嵌套
+/// Image-in-Link（可点击缩略图）下与位置序相反，故收集后排序，并跳过
+/// 与前一 span 重叠的定位（同 URL 嵌套时 alt 内匹配等退化场景）。
 fn extract_inline_dest_spans(
     content: &str,
     base_prefix: &str,
 ) -> Vec<(String, std::ops::Range<usize>)> {
-    let mut spans = Vec::new();
+    let mut spans: Vec<(String, std::ops::Range<usize>)> = Vec::new();
     for (event, range) in Parser::new(content).into_offset_iter() {
         let (dest_url, link_type) = match event {
             Event::Start(Tag::Image {
@@ -1728,18 +1732,36 @@ fn extract_inline_dest_spans(
         if link_type != LinkType::Inline {
             continue;
         }
-        let dest = dest_url.to_string();
-        if !dest.starts_with(base_prefix) {
+        // 先前缀过滤再克隆：不匹配的链接（文档中绝大多数）零分配
+        if !dest_url.starts_with(base_prefix) {
             continue;
         }
-        // 在事件 span 内定位 dest 原文子串（span = `![alt](dest "title")` 整体）
-        if let Some(local) = content[range.clone()].find(&dest) {
-            let start = range.start + local;
+        let dest = dest_url.to_string();
+        // 事件 span = `![alt](dest "title")` / `[text](dest)` 整体；dest 原文
+        // 必在 `](` 之后——从该分隔符之后查找，跳过 alt/链接文本中的同串
+        let span_text = &content[range.clone()];
+        let search_from = span_text
+            .rfind("](")
+            .map(|pos| pos + 2)
+            .unwrap_or(range.start);
+        if let Some(local) = span_text[search_from..].find(&dest) {
+            let start = range.start + search_from + local;
             let end = start + dest.len();
             spans.push((dest, start..end));
         }
     }
-    spans
+    // 事件序（前序遍历）≠ 位置序：嵌套 Image-in-Link 时外层 Link 的 span
+    // 靠后却先入列——排序恢复位置序；再剔除重叠（同 URL 嵌套的退化定位）
+    spans.sort_by_key(|(_, range)| range.start);
+    let mut deduped: Vec<(String, std::ops::Range<usize>)> = Vec::with_capacity(spans.len());
+    let mut last_end = 0;
+    for (dest, range) in spans {
+        if range.start >= last_end {
+            last_end = range.end;
+            deduped.push((dest, range));
+        }
+    }
+    deduped
 }
 
 /// 按 span 单趟重建内容（O(M) 一次分配）
@@ -1991,6 +2013,81 @@ mod tests {
         let content = "[ref]: https://agent.example.com/api/f/s3/r.png\n\n![alt][ref]\n";
         let spans = extract_inline_dest_spans(content, SIGN_TEST_PREFIX);
         assert!(spans.is_empty());
+    }
+
+    #[test]
+    fn extract_nested_image_in_link_ordered_and_no_panic() {
+        // 可点击缩略图（badge）形态：嵌套使事件序与位置序相反——
+        // 修复前 spans 降序导致 rebuild 切片 panic，现应按位置序安全重建
+        let content = "[![thumb](https://agent.example.com/api/f/s3/a.png)](https://agent.example.com/api/f/s3/b.png)";
+        let spans = extract_inline_dest_spans(content, SIGN_TEST_PREFIX);
+        assert_eq!(spans.len(), 2, "嵌套两层都应收集");
+        // 严格递增且不重叠
+        assert!(spans[0].1.start < spans[1].1.start && spans[0].1.end <= spans[1].1.start);
+
+        let mut signed = HashMap::new();
+        signed.insert(
+            "https://agent.example.com/api/f/s3/a.png".to_string(),
+            "SA".to_string(),
+        );
+        signed.insert(
+            "https://agent.example.com/api/f/s3/b.png".to_string(),
+            "SB".to_string(),
+        );
+        let out = rebuild_with_replacements(content, &spans, &signed);
+        assert_eq!(
+            out, "[![thumb](SA)](SB)",
+            "两个 href 都应被替换（嵌套顺序无关）"
+        );
+    }
+
+    #[test]
+    fn extract_alt_echoing_url_replaces_href_not_alt() {
+        // alt 回显 URL（LLM 生成内容常见）：定位必须命中 href 而非 alt 文本
+        let content =
+            "![https://agent.example.com/api/f/s3/x.png](https://agent.example.com/api/f/s3/x.png)";
+        let spans = extract_inline_dest_spans(content, SIGN_TEST_PREFIX);
+        assert_eq!(spans.len(), 1);
+        let (dest, range) = &spans[0];
+        assert_eq!(dest, "https://agent.example.com/api/f/s3/x.png");
+        // span 起点应在 href 区段（`](` 之后），而非 alt 内的首次出现
+        assert_eq!(&content[range.clone()], dest, "span 应精确覆盖 href 子串");
+        let mut signed = HashMap::new();
+        signed.insert(dest.clone(), "SIGNED".to_string());
+        let out = rebuild_with_replacements(content, &spans, &signed);
+        assert_eq!(out, "![https://agent.example.com/api/f/s3/x.png](SIGNED)");
+
+        // 裸链接惯用法 [url](url)
+        let content2 = "[P/y.png](P/y.png)";
+        let spans2 = extract_inline_dest_spans(content2, "P/");
+        assert_eq!(spans2.len(), 1);
+        assert_eq!(&content2[spans2[0].1.clone()], "P/y.png");
+        // span 应指向括号内（offset 10 起），而非链接文本（offset 1 起）
+        assert_eq!(spans2[0].1.start, content2.find("](P/").unwrap() + 2);
+    }
+
+    #[test]
+    fn extract_same_url_nested_positions_both_hrefs_correctly() {
+        // 同 URL 嵌套 `[![x](P/z)](P/z)`：`](` 从 span 尾部定位使内层 Image
+        // 与外层 Link 各自命中自己的 href——两个 span 均覆盖正确子串、
+        // 不重叠且有序（修复前 find 首次命中会让外层落在内层 href 上）
+        let content = "[![x](P/z)](P/z)";
+        let spans = extract_inline_dest_spans(content, "P/");
+        assert_eq!(spans.len(), 2, "嵌套两层各收集一个: {spans:?}");
+        for (dest, range) in &spans {
+            assert_eq!(dest, "P/z");
+            assert_eq!(
+                &content[range.clone()],
+                "P/z",
+                "每个 span 精确覆盖一个 href"
+            );
+        }
+        assert!(spans[0].1.end <= spans[1].1.start, "不重叠且有序");
+        // rebuild：两个 href 都替换、不 panic
+        let mut signed = HashMap::new();
+        signed.insert("P/z".to_string(), "S".to_string());
+        let out = rebuild_with_replacements(content, &spans, &signed);
+        assert_eq!(out, "[![x](S)](S)");
     }
 
     #[test]

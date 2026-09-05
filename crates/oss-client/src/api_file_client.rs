@@ -160,10 +160,14 @@ impl<T> NuwaxEnvelope<T> {
     }
 }
 
-/// 文件内容信封嗅探探测类型（只关心 code；与 AK/上传响应契约解耦）
+/// 文件内容信封嗅探探测类型（与 AK/上传响应契约解耦；message/tid 仅用于
+/// 拒绝时的排障信息，缺失容忍）
 #[derive(Debug, Deserialize)]
 struct EnvelopeProbe {
     code: String,
+    #[serde(default)]
+    message: String,
+    tid: Option<String>,
 }
 
 impl EnvelopeProbe {
@@ -476,8 +480,8 @@ impl ApiFileClient {
             && probe.is_numeric_error_code()
         {
             return Err(OssError::sdk(format!(
-                "自定义上传后端返回了错误信封而非文件内容: code={}",
-                probe.code
+                "自定义上传后端返回了错误信封而非文件内容: code={}, message={}, tid={:?}",
+                probe.code, probe.message, probe.tid
             )));
         }
 
