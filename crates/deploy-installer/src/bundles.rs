@@ -218,6 +218,10 @@ pub fn make_executable(_path: &Path) -> std::io::Result<()> {
 mod tests {
     use super::*;
 
+    /// 这些测试都通过 set_var 突变全局 env（NUWAX_DEPLOY_ROOT/VERSION），
+    /// 并行执行会互踩——用互斥锁在模块内串行化（无新依赖）。
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     /// 读取仓库 manifest 的 assetVersion（测试期望跟随 manifest 而非硬编码，
     /// 提升 assetVersion 时无需同步改测试）。
     fn manifest_asset_version() -> String {
@@ -230,6 +234,7 @@ mod tests {
 
     #[test]
     fn asset_version_strips_prerelease_when_manifest_missing_asset_version() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // 构造无 assetVersion 的 manifest，验证回退到包版本剥离 prerelease
         let dir = tempfile::tempdir().unwrap();
         let templates = dir.path().join("templates");
@@ -253,6 +258,7 @@ mod tests {
 
     #[test]
     fn asset_version_from_manifest_overrides_newer_package_version() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../npm/nuwax-deploy-installer/vendor");
         let expected = manifest_asset_version();
@@ -276,6 +282,7 @@ mod tests {
 
     #[test]
     fn optional_venv_url_from_manifest() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../npm/nuwax-deploy-installer/vendor");
         let expected = manifest_asset_version();
@@ -299,6 +306,7 @@ mod tests {
 
     #[test]
     fn optional_whisper_large_v3_url_from_manifest() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../npm/nuwax-deploy-installer/vendor");
         let expected = manifest_asset_version();
@@ -319,6 +327,7 @@ mod tests {
 
     #[test]
     fn optional_voice_cli_cuda_url_from_manifest() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../npm/nuwax-deploy-installer/vendor");
         let expected = manifest_asset_version();

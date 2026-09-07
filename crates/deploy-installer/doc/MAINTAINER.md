@@ -48,12 +48,12 @@ npm/nuwax-deploy-installer/
 
 ## 2. `manifest.json` 与 `assetVersion`
 
-OSS 大文件 URL 模板在 `vendor/templates/manifest.json`：
+OSS 大文件 URL 模板在 `vendor/templates/manifest.json`（当前 `assetVersion: "0.2.9"`）：
 
 ```json
 {
-  "version": "0.2.3-beta.3",
-  "assetVersion": "0.2.1",
+  "version": "0.2.9-beta.N",
+  "assetVersion": "0.2.9",
   "optionalAssets": {
     "venv": { "darwin-arm64": ".../venv-macos-arm64-{version}.tar.gz" },
     "whisperLargeV3": { "darwin-arm64": ".../whisper-ggml-large-v3-{version}.tar.gz" },
@@ -66,13 +66,17 @@ OSS 大文件 URL 模板在 `vendor/templates/manifest.json`：
 | 字段 | 作用 |
 |------|------|
 | `version` | 随 npm 包版本更新（assemble / CI 写入） |
-| `assetVersion` | **OSS 文件名**中的 `{version}` 占位符（如 `0.2.1`） |
+| `assetVersion` | **OSS 文件名**中的 `{version}` 占位符（当前 `0.2.9`） |
 | `optionalAssets` | 各平台 URL 模板 |
 
 **规则**：
 
-- beta 发版（`0.2.3-beta.N`）**不必**每次重传 OSS；保持 `assetVersion: "0.2.1"` 即可复用已有包。
-- 上传了新版 OSS（如 `venv-macos-arm64-0.2.4.tar.gz`）后，在仓库里 **手动 bump `assetVersion`** 再发 npm。
+- beta 发版（`0.2.9-beta.N`）**不必**每次重传 OSS；保持 `assetVersion: "0.2.9"` 即可复用已有包。
+- 上传了新版 OSS（如 `venv-macos-arm64-0.2.10.tar.gz`）后，在仓库里 **手动 bump `assetVersion`** 再发 npm；
+  **配套动作**：voice-cli 的 whisper/CUDA 资产也要在 OSS 服务端复制（`copy_object`）到新版本命名，
+  否则 `{version}` 替换后 URL 指向不存在的对象（0.2.9 发布时已把 whisper-large-v3/CUDA 从 0.2.1 复制过来）。
+- venv 重打包：`scripts/ci/pack-document-parser-venv-macos-arm64.sh <版本>`（relocatable + python3.12 +
+  mineru 固定版），上传后跑 `scripts/ci/verify-oss-venv-url.sh <url>` 验证。
 - `assemble-nuwax-deploy-installer.sh` 只更新 `version`；**不会覆盖**已有 `assetVersion`（缺失时才用 `VERSION` 去掉 prerelease 自动填）。
 
 代码侧：`deploy_asset_version()` 优先读 `assetVersion`，无则回退到 npm 版本去掉 `-beta` 后缀。

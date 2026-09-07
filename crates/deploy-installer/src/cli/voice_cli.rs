@@ -231,7 +231,12 @@ fn install_full(args: &VoiceCliSetupArgs) -> Result<()> {
         cuda_lib_dir: cuda_lib,
         cudnn_lib_dir: cudnn_lib,
     }));
-    handle_launchd_install_result(service_result, SERVICE_NAME, &install_dir)?;
+    let manual_cmd = format!(
+        "{}/voice-cli server run --config {}/config.yml",
+        install_dir.display(),
+        install_dir.display()
+    );
+    handle_launchd_install_result(service_result, SERVICE_NAME, &manual_cmd)?;
     let config_path = install_dir.join(CONFIG_FILENAME);
     let port = read_server_port(&config_path).unwrap_or(DEFAULT_PORT);
     print_install_success(SERVICE_NAME, &install_dir, port);

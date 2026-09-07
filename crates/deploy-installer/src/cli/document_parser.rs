@@ -167,7 +167,12 @@ fn install_full(args: &SetupArgs) -> Result<()> {
         cuda_lib_dir: None,
         cudnn_lib_dir: None,
     }));
-    handle_launchd_install_result(service_result, SERVICE_NAME, &install_dir)?;
+    let manual_cmd = format!(
+        "{}/document-parser --config {}/config.yml server",
+        install_dir.display(),
+        install_dir.display()
+    );
+    handle_launchd_install_result(service_result, SERVICE_NAME, &manual_cmd)?;
     let config_path = install_dir.join(CONFIG_FILENAME);
     let port = read_server_port(&config_path).unwrap_or(DEFAULT_PORT);
     print_install_success(SERVICE_NAME, &install_dir, port);
