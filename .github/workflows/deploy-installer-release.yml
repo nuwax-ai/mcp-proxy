@@ -5,6 +5,17 @@
 #   Stable:  deploy-v0.2.1         →  npm @latest (no prerelease suffix)
 #
 # Workflow: always ship beta first, verify on Mac Mini, then ship stable.
+#
+# Jobs:
+#   resolve  — version/channel guard (runs once)
+#   build    — per-platform matrix (macos-14 → darwin-arm64, ubuntu-22.04 → linux-x64):
+#              build binaries into vendor/<key>/ + smoke test on the native OS,
+#              upload the slice as an artifact
+#   publish  — merge all platform slices, stamp manifest/package.json once,
+#              verify layout, npm publish, report tarball size
+#
+# Linux build deps: libclang-dev/clang (whisper-rs bindgen), cmake (sherpa/onnx -sys
+# crates); the X11/GL apt set satisfies doctor's syslibs preflight on the runner.
 
 name: Deploy Installer Release
 
@@ -34,16 +45,12 @@ permissions:
   contents: read
 
 jobs:
-  build-and-publish:
-    runs-on: macos-14
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      channel: ${{ steps.ver.outputs.channel }}
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin
-
       - name: Resolve version and channel
         id: ver
         run: |
@@ -77,29 +84,104 @@ jobs:
           echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
           echo "==> nuwax-deploy-installer@$VERSION → npm dist-tag @$CHANNEL"
 
-      - name: Update workspace version
-        run: |
-          # Cargo SemVer accepts 0.2.1-beta.1; strip for path-dep crates that need X.Y.Z only is not required.
-          python3 scripts/ci/update-workspace-version.py "${{ steps.ver.outputs.version }}" \
-            || python scripts/ci/update-workspace-version.py "${{ steps.ver.outputs.version }}"
+  build:
+    needs: resolve
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: aarch64-apple-darwin
+            vendor_key: darwin-arm64
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            vendor_key: linux-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Assemble npm package
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.vendor_key }}
+
+      - name: Install Linux build deps
+        if: runner.os == 'Linux'
         run: |
-          bash scripts/ci/assemble-nuwax-deploy-installer.sh \
-            "${{ steps.ver.outputs.version }}" \
-            aarch64-apple-darwin
+          sudo apt-get update
+          # whisper-rs bindgen 需要 libclang/clang，sherpa/onnx -sys 需要 cmake；
+          # X11/GL 组合满足 doctor 的 syslibs 预检（也是文档中 Debian 系安装命令的活体验证）
+          sudo apt-get install -y libclang-dev clang cmake \
+            libxcb1 libxkbcommon-x11-0 libgl1 libglib2.0-0
+
+      - name: Update workspace version
+        # 必须在每个平台 job 内执行：二进制内嵌 CARGO_PKG_VERSION，需要与发布版本一致
+        run: |
+          python3 scripts/ci/update-workspace-version.py "${{ needs.resolve.outputs.version }}"
+
+      - name: Build platform slice
+        run: |
+          bash scripts/ci/build-nuwax-platform-binaries.sh \
+            "${{ matrix.target }}" "${{ matrix.vendor_key }}"
+          # 模板与版本戳（幂等；publish 合并后会再统一执行一次）
+          bash scripts/ci/stamp-nuwax-manifest.sh "${{ needs.resolve.outputs.version }}"
+
+      - name: Smoke test (native platform)
+        run: bash scripts/ci/smoke-nuwax-deploy-installer.sh /tmp/doc-parser-smoke
+
+      - name: Upload vendor slice
+        uses: actions/upload-artifact@v4
+        with:
+          name: vendor-${{ matrix.vendor_key }}
+          path: npm/nuwax-deploy-installer/vendor/${{ matrix.vendor_key }}
+          if-no-files-found: error
+
+  publish:
+    needs: [resolve, build]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all platform slices
+        uses: actions/download-artifact@v4
+        with:
+          pattern: vendor-*
+          path: npm/nuwax-deploy-installer/vendor
+          merge-multiple: true
+
+      - name: Stamp manifest + package.json
+        run: bash scripts/ci/stamp-nuwax-manifest.sh "${{ needs.resolve.outputs.version }}"
+
+      - name: Verify merged vendor layout
+        run: |
+          set -euo pipefail
+          for key in darwin-arm64 linux-x64; do
+            test -x "npm/nuwax-deploy-installer/vendor/$key/deploy-installer" \
+              || { echo "::error::missing $key slice"; exit 1; }
+            test -x "npm/nuwax-deploy-installer/vendor/$key/document-parser" \
+              || { echo "::error::missing $key document-parser"; exit 1; }
+          done
+          echo "==> merged vendor layout verified"
 
       - uses: actions/setup-node@v4
         with:
           node-version: '20.x'
           registry-url: 'https://registry.npmjs.org'
 
+      - name: Report tarball size
+        working-directory: npm/nuwax-deploy-installer
+        run: npm pack --dry-run
+
       - name: Publish to npm
         working-directory: npm/nuwax-deploy-installer
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          VERSION: ${{ steps.ver.outputs.version }}
-          CHANNEL: ${{ steps.ver.outputs.channel }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          CHANNEL: ${{ needs.resolve.outputs.channel }}
         run: |
           set -euo pipefail
           echo "==> Publishing nuwax-deploy-installer@${VERSION} with --tag ${CHANNEL}"
@@ -118,6 +200,3 @@ jobs:
 
           echo "==> current dist-tags:"
           npm dist-tag ls nuwax-deploy-installer || true
-
-      - name: Smoke test
-        run: bash scripts/ci/smoke-nuwax-deploy-installer.sh /tmp/doc-parser-smoke

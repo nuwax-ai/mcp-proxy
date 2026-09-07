@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Smoke test nuwax-deploy-installer without uv-init (CI / local).
+# Platform-aware: picks the matching vendor/<key> slice for the current OS/arch.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -8,7 +9,19 @@ INSTALL="${1:-/tmp/doc-parser-smoke}"
 
 export NUWAX_DEPLOY_ROOT="$PKG/vendor"
 export NUWAX_DEPLOY_VERSION="$(node -p "require('$PKG/package.json').version")"
-BIN="$PKG/vendor/darwin-arm64/deploy-installer"
+
+case "$(uname -s)-$(uname -m)" in
+  Darwin-arm64)  VENDOR_KEY="darwin-arm64" ;;
+  Darwin-x86_64) VENDOR_KEY="darwin-x64" ;;
+  Linux-x86_64)  VENDOR_KEY="linux-x64" ;;
+  Linux-aarch64) VENDOR_KEY="linux-arm64" ;;
+  *)
+    echo "smoke: unsupported platform $(uname -s)-$(uname -m)" >&2
+    exit 1
+    ;;
+esac
+
+BIN="$PKG/vendor/$VENDOR_KEY/deploy-installer"
 TEMPLATES="$PKG/vendor/templates/document-parser"
 
 if [[ ! -x "$BIN" ]]; then
@@ -18,7 +31,7 @@ fi
 
 rm -rf "$INSTALL"
 mkdir -p "$INSTALL"
-cp "$PKG/vendor/darwin-arm64/document-parser" "$INSTALL/"
+cp "$PKG/vendor/$VENDOR_KEY/document-parser" "$INSTALL/"
 cp "$TEMPLATES/config.example.yml" "$INSTALL/config.yml"
 cp "$TEMPLATES/.document-parser.env.example" "$INSTALL/.document-parser.env"
 chmod +x "$INSTALL/document-parser"
@@ -43,4 +56,4 @@ fi
 echo "==> service uninstall"
 "$BIN" document-parser service uninstall --install-dir "$INSTALL"
 
-echo "✅ smoke test passed"
+echo "✅ smoke test passed ($VENDOR_KEY)"
