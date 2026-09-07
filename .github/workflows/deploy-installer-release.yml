@@ -137,7 +137,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: vendor-${{ matrix.vendor_key }}
-          path: npm/nuwax-deploy-installer/vendor/${{ matrix.vendor_key }}
+          # 上传整个 vendor/：upload-artifact 取文件的最小公共祖先为根，
+          # 只传 vendor/<key> 会丢失平台目录层级（内容平铺），合并时无法还原
+          path: npm/nuwax-deploy-installer/vendor
           if-no-files-found: error
 
   publish:
