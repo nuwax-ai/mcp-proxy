@@ -287,6 +287,13 @@ pub fn uninstall_service(spec: &ServiceSpec) -> Result<()> {
         }
         ServiceBackend::Systemd => {
             if is_root() {
+                // service-manager 的 uninstall 只 disable + 删 unit 文件，不 stop——
+                // 先显式停止，否则运行中的进程变孤儿并继续占用端口（Linux 重装场景
+                // 实测：旧进程带着已删除的 CWD 存活，顶替新服务的端口）。
+                // systemctl stop 幂等：unit 未加载/未运行时同样返回成功。
+                if let Err(e) = systemd::stop(&spec.name) {
+                    println!("  note: stop before uninstall: {e}");
+                }
                 let mgr = native_manager(backend)?;
                 mgr.uninstall(ServiceUninstallCtx { label })
                     .map_err(map_io)?;

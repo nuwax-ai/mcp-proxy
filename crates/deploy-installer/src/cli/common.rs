@@ -486,8 +486,7 @@ fn copy_voice_cli_companion_libs(src_dir: &Path, install_dir: &Path, quiet: bool
         let src = src_dir.join(name);
         let dst = install_dir.join(name);
         if src.exists() {
-            fs::copy(&src, &dst)
-                .with_context(|| format!("copy {} → {}", src.display(), dst.display()))?;
+            copy_file_atomic(&src, &dst)?;
             make_executable(&dst)?;
             if !quiet {
                 println!("  copied companion lib {name}");
@@ -505,8 +504,7 @@ fn copy_voice_cli_companion_libs(src_dir: &Path, install_dir: &Path, quiet: bool
         let src = src_dir.join(name);
         let dst = install_dir.join(name);
         if src.exists() {
-            fs::copy(&src, &dst)
-                .with_context(|| format!("copy {} → {}", src.display(), dst.display()))?;
+            copy_file_atomic(&src, &dst)?;
             if !quiet {
                 println!("  copied companion lib {name}");
             }
@@ -538,8 +536,7 @@ pub fn ensure_bundled_binary(service: &str, install_dir: &Path, quiet: bool) -> 
     let bundled = bundled_binary_path(service);
     let dst = install_dir.join(service);
     if bundled.exists() {
-        fs::copy(&bundled, &dst)
-            .with_context(|| format!("copy {} → {}", bundled.display(), dst.display()))?;
+        copy_file_atomic(&bundled, &dst)?;
         make_executable(&dst)?;
         if !quiet {
             println!("  copied binary from {}", bundled.display());
@@ -565,11 +562,31 @@ pub fn upgrade_bundled_binary(service: &str, install_dir: &Path) -> Result<()> {
     if !bundled.exists() {
         bail!("bundled binary not found at {}", bundled.display());
     }
-    fs::copy(&bundled, &dst)?;
+    copy_file_atomic(&bundled, &dst)?;
     make_executable(&dst)?;
     maybe_copy_companion_libs(service, &bundled, install_dir, false)?;
     println!("✅ upgraded {} → {}", bundled.display(), dst.display());
     println!("   Run: deploy-installer {service} service restart");
+    Ok(())
+}
+
+/// 原子复制文件：先写入同目录临时文件，再 rename 顶替目标。
+///
+/// 直接 `fs::copy` 覆盖**正在运行**的二进制会被 Linux 以 ETXTBSY 拒绝
+/// （macOS 无此限制，因此仅在 Linux 部署中暴露）；dlopen 加载中的 .so 同理。
+/// rename(2) 替换运行中的可执行文件是合法的：旧 inode 继续服务已运行的
+/// 进程，新文件即刻对后续启动生效——install 重跑 / upgrade 无需先停服务。
+fn copy_file_atomic(src: &Path, dst: &Path) -> Result<()> {
+    let tmp = dst.with_extension(format!("new-{}", std::process::id()));
+    fs::copy(src, &tmp).with_context(|| format!("copy {} → {}", src.display(), tmp.display()))?;
+    if let Err(e) = fs::rename(&tmp, dst) {
+        let _ = fs::remove_file(&tmp);
+        return Err(anyhow::Error::new(e).context(format!(
+            "replace {} ← {}",
+            dst.display(),
+            src.display()
+        )));
+    }
     Ok(())
 }
 
