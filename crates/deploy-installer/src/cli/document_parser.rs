@@ -67,6 +67,11 @@ fn setup(args: &SetupArgs, quiet: bool, installing: bool) -> Result<PathBuf> {
     let dst_bin = ensure_bundled_binary(SERVICE_NAME, &install_dir, quiet)?;
     copy_templates(&install_dir, quiet)?;
 
+    // Linux headless 预检：MinerU/opencv 运行需要 X11/GL 基础库。放在所有 venv
+    // 路径（uv-init / --venv-file / 预编译 venv）之前——venv 内的 Python 同样依赖
+    // 这些系统库，缺失时应在下载/解压数 GB 依赖前就 fail-fast 并给出修复命令。
+    ensure_linux_syslibs()?;
+
     // --venv-file：离线安装本地 venv 包（最高优先级；适合无法访问 OSS 下载源的内网环境）
     if let Some(venv_file) = args.venv_file.as_deref() {
         if !venv_file.is_file() {
@@ -290,6 +295,30 @@ fn run_uv_init(bin: &Path, install_dir: &Path, quiet: bool) -> Result<()> {
     if !status.success() {
         bail!("document-parser uv-init failed with status {status}");
     }
+    Ok(())
+}
+
+/// Linux：X11/GL 基础库预检（Fail Fast，缺库时在 venv 下载前给出修复命令）。
+#[cfg(target_os = "linux")]
+fn ensure_linux_syslibs() -> Result<()> {
+    let status = crate::checks::check_required_linux_syslibs();
+    if status.skipped {
+        println!("  syslibs: WARN (ldconfig unavailable — skipped X11/GL lib check)");
+        return Ok(());
+    }
+    if status.missing.is_empty() {
+        return Ok(());
+    }
+    bail!(
+        "missing Linux system libraries: {}\n{}",
+        status.missing.join(", "),
+        crate::checks::linux_syslibs_install_hint()
+    );
+}
+
+/// 非 Linux 平台无此依赖，直接放行。
+#[cfg(not(target_os = "linux"))]
+fn ensure_linux_syslibs() -> Result<()> {
     Ok(())
 }
 

@@ -520,6 +520,67 @@ pub fn precheck(spec: &ServiceSpec, opts: &PrecheckOptions) -> Result<PrecheckRe
     Ok(report)
 }
 
+/// MinerU（opencv 依赖链）在 headless Linux 上运行所需的基础共享库（ldconfig 名称）。
+///
+/// 无桌面的服务器发行版默认不带这些 X11/GL 客户端库；缺失时 venv 内 mineru 会在
+/// `--help` 自检阶段以 `ImportError: libxcb.so.1: cannot open shared object file` 失败。
+/// 该清单与 document-parser 侧 `detection::shared_lib_install_hint` 的建议命令保持一致。
+pub const REQUIRED_LINUX_SYSLIBS: &[&str] = &["libxcb.so.1", "libGL.so.1", "libglib-2.0.so.0"];
+
+/// ldconfig 缺库时的安装提示文案（RHEL/Debian 双系命令），doctor 与 setup 预检共用。
+pub fn linux_syslibs_install_hint() -> String {
+    "缺少上述库时按发行版安装：\n  \
+     RHEL 系: sudo dnf install libxcb libxkbcommon libXext libXrender mesa-libGL glib2\n  \
+     Debian 系: sudo apt install libxcb1 libxkbcommon-x11-0 libgl1 libglib2.0-0"
+        .to_string()
+}
+
+/// 在 `ldconfig -p` 缓存文本中返回无法解析的库名（纯函数，任意平台可单测）。
+///
+/// 缓存行样例：`        libxcb.so.1 (libc6,x86-64) => /lib/x86_64-linux-gnu/libxcb.so.1`
+/// 行首库名后必须紧跟空格或 `(`（避免 `libxcb.so` 前缀误匹配 `libxcb.so.1` 的行，
+/// 以及 `libglib-2.0.so.0x` 之类的超长名误报）。
+pub fn libs_missing_from_ldconfig(required: &[&str], ldconfig_cache: &str) -> Vec<String> {
+    required
+        .iter()
+        .filter(|lib| {
+            !ldconfig_cache.lines().any(|line| {
+                let t = line.trim_start();
+                t.strip_prefix(*lib)
+                    .is_some_and(|rest| rest.starts_with(' ') || rest.starts_with('('))
+            })
+        })
+        .map(|lib| (*lib).to_string())
+        .collect()
+}
+
+/// Linux 系统库预检结果。
+#[derive(Debug, Clone, Default)]
+pub struct LinuxSyslibStatus {
+    /// 未解析到的库名（空 = 全部就绪）。
+    pub missing: Vec<String>,
+    /// `ldconfig` 不可用（如 musl 环境）时检查被跳过，调用方应降级为 WARN 而非失败。
+    pub skipped: bool,
+}
+
+/// 运行 `ldconfig -p` 并比对 [`REQUIRED_LINUX_SYSLIBS`]。
+#[cfg(target_os = "linux")]
+pub fn check_required_linux_syslibs() -> LinuxSyslibStatus {
+    match Command::new("ldconfig").arg("-p").output() {
+        Ok(out) if out.status.success() => LinuxSyslibStatus {
+            missing: libs_missing_from_ldconfig(
+                REQUIRED_LINUX_SYSLIBS,
+                &String::from_utf8_lossy(&out.stdout),
+            ),
+            skipped: false,
+        },
+        _ => LinuxSyslibStatus {
+            missing: Vec::new(),
+            skipped: true,
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -588,5 +649,39 @@ mod tests {
         // Can't easily run full precheck without sudo; assert path_writable + required
         assert!(!spec.required_paths[0].exists());
         assert!(path_writable(dir.path()));
+    }
+
+    #[test]
+    fn ldconfig_missing_reports_missing_libs() {
+        let cache = "\tlibxcb.so.1 (libc6,x86-64) => /lib/x86_64-linux-gnu/libxcb.so.1\n\
+                     \tlibGL.so.1 (libc6,x86-64) => /lib/x86_64-linux-gnu/libGL.so.1\n";
+        let missing = libs_missing_from_ldconfig(REQUIRED_LINUX_SYSLIBS, cache);
+        assert_eq!(missing, vec!["libglib-2.0.so.0"]);
+    }
+
+    #[test]
+    fn ldconfig_no_prefix_false_positive() {
+        // 行首库名后必须跟空格/括号：libxcb.so.1 的行不能糊弄 libxcb.so，
+        // libglib-2.0.so.0x 的行不能糊弄 libglib-2.0.so.0
+        let cache = "\tlibxcb.so.1 (libc6) => /lib/libxcb.so.1\n\
+                     \tlibglib-2.0.so.0x (libc6) => /lib/libglib-2.0.so.0x\n";
+        let missing = libs_missing_from_ldconfig(&["libxcb.so", "libglib-2.0.so.0"], cache);
+        assert_eq!(missing, vec!["libxcb.so", "libglib-2.0.so.0"]);
+    }
+
+    #[test]
+    fn ldconfig_empty_cache_reports_all_missing() {
+        let missing = libs_missing_from_ldconfig(REQUIRED_LINUX_SYSLIBS, "");
+        assert_eq!(
+            missing,
+            vec!["libxcb.so.1", "libGL.so.1", "libglib-2.0.so.0"]
+        );
+    }
+
+    #[test]
+    fn linux_syslib_hint_contains_dnf_and_apt() {
+        let hint = linux_syslibs_install_hint();
+        assert!(hint.contains("dnf install libxcb"));
+        assert!(hint.contains("apt install libxcb1"));
     }
 }

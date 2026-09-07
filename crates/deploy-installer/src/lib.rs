@@ -27,8 +27,9 @@ pub use bundles::{
     whisper_download_url_from_base,
 };
 pub use checks::{
-    CheckItem, CheckSeverity, PrecheckOptions, PrecheckReport, current_user, group_for_user,
-    precheck, resolve_service_user,
+    CheckItem, CheckSeverity, LinuxSyslibStatus, PrecheckOptions, PrecheckReport,
+    REQUIRED_LINUX_SYSLIBS, current_user, group_for_user, libs_missing_from_ldconfig,
+    linux_syslibs_install_hint, precheck, resolve_service_user,
 };
 pub use error::{InstallerError, Result};
 pub use exec_argv::{default_exec_argv, program_and_args};

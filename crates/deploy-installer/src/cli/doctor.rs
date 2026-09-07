@@ -1,5 +1,7 @@
 use anyhow::{Result, bail};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(target_os = "macos")]
+use std::path::PathBuf;
 use std::process::Command;
 
 use crate::platform_vendor_key;
@@ -32,7 +34,9 @@ pub fn run() -> Result<()> {
 
     let mut failed = false;
 
-    check_command("node", &["--version"], false)?;
+    // node 仅 npm 包的 JS 启动器（bin/deploy-installer.js）需要：经 npm 运行时 node 必然
+    // 存在（JS 本身由 node 执行），原生二进制路径完全不依赖 node —— 缺失只降级为 WARN。
+    check_command("node", &["--version"], true)?;
     check_command("curl", &["--version"], false)?;
     check_command("uv", &["--version"], true)?;
 
@@ -45,6 +49,12 @@ pub fn run() -> Result<()> {
     #[cfg(target_os = "macos")]
     {
         if check_voice_cli_companion_libs().is_err() {
+            failed = true;
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if check_linux_syslibs().is_err() {
             failed = true;
         }
     }
@@ -78,6 +88,31 @@ pub fn run() -> Result<()> {
 
     println!("\n✅ doctor checks passed (warnings above are OK for optional tools)");
     Ok(())
+}
+
+/// Linux headless 环境的 X11/GL 基础库检查（MinerU/opencv 运行依赖）。
+///
+/// 缺失时置 FAIL 并打印双发行版安装命令；`ldconfig` 不可用（musl 等）降级为 WARN。
+#[cfg(target_os = "linux")]
+fn check_linux_syslibs() -> Result<()> {
+    let status = crate::checks::check_required_linux_syslibs();
+    if status.skipped {
+        println!("  syslibs:     WARN (ldconfig unavailable — skipped X11/GL lib check)");
+        return Ok(());
+    }
+    if status.missing.is_empty() {
+        println!("  syslibs:     OK (libxcb/libGL/glib resolvable via ldconfig)");
+        return Ok(());
+    }
+    println!(
+        "  syslibs:     FAIL — missing: {}",
+        status.missing.join(", ")
+    );
+    println!("{}", crate::checks::linux_syslibs_install_hint());
+    Err(anyhow::anyhow!(
+        "missing Linux system libs: {}",
+        status.missing.join(", ")
+    ))
 }
 
 fn check_bundled_binary(service: &str) -> Result<()> {
@@ -319,5 +354,22 @@ fn check_sudo() -> Result<()> {
             println!("  sudo:       WARN (password may be required for service install)");
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn check_command_optional_missing_bin_returns_ok() {
+        // optional=true：命令不存在时降级为 WARN，不能让 doctor 直接失败
+        assert!(check_command("definitely-missing-xyz", &["--version"], true).is_ok());
+    }
+
+    #[test]
+    fn check_command_required_missing_bin_returns_err() {
+        // optional=false：必需命令（如 curl）缺失时必须硬失败（Fail Fast）
+        assert!(check_command("definitely-missing-xyz", &["--version"], false).is_err());
     }
 }

@@ -18,12 +18,19 @@
 npm/nuwax-deploy-installer/
 ├── bin/deploy-installer.js      # Node 垫片 → vendor/<platform>/deploy-installer
 └── vendor/
-    ├── darwin-arm64/            # 一期：Mac 三件套 + voice-cli dylib
+    ├── darwin-arm64/            # Mac 三件套 + voice-cli dylib（@loader_path/@rpath）
     │   ├── deploy-installer
     │   ├── document-parser
     │   ├── voice-cli
     │   ├── libsherpa-onnx-c-api.dylib
     │   └── libonnxruntime*.dylib
+    ├── linux-x64/               # Linux 三件套 + voice-cli .so（RPATH=$ORIGIN，已 strip）
+    │   ├── deploy-installer
+    │   ├── document-parser
+    │   ├── voice-cli
+    │   ├── libsherpa-onnx-c-api.so
+    │   ├── libsherpa-onnx-cxx-api.so
+    │   └── libonnxruntime.so
     └── templates/
         ├── manifest.json        # OSS 可选资源 URL + assetVersion
         ├── document-parser/
@@ -74,7 +81,16 @@ OSS 大文件 URL 模板在 `vendor/templates/manifest.json`：
 
 ## 3. 发布流程（先 beta → Mac 验证 → 正式 latest）
 
-Workflow：[`.github/workflows/deploy-installer-release.yml`](../../../.github/workflows/deploy-installer-release.yml)（`macos-14` 构建 + npm publish + smoke）
+Workflow：[`.github/workflows/deploy-installer-release.yml`](../../../.github/workflows/deploy-installer-release.yml)
+
+三段式：`resolve`（版本/渠道守卫）→ `build` 矩阵（`macos-14` → darwin-arm64、
+`ubuntu-22.04` → linux-x64，各自构建 + 原生 smoke + 上传切片 artifact）→
+`publish`（合并切片 → 戳版本 → 校验双平台齐全 → `npm publish` → 记录 tarball 体积）。
+
+Linux 构建依赖（ubuntu job 内 apt 安装）：`libclang-dev clang cmake`（whisper-rs
+bindgen / sherpa-onnx -sys）+ X11/GL 组合（满足 doctor 的 syslibs 预检）。
+Linux 切片 glibc 下限 = ubuntu-22.04 的 2.35；用户侧缺库时 doctor/setup 会 fail-fast
+并给出 dnf/apt 安装命令。
 
 | 阶段 | Git tag 示例 | npm version | dist-tag | 用户安装 |
 |------|--------------|-------------|----------|----------|
@@ -95,7 +111,7 @@ git tag -a deploy-v0.2.3-beta.4 -m "nuwax-deploy-installer 0.2.3-beta.4"
 git push origin deploy-v0.2.3-beta.4
 ```
 
-CI 自动：更新 workspace 版本 → assemble → `npm publish --tag beta` → smoke test。
+CI 自动：更新 workspace 版本 → 双平台构建（各 job 内原生 smoke）→ 合并切片 → `npm publish --tag beta`。
 
 ### Mac Mini 验证清单
 
