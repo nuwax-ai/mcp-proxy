@@ -26,6 +26,8 @@ pub use bundles::{
     voice_cli_cuda_archive_filename, voice_cli_cuda_download_url_from_base,
     whisper_download_url_from_base,
 };
+#[cfg(target_os = "macos")]
+pub use checks::macos_gui_session_present;
 pub use checks::{
     CheckItem, CheckSeverity, LinuxSyslibStatus, PrecheckOptions, PrecheckReport,
     REQUIRED_LINUX_SYSLIBS, current_user, group_for_user, libs_missing_from_ldconfig,

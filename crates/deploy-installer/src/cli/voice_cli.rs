@@ -14,9 +14,9 @@ use crate::cli::common::{
     CONFIG_FILENAME, WHISPER_DEFAULT_MODEL, build_cuda_sherpa_drop_in, canonicalize_install_dir,
     default_cuda_lib_dir, detect_cudnn_lib_dir, dispatch_service_action,
     download_and_extract_tarball, ensure_bundled_binary, ensure_whisper_pack_models,
-    patch_whisper_default_model, print_install_success, read_server_port, resolve_user_group,
-    upgrade_bundled_binary, voice_cli_cuda_bundle_present, whisper_large_v3_present,
-    whisper_pack_satisfied,
+    handle_launchd_install_result, patch_whisper_default_model, print_install_success,
+    read_server_port, resolve_user_group, upgrade_bundled_binary, voice_cli_cuda_bundle_present,
+    whisper_large_v3_present, whisper_pack_satisfied,
 };
 use crate::cli::{ServiceAction, ServiceDirArgs, VoiceCliAction, VoiceCliSetupArgs};
 
@@ -223,14 +223,15 @@ fn install_full(args: &VoiceCliSetupArgs) -> Result<()> {
     }
     let cuda_lib = resolve_cuda_lib_dir(args);
     let cudnn_lib = resolve_cudnn_lib_dir(args);
-    run_service(ServiceAction::Install(ServiceDirArgs {
+    let service_result = run_service(ServiceAction::Install(ServiceDirArgs {
         install_dir: install_dir.clone(),
         user: None,
         no_start: false,
         dry_run: false,
         cuda_lib_dir: cuda_lib,
         cudnn_lib_dir: cudnn_lib,
-    }))?;
+    }));
+    handle_launchd_install_result(service_result, SERVICE_NAME, &install_dir)?;
     let config_path = install_dir.join(CONFIG_FILENAME);
     let port = read_server_port(&config_path).unwrap_or(DEFAULT_PORT);
     print_install_success(SERVICE_NAME, &install_dir, port);

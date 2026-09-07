@@ -326,20 +326,15 @@ fn check_macos_gui_session() -> Result<()> {
         return Ok(());
     }
     let label = format!("gui/{uid}");
-    let out = Command::new("launchctl").args(["print", &label]).output();
-    match out {
-        Ok(o) if o.status.success() => {
-            println!("  gui session: OK ({label})");
-            Ok(())
-        }
-        _ => {
-            println!("  gui session: WARN — no {label} (desktop login required for LaunchAgent)");
-            println!(
-                "               SSH-only? Run the binary manually first, then login at the console."
-            );
-            Ok(())
-        }
+    if crate::checks::macos_gui_session_present() {
+        println!("  gui session: OK ({label})");
+    } else {
+        println!("  gui session: WARN — no {label} (desktop login required for LaunchAgent)");
+        println!(
+            "               SSH-only? Run the binary manually first, then login at the console."
+        );
     }
+    Ok(())
 }
 
 #[cfg(not(target_os = "macos"))]

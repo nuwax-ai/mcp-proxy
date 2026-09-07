@@ -590,6 +590,39 @@ fn copy_file_atomic(src: &Path, dst: &Path) -> Result<()> {
     Ok(())
 }
 
+/// 处理 macOS launchd 服务安装结果：SSH-only（无桌面会话）时 bootstrap/enable
+/// 会以 exit 134 失败，但 **plist 已写入** `~/Library/LaunchAgents/`——这不是安装
+/// 失败，降级为成功退出并给出激活指引，避免用户对着 "Failed to execute command
+/// with no output" 无所适从。
+#[cfg(target_os = "macos")]
+pub fn handle_launchd_install_result(
+    result: Result<()>,
+    service_name: &str,
+    install_dir: &Path,
+) -> Result<()> {
+    if result.is_ok() || crate::macos_gui_session_present() {
+        return result;
+    }
+    println!("\n⚠️  service 未启动：当前 SSH 会话无桌面登录（launchd gui domain 不可用）。");
+    println!("   plist 已写入 ~/Library/LaunchAgents/，桌面登录后服务自动启动。");
+    println!(
+        "   也可手动运行：{}/{} --config {}/config.yml server",
+        install_dir.display(),
+        service_name,
+        install_dir.display()
+    );
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn handle_launchd_install_result(
+    result: Result<()>,
+    _service_name: &str,
+    _install_dir: &Path,
+) -> Result<()> {
+    result
+}
+
 /// Shared uninstall / status / restart; `on_install` handles service-specific Install.
 pub fn dispatch_service_action(
     service_name: &str,

@@ -520,6 +520,28 @@ pub fn precheck(spec: &ServiceSpec, opts: &PrecheckOptions) -> Result<PrecheckRe
     Ok(report)
 }
 
+/// 检测当前用户是否存在已登录的 macOS GUI 会话（`launchctl print gui/<uid>` 成功）。
+///
+/// doctor 与 install 共用：SSH-only 场景下 launchd 的 gui domain 不可用，
+/// LaunchAgent 的 bootstrap/enable 会以 exit 134 (SIGABRT) 失败。
+#[cfg(target_os = "macos")]
+pub fn macos_gui_session_present() -> bool {
+    let uid = Command::new("id")
+        .arg("-u")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    if uid.is_empty() {
+        return false;
+    }
+    Command::new("launchctl")
+        .args(["print", &format!("gui/{uid}")])
+        .output()
+        .is_ok_and(|o| o.status.success())
+}
+
 /// MinerU（opencv 依赖链）在 headless Linux 上运行所需的基础共享库（ldconfig 名称）。
 ///
 /// 无桌面的服务器发行版默认不带这些 X11/GL 客户端库；缺失时 venv 内 mineru 会在
