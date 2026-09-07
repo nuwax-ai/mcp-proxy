@@ -105,9 +105,9 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ matrix.vendor_key }}
+      # 注意：不使用 Swatinem/rust-cache——sherpa/onnx 等 -sys crate 构建期下载的
+      # 预编译大库会被缓存驱逐，恢复后指纹 fresh 但库文件缺失，voice-cli 链接
+      # 必失败（unable to find library -lsherpa-onnx-c-api）。发布走冷构建。
 
       - name: Install Linux build deps
         if: runner.os == 'Linux'
