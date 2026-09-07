@@ -155,12 +155,18 @@ jobs:
           path: npm/nuwax-deploy-installer/vendor
           merge-multiple: true
 
+      - name: Restore executable bits
+        # upload-artifact v4 不保留文件 mode：下载的二进制是 0644，
+        # 不恢复可执行位则校验误报且发布包无法直接运行
+        run: chmod +x npm/nuwax-deploy-installer/vendor/*/*
+
       - name: Stamp manifest + package.json
         run: bash scripts/ci/stamp-nuwax-manifest.sh "${{ needs.resolve.outputs.version }}"
 
       - name: Verify merged vendor layout
         run: |
           set -euo pipefail
+          ls -la npm/nuwax-deploy-installer/vendor/ || true
           for key in darwin-arm64 linux-x64; do
             test -x "npm/nuwax-deploy-installer/vendor/$key/deploy-installer" \
               || { echo "::error::missing $key slice"; exit 1; }
