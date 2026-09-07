@@ -32,5 +32,6 @@ deploy-installer document-parser service status
 
 ## Supported platforms
 
-- macOS Apple Silicon (`darwin-arm64`) — npm vendor + LaunchAgent
-- Linux x86_64 + NVIDIA — OSS CUDA bundle + systemd（见 MAINTAINER.md）
+- macOS Apple Silicon (`darwin-arm64`) — npm vendor 内置三件套 + LaunchAgent
+- Linux x86_64 (`linux-x64`) — npm vendor 内置三件套（systemd 服务管理，CPU 开箱即用）；NVIDIA GPU 可选 OSS CUDA bundle（见 MAINTAINER.md）
+- Windows — npm 包不支持；用 `cargo install --git`（见 [INSTALL.md](../../crates/document-parser/INSTALL.md) 方式二）

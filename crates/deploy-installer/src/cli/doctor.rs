@@ -75,6 +75,10 @@ pub fn run() -> Result<()> {
     if cfg!(target_os = "macos") {
         println!("  backend:    launchd (LaunchAgent)");
         check_macos_gui_session()?;
+    } else if cfg!(target_os = "windows") {
+        // npm 包不分发 Windows；cargo install 用户的服务二进制可手动运行，
+        // 无系统服务管理集成——不能误报 systemd
+        println!("  backend:    none (Windows 暂无服务管理集成，手动运行或用任务计划程序)");
     } else {
         println!("  backend:    systemd");
         check_sudo()?;

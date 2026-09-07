@@ -865,12 +865,17 @@ pub(crate) fn extract_missing_shared_lib(stderr: &str) -> Option<&str> {
             continue;
         };
         let before = line[..marker].trim_end();
-        // 行格式为 "ImportError: libxcb.so.1: cannot open ..."，标记前最后一个词带尾随冒号
+        // 行格式为 "ImportError: libxcb.so.1: cannot open ..."，标记前最后一个词带
+        // 尾随冒号；部分发行版报错带完整路径（/usr/lib/x86_64-linux-gnu/libfoo.so），
+        // 统一截取文件名用于提示展示
         let lib = before
             .split_whitespace()
             .next_back()
             .unwrap_or("")
-            .trim_end_matches(':');
+            .trim_end_matches(':')
+            .rsplit(['/', '\\'])
+            .next()
+            .unwrap_or("");
         if lib.contains(".so") {
             return Some(lib);
         }
@@ -942,6 +947,14 @@ mod tests {
     fn test_extract_missing_shared_lib_finds_libgl() {
         let stderr = "ImportError: libGL.so.1: cannot open shared object file: No such file";
         assert_eq!(extract_missing_shared_lib(stderr), Some("libGL.so.1"));
+    }
+
+    #[test]
+    fn test_extract_missing_shared_lib_returns_basename_for_full_path() {
+        // 部分发行版报错带完整路径：提示中只展示库名
+        let stderr =
+            "ImportError: /usr/lib/x86_64-linux-gnu/libxcb.so.1: cannot open shared object file";
+        assert_eq!(extract_missing_shared_lib(stderr), Some("libxcb.so.1"));
     }
 
     #[test]
