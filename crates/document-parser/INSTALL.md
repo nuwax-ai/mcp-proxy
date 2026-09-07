@@ -78,6 +78,14 @@ document-parser --version
 
 Windows 用户主路径即此方式（Rust MSVC 工具链 + 本命令），随后同样执行第 3 步初始化 Python 引擎。
 
+> ⚠️ **默认安装分支提示**：`cargo install --git` 不带 `--tag/--branch` 时安装 **main** 分支；新功能先发布在发布 tag 上，稳定用户可显式指定，如 `cargo install --git https://github.com/nuwax-ai/mcp-proxy --tag deploy-v0.2.9 document-parser --locked`。
+
+**Windows 实测注意事项**（Win11 + MSVC 验证于 0.2.9 系列）：
+
+1. 编译期 `utoipa-swagger-ui` 需从 GitHub 下载 swagger-ui zip，若系统 curl 报 SSL 错误（exit 35），提前下载 [v5.17.14.zip](https://github.com/swagger-api/swagger-ui/archive/refs/tags/v5.17.14.zip) 并设置 `SWAGGER_UI_DOWNLOAD_URL=file:///C:/path/to/swagger-ui-v5.17.14.zip` 后重新安装
+2. `uv-init` 前先把 [config.example.yml](deploy/config/config.example.yml) 放到工作目录并重命名为 `config.yml`——空目录首次运行会生成 OSS 字段为空的默认配置，启动即被 Fail-Fast 校验拒绝
+3. 系统需有 `python`（3.10+）；若遇 `os error 448 无法遍历…不受信任的装入点`（uv 自管 Python 的 junction 被 Windows 安全补丁拒绝），设置环境变量 `UV_PYTHON_INSTALL_DIR` 指向一个新的空目录后重跑 `uv-init`，uv 会改用系统 Python
+
 ### 方式三：GitHub Releases 手动下载
 
 从 [Releases](https://github.com/nuwax-ai/mcp-proxy/releases) 下载对应平台产物（Linux x86_64 / ARM64、macOS Intel / Apple Silicon、Windows x86_64），解压到目标目录即可。适合离线环境或不想装 Node / Rust 的场景。

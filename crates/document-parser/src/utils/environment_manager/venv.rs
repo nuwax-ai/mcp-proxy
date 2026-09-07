@@ -187,13 +187,16 @@ impl EnvironmentManager {
         )
         .await;
 
-        // 使用 uv venv venv 在当前目录下创建名为venv的虚拟环境
+        // 使用 uv venv venv 在当前目录下创建名为venv的虚拟环境。
+        // Windows 无 `python3` 命令（只有 python.exe/py 启动器），传 python3 会
+        // 促使 uv 回落到自管 Python 下载——在打了 2025 挂载点安全补丁的 Windows
+        // 上其 junction 目录会触发 os error 448（不受信任的装入点）。
         let create_cmd = Self::uv_command()
             .await
             .arg("venv")
             .arg("venv")
             .arg("--python")
-            .arg("python3")
+            .arg(if cfg!(windows) { "python" } else { "python3" })
             .current_dir(&self.base_dir)
             .output();
 
