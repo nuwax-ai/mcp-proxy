@@ -66,6 +66,26 @@ impl EnvironmentManager {
         }
     }
 
+    /// 构造 uv 子进程命令，解决 nohup/SSH 非交互/systemd 场景下进程 PATH 不含
+    /// `~/.local/bin` 导致「装完 uv 仍探测不到」的问题。
+    ///
+    /// 解析顺序：PATH 命中（复用 [`Self::is_executable_in_path`]）→ 沿用裸命令名
+    /// `uv`（由 OS 解析，行为与历史一致）；否则依次探测 [`uv_candidate_dirs`]
+    /// 中的常见安装目录，命中则用绝对路径；全部未命中 → 回退裸命令名 `uv`，
+    /// 保留既有的 NotFound 报错链路（如「uv安装后仍不可用」）。
+    /// 不写进程环境变量（edition 2024 下 `set_var` 为 unsafe，避免使用）。
+    pub async fn uv_command() -> Command {
+        if Self::is_executable_in_path("uv").await {
+            return Command::new("uv");
+        }
+        let candidates = uv_candidate_dirs(std::env::home_dir().as_deref());
+        if let Some(path) = find_uv_executable(&candidates) {
+            debug!("uv not on PATH; using candidate {}", path.display());
+            return Command::new(path);
+        }
+        Command::new("uv")
+    }
+
     /// 测试虚拟环境激活（跨平台）
     pub async fn test_virtual_environment_activation(
         &self,
@@ -180,6 +200,35 @@ impl EnvironmentManager {
 
         env_vars
     }
+}
+
+/// uv 常见安装目录候选（不含 PATH 搜索）。
+///
+/// unix 顺序：`~/.local/bin`（astral 安装脚本默认位置）、`/usr/local/bin`（系统级
+/// 安装/管理员手工放置）、`~/.cargo/bin`（rustup 环境习惯位置）；windows 仅
+/// `%USERPROFILE%\.local\bin`。home 由调用方传入（不读进程环境），保证测试零副作用。
+fn uv_candidate_dirs(home: Option<&Path>) -> Vec<std::path::PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(home) = home {
+        dirs.push(home.join(".local").join("bin"));
+    }
+    if cfg!(windows) {
+        return dirs;
+    }
+    dirs.push(std::path::PathBuf::from("/usr/local/bin"));
+    if let Some(home) = home {
+        dirs.push(home.join(".cargo").join("bin"));
+    }
+    dirs
+}
+
+/// 返回候选目录中第一个存在的 uv 可执行文件（unix: `uv`；windows: `uv.exe`）。
+fn find_uv_executable(candidate_dirs: &[std::path::PathBuf]) -> Option<std::path::PathBuf> {
+    let exe_name = if cfg!(windows) { "uv.exe" } else { "uv" };
+    candidate_dirs
+        .iter()
+        .map(|d| d.join(exe_name))
+        .find(|p| p.is_file())
 }
 
 #[cfg(test)]
@@ -303,5 +352,63 @@ mod tests {
             );
             assert_eq!(venv_info.platform, "unix");
         }
+    }
+}
+
+#[cfg(test)]
+mod uv_resolution_tests {
+    use super::*;
+
+    #[test]
+    fn test_uv_candidate_dirs_order_unix() {
+        let home = std::path::Path::new("/home/t");
+        let dirs = uv_candidate_dirs(Some(home));
+        if cfg!(windows) {
+            assert_eq!(dirs, vec![home.join(".local").join("bin")]);
+        } else {
+            assert_eq!(
+                dirs,
+                vec![
+                    home.join(".local").join("bin"),
+                    std::path::PathBuf::from("/usr/local/bin"),
+                    home.join(".cargo").join("bin"),
+                ]
+            );
+        }
+        // 无 home 时仅保留系统级候选
+        let dirs = uv_candidate_dirs(None);
+        if !cfg!(windows) {
+            assert_eq!(dirs, vec![std::path::PathBuf::from("/usr/local/bin")]);
+        }
+    }
+
+    #[test]
+    fn test_find_uv_executable_first_existing_wins() {
+        let first = tempfile::TempDir::new().unwrap();
+        let second = tempfile::TempDir::new().unwrap();
+        let exe_name = if cfg!(windows) { "uv.exe" } else { "uv" };
+        let uv_path = first.path().join(exe_name);
+        std::fs::write(&uv_path, b"stub").unwrap();
+
+        let found = find_uv_executable(&[first.path().to_path_buf(), second.path().to_path_buf()]);
+        assert_eq!(found, Some(uv_path));
+    }
+
+    #[test]
+    fn test_find_uv_executable_none_when_missing() {
+        let a = tempfile::TempDir::new().unwrap();
+        let b = tempfile::TempDir::new().unwrap();
+        assert_eq!(
+            find_uv_executable(&[a.path().to_path_buf(), b.path().to_path_buf()]),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn test_uv_command_program_ends_with_uv() {
+        // 冒烟：无论解析到裸名还是绝对路径，program 必须指向 uv
+        let cmd = EnvironmentManager::uv_command().await;
+        let program = cmd.as_std().get_program().to_string_lossy().to_string();
+        assert!(program.ends_with("uv"), "unexpected program: {program}");
     }
 }

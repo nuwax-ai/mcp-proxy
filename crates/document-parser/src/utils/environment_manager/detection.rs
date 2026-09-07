@@ -556,7 +556,7 @@ impl EnvironmentManager {
     async fn check_uv_environment(&self) -> Result<UvInfo, AppError> {
         debug!("Check uv tools");
 
-        let uv_cmd = Command::new("uv").arg("--version").output();
+        let uv_cmd = Self::uv_command().await.arg("--version").output();
 
         let output = timeout(self.timeout_duration, uv_cmd)
             .await
@@ -699,8 +699,11 @@ impl EnvironmentManager {
 
         if !help_output.status.success() {
             let stderr = String::from_utf8_lossy(&help_output.stderr);
+            let tail = extract_missing_shared_lib(&stderr)
+                .map(shared_lib_install_hint)
+                .unwrap_or_else(|| " 请检查MinerU安装".to_string());
             return Err(AppError::Environment(format!(
-                "MinerU帮助命令执行失败: {stderr}. 请检查MinerU安装"
+                "MinerU帮助命令执行失败: {stderr}.{tail}"
             )));
         }
 
@@ -851,6 +854,42 @@ print('MarkItDown功能验证成功')
     }
 }
 
+/// 从 Python/MinerU 的 stderr 中提取缺失的系统共享库名（如 `libxcb.so.1`）。
+///
+/// 匹配形如 `ImportError: libxcb.so.1: cannot open shared object file: No such file
+/// or directory` 的行；未命中返回 `None`。先要求行内出现加载失败标记，再取标记前
+/// 最后一个含 `.so` 的词，避免 traceback 中普通 `.so` 路径误报。纯函数，便于单测。
+pub(crate) fn extract_missing_shared_lib(stderr: &str) -> Option<&str> {
+    for line in stderr.lines() {
+        let Some(marker) = line.find("cannot open shared object file") else {
+            continue;
+        };
+        let before = line[..marker].trim_end();
+        // 行格式为 "ImportError: libxcb.so.1: cannot open ..."，标记前最后一个词带尾随冒号
+        let lib = before
+            .split_whitespace()
+            .next_back()
+            .unwrap_or("")
+            .trim_end_matches(':');
+        if lib.contains(".so") {
+            return Some(lib);
+        }
+    }
+    None
+}
+
+/// 共享库缺失时的 Linux 系统库安装提示（RHEL/Debian 双系命令）。
+///
+/// headless 服务器默认不带 X11/GL 客户端库，而 MinerU 的 opencv 依赖链需要它们；
+/// 该文案与 deploy-installer 侧 `checks::linux_syslibs_install_hint` 保持一致。
+pub(crate) fn shared_lib_install_hint(missing_lib: &str) -> String {
+    format!(
+        " 缺少系统共享库 {missing_lib}（headless Linux 常见）。请先安装 X11/GL 基础库：\n  \
+         RHEL 系: sudo dnf install libxcb libxkbcommon libXext libXrender mesa-libGL glib2\n  \
+         Debian 系: sudo apt install libxcb1 libxkbcommon-x11-0 libgl1 libglib2.0-0"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -890,5 +929,39 @@ mod tests {
             let expected_names = EnvironmentManager::get_system_python_executable();
             assert!(expected_names.contains(&python_exe));
         }
+    }
+
+    #[test]
+    fn test_extract_missing_shared_lib_finds_libxcb() {
+        let stderr = "Traceback (most recent call last):\n\
+                      ImportError: libxcb.so.1: cannot open shared object file: No such file or directory";
+        assert_eq!(extract_missing_shared_lib(stderr), Some("libxcb.so.1"));
+    }
+
+    #[test]
+    fn test_extract_missing_shared_lib_finds_libgl() {
+        let stderr = "ImportError: libGL.so.1: cannot open shared object file: No such file";
+        assert_eq!(extract_missing_shared_lib(stderr), Some("libGL.so.1"));
+    }
+
+    #[test]
+    fn test_extract_missing_shared_lib_returns_none_for_ordinary_error() {
+        let stderr = "ModuleNotFoundError: No module named 'foo'";
+        assert_eq!(extract_missing_shared_lib(stderr), None);
+    }
+
+    #[test]
+    fn test_extract_missing_shared_lib_ignores_lines_without_marker() {
+        // traceback 中存在 .so 路径但没有加载失败标记，不应误报
+        let stderr = "  File \"/venv/lib/python3.11/site-packages/cv2/abc.so\", line 1";
+        assert_eq!(extract_missing_shared_lib(stderr), None);
+    }
+
+    #[test]
+    fn test_shared_lib_install_hint_lists_dnf_and_apt() {
+        let hint = shared_lib_install_hint("libxcb.so.1");
+        assert!(hint.contains("libxcb.so.1"));
+        assert!(hint.contains("dnf install libxcb"));
+        assert!(hint.contains("apt install libxcb1"));
     }
 }

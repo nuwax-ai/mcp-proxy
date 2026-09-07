@@ -45,7 +45,7 @@ impl EnvironmentManager {
     pub async fn is_uv_available(&self) -> Result<UvAvailabilityStatus, AppError> {
         debug!("Check uv tool availability");
 
-        let uv_cmd = Command::new("uv").arg("--version").output();
+        let uv_cmd = Self::uv_command().await.arg("--version").output();
 
         let output = timeout(Duration::from_secs(10), uv_cmd)
             .await

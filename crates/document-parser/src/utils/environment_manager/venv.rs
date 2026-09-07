@@ -188,7 +188,8 @@ impl EnvironmentManager {
         .await;
 
         // 使用 uv venv venv 在当前目录下创建名为venv的虚拟环境
-        let create_cmd = Command::new("uv")
+        let create_cmd = Self::uv_command()
+            .await
             .arg("venv")
             .arg("venv")
             .arg("--python")

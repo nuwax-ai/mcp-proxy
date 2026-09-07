@@ -9,8 +9,9 @@
 
 | 项目 | Linux | macOS | Windows |
 |------|-------|-------|---------|
-| 操作系统 | Ubuntu 18.04+ 等 | **14.0+**（MinerU 要求） | Windows 10 / 11 |
+| 操作系统 | Ubuntu 22.04+（glibc ≥ 2.35）等 | **14.0+**（MinerU 要求） | Windows 10 / 11 |
 | 硬件 | 8GB+ RAM，5GB+ 磁盘 | 同左（Apple Silicon 原生支持） | 同左 |
+| 系统库 | X11/GL 基础库（无桌面服务器需预装）：Debian/Ubuntu `apt install libxcb1 libxkbcommon-x11-0 libgl1 libglib2.0-0`；RHEL 系 `dnf install libxcb libxkbcommon libXext libXrender mesa-libGL glib2` | 无需 | 无需 |
 | Python | 3.10+（uv 自动创建 venv，无需系统预装） | 同左 | 同左 |
 | Node.js | 仅 deploy-installer 方式需要（18+） | 同左 | —（该方式不支持 Windows） |
 | Rust 工具链 | 仅 `cargo install` 方式需要 | 仅 `cargo install` 方式需要 | 仅 `cargo install` 方式需要 |

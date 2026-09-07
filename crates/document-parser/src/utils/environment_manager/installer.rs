@@ -205,7 +205,7 @@ impl EnvironmentManager {
         let venv_path = Path::new(&self.base_dir).join("venv");
         let python_path = Self::get_venv_python_path(&venv_path);
 
-        let mut install_cmd = Command::new("uv");
+        let mut install_cmd = Self::uv_command().await;
         install_cmd
             .arg("pip")
             .arg("install")
@@ -299,7 +299,7 @@ impl EnvironmentManager {
         let venv_path = Path::new(&self.base_dir).join("venv");
         let python_path = Self::get_venv_python_path(&venv_path);
 
-        let mut install_cmd = Command::new("uv");
+        let mut install_cmd = Self::uv_command().await;
         install_cmd
             .arg("pip")
             .arg("install")
