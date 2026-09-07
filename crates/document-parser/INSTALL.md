@@ -30,7 +30,6 @@
 ```bash
 # 需要 Node.js 18+（macOS: brew install node）
 npm install -g nuwax-deploy-installer
-
 # 环境自检（平台、二进制、磁盘空间、GUI 会话）
 deploy-installer doctor
 
@@ -41,6 +40,17 @@ deploy-installer document-parser install
 # 服务管理
 deploy-installer document-parser service status
 ```
+
+> 🇨🇳 **国内网络建议先配置 npm 镜像**（包体积约 80MB，直连 npmjs 仅 ~200KB/s，
+> npmmirror 实测快 40 倍以上）：
+>
+> ```bash
+> npm config set registry https://registry.npmmirror.com
+> ```
+>
+> 注意 npmmirror 同步有约 10–60 分钟延迟——刚发布的最新 beta 可能暂未同步，
+> 急用可临时直连：`npm install -g nuwax-deploy-installer@beta --registry https://registry.npmjs.org`。
+> 另外普通用户全局安装需要 sudo（或配置用户级 npm prefix）。
 
 document-parser 需要上传后端凭证（**OSS 或自定义上传后端二选一**），安装前先导出（也可装完后写入 `~/document-parser/.document-parser.env`）：
 

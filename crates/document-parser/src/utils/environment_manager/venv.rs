@@ -188,9 +188,10 @@ impl EnvironmentManager {
         .await;
 
         // 使用 uv venv venv 在当前目录下创建名为venv的虚拟环境。
-        // unix 传版本约束 `>=3.10`（MinerU 的最低要求）：uv 自动解析——系统解释器
-        // 满足即用（macOS CommandLineTools 的 3.9 会被跳过），不满足则下载 uv 托管
-        // 解释器，避免在老系统 Python 的机器上建出装不了 MinerU 的 venv。
+        // unix 传版本约束 `>=3.10,<3.14`：MinerU 实际支持范围（其传递依赖
+        // fasttext-predict 等尚未提供 cp314 wheel，在 3.14 上会 sdist 编译失败）。
+        // uv 自动解析——系统解释器满足即用（macOS CommandLineTools 的 3.9 与
+        // Ubuntu 26.04 的 3.14 都会被跳过），不满足则下载 uv 托管解释器。
         // Windows 无 `python3` 命令（只有 python.exe/py 启动器），传 python3 会
         // 促使 uv 回落到自管 Python 下载——在打了 2025 挂载点安全补丁的 Windows
         // 上其 junction 目录会触发 os error 448（不受信任的装入点）。
@@ -199,7 +200,11 @@ impl EnvironmentManager {
             .arg("venv")
             .arg("venv")
             .arg("--python")
-            .arg(if cfg!(windows) { "python" } else { ">=3.10" })
+            .arg(if cfg!(windows) {
+                "python"
+            } else {
+                ">=3.10,<3.14"
+            })
             .current_dir(&self.base_dir)
             .output();
 

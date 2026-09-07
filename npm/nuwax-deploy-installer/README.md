@@ -11,6 +11,10 @@ deploy-installer voice-cli install
 deploy-installer document-parser install   # 需 OSS_ACCESS_KEY_ID / SECRET
 ```
 
+> 🇨🇳 国内网络建议先 `npm config set registry https://registry.npmmirror.com`
+> （包约 80MB，直连 npmjs 很慢；镜像同步有 10–60 分钟延迟，最新 beta 可能需临时
+> `--registry https://registry.npmjs.org` 直连）。
+
 完整步骤：[mac-mini-quickstart.md](../../crates/deploy-installer/doc/mac-mini-quickstart.md)
 
 ## Commands
