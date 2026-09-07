@@ -2,7 +2,6 @@ use crate::error::{InstallerError, Result};
 use crate::platform::ServiceBackend;
 use crate::spec::{ServiceIdentity, ServiceSpec};
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -70,6 +69,7 @@ fn is_executable(path: &Path) -> bool {
         Ok(meta) => {
             #[cfg(unix)]
             {
+                use std::os::unix::fs::PermissionsExt;
                 meta.is_file() && (meta.permissions().mode() & 0o111) != 0
             }
             #[cfg(not(unix))]
@@ -602,6 +602,7 @@ mod tests {
         fs::write(&bin, b"#!/bin/sh\necho ok\n").unwrap();
         #[cfg(unix)]
         {
+            use std::os::unix::fs::PermissionsExt;
             let mut perms = fs::metadata(&bin).unwrap().permissions();
             perms.set_mode(0o755);
             fs::set_permissions(&bin, perms).unwrap();
