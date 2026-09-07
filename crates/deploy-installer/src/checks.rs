@@ -212,7 +212,11 @@ fn which_exists(bin: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Probe whether sudo works non-interactively (`sudo -n true`).
+/// Probe whether sudo works non-interactively for the commands we actually need.
+///
+/// 探测 `sudo -n systemctl daemon-reload`（install 必经且幂等无害）而非泛化的
+/// `sudo -n true`：后者要求 NOPASSWD: ALL，会误拒"仅 systemctl/journalctl
+/// NOPASSWD"的最小权限配置（sudoers 推荐做法）。
 pub fn sudo_available() -> std::result::Result<(), String> {
     if nix_geteuid_is_root() {
         return Ok(());
@@ -221,14 +225,17 @@ pub fn sudo_available() -> std::result::Result<(), String> {
         return Err("sudo not found in PATH".into());
     }
     let status = Command::new("sudo")
-        .args(["-n", "true"])
+        .args(["-n", "systemctl", "daemon-reload"])
         .status()
         .map_err(|e| format!("failed to run sudo: {e}"))?;
     if status.success() {
         Ok(())
     } else {
         Err(
-            "sudo requires a password (sudo -n failed). Use NOPASSWD sudoers, or run interactively so sudo can prompt."
+            "sudo requires a password (sudo -n systemctl daemon-reload failed). \
+             Configure NOPASSWD sudoers for the commands we need, e.g. \
+             'swufe ALL=(root) NOPASSWD: /usr/bin/systemctl, /usr/bin/journalctl', \
+             or run install interactively so sudo can prompt."
                 .into(),
         )
     }

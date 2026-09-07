@@ -343,10 +343,14 @@ fn check_macos_gui_session() -> Result<()> {
 }
 
 fn check_sudo() -> Result<()> {
-    let status = Command::new("sudo").args(["-n", "true"]).status();
+    // 与 precheck 的 sudo_available 同源探测：daemon-reload 是 install 必经且
+    // 幂等无害的命令，可正确识别"仅 systemctl/journalctl NOPASSWD"的最小权限配置
+    let status = Command::new("sudo")
+        .args(["-n", "systemctl", "daemon-reload"])
+        .status();
     match status {
         Ok(s) if s.success() => {
-            println!("  sudo:       OK (NOPASSWD)");
+            println!("  sudo:       OK (NOPASSWD systemctl)");
             Ok(())
         }
         _ => {

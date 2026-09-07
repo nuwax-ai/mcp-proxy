@@ -218,37 +218,57 @@ pub fn make_executable(_path: &Path) -> std::io::Result<()> {
 mod tests {
     use super::*;
 
+    /// 读取仓库 manifest 的 assetVersion（测试期望跟随 manifest 而非硬编码，
+    /// 提升 assetVersion 时无需同步改测试）。
+    fn manifest_asset_version() -> String {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../npm/nuwax-deploy-installer/vendor/templates/manifest.json");
+        let content = std::fs::read_to_string(path).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+        v["assetVersion"].as_str().unwrap().to_string()
+    }
+
     #[test]
     fn asset_version_strips_prerelease_when_manifest_missing_asset_version() {
-        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../npm/nuwax-deploy-installer/vendor");
+        // 构造无 assetVersion 的 manifest，验证回退到包版本剥离 prerelease
+        let dir = tempfile::tempdir().unwrap();
+        let templates = dir.path().join("templates");
+        std::fs::create_dir_all(&templates).unwrap();
+        std::fs::write(
+            templates.join("manifest.json"),
+            r#"{"version": "0.2.1", "optionalAssets": {}}"#,
+        )
+        .unwrap();
+        // SAFETY: test-only env mutation; no concurrent env access in unit tests.
         unsafe {
-            std::env::set_var("NUWAX_DEPLOY_ROOT", root.display().to_string());
-            std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.1-beta.2");
+            std::env::set_var("NUWAX_DEPLOY_ROOT", dir.path().display().to_string());
+            std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.9-beta.2");
         }
-        assert_eq!(deploy_asset_version(), "0.2.1");
+        assert_eq!(deploy_asset_version(), "0.2.9");
         unsafe {
-            std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.1");
+            std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.9");
         }
-        assert_eq!(deploy_asset_version(), "0.2.1");
+        assert_eq!(deploy_asset_version(), "0.2.9");
     }
 
     #[test]
     fn asset_version_from_manifest_overrides_newer_package_version() {
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../npm/nuwax-deploy-installer/vendor");
+        let expected = manifest_asset_version();
+        // SAFETY: test-only env mutation; no concurrent env access in unit tests.
         unsafe {
             std::env::set_var("NUWAX_DEPLOY_ROOT", root.display().to_string());
             std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.3-beta.2");
         }
         assert_eq!(
             deploy_asset_version(),
-            "0.2.1",
+            expected,
             "manifest assetVersion should pin OSS filenames"
         );
         let url = optional_whisper_download_url(WhisperModelsPack::LargeV3).unwrap();
         assert!(
-            url.contains("whisper-ggml-large-v3-0.2.1.tar.gz"),
+            url.contains(&format!("whisper-ggml-large-v3-{expected}.tar.gz")),
             "got {url}"
         );
         assert!(!url.contains("0.2.3"));
@@ -258,6 +278,7 @@ mod tests {
     fn optional_venv_url_from_manifest() {
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../npm/nuwax-deploy-installer/vendor");
+        let expected = manifest_asset_version();
         // SAFETY: test-only env mutation; no concurrent env access in unit tests.
         unsafe {
             std::env::set_var("NUWAX_DEPLOY_ROOT", root.display().to_string());
@@ -270,7 +291,7 @@ mod tests {
         );
         let url = url.unwrap();
         assert!(
-            url.contains("venv-macos-arm64-0.2.1.tar.gz"),
+            url.contains(&format!("venv-macos-arm64-{expected}.tar.gz")),
             "beta package must reuse stable venv asset, got {url}"
         );
         assert!(!url.contains("beta"));
@@ -280,6 +301,8 @@ mod tests {
     fn optional_whisper_large_v3_url_from_manifest() {
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../npm/nuwax-deploy-installer/vendor");
+        let expected = manifest_asset_version();
+        // SAFETY: test-only env mutation; no concurrent env access in unit tests.
         unsafe {
             std::env::set_var("NUWAX_DEPLOY_ROOT", root.display().to_string());
             std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.1-beta.2");
@@ -288,7 +311,7 @@ mod tests {
         assert!(url.is_some(), "manifest should provide whisperLargeV3 URL");
         let url = url.unwrap();
         assert!(
-            url.contains("whisper-ggml-large-v3-0.2.1.tar.gz"),
+            url.contains(&format!("whisper-ggml-large-v3-{expected}.tar.gz")),
             "got {url}"
         );
         assert!(!url.contains("beta"));
@@ -298,6 +321,8 @@ mod tests {
     fn optional_voice_cli_cuda_url_from_manifest() {
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../npm/nuwax-deploy-installer/vendor");
+        let expected = manifest_asset_version();
+        // SAFETY: test-only env mutation; no concurrent env access in unit tests.
         unsafe {
             std::env::set_var("NUWAX_DEPLOY_ROOT", root.display().to_string());
             std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.1-beta.2");
@@ -306,7 +331,7 @@ mod tests {
         assert!(url.is_some(), "manifest should provide voiceCliCuda URL");
         let url = url.unwrap();
         assert!(
-            url.contains("voice-cli-cuda-linux-x64-0.2.1.tar.gz"),
+            url.contains(&format!("voice-cli-cuda-linux-x64-{expected}.tar.gz")),
             "got {url}"
         );
         assert!(!url.contains("beta"));

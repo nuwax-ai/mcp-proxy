@@ -50,7 +50,15 @@ deploy-installer document-parser service status
 >
 > 注意 npmmirror 同步有约 10–60 分钟延迟——刚发布的最新 beta 可能暂未同步，
 > 急用可临时直连：`npm install -g nuwax-deploy-installer@beta --registry https://registry.npmjs.org`。
-> 另外普通用户全局安装需要 sudo（或配置用户级 npm prefix）。
+> 另外普通用户全局安装需要 sudo——**sudo 不会读取用户级 `~/.npmrc` 的镜像配置**，
+> 镜像对 sudo 安装生效需内联传参：
+>
+> ```bash
+> sudo npm install -g nuwax-deploy-installer@beta --registry https://registry.npmmirror.com
+> ```
+>
+> Linux systemd 机器还需非交互 sudo：在 sudoers 配置受限 NOPASSWD（推荐做法）
+> `用户名 ALL=(root) NOPASSWD: /usr/bin/systemctl, /usr/bin/journalctl`。
 
 document-parser 需要上传后端凭证（**OSS 或自定义上传后端二选一**），安装前先导出（也可装完后写入 `~/document-parser/.document-parser.env`）：
 
