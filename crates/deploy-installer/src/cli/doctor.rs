@@ -146,7 +146,9 @@ fn check_bundled_binary(service: &str) -> Result<()> {
 /// 任何 HTTP 响应（含 4xx/5xx）都算"网络可达"，连接失败/超时仅 WARN
 /// （内网 DNS、按需拉起的服务等场景避免误报阻断）。
 fn check_upload_backend(parser_dir: &std::path::Path) {
-    use crate::cli::common::{custom_upload_configured, oss_keys_configured, parse_env_file_value};
+    use crate::cli::env_config::{
+        custom_upload_configured, oss_keys_configured, parse_env_file_value,
+    };
 
     let env_path = parser_dir.join(".document-parser.env");
     if !env_path.exists() {

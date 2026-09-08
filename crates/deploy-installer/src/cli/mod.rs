@@ -1,6 +1,8 @@
+pub mod assets;
 pub mod common;
 mod doctor;
 pub mod document_parser;
+pub mod env_config;
 pub mod voice_cli;
 
 use anyhow::Result;

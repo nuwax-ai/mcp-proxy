@@ -8,11 +8,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::cli::assets::{download_and_extract_tarball, extract_tarball_at};
 use crate::cli::common::{
-    CONFIG_FILENAME, apply_upload_config_from_env, canonicalize_install_dir,
-    custom_upload_configured, dispatch_service_action, download_and_extract_tarball,
-    ensure_bundled_binary, extract_tarball_at, handle_launchd_install_result, oss_keys_configured,
-    print_install_success, read_server_port, resolve_user_group, upgrade_bundled_binary,
+    CONFIG_FILENAME, canonicalize_install_dir, dispatch_service_action, ensure_bundled_binary,
+    handle_launchd_install_result, print_install_success, read_server_port, resolve_user_group,
+    upgrade_bundled_binary,
+};
+use crate::cli::env_config::{
+    apply_upload_config_from_env, custom_upload_configured, oss_keys_configured,
     upload_backend_configured,
 };
 use crate::cli::{DocumentParserAction, ServiceAction, ServiceDirArgs, SetupArgs};

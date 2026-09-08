@@ -11,13 +11,15 @@ use anyhow::{Context, Result, bail};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::cli::assets::{
+    WHISPER_DEFAULT_MODEL, build_cuda_sherpa_drop_in, default_cuda_lib_dir, detect_cudnn_lib_dir,
+    download_and_extract_tarball, ensure_whisper_pack_models, patch_whisper_default_model,
+    voice_cli_cuda_bundle_present, whisper_large_v3_present, whisper_pack_satisfied,
+};
 use crate::cli::common::{
-    CONFIG_FILENAME, WHISPER_DEFAULT_MODEL, build_cuda_sherpa_drop_in, canonicalize_install_dir,
-    default_cuda_lib_dir, detect_cudnn_lib_dir, dispatch_service_action,
-    download_and_extract_tarball, ensure_bundled_binary, ensure_whisper_pack_models,
-    handle_launchd_install_result, patch_whisper_default_model, print_install_success,
-    read_server_port, resolve_user_group, upgrade_bundled_binary, voice_cli_cuda_bundle_present,
-    whisper_large_v3_present, whisper_pack_satisfied,
+    CONFIG_FILENAME, canonicalize_install_dir, dispatch_service_action, ensure_bundled_binary,
+    handle_launchd_install_result, print_install_success, read_server_port, resolve_user_group,
+    upgrade_bundled_binary,
 };
 use crate::cli::{ServiceAction, ServiceDirArgs, VoiceCliAction, VoiceCliSetupArgs};
 
