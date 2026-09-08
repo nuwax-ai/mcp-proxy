@@ -39,6 +39,7 @@ pub fn run() -> Result<()> {
     check_command("node", &["--version"], true)?;
     check_command("curl", &["--version"], false)?;
     check_command("uv", &["--version"], true)?;
+    check_ffmpeg();
 
     if check_bundled_binary("voice-cli").is_err() {
         // Windows 切片可能未携带 voice-cli（构建降级）——降级 WARN 不阻断
@@ -388,6 +389,34 @@ fn check_windows_task_scheduler() -> Result<()> {
 #[cfg(not(target_os = "windows"))]
 fn check_windows_python() -> Result<()> {
     Ok(())
+}
+
+/// ffmpeg 检查（voice-cli 的 STT 音频解码依赖，WARN 级 + 各平台安装指引）。
+///
+/// Mac Mini 实测：无 ffmpeg 时 STT 任务失败于"ffmpeg 启动失败 No such file
+/// or directory"——提前在 doctor 暴露并给出安装命令，避免用户转录时才发现。
+fn check_ffmpeg() {
+    let ok = Command::new("ffmpeg")
+        .arg("-version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success());
+    if ok {
+        println!("  ffmpeg:     OK (voice-cli STT 音频解码可用)");
+        return;
+    }
+    println!("  ffmpeg:     WARN (缺失——voice-cli 转录任务会失败；仅 document-parser 可忽略)");
+    match std::env::consts::OS {
+        "macos" => println!("    安装: brew install ffmpeg"),
+        "linux" => println!(
+            "    安装: sudo apt install ffmpeg  # Debian/Ubuntu；RHEL 系: sudo dnf install ffmpeg"
+        ),
+        "windows" => {
+            println!("    安装: winget install Gyan.FFmpeg  (或从 ffmpeg.org 下载后加入 PATH)")
+        }
+        _ => {}
+    }
 }
 
 fn check_command(bin: &str, args: &[&str], optional: bool) -> Result<()> {

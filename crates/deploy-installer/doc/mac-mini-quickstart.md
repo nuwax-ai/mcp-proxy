@@ -10,7 +10,9 @@
 # ① 一次性准备
 xcode-select --install 2>/dev/null || true
 eval "$(/opt/homebrew/bin/brew shellenv)"
-brew install node curl
+# ffmpeg 是 voice-cli 转录（STT）的音频解码依赖——缺失时转录任务报
+# "ffmpeg 启动失败"；仅用 document-parser 可不装
+brew install node curl ffmpeg
 # 国内可选：npm config set registry https://registry.npmmirror.com
 
 npm install -g nuwax-deploy-installer
