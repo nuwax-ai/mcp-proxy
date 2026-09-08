@@ -927,6 +927,7 @@ mod tests {
         assert!((zero_crossings as f64 - 440.0).abs() < 500.0);
     }
 
+    #[ignore = "集成测试：需系统 ffmpeg 实际执行音频转换（CI runner 的 ffmpeg 执行受限），开发机手动 cargo test -- --ignored 运行"]
     #[test]
     fn test_ensure_whisper_compatible_on_fixture() {
         // Locate fixtures audio
