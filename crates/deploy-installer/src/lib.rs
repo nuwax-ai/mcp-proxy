@@ -15,6 +15,7 @@ mod render;
 mod render_plist;
 mod render_task;
 mod service_mgr;
+mod service_task;
 mod spec;
 mod systemd;
 mod task_scheduler;

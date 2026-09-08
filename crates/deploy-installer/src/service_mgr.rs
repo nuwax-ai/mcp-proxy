@@ -9,17 +9,16 @@ use crate::error::{InstallerError, Result};
 use crate::platform::ServiceBackend;
 use crate::render::{render_unit, validate_unit_name};
 use crate::render_plist::{ensure_log_dir, render_launchd_plist};
-use crate::render_task::render_task_xml;
+use crate::service_task;
+use crate::service_task::tail_log_file;
 use crate::spec::{DropIn, ServiceSpec};
 use crate::systemd;
-use crate::task_scheduler;
 use service_manager::{
     RestartPolicy, ServiceInstallCtx, ServiceLabel, ServiceLevel, ServiceManager, ServiceStartCtx,
     ServiceStatus, ServiceStatusCtx, ServiceStopCtx, ServiceUninstallCtx,
 };
 use std::fs;
 use std::io::Write;
-use std::path::Path;
 
 const LAUNCHD_PATH: &str = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Library/Frameworks/Python.framework/Versions/Current/bin";
 
@@ -222,7 +221,7 @@ pub fn install_service(spec: &ServiceSpec, dry_run: bool, enable: bool, start: b
 
     // 任务计划程序的安装链路独立于 service-manager（无 ServiceInstallCtx）
     if backend == ServiceBackend::TaskScheduler {
-        return install_task(spec, dry_run, enable, start);
+        return service_task::install_task(spec, dry_run, enable, start);
     }
 
     let ctx = build_install_ctx(spec, backend, None, enable, start)?;
@@ -299,40 +298,6 @@ pub fn install_service(spec: &ServiceSpec, dry_run: bool, enable: bool, start: b
     Ok(())
 }
 
-/// 任务计划程序安装链路：渲染 XML → 持久化到 install_dir → 停旧实例（尽力）
-/// → 注册 → 启动。
-///
-/// S4U 主体（无需提权注册、无桌面登录也运行）；注册失败时由上层决定是否用
-/// 无 Principal 的降级 XML 重试（Interactive，仅登录运行）。
-fn install_task(spec: &ServiceSpec, dry_run: bool, _enable: bool, start: bool) -> Result<()> {
-    let xml = render_task_xml(spec, true)?;
-    let xml_path = spec.task_xml_path();
-    if dry_run {
-        println!("--- {} ---\n{xml}", xml_path.display());
-        println!("(dry-run: no files written, service manager not invoked)");
-        return Ok(());
-    }
-    crate::installer::write_user_file(&xml_path, &xml, None)?;
-
-    let name = spec.task_name();
-    if task_scheduler::task_exists(&name) {
-        // 已注册则先结束运行实例，让新定义下次启动即生效
-        if let Err(e) = task_scheduler::end(&name) {
-            println!("  note: end previous task instance: {e}");
-        }
-    }
-    task_scheduler::create_from_xml(&name, &xml_path)?;
-    if start {
-        task_scheduler::run(&name)?;
-    }
-    println!("Installed scheduled task {name} → {}", xml_path.display());
-    println!("  trigger: at logon (S4U, runs without desktop login)");
-    if start {
-        println!("  started");
-    }
-    Ok(())
-}
-
 /// Stop, disable, and remove an installed service.
 pub fn uninstall_service(spec: &ServiceSpec) -> Result<()> {
     validate_unit_name(&spec.name)?;
@@ -382,19 +347,7 @@ pub fn uninstall_service(spec: &ServiceSpec) -> Result<()> {
             }
             println!("Uninstalled {}.service", spec.name);
         }
-        ServiceBackend::TaskScheduler => {
-            let name = spec.task_name();
-            // 先结束运行实例再删除注册（与 systemd 分支同理：防孤儿进程占端口）
-            if let Err(e) = task_scheduler::end(&name) {
-                println!("  note: end task: {e}");
-            }
-            task_scheduler::delete(&name)?;
-            let xml_path = spec.task_xml_path();
-            if xml_path.exists() {
-                std::fs::remove_file(&xml_path).map_err(InstallerError::Io)?;
-            }
-            println!("Uninstalled scheduled task {name}");
-        }
+        ServiceBackend::TaskScheduler => service_task::uninstall_task(spec)?,
     }
     Ok(())
 }
@@ -426,14 +379,7 @@ pub fn restart_service(spec: &ServiceSpec) -> Result<()> {
             }
             println!("Restarted {}", spec.name);
         }
-        ServiceBackend::TaskScheduler => {
-            let name = spec.task_name();
-            if let Err(e) = task_scheduler::end(&name) {
-                println!("  note: end task: {e}");
-            }
-            task_scheduler::run(&name)?;
-            println!("Restarted {name}");
-        }
+        ServiceBackend::TaskScheduler => service_task::restart_task(spec)?,
     }
     Ok(())
 }
@@ -511,57 +457,9 @@ pub fn status_service(spec: &ServiceSpec) -> Result<()> {
                 Err(e) => println!("(could not read journal: {e})"),
             }
         }
-        ServiceBackend::TaskScheduler => {
-            let name = spec.task_name();
-            println!("  task:       {name}");
-            println!("  task xml:   {}", spec.task_xml_path().display());
-            match task_scheduler::task_state(&name) {
-                task_scheduler::TaskState::Running => println!("  state:      running"),
-                task_scheduler::TaskState::Ready => println!("  state:      ready"),
-                task_scheduler::TaskState::Disabled => println!("  state:      disabled"),
-                task_scheduler::TaskState::Missing => println!("  state:      not installed"),
-                task_scheduler::TaskState::Unknown => println!("  state:      unknown"),
-            }
-            match task_scheduler::last_task_result(&name) {
-                Some(code) => println!("  last result: {code:#010x}"),
-                None => println!("  last result: (unavailable)"),
-            }
-            println!();
-            println!("--- task xml ---");
-            match task_scheduler::query_xml(&name) {
-                Ok(text) => println!("{text}"),
-                Err(_) => match fs::read_to_string(spec.task_xml_path()) {
-                    Ok(text) => println!("{text}"),
-                    Err(_) => println!("(task not registered and no persisted xml)"),
-                },
-            }
-            println!("--- recent logs ---");
-            tail_latest_log_in(&spec.install_dir.join("logs"));
-        }
+        ServiceBackend::TaskScheduler => service_task::status_task(spec)?,
     }
     Ok(())
-}
-
-/// tail install_dir/logs 下最新修改的日志文件（任务计划后端：服务自写文件日志，
-/// 文件名不固定，按 mtime 取最新）。
-fn tail_latest_log_in(dir: &Path) {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return;
-    };
-    let newest = entries
-        .flatten()
-        .filter(|e| e.path().is_file())
-        .max_by_key(|e| {
-            e.metadata()
-                .and_then(|m| m.modified())
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_secs())
-                .unwrap_or(0)
-        });
-    if let Some(entry) = newest {
-        tail_log_file(&entry.file_name().to_string_lossy(), &entry.path());
-    }
 }
 
 fn print_launchd_plist_and_logs(spec: &ServiceSpec) {
@@ -583,28 +481,11 @@ fn print_launchd_plist_and_logs(spec: &ServiceSpec) {
     }
 }
 
-fn tail_log_file(name: &str, path: &Path) {
-    if !path.exists() {
-        return;
-    }
-    if let Ok(content) = fs::read_to_string(path) {
-        let tail: String = content
-            .lines()
-            .rev()
-            .take(15)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect::<Vec<_>>()
-            .join("\n");
-        println!("({name})\n{tail}");
-    }
-}
-
 /// Whether the service is loaded/running (for precheck idempotency).
 pub fn service_is_active(spec: &ServiceSpec, backend: ServiceBackend) -> bool {
     if backend == ServiceBackend::TaskScheduler {
-        return task_scheduler::task_state(&spec.task_name()) == task_scheduler::TaskState::Running;
+        return crate::task_scheduler::task_state(&spec.task_name())
+            == crate::task_scheduler::TaskState::Running;
     }
     service_label(spec, backend)
         .ok()
