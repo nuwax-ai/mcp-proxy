@@ -11,7 +11,7 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, "feat*", "release*"]
   pull_request:
 
 env:
