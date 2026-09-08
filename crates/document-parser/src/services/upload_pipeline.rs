@@ -5,7 +5,7 @@
 //! AK 换签重写（sign_embedded_urls）以及相关的纯函数（span 提取/重建/
 //! object key 构造）。
 
-use anyhow::Result as AnyhowResult;
+use anyhow::{Context, Result as AnyhowResult};
 use async_trait::async_trait;
 use oss_client::ApiFileClient;
 use pulldown_cmark::{Event, LinkType, Parser, Tag};
@@ -297,24 +297,30 @@ pub(crate) const IMAGE_SIGN_CONCURRENCY: usize = 8;
 pub(crate) const IMAGE_SIGN_BUDGET: Duration = Duration::from_secs(120);
 
 /// 流式读取文件并计算 SHA-256（十六进制小写）。
-pub(crate) async fn compute_file_sha256_hex(path: &Path) -> AnyhowResult<String> {
-    let mut file = File::open(path).await?;
+pub(crate) async fn compute_file_sha256_hex(path: &std::path::Path) -> AnyhowResult<String> {
+    let mut file = File::open(path)
+        .await
+        .with_context(|| format!("打开文件失败用于计算哈希: {}", path.display()))?;
     let mut hasher = Sha256::new();
-    let mut buf = vec![0u8; 64 * 1024];
+    let mut buffer = vec![0u8; 1024 * 64]; // 64KB 缓冲
     loop {
-        let n = file.read(&mut buf).await?;
+        let n = file
+            .read(&mut buffer)
+            .await
+            .with_context(|| format!("读取文件失败用于计算哈希: {}", path.display()))?;
         if n == 0 {
             break;
         }
-        hasher.update(&buf[..n]);
+        hasher.update(&buffer[..n]);
     }
-    Ok(hex::encode(hasher.finalize()))
+    let digest = hasher.finalize();
+    Ok(hex::encode(digest))
 }
 
 /// 读取文件大小（元数据）。
 pub(crate) async fn read_file_size(local_path: &Path) -> Result<u64, AppError> {
-    let meta = fs::metadata(local_path).await.map_err(|e| {
-        AppError::file_error(format!("读取文件元数据失败 {}: {e}", local_path.display()))
+    let metadata = fs::metadata(local_path).await.map_err(|e| {
+        AppError::File(format!("读取文件信息失败: {}: {}", local_path.display(), e))
     })?;
-    Ok(meta.len())
+    Ok(metadata.len())
 }
