@@ -20,10 +20,19 @@ const VOICE_CLI_REQUIRED_LIBS: &[&str] =
 #[cfg(target_os = "macos")]
 const VOICE_CLI_OPTIONAL_LIBS: &[&str] = &["libonnxruntime.dylib"];
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+const VOICE_CLI_REQUIRED_LIBS: &[&str] = &["sherpa-onnx-c-api.dll", "onnxruntime.dll"];
+
+#[cfg(target_os = "windows")]
+const VOICE_CLI_OPTIONAL_LIBS: &[&str] = &[
+    "sherpa-onnx-cxx-api.dll",
+    "onnxruntime_providers_shared.dll",
+];
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 const VOICE_CLI_REQUIRED_LIBS: &[&str] = &[];
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 const VOICE_CLI_OPTIONAL_LIBS: &[&str] = &[];
 
 /// Linux CUDA OSS bundle: binary + sherpa/onnx shared libs (flat extract into install_dir).
