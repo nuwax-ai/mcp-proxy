@@ -7,6 +7,7 @@ pub mod storage_service;
 pub mod task_queue_service;
 pub mod task_service;
 pub mod upload_backend;
+pub(crate) mod upload_pipeline;
 
 pub use document_service::{DocumentService, DocumentServiceConfig};
 pub use document_task_processor::DocumentTaskProcessor;
