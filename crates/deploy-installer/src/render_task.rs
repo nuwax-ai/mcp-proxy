@@ -6,10 +6,10 @@
 //! 平台语义映射：
 //! - `LogonTrigger` + 30s 延迟 ≈ launchd LaunchAgent 的登录加载；
 //!   `Principals` 用 `S4U`（无需用户登录桌面即运行，安装时也不需要提权）。
-//! - `EnvironmentVariables`（Exec 子元素）：Task XML 没有 `EnvironmentFile=` 等价物，
-//!   `spec.env_file` 的内容在渲染时**内联**（.env 解析语义与 dotenvy 运行时一致：
-//!   first-wins、去引号）。凭证随任务定义明文落盘于 `%LOCALAPPDATA%` 的任务注册表
-//!   中——与 systemd EnvironmentFile / launchd plist 内联 EXTRA_ENV 的既有暴露面同级。
+//! - **环境变量不经任务定义传递**：`schtasks /create` 实测拒绝 `<Exec>` 下的
+//!   `<EnvironmentVariables>` 元素（Win11 报"系统找不到指定的文件"）。凭证与
+//!   配置走 `.env` 文件由**服务自读**（与 launchd 后端同一模式——launchd 无
+//!   `EnvironmentFile=`，systemd 的 EnvironmentFile 只是冗余便利）。
 //! - `RestartOnFailure`（1 分钟间隔 × 10 次）≈ `Restart=on-failure` + `RestartSec`。
 //! - `kill_signal` / `timeout_stop_sec` / `syslog_identifier` / `supplementary_groups`
 //!   在任务计划程序无对应物，忽略（服务自身写文件日志，stdout 不经任务捕获）。
@@ -33,7 +33,6 @@ pub fn render_task_xml(spec: &ServiceSpec, run_at_logon: bool) -> Result<String>
     let user_id = crate::checks::current_user()?;
     let user_id = crate::render::sanitize_unit_value("UserId", &user_id)?;
 
-    let env_block = task_xml_env_block(&collect_env_pairs(spec)?)?;
     let trigger_enabled = if run_at_logon { "true" } else { "false" };
 
     Ok(format!(
@@ -79,75 +78,12 @@ pub fn render_task_xml(spec: &ServiceSpec, run_at_logon: bool) -> Result<String>
       <Command>{program}</Command>
       <Arguments>{args}</Arguments>
       <WorkingDirectory>{install_dir}</WorkingDirectory>
-{env_block}    </Exec>
+    </Exec>
   </Actions>
 </Task>
 "#,
         description = xml_escape(&spec.description),
     ))
-}
-
-/// 汇总任务内联环境变量：`env_file` 内容（有序 first-wins）追加 `extra_env`。
-fn collect_env_pairs(spec: &ServiceSpec) -> Result<Vec<(String, String)>> {
-    let mut pairs: Vec<(String, String)> = match &spec.env_file {
-        Some(path) if path.is_file() => {
-            let content =
-                std::fs::read_to_string(path).map_err(|e| InstallerError::CommandFailed {
-                    cmd: format!("read {}", path.display()),
-                    detail: e.to_string(),
-                })?;
-            parse_env_pairs(&content)
-        }
-        _ => Vec::new(),
-    };
-    for (k, v) in &spec.extra_env {
-        // first-wins：文件值优先，extra_env 仅补缺（与 launchd plist 的
-        // PATH/HOME/TMPDIR + extra_env 组合语义一致）
-        if !pairs.iter().any(|(ek, _)| ek == k) {
-            pairs.push((k.clone(), v.clone()));
-        }
-    }
-    Ok(pairs)
-}
-
-/// 解析 `.env` 风格内容为**有序**键值对（first-wins、跳过注释/空行、去成对引号）。
-///
-/// 语义对齐 `cli/common.rs::parse_env_file_values`（dotenvy 运行时行为）；
-/// 单独成序是因为任务 XML 内联需要确定性顺序，HashMap 迭代序不稳定。
-pub fn parse_env_pairs(content: &str) -> Vec<(String, String)> {
-    let mut pairs: Vec<(String, String)> = Vec::new();
-    for line in content.lines() {
-        let t = line.trim();
-        if t.starts_with('#') || t.is_empty() {
-            continue;
-        }
-        if let Some((k, v)) = t.split_once('=') {
-            let v = v.trim().trim_matches('"').trim_matches('\'');
-            let k = k.trim();
-            if !pairs.iter().any(|(ek, _)| ek == k) {
-                pairs.push((k.to_string(), v.to_string()));
-            }
-        }
-    }
-    pairs
-}
-
-/// 纯函数：有序键值对 → `<EnvironmentVariables>` 块（含缩进与结尾换行，空表输出空串）。
-pub fn task_xml_env_block(env_pairs: &[(String, String)]) -> Result<String> {
-    if env_pairs.is_empty() {
-        return Ok(String::new());
-    }
-    let mut out = String::from("      <EnvironmentVariables>\n");
-    for (k, v) in env_pairs {
-        let key = crate::render::sanitize_unit_value(k, k)?;
-        out.push_str(&format!(
-            "        <Variable Name=\"{}\">\n          <Value>{}</Value>\n        </Variable>\n",
-            xml_escape(&key),
-            xml_escape(v)
-        ));
-    }
-    out.push_str("      </EnvironmentVariables>\n");
-    Ok(out)
 }
 
 /// Task XML `Arguments` 拼接：每个参数过一遍 unit-value 清洗再空格连接。
@@ -172,29 +108,44 @@ fn xml_escape(s: &str) -> String {
 mod tests {
     use super::*;
 
-    #[test]
-    fn task_xml_env_block_skips_empty() {
-        assert_eq!(task_xml_env_block(&[]).unwrap(), "");
+    fn minimal_spec() -> ServiceSpec {
+        ServiceSpec {
+            name: "document-parser".into(),
+            description: "test".into(),
+            identity: crate::spec::ServiceIdentity {
+                user: "u".into(),
+                group: "g".into(),
+            },
+            install_dir: std::path::PathBuf::from("C:\\dp"),
+            exec_start: vec![
+                "C:\\dp\\document-parser.exe".into(),
+                "--config".into(),
+                "C:\\dp\\config.yml".into(),
+                "server".into(),
+            ],
+            env_file: Some(std::path::PathBuf::from("C:\\dp\\.env")),
+            extra_env: vec![("RUST_LOG".into(), "info".into())],
+            kill_signal: None,
+            timeout_stop_sec: None,
+            syslog_identifier: None,
+            drop_ins: vec![],
+            supplementary_groups: vec![],
+            required_paths: vec![],
+            listen_port: None,
+        }
     }
 
     #[test]
-    fn task_xml_env_block_escapes_specials() {
-        let block = task_xml_env_block(&[("K&<".into(), "v>\"'".into())]).unwrap();
-        assert!(block.contains("Name=\"K&amp;&lt;\""));
-        assert!(block.contains("<Value>v&gt;&quot;&apos;</Value>"));
-    }
-
-    #[test]
-    fn parse_env_pairs_first_wins_and_strips_quotes() {
-        let pairs = parse_env_pairs("# c\n\nA=1\nA=2\nB=\"x y\"\nC='z'\nBAD\n");
-        assert_eq!(
-            pairs,
-            vec![
-                ("A".to_string(), "1".to_string()),
-                ("B".to_string(), "x y".to_string()),
-                ("C".to_string(), "z".to_string()),
-            ]
-        );
+    fn render_task_xml_no_env_inline_and_core_fields() {
+        let spec = minimal_spec();
+        let xml = render_task_xml(&spec, true).unwrap();
+        // schtasks 实测拒绝 Exec 下的 EnvironmentVariables——绝不渲染
+        assert!(!xml.contains("EnvironmentVariables"));
+        assert!(xml.contains("<Command>C:\\dp\\document-parser.exe</Command>"));
+        assert!(xml.contains("<WorkingDirectory>C:\\dp</WorkingDirectory>"));
+        assert!(xml.contains("S4U</LogonType>"));
+        assert!(xml.contains("PT0S</ExecutionTimeLimit>"));
+        assert!(xml.contains("PT1M</Interval>"));
     }
 
     #[test]
