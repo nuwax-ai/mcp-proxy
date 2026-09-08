@@ -285,7 +285,11 @@ fn available_bytes(path: &Path) -> Option<u64> {
     #[cfg(windows)]
     {
         let path_str = path.to_str()?;
-        let drive = path_str.split(['/', '\\']).next()?;
+        // "C:\Users\..." → 盘符 "C"（Get-PSDrive -Name 不带冒号）
+        let drive = path_str.split(['/', '\\']).next()?.trim_end_matches(':');
+        if drive.is_empty() {
+            return None;
+        }
         let script = format!("(Get-PSDrive -Name '{drive}' -ErrorAction SilentlyContinue).Free");
         let out = Command::new("powershell")
             .args(["-NoProfile", "-NonInteractive", "-Command", &script])
