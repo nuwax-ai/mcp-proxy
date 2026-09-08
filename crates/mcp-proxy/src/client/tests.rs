@@ -232,6 +232,7 @@ mod integration_tests {
     ///
     /// 使用本地 test-mcp-server + mcp-proxy proxy 进行测试
     /// 验证完整的 MCP 通信流程：initialize -> tools/list -> tools/call
+    #[ignore = "集成测试：需启动真实 mcp-proxy/test-mcp-server 子进程与本地端口，仅在开发机手动 --ignored 运行（CI 无该环境，main 线 CI 自 8 月起因此失败）"]
     #[tokio::test]
     async fn test_real_mcp_service_communication() {
         println!("\\n========== Test: MCP service connection and communication ==========");
@@ -397,6 +398,7 @@ mod integration_tests {
     ///
     /// 使用本地 mcp-proxy proxy 服务测试协议检测
     /// 本地 proxy 默认使用 Streamable HTTP 协议
+    #[ignore = "集成测试：需启动真实 mcp-proxy/test-mcp-server 子进程与本地端口，仅在开发机手动 --ignored 运行（CI 无该环境，main 线 CI 自 8 月起因此失败）"]
     #[tokio::test]
     async fn test_protocol_detection() {
         println!("\\n========== Test: Protocol Detection ==========");
@@ -460,6 +462,7 @@ mod reconnection_tests {
     /// - proxy 服务启动正常
     /// - convert 客户端连接成功
     /// - tools/list 请求正常响应
+    #[ignore = "集成测试：需启动真实 mcp-proxy/test-mcp-server 子进程与本地端口，仅在开发机手动 --ignored 运行（CI 无该环境，main 线 CI 自 8 月起因此失败）"]
     #[tokio::test]
     async fn test_reconnection_normal_connection() {
         println!("\\n========== Test 1: Normal connection and communication ==========");
@@ -570,6 +573,7 @@ mod reconnection_tests {
     /// - 杀死 proxy 服务后，convert 检测到断开
     /// - 重启 proxy 后，convert 自动重连
     /// - 重连后功能正常
+    #[ignore = "集成测试：需启动真实 mcp-proxy 子进程与本地端口，仅开发机手动 --ignored 运行"]
     #[tokio::test]
     async fn test_reconnection_on_server_restart() {
         println!("\\n========== Test 2: Automatically reconnect after server restart ==========");
@@ -663,6 +667,7 @@ mod reconnection_tests {
     /// 测试 3: 指数退避验证
     ///
     /// 验证退避时间递增（1s, 2s, 4s...）
+    #[ignore = "集成测试：需启动真实 mcp-proxy/test-mcp-server 子进程与本地端口，仅在开发机手动 --ignored 运行（CI 无该环境，main 线 CI 自 8 月起因此失败）"]
     #[tokio::test]
     async fn test_reconnection_exponential_backoff() {
         println!("\\n========== Test 3: Exponential Backoff Verification ==========");
@@ -732,6 +737,7 @@ mod reconnection_tests {
     /// 验证:
     /// - 服务器停止后，客户端发送请求能否立即返回错误
     /// - 而不是空等超时
+    #[ignore = "集成测试：需启动真实 mcp-proxy 子进程与本地端口，仅开发机手动 --ignored 运行"]
     #[tokio::test]
     async fn test_request_returns_error_when_connection_closed() {
         println!(
