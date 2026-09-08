@@ -58,7 +58,8 @@ deploy-installer document-parser service status
 > ```
 >
 > Linux systemd 机器还需非交互 sudo：在 sudoers 配置受限 NOPASSWD（推荐做法）
-> `用户名 ALL=(root) NOPASSWD: /usr/bin/systemctl, /usr/bin/journalctl`。
+> `用户名 ALL=(root) NOPASSWD: /usr/bin/systemctl, /usr/bin/journalctl, /usr/bin/install, /usr/bin/mkdir, /usr/bin/rm`
+> （systemctl/journalctl 管理服务 + install/mkdir/rm 写删 unit 文件——226 实测缺后三枚会在 unit 落盘时挂）。
 
 document-parser 需要上传后端凭证（**OSS 或自定义上传后端二选一**），安装前先导出（也可装完后写入 `~/document-parser/.document-parser.env`）：
 

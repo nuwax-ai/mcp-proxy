@@ -277,8 +277,10 @@ pub fn sudo_available() -> std::result::Result<(), String> {
     } else {
         Err(
             "sudo requires a password (sudo -n systemctl daemon-reload failed). \
-             Configure NOPASSWD sudoers for the commands we need, e.g. \
-             'swufe ALL=(root) NOPASSWD: /usr/bin/systemctl, /usr/bin/journalctl', \
+             Configure NOPASSWD sudoers for the commands we need: \
+             'user ALL=(root) NOPASSWD: /usr/bin/systemctl, /usr/bin/journalctl, \
+             /usr/bin/install, /usr/bin/mkdir, /usr/bin/rm' \
+             (systemctl/journalctl 管理 + install/mkdir/rm 写删 unit 文件), \
              or run install interactively so sudo can prompt."
                 .into(),
         )
