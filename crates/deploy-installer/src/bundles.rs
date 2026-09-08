@@ -303,12 +303,19 @@ mod tests {
             expected,
             "manifest assetVersion should pin OSS filenames"
         );
-        let url = optional_whisper_download_url(WhisperModelsPack::LargeV3).unwrap();
-        assert!(
-            url.contains(&format!("whisper-ggml-large-v3-{expected}.tar.gz")),
-            "got {url}"
-        );
-        assert!(!url.contains("0.2.3"));
+        // 交叉验证一个资产 URL 的版本号被 assetVersion 钉住（whisper 仅 darwin，
+        // 用各平台都有的资产：macos→whisper，linux→cuda，windows→两者皆无跳过）
+        let url_for_version_check = if cfg!(target_os = "macos") {
+            optional_whisper_download_url(WhisperModelsPack::LargeV3)
+        } else if cfg!(target_os = "linux") {
+            optional_voice_cli_cuda_url()
+        } else {
+            None
+        };
+        if let Some(url) = url_for_version_check {
+            assert!(url.contains(&expected), "got {url}");
+            assert!(!url.contains("0.2.3"));
+        }
     }
 
     #[test]
@@ -322,17 +329,22 @@ mod tests {
             std::env::set_var("NUWAX_DEPLOY_ROOT", root.display().to_string());
             std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.1-beta.2");
         }
-        let url = optional_venv_download_url();
-        assert!(
-            url.is_some(),
-            "manifest should provide darwin-arm64 venv URL"
-        );
-        let url = url.unwrap();
-        assert!(
-            url.contains(&format!("venv-macos-arm64-{expected}.tar.gz")),
-            "beta package must reuse stable venv asset, got {url}"
-        );
-        assert!(!url.contains("beta"));
+        // venv 预编译资产当前仅 darwin-arm64（按 platform_vendor_key 查表），
+        // 断言按平台镜像生产语义：mac 有 URL，其他平台正确返回 None
+        if cfg!(target_os = "macos") {
+            let url = optional_venv_download_url()
+                .expect("manifest should provide darwin-arm64 venv URL");
+            assert!(
+                url.contains(&format!("venv-macos-arm64-{expected}.tar.gz")),
+                "beta package must reuse stable venv asset, got {url}"
+            );
+            assert!(!url.contains("beta"));
+        } else {
+            assert!(
+                optional_venv_download_url().is_none(),
+                "manifest has no venv asset for this platform"
+            );
+        }
     }
 
     #[test]
@@ -346,14 +358,21 @@ mod tests {
             std::env::set_var("NUWAX_DEPLOY_ROOT", root.display().to_string());
             std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.1-beta.2");
         }
-        let url = optional_whisper_download_url(WhisperModelsPack::LargeV3);
-        assert!(url.is_some(), "manifest should provide whisperLargeV3 URL");
-        let url = url.unwrap();
-        assert!(
-            url.contains(&format!("whisper-ggml-large-v3-{expected}.tar.gz")),
-            "got {url}"
-        );
-        assert!(!url.contains("beta"));
+        // whisper 资产同样仅 darwin（按 platform_vendor_key 查表）
+        if cfg!(target_os = "macos") {
+            let url = optional_whisper_download_url(WhisperModelsPack::LargeV3)
+                .expect("manifest should provide whisperLargeV3 URL");
+            assert!(
+                url.contains(&format!("whisper-ggml-large-v3-{expected}.tar.gz")),
+                "got {url}"
+            );
+            assert!(!url.contains("beta"));
+        } else {
+            assert!(
+                optional_whisper_download_url(WhisperModelsPack::LargeV3).is_none(),
+                "manifest has no whisper asset for this platform"
+            );
+        }
     }
 
     #[test]
