@@ -29,10 +29,19 @@ const VOICE_CLI_OPTIONAL_LIBS: &[&str] = &[
     "onnxruntime_providers_shared.dll",
 ];
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+/// Linux vendor CPU 版伴生 .so（RPATH=$ORIGIN 同目录解析）。历史上 Linux 只走
+/// CUDA bundle（自带 .so），vendor companion 清单为空；0.2.12 的 CUDA 预检
+/// CPU 回退路径首次真正安装 vendor Linux 二进制——实测缺清单导致启动 127。
+#[cfg(target_os = "linux")]
+const VOICE_CLI_REQUIRED_LIBS: &[&str] = &["libsherpa-onnx-c-api.so", "libonnxruntime.so"];
+
+#[cfg(target_os = "linux")]
+const VOICE_CLI_OPTIONAL_LIBS: &[&str] = &["libsherpa-onnx-cxx-api.so"];
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 const VOICE_CLI_REQUIRED_LIBS: &[&str] = &[];
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 const VOICE_CLI_OPTIONAL_LIBS: &[&str] = &[];
 
 /// Linux CUDA OSS bundle: binary + sherpa/onnx shared libs (flat extract into install_dir).
