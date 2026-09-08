@@ -18,9 +18,10 @@ TARGET="${2:-aarch64-apple-darwin}"
 case "$TARGET" in
   aarch64-apple-darwin) VENDOR_KEY="darwin-arm64" ;;
   x86_64-unknown-linux-gnu) VENDOR_KEY="linux-x64" ;;
+  x86_64-pc-windows-msvc) VENDOR_KEY="windows-x64" ;;
   *)
     echo "unsupported target: $TARGET" >&2
-    echo "supported: aarch64-apple-darwin | x86_64-unknown-linux-gnu" >&2
+    echo "supported: aarch64-apple-darwin | x86_64-unknown-linux-gnu | x86_64-pc-windows-msvc" >&2
     exit 1
     ;;
 esac

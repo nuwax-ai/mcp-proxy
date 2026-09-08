@@ -15,13 +15,17 @@ case "$(uname -s)-$(uname -m)" in
   Darwin-x86_64) VENDOR_KEY="darwin-x64" ;;
   Linux-x86_64)  VENDOR_KEY="linux-x64" ;;
   Linux-aarch64) VENDOR_KEY="linux-arm64" ;;
+  MINGW64*-x86_64|MINGW32*-x86_64|MSYS*-x86_64|CYGWIN*-x86_64)
+                 VENDOR_KEY="windows-x64" ;;
   *)
     echo "smoke: unsupported platform $(uname -s)-$(uname -m)" >&2
     exit 1
     ;;
 esac
 
-BIN="$PKG/vendor/$VENDOR_KEY/deploy-installer"
+BIN_SUFFIX=""
+[[ "$VENDOR_KEY" == windows-* ]] && BIN_SUFFIX=".exe"
+BIN="$PKG/vendor/$VENDOR_KEY/deploy-installer$BIN_SUFFIX"
 TEMPLATES="$PKG/vendor/templates/document-parser"
 
 if [[ ! -x "$BIN" ]]; then
@@ -31,7 +35,7 @@ fi
 
 rm -rf "$INSTALL"
 mkdir -p "$INSTALL"
-cp "$PKG/vendor/$VENDOR_KEY/document-parser" "$INSTALL/"
+cp "$PKG/vendor/$VENDOR_KEY/document-parser$BIN_SUFFIX" "$INSTALL/"
 cp "$TEMPLATES/config.example.yml" "$INSTALL/config.yml"
 cp "$TEMPLATES/.document-parser.env.example" "$INSTALL/.document-parser.env"
 chmod +x "$INSTALL/document-parser"
@@ -42,6 +46,9 @@ echo "==> doctor"
 echo "==> service install (dry-run)"
 "$BIN" document-parser service install --install-dir "$INSTALL" --dry-run
 
+# CI runner（无交互会话/受限环境）可用 SMOKE_SKIP_SERVICE_LIFECYCLE=1 跳过
+# 注册类步骤；完整生命周期由 Windows 实机验证覆盖
+if [[ -z "${SMOKE_SKIP_SERVICE_LIFECYCLE:-}" ]]; then
 echo "==> service install (--no-start)"
 "$BIN" document-parser service install --install-dir "$INSTALL" --no-start
 
@@ -55,5 +62,6 @@ fi
 
 echo "==> service uninstall"
 "$BIN" document-parser service uninstall --install-dir "$INSTALL"
+fi
 
 echo "✅ smoke test passed ($VENDOR_KEY)"

@@ -31,6 +31,10 @@ npm/nuwax-deploy-installer/
     │   ├── libsherpa-onnx-c-api.so
     │   ├── libsherpa-onnx-cxx-api.so
     │   └── libonnxruntime.so
+    ├── windows-x64/             # Windows 切片（.exe；voice-cli 尝试构建，失败降级两件套）
+    │   ├── deploy-installer.exe
+    │   ├── document-parser.exe
+    │   └── voice-cli.exe + *.dll（若构建成功）
     └── templates/
         ├── manifest.json        # OSS 可选资源 URL + assetVersion
         ├── document-parser/
@@ -88,7 +92,7 @@ OSS 大文件 URL 模板在 `vendor/templates/manifest.json`（当前 `assetVers
 Workflow：[`.github/workflows/deploy-installer-release.yml`](../../../.github/workflows/deploy-installer-release.yml)
 
 三段式：`resolve`（版本/渠道守卫）→ `build` 矩阵（`macos-14` → darwin-arm64、
-`ubuntu-22.04` → linux-x64，各自构建 + 原生 smoke + 上传切片 artifact）→
+`ubuntu-22.04` → linux-x64、`windows-latest` → windows-x64[voice-cli 失败自动降级两件套]，各自构建 + 原生 smoke + 上传切片 artifact）→
 `publish`（合并切片 → 戳版本 → 校验双平台齐全 → `npm publish` → 记录 tarball 体积）。
 
 Linux 构建依赖（ubuntu job 内 apt 安装）：`libclang-dev clang cmake`（whisper-rs

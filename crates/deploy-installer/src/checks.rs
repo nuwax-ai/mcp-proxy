@@ -108,9 +108,45 @@ fn local_addr_has_port(token: &str, port: u16) -> bool {
         == Some(port)
 }
 
+/// 解析 `netstat -ano -p tcp` 输出中监听 `port` 的行，返回其 PID（纯函数，任意平台可单测）。
+///
+/// 行样例：`  TCP    0.0.0.0:8087    0.0.0.0:0    LISTENING    12345`；
+/// IPv6 形如 `[::]:8087`（复用 [`local_addr_has_port`] 的括号处理）。
+/// state 名（LISTENING 等）来自 IP Helper API，不随系统显示语言本地化。
+pub fn netstat_listener_pid(output: &str, port: u16) -> Option<String> {
+    for line in output.lines() {
+        let mut cols = line.split_whitespace();
+        if cols.next()? != "TCP" {
+            continue;
+        }
+        let Some(local) = cols.next() else { continue };
+        if !local_addr_has_port(local, port) {
+            continue;
+        }
+        let Some(_remote) = cols.next() else { continue };
+        let Some(state) = cols.next() else { continue };
+        if state != "LISTENING" {
+            continue;
+        }
+        let pid = cols.next().unwrap_or("unknown");
+        return Some(pid.to_string());
+    }
+    None
+}
+
 /// Try to detect which PID holds `port`. Returns Ok(Some(pid)) if occupied,
 /// Ok(None) if free, Err if detection tools unavailable.
 fn port_occupant(port: u16) -> std::result::Result<Option<String>, String> {
+    // Windows: netstat -ano（PID 列在行尾；state 名 LISTENING 来自 IP Helper API，不本地化）
+    if cfg!(windows) {
+        let output = Command::new("netstat")
+            .args(["-ano", "-p", "tcp"])
+            .output()
+            .map_err(|e| format!("netstat failed: {e}"))?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        return Ok(netstat_listener_pid(&stdout, port));
+    }
+
     // Prefer `ss` (modern), fall back to `lsof`.
     if which_exists("ss") {
         let output = Command::new("ss")
@@ -201,11 +237,17 @@ fn unit_is_active(name: &str, backend: ServiceBackend) -> bool {
                     .map(|s| s.success())
                     .unwrap_or(false)
         }
+        // 任务名与 unit 名不同形（com.nuwax.<name>）；直接按任务名查状态
+        ServiceBackend::TaskScheduler => {
+            crate::task_scheduler::task_state(&format!("com.nuwax.{name}"))
+                == crate::task_scheduler::TaskState::Running
+        }
     }
 }
 
 fn which_exists(bin: &str) -> bool {
-    Command::new("which")
+    let probe = if cfg!(windows) { "where" } else { "which" };
+    Command::new(probe)
         .arg(bin)
         .output()
         .map(|o| o.status.success())
@@ -300,20 +342,28 @@ pub fn resolve_service_user(explicit: Option<String>) -> Result<String> {
 
 /// Resolve primary group for `user` via `id -gn`.
 pub fn group_for_user(user: &str) -> Result<String> {
-    let output = Command::new("id")
-        .args(["-gn", user])
-        .output()
-        .map_err(|e| InstallerError::CommandFailed {
-            cmd: "id -gn".into(),
-            detail: e.to_string(),
-        })?;
-    if !output.status.success() {
-        return Err(InstallerError::CommandFailed {
-            cmd: format!("id -gn {user}"),
-            detail: String::from_utf8_lossy(&output.stderr).into(),
-        });
+    // Windows 无 id/主组概念；Task Scheduler 后端不消费组身份
+    #[cfg(windows)]
+    {
+        return Ok(user.to_string());
     }
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    #[cfg(not(windows))]
+    {
+        let output = Command::new("id")
+            .args(["-gn", user])
+            .output()
+            .map_err(|e| InstallerError::CommandFailed {
+                cmd: "id -gn".into(),
+                detail: e.to_string(),
+            })?;
+        if !output.status.success() {
+            return Err(InstallerError::CommandFailed {
+                cmd: format!("id -gn {user}"),
+                detail: String::from_utf8_lossy(&output.stderr).into(),
+            });
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    }
 }
 
 /// Options controlling which prechecks are hard requirements.
@@ -503,16 +553,29 @@ pub fn precheck(spec: &ServiceSpec, opts: &PrecheckOptions) -> Result<PrecheckRe
         report.push("sudo", CheckSeverity::Pass, "skipped (dry-run)");
     }
 
-    // 7. existing unit / plist
+    // 7. existing unit / plist / task xml
     let existing = match opts.backend {
         ServiceBackend::Launchd => spec.launchd_plist_path(),
         ServiceBackend::Systemd => spec.unit_path(),
+        ServiceBackend::TaskScheduler => spec.task_xml_path(),
     };
     if existing.exists() {
         report.push(
             "existing_unit",
             CheckSeverity::Warn,
             format!("{} exists and will be overwritten", existing.display()),
+        );
+    } else if opts.backend == ServiceBackend::TaskScheduler
+        && crate::task_scheduler::task_exists(&spec.task_name())
+    {
+        // 注册的任务与持久化 XML 可能单边存在（手工删过文件/未卸载干净），都提示
+        report.push(
+            "existing_unit",
+            CheckSeverity::Warn,
+            format!(
+                "scheduled task {} is registered and will be re-created",
+                spec.task_name()
+            ),
         );
     } else {
         report.push("existing_unit", CheckSeverity::Pass, "no existing unit");

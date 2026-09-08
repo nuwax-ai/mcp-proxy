@@ -413,7 +413,12 @@ pub fn wait_for_health(port: u16, path: &str, timeout_secs: u64) -> bool {
     let deadline = Instant::now() + Duration::from_secs(timeout_secs);
     while Instant::now() < deadline {
         if Command::new("curl")
-            .args(["-fsS", "-o", "/dev/null", &url])
+            .args([
+                "-fsS",
+                "-o",
+                if cfg!(windows) { "NUL" } else { "/dev/null" },
+                &url,
+            ])
             .status()
             .map(|s| s.success())
             .unwrap_or(false)
@@ -534,8 +539,9 @@ fn maybe_copy_companion_libs(
 /// For `voice-cli`, also copies macOS `@rpath` companion dylibs from the same vendor dir.
 pub fn ensure_bundled_binary(service: &str, install_dir: &Path, quiet: bool) -> Result<PathBuf> {
     let bundled = bundled_binary_path(service);
-    let dst = install_dir.join(service);
+    let dst = install_dir.join(crate::binary_name(service));
     if bundled.exists() {
+        stop_service_for_binary_replace(service, quiet);
         copy_file_atomic(&bundled, &dst)?;
         make_executable(&dst)?;
         if !quiet {
@@ -558,10 +564,11 @@ pub fn ensure_bundled_binary(service: &str, install_dir: &Path, quiet: bool) -> 
 /// Replace `install_dir/<service>` from the npm/vendor bundle and print a restart hint.
 pub fn upgrade_bundled_binary(service: &str, install_dir: &Path) -> Result<()> {
     let bundled = bundled_binary_path(service);
-    let dst = install_dir.join(service);
+    let dst = install_dir.join(crate::binary_name(service));
     if !bundled.exists() {
         bail!("bundled binary not found at {}", bundled.display());
     }
+    stop_service_for_binary_replace(service, false);
     copy_file_atomic(&bundled, &dst)?;
     make_executable(&dst)?;
     maybe_copy_companion_libs(service, &bundled, install_dir, false)?;
@@ -576,10 +583,22 @@ pub fn upgrade_bundled_binary(service: &str, install_dir: &Path) -> Result<()> {
 /// （macOS 无此限制，因此仅在 Linux 部署中暴露）；dlopen 加载中的 .so 同理。
 /// rename(2) 替换运行中的可执行文件是合法的：旧 inode 继续服务已运行的
 /// 进程，新文件即刻对后续启动生效——install 重跑 / upgrade 无需先停服务。
+///
+/// Windows 特例：目标 exe 正在运行时连 rename 顶替也被拒（ERROR_ACCESS_DENIED），
+/// 但把**运行中的旧文件改名挪走**是合法的——降级链：顶替失败 → 旧文件
+/// rename 为 `.old-<pid>`（进程退出前可能残留，下次替换时清理）→ 新文件就位。
 fn copy_file_atomic(src: &Path, dst: &Path) -> Result<()> {
     let tmp = dst.with_extension(format!("new-{}", std::process::id()));
     fs::copy(src, &tmp).with_context(|| format!("copy {} → {}", src.display(), tmp.display()))?;
     if let Err(e) = fs::rename(&tmp, dst) {
+        #[cfg(windows)]
+        {
+            let moved_away = dst.with_extension(format!("old-{}", std::process::id()));
+            if fs::rename(dst, &moved_away).is_ok() && fs::rename(&tmp, dst).is_ok() {
+                let _ = fs::remove_file(&moved_away);
+                return Ok(());
+            }
+        }
         let _ = fs::remove_file(&tmp);
         return Err(anyhow::Error::new(e).context(format!(
             "replace {} ← {}",
@@ -589,6 +608,35 @@ fn copy_file_atomic(src: &Path, dst: &Path) -> Result<()> {
     }
     Ok(())
 }
+
+/// Windows：替换服务二进制前的预停——结束任务计划实例并等待文件解锁。
+///
+/// 非 Windows 上是空操作（unix 侧 rename 顶替运行中文件本就合法）。
+#[cfg(windows)]
+fn stop_service_for_binary_replace(service: &str, quiet: bool) {
+    use crate::platform::{ServiceBackend, current_backend};
+    if current_backend() != ServiceBackend::TaskScheduler {
+        return;
+    }
+    let name = format!("com.nuwax.{service}");
+    if !crate::task_scheduler::task_exists(&name) {
+        return;
+    }
+    if !quiet {
+        println!("  stopping running task {name} before binary replace…");
+    }
+    let _ = crate::task_scheduler::end(&name);
+    // 进程退出与句柄释放有延迟：轮询任务状态（非 Running 即视为停稳，≤15s）
+    for _ in 0..30 {
+        if crate::task_scheduler::task_state(&name) != crate::task_scheduler::TaskState::Running {
+            break;
+        }
+        thread::sleep(Duration::from_millis(500));
+    }
+}
+
+#[cfg(not(windows))]
+fn stop_service_for_binary_replace(_service: &str, _quiet: bool) {}
 
 /// 处理 macOS launchd 服务安装结果：SSH-only（无桌面会话）时 bootstrap/enable
 /// 会以 exit 134 失败，但 **plist 已写入** `~/Library/LaunchAgents/`——这不是安装

@@ -15,6 +15,9 @@ function platformKey() {
   if (process.platform === 'linux' && process.arch === 'x64') {
     return 'linux-x64';
   }
+  if (process.platform === 'win32' && process.arch === 'x64') {
+    return 'windows-x64';
+  }
   if (process.platform === 'linux' && process.arch === 'arm64') {
     return 'linux-arm64';
   }
@@ -32,7 +35,8 @@ function main() {
 
   const pkgRoot = path.resolve(__dirname, '..');
   const vendorRoot = path.join(pkgRoot, 'vendor');
-  const binary = path.join(vendorRoot, key, 'deploy-installer');
+  const exeSuffix = process.platform === 'win32' ? '.exe' : '';
+  const binary = path.join(vendorRoot, key, `deploy-installer${exeSuffix}`);
 
   if (!fs.existsSync(binary)) {
     console.error(

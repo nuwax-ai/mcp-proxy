@@ -53,7 +53,7 @@ fn effective_use_prebuilt_venv(args: &SetupArgs) -> bool {
 }
 
 fn venv_present(install_dir: &Path) -> bool {
-    install_dir.join("venv").join("bin").join("python").exists()
+    venv_python_path(install_dir).exists()
 }
 
 fn setup(args: &SetupArgs, quiet: bool, installing: bool) -> Result<PathBuf> {
@@ -168,8 +168,9 @@ fn install_full(args: &SetupArgs) -> Result<()> {
         cudnn_lib_dir: None,
     }));
     let manual_cmd = format!(
-        "{}/document-parser --config {}/config.yml server",
+        "{}/{} --config {}/config.yml server",
         install_dir.display(),
+        crate::binary_name("document-parser"),
         install_dir.display()
     );
     handle_launchd_install_result(service_result, SERVICE_NAME, &manual_cmd)?;
@@ -196,7 +197,7 @@ fn service_install(args: &ServiceDirArgs) -> Result<()> {
         bail!("missing {} — run setup first", env_path.display());
     }
 
-    let bin = install_dir.join(SERVICE_NAME);
+    let bin = install_dir.join(crate::binary_name(SERVICE_NAME));
     if !bin.exists() && !args.dry_run {
         bail!("missing binary {} — run setup first", bin.display());
     }
@@ -242,6 +243,9 @@ fn service_install(args: &ServiceDirArgs) -> Result<()> {
 
 fn copy_templates(install_dir: &Path, quiet: bool) -> Result<()> {
     let templates = bundled_templates_dir(SERVICE_NAME);
+    // macOS LaunchAgent 模板仅在 macOS 复制（Windows 任务定义由
+    // render_task_xml 渲染生成，无需模板文件）
+    #[cfg(target_os = "macos")]
     let mappings = [
         ("config.example.yml", CONFIG_FILENAME),
         (".document-parser.env.example", ENV_FILENAME),
@@ -249,6 +253,11 @@ fn copy_templates(install_dir: &Path, quiet: bool) -> Result<()> {
             "com.nuwax.document-parser.plist",
             "com.nuwax.document-parser.plist",
         ),
+    ];
+    #[cfg(not(target_os = "macos"))]
+    let mappings = [
+        ("config.example.yml", CONFIG_FILENAME),
+        (".document-parser.env.example", ENV_FILENAME),
     ];
 
     for (src_name, dst_name) in mappings {

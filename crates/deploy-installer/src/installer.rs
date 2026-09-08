@@ -122,6 +122,9 @@ pub fn path_exists(path: &std::path::Path) -> bool {
 
 /// Write UTF-8 content to a path (no sudo; for config / .env bootstrap in install_dir).
 pub fn write_user_file(path: &std::path::Path, content: &str, mode: Option<u32>) -> Result<()> {
+    // Windows 无 POSIX mode；参数保留以维持跨平台调用签名一致
+    #[cfg(not(unix))]
+    let _ = mode;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }

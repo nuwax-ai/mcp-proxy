@@ -8,7 +8,8 @@
 #
 # Jobs:
 #   resolve  — version/channel guard (runs once)
-#   build    — per-platform matrix (macos-14 → darwin-arm64, ubuntu-22.04 → linux-x64):
+#   build    — per-platform matrix (macos-14 → darwin-arm64, ubuntu-22.04 → linux-x64,
+#              windows-latest → windows-x64[voice-cli 尝试构建，失败降级两件套]):
 #              build binaries into vendor/<key>/ + smoke test on the native OS,
 #              upload the slice as an artifact
 #   publish  — merge all platform slices, stamp manifest/package.json once,
@@ -96,7 +97,13 @@ jobs:
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             vendor_key: linux-x64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            vendor_key: windows-x64
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
@@ -120,8 +127,10 @@ jobs:
 
       - name: Update workspace version
         # 必须在每个平台 job 内执行：二进制内嵌 CARGO_PKG_VERSION，需要与发布版本一致
+        # （windows runner 的 bash 里可能是 python 而非 python3）
         run: |
-          python3 scripts/ci/update-workspace-version.py "${{ needs.resolve.outputs.version }}"
+          PY="$(command -v python3 || command -v python)"
+          "$PY" scripts/ci/update-workspace-version.py "${{ needs.resolve.outputs.version }}"
 
       - name: Build platform slice
         run: |
@@ -173,6 +182,14 @@ jobs:
             test -x "npm/nuwax-deploy-installer/vendor/$key/document-parser" \
               || { echo "::error::missing $key document-parser"; exit 1; }
           done
+          # windows 切片：.exe 后缀；voice-cli 构建降级时仅告警不阻断
+          test -x "npm/nuwax-deploy-installer/vendor/windows-x64/deploy-installer.exe" \
+            || { echo "::error::missing windows-x64 slice"; exit 1; }
+          test -x "npm/nuwax-deploy-installer/vendor/windows-x64/document-parser.exe" \
+            || { echo "::error::missing windows-x64 document-parser"; exit 1; }
+          if [[ ! -f "npm/nuwax-deploy-installer/vendor/windows-x64/voice-cli.exe" ]]; then
+            echo "::warning::voice-cli not bundled for windows-x64 (build degraded)"
+          fi
           echo "==> merged vendor layout verified"
 
       - uses: actions/setup-node@v4

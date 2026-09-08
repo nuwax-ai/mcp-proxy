@@ -1,5 +1,6 @@
-//! Shared library to render and install service units (systemd on Linux, launchd on macOS)
-//! via the [`service-manager`](https://github.com/chipsenkbeil/service-manager-rs) crate.
+//! Shared library to render and install service units (systemd on Linux, launchd on macOS,
+//! Task Scheduler on Windows) via the [`service-manager`](https://github.com/chipsenkbeil/service-manager-rs)
+//! crate (launchd/systemd) and the schtasks wrapper module (Windows).
 //!
 //! Callers (voice-cli / document-parser / deploy-installer CLI) build a [`ServiceSpec`] and call
 //! [`install`] / [`uninstall`] / [`status`] / [`restart`].
@@ -12,18 +13,20 @@ mod installer;
 mod platform;
 mod render;
 mod render_plist;
+mod render_task;
 mod service_mgr;
 mod spec;
 mod systemd;
+mod task_scheduler;
 
 pub mod cli;
 
 pub use bundles::{
-    WhisperModelsPack, bundled_binary_path, bundled_templates_dir, copy_if_exists,
+    WhisperModelsPack, binary_name, bundled_binary_path, bundled_templates_dir, copy_if_exists,
     default_document_parser_install_dir, default_voice_cli_install_dir, deploy_asset_version,
     deploy_root, deploy_version, make_executable, optional_venv_download_url,
     optional_voice_cli_cuda_url, optional_whisper_download_url, platform_vendor_key,
-    voice_cli_cuda_archive_filename, voice_cli_cuda_download_url_from_base,
+    vendor_key_for, voice_cli_cuda_archive_filename, voice_cli_cuda_download_url_from_base,
     whisper_download_url_from_base,
 };
 #[cfg(target_os = "macos")]

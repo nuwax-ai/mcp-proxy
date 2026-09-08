@@ -60,6 +60,7 @@ crates/mcp-proxy/docs/
 # (templates under vendor/templates/ stay in git; CI overwrites binaries on release)
 npm/nuwax-deploy-installer/vendor/darwin-arm64/
 npm/nuwax-deploy-installer/vendor/linux-x64/
+npm/nuwax-deploy-installer/vendor/windows-x64/
 npm/nuwax-deploy-installer/*.tgz
 
 # Local install / smoke-test trees (never commit)

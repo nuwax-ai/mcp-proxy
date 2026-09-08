@@ -41,7 +41,14 @@ pub fn run() -> Result<()> {
     check_command("uv", &["--version"], true)?;
 
     if check_bundled_binary("voice-cli").is_err() {
-        failed = true;
+        // Windows 切片可能未携带 voice-cli（构建降级）——降级 WARN 不阻断
+        if !cfg!(target_os = "windows") {
+            failed = true;
+        } else {
+            println!(
+                "  bundle voice-cli: WARN (not bundled in this Windows build — document-parser only)"
+            );
+        }
     }
     if check_bundled_binary("document-parser").is_err() {
         failed = true;
@@ -76,9 +83,9 @@ pub fn run() -> Result<()> {
         println!("  backend:    launchd (LaunchAgent)");
         check_macos_gui_session()?;
     } else if cfg!(target_os = "windows") {
-        // npm 包不分发 Windows；cargo install 用户的服务二进制可手动运行，
-        // 无系统服务管理集成——不能误报 systemd
-        println!("  backend:    none (Windows 暂无服务管理集成，手动运行或用任务计划程序)");
+        println!("  backend:    task scheduler (per-user S4U logon task)");
+        check_windows_task_scheduler()?;
+        check_windows_python()?;
     } else {
         println!("  backend:    systemd");
         check_sudo()?;
@@ -225,20 +232,24 @@ fn check_voice_cli_companion_libs() -> Result<()> {
 }
 
 fn check_install_dir_path(path: &Path) {
-    let s = path.to_string_lossy();
-    let restricted = ["/Documents/", "/Desktop/", "/Library/Mobile Documents/"];
-    if restricted.iter().any(|seg| s.contains(seg))
-        || s.ends_with("/Documents")
-        || s.ends_with("/Desktop")
-    {
-        println!(
-            "  install path {}: WARN — Documents/Desktop/iCloud may block LaunchAgent \
-             (use ~/voice-cli or ~/document-parser)",
-            path.display()
-        );
-    } else {
-        println!("  install path {}: OK", path.display());
+    // Documents/Desktop/iCloud 警告是 macOS TCC（服务目录访问限制）专属；
+    // 其他平台一律 OK（用户目录下默认位置都合法）
+    if cfg!(target_os = "macos") {
+        let s = path.to_string_lossy();
+        let restricted = ["/Documents/", "/Desktop/", "/Library/Mobile Documents/"];
+        if restricted.iter().any(|seg| s.contains(seg))
+            || s.ends_with("/Documents")
+            || s.ends_with("/Desktop")
+        {
+            println!(
+                "  install path {}: WARN — Documents/Desktop/iCloud may block LaunchAgent \
+                 (use ~/voice-cli or ~/document-parser)",
+                path.display()
+            );
+            return;
+        }
     }
+    println!("  install path {}: OK", path.display());
 }
 
 fn check_disk_space(path: &Path) {
@@ -270,15 +281,107 @@ fn check_disk_space(path: &Path) {
 
 /// Available bytes at `path` via `df -k` (portable on macOS/Linux).
 fn available_bytes(path: &Path) -> Option<u64> {
-    let path_str = path.to_str()?;
-    let output = Command::new("df").args(["-k", path_str]).output().ok()?;
-    if !output.status.success() {
-        return None;
+    // Windows：df 不存在，用 PowerShell 查盘符剩余空间
+    #[cfg(windows)]
+    {
+        let path_str = path.to_str()?;
+        let drive = path_str.split(['/', '\\']).next()?;
+        let script = format!("(Get-PSDrive -Name '{drive}' -ErrorAction SilentlyContinue).Free");
+        let out = Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        return String::from_utf8_lossy(&out.stdout)
+            .trim()
+            .parse::<u64>()
+            .ok();
     }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let line = stdout.lines().nth(1)?;
-    let available_k: u64 = line.split_whitespace().nth(3)?.parse().ok()?;
-    Some(available_k * 1024)
+    #[cfg(not(windows))]
+    {
+        let path_str = path.to_str()?;
+        let output = Command::new("df").args(["-k", path_str]).output().ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let line = stdout.lines().nth(1)?;
+        let available_k: u64 = line.split_whitespace().nth(3)?.parse().ok()?;
+        Some(available_k * 1024)
+    }
+}
+
+/// Windows：任务计划程序可用性（schtasks 查询 + powershell 探针）。
+#[cfg(target_os = "windows")]
+fn check_windows_task_scheduler() -> Result<()> {
+    let schtasks_ok = Command::new("schtasks")
+        .args(["/query", "/fo", "LIST"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success());
+    let powershell_ok = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "$PSVersionTable.PSVersion.Major",
+        ])
+        .output()
+        .is_ok_and(|o| o.status.success());
+    match (schtasks_ok, powershell_ok) {
+        (true, true) => {
+            println!("  scheduler:  OK (schtasks + powershell)");
+            Ok(())
+        }
+        (false, _) => {
+            println!("  scheduler:  FAIL (schtasks /query 失败——任务计划程序服务不可用)");
+            Err(anyhow::anyhow!("schtasks not usable"))
+        }
+        (true, false) => {
+            println!("  scheduler:  WARN (powershell 不可用：状态/结果探针将降级)");
+            Ok(())
+        }
+    }
+}
+
+/// Windows：Python 运行时检查（uv-init 与 venv 依赖）。
+#[cfg(target_os = "windows")]
+fn check_windows_python() -> Result<()> {
+    // py 启动器优先（python.org 安装自带）；失败再试裸 python（注意商店别名陷阱）
+    let py_ok = Command::new("py")
+        .args(["-3", "--version"])
+        .output()
+        .is_ok_and(|o| o.status.success());
+    if py_ok {
+        println!("  python:     OK (py -3)");
+        return Ok(());
+    }
+    let python_ok = Command::new("python")
+        .arg("--version")
+        .output()
+        .is_ok_and(|o| o.status.success());
+    if python_ok {
+        println!("  python:     OK (python)");
+        return Ok(());
+    }
+    println!("  python:     FAIL — 未找到可用的 Python（uv-init 需要）");
+    println!("    请从 python.org 安装 3.11–3.13（MinerU 尚不支持 3.14），");
+    println!("    并在安装时勾选 Add to PATH；注意 Windows 商店别名不算有效安装。");
+    Err(anyhow::anyhow!("no usable Python on Windows"))
+}
+
+// 非 Windows 桩：run() 的 cfg!(windows) 分支在所有平台都要能编译
+#[cfg(not(target_os = "windows"))]
+fn check_windows_task_scheduler() -> Result<()> {
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn check_windows_python() -> Result<()> {
+    Ok(())
 }
 
 fn check_command(bin: &str, args: &[&str], optional: bool) -> Result<()> {

@@ -1,10 +1,11 @@
 //! `deploy-installer voice-cli` — macOS setup + OSS Whisper models + Linux CUDA OSS bundle.
 
 use crate::{
-    DropIn, InstallOptions, ServiceIdentity, ServiceSpec, WhisperModelsPack, bundled_templates_dir,
-    copy_if_exists, default_voice_cli_install_dir, deploy_asset_version, install,
-    optional_voice_cli_cuda_url, optional_whisper_download_url, voice_cli_cuda_archive_filename,
-    voice_cli_cuda_download_url_from_base, whisper_download_url_from_base,
+    DropIn, InstallOptions, ServiceIdentity, ServiceSpec, WhisperModelsPack, bundled_binary_path,
+    bundled_templates_dir, copy_if_exists, default_voice_cli_install_dir, deploy_asset_version,
+    install, optional_voice_cli_cuda_url, optional_whisper_download_url,
+    voice_cli_cuda_archive_filename, voice_cli_cuda_download_url_from_base,
+    whisper_download_url_from_base,
 };
 use anyhow::{Context, Result, bail};
 use std::fs;
@@ -97,6 +98,15 @@ fn ensure_voice_cli_binary(
     if effective_use_oss_cuda(args) {
         download_oss_cuda_bundle(args, install_dir, quiet)?;
         return Ok(());
+    }
+    if cfg!(windows)
+        && !bundled_binary_path(SERVICE_NAME).exists()
+        && !install_dir.join(crate::binary_name(SERVICE_NAME)).exists()
+    {
+        bail!(
+            "voice-cli is not bundled in this Windows release — only document-parser is \
+             supported here; run `deploy-installer document-parser install`"
+        );
     }
     ensure_bundled_binary(SERVICE_NAME, install_dir, quiet)?;
     Ok(())
@@ -232,8 +242,9 @@ fn install_full(args: &VoiceCliSetupArgs) -> Result<()> {
         cudnn_lib_dir: cudnn_lib,
     }));
     let manual_cmd = format!(
-        "{}/voice-cli server run --config {}/config.yml",
+        "{}/{} server run --config {}/config.yml",
         install_dir.display(),
+        crate::binary_name("voice-cli"),
         install_dir.display()
     );
     handle_launchd_install_result(service_result, SERVICE_NAME, &manual_cmd)?;
@@ -294,7 +305,7 @@ fn service_install(args: &ServiceDirArgs) -> Result<()> {
         bail!("missing {} — run setup first", config_path.display());
     }
 
-    let bin = install_dir.join(SERVICE_NAME);
+    let bin = install_dir.join(crate::binary_name(SERVICE_NAME));
     if !bin.exists() && !args.dry_run {
         bail!("missing binary {} — run setup first", bin.display());
     }

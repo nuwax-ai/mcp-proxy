@@ -63,3 +63,15 @@ jobs:
         run: >
           cargo check -p document-parser -p deploy-installer
           -p voice-toolkit -p rs-voice-toolkit-audio
+
+  check-windows:
+    name: Check deploy-installer on Windows (MSVC)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: cargo check
+        run: cargo check -p deploy-installer --all-targets

@@ -50,12 +50,33 @@ impl WhisperModelsPack {
 
 /// Vendor key for the current platform, e.g. `darwin-arm64`.
 pub fn platform_vendor_key() -> &'static str {
-    match (std::env::consts::OS, std::env::consts::ARCH) {
-        ("macos", "aarch64") => "darwin-arm64",
-        ("macos", "x86_64") => "darwin-x64",
-        ("linux", "x86_64") => "linux-x64",
-        ("linux", "aarch64") => "linux-arm64",
-        (os, arch) => panic!("unsupported platform for deploy-installer: {os}-{arch}"),
+    vendor_key_for(std::env::consts::OS, std::env::consts::ARCH).unwrap_or_else(|| {
+        panic!(
+            "unsupported platform for deploy-installer: {}-{}",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        )
+    })
+}
+
+/// 纯函数：OS/arch → vendor key（任意平台可单测）。未支持组合返回 None。
+pub fn vendor_key_for(os: &str, arch: &str) -> Option<&'static str> {
+    match (os, arch) {
+        ("macos", "aarch64") => Some("darwin-arm64"),
+        ("macos", "x86_64") => Some("darwin-x64"),
+        ("linux", "x86_64") => Some("linux-x64"),
+        ("linux", "aarch64") => Some("linux-arm64"),
+        ("windows", "x86_64") => Some("windows-x64"),
+        _ => None,
+    }
+}
+
+/// 服务可执行文件名（Windows 带 `.exe` 后缀，vendor 与 install 目录统一）。
+pub fn binary_name(service: &str) -> String {
+    if cfg!(windows) {
+        format!("{service}.exe")
+    } else {
+        service.to_string()
     }
 }
 
@@ -121,7 +142,9 @@ fn manifest_asset_version() -> Option<String> {
 
 /// `vendor/<platform>/document-parser` bundled binary.
 pub fn bundled_binary_path(service: &str) -> PathBuf {
-    deploy_root().join(platform_vendor_key()).join(service)
+    deploy_root()
+        .join(platform_vendor_key())
+        .join(binary_name(service))
 }
 
 /// `vendor/templates/<service>/`
@@ -129,20 +152,28 @@ pub fn bundled_templates_dir(service: &str) -> PathBuf {
     deploy_root().join("templates").join(service)
 }
 
-/// Default install directory for document-parser on macOS.
+/// Default install directory for document-parser.
 pub fn default_document_parser_install_dir() -> PathBuf {
-    if let Ok(home) = std::env::var("HOME") {
-        return PathBuf::from(home).join("document-parser");
+    if let Some(home) = home_dir() {
+        return home.join("document-parser");
     }
     PathBuf::from("./document-parser")
 }
 
-/// Default install directory for voice-cli on macOS.
+/// Default install directory for voice-cli.
 pub fn default_voice_cli_install_dir() -> PathBuf {
-    if let Ok(home) = std::env::var("HOME") {
-        return PathBuf::from(home).join("voice-cli");
+    if let Some(home) = home_dir() {
+        return home.join("voice-cli");
     }
     PathBuf::from("./voice-cli")
+}
+
+/// 用户主目录（unix HOME；Windows USERPROFILE——npm 全局运行环境两者其一存在）。
+fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
 }
 
 /// Resolve optional prebuilt venv download URL from `vendor/templates/manifest.json`.
