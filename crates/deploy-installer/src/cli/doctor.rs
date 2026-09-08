@@ -73,10 +73,18 @@ pub fn run() -> Result<()> {
     check_upload_backend(&parser_dir);
 
     if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        let (has_smi, cublas_ok) = crate::cli::assets::linux_cuda_runtime_available();
         if let Some(url) = crate::optional_voice_cli_cuda_url() {
             println!("  oss cuda:   OK ({url})");
         } else {
             println!("  oss cuda:   WARN (no voiceCliCuda URL in manifest.json)");
+        }
+        if !has_smi || !cublas_ok {
+            println!(
+                "  cuda env:   WARN (no NVIDIA GPU/CUDA toolkit: nvidia-smi={has_smi}, \
+                 libcublas={cublas_ok} — CUDA bundle will not start; \
+                 voice-cli install will fall back to the CPU build)"
+            );
         }
     }
 

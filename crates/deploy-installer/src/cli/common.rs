@@ -58,6 +58,8 @@ pub fn resolve_service_install_dir(service: &str, install_dir: &Path) -> PathBuf
 /// voice-cli 启动秒级就绪；document-parser 首启含 MinerU 环境检查，放宽。
 const VOICE_CLI_HEALTH_WAIT_SECS: u64 = 45;
 const DOCUMENT_PARSER_HEALTH_WAIT_SECS: u64 = 120;
+/// upgrade 自动重启后的健康等待（尽力而为，非致命——重启成功即契约达成）
+const UPGRADE_HEALTH_WAIT_SECS: u64 = 45;
 
 /// Poll `http://127.0.0.1:{port}{path}` until curl succeeds or timeout.
 pub fn wait_for_health(port: u16, path: &str, timeout_secs: u64) -> bool {
@@ -83,23 +85,43 @@ pub fn wait_for_health(port: u16, path: &str, timeout_secs: u64) -> bool {
 }
 
 /// Print a short success banner after `install` completes.
-pub fn print_install_success(service: &str, install_dir: &Path, port: u16) {
+///
+/// 健康等待超时 = 安装失败（Fail Fast）：服务注册成功但起不来时，不能打印 ✅
+/// 让用户误以为部署完成（131 无 GPU 机器装 CUDA voice-cli 崩溃循环的实测教训）。
+/// 排障指引按当前服务后端给出。
+pub fn print_install_success(service: &str, install_dir: &Path, port: u16) -> Result<()> {
     let timeout_secs = match service {
         "document-parser" => DOCUMENT_PARSER_HEALTH_WAIT_SECS,
         _ => VOICE_CLI_HEALTH_WAIT_SECS,
     };
     print!("\n   Checking /health (up to {timeout_secs}s)");
     let healthy = wait_for_health(port, "/health", timeout_secs);
-    if healthy {
-        println!(" … OK");
-    } else {
-        println!(" … still starting (retry: curl -fsS http://127.0.0.1:{port}/health)");
+    if !healthy {
+        println!(" … TIMEOUT");
+        println!("\n⚠️  {service} 已安装但服务未就绪（{timeout_secs}s 内 /health 未响应）");
+        println!("   排查：");
+        if cfg!(target_os = "windows") {
+            println!("     deploy-installer {service} service status   # 任务状态与 last result");
+            println!("     任务计划程序 taskschd.msc → com.nuwax.{service} → 历史");
+        } else if cfg!(target_os = "macos") {
+            println!(
+                "     tail -30 ~/logs/launchd.*.log 或 {}/logs/ 下最新日志",
+                install_dir.display()
+            );
+            println!("     deploy-installer {service} service status");
+        } else {
+            println!("     journalctl -u {service} -n 30 --no-pager   # 崩溃原因");
+            println!("     deploy-installer {service} service status");
+        }
+        bail!("{service} installed but health check timed out on port {port}");
     }
+    println!(" … OK");
 
     println!("\n✅ {service} → http://127.0.0.1:{port}");
     println!("   API docs: http://127.0.0.1:{port}/api/docs");
     println!("   Dir: {}", install_dir.display());
     println!("   Ops: deploy-installer {service} service status");
+    Ok(())
 }
 
 /// Ensure required Whisper model files exist after an OSS extract.
@@ -138,12 +160,38 @@ pub fn upgrade_bundled_binary(service: &str, install_dir: &Path) -> Result<()> {
     if !bundled.exists() {
         bail!("bundled binary not found at {}", bundled.display());
     }
+    // 替换前探测"服务在跑?"——替换后自动重启原在跑的服务，升级零感知：
+    // Windows 停任务换文件（否则服务留在停止态），Linux/macOS rename 顶替
+    // （旧进程继续跑旧版本直到重启）——两种场景都需要重启才生效新版本
+    let was_running = crate::checks::unit_is_active(service, crate::platform::current_backend());
     stop_service_for_binary_replace(service, false);
     copy_file_atomic(&bundled, &dst)?;
     make_executable(&dst)?;
     maybe_copy_companion_libs(service, &bundled, install_dir, false)?;
     println!("✅ upgraded {} → {}", bundled.display(), dst.display());
-    println!("   Run: deploy-installer {service} service restart");
+    if was_running {
+        match restart_in_dir(service, Some(install_dir.to_path_buf())) {
+            Ok(()) => {
+                // 重启成功即契约达成；健康等待尽力而为（首启含模型加载时 45s 可能不够）
+                let port = read_server_port(&install_dir.join(CONFIG_FILENAME));
+                if let Some(port) = port {
+                    print!("   restarting");
+                    if wait_for_health(port, "/health", UPGRADE_HEALTH_WAIT_SECS) {
+                        println!(" … healthy");
+                    } else {
+                        println!(" … health still warming up (service was restarted)");
+                    }
+                } else {
+                    println!("   restarted (config.yml unreadable — skipping health wait)");
+                }
+            }
+            Err(e) => println!(
+                "   ⚠️ restart failed: {e} — run: deploy-installer {service} service restart"
+            ),
+        }
+    } else {
+        println!("   Run: deploy-installer {service} service restart");
+    }
     Ok(())
 }
 
@@ -203,11 +251,17 @@ fn stop_service_for_binary_replace(service: &str, quiet: bool) {
         }
         thread::sleep(Duration::from_millis(500));
     }
+    // 再沉降 1s：任务态转 Ready 与进程退出/端口释放之间仍有窗口，
+    // 紧随其后的端口预检会误报冲突（Windows 重装实测的竞态缓解）
+    thread::sleep(Duration::from_secs(1));
 }
 
 #[cfg(not(windows))]
 fn stop_service_for_binary_replace(_service: &str, _quiet: bool) {}
 
+/// 返回 true=服务已启动（调用方做健康等待）；false=SSH-only 降级未启动（有意状态，
+/// 调用方跳过健康等待、退出码保持 0）。
+///
 /// 处理 macOS launchd 服务安装结果：SSH-only（无桌面会话）时 bootstrap/enable
 /// 会以 exit 134 失败，但 **plist 已写入** `~/Library/LaunchAgents/`——这不是安装
 /// 失败，降级为成功退出并给出激活指引，避免用户对着 "Failed to execute command
@@ -220,16 +274,16 @@ pub fn handle_launchd_install_result(
     result: Result<()>,
     service_name: &str,
     manual_cmd: &str,
-) -> Result<()> {
+) -> Result<bool> {
     if result.is_ok() || crate::macos_gui_session_present() {
-        return result;
+        return result.map(|_| true);
     }
     println!(
         "\n⚠️  {service_name} 服务未启动：当前 SSH 会话无桌面登录（launchd gui domain 不可用）。"
     );
     println!("   plist 已写入 ~/Library/LaunchAgents/，桌面登录后服务自动启动。");
     println!("   也可手动运行：{manual_cmd}");
-    Ok(())
+    Ok(false)
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -237,8 +291,8 @@ pub fn handle_launchd_install_result(
     result: Result<()>,
     _service_name: &str,
     _manual_cmd: &str,
-) -> Result<()> {
-    result
+) -> Result<bool> {
+    result.map(|_| true)
 }
 
 /// Shared uninstall / status / restart; `on_install` handles service-specific Install.

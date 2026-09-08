@@ -98,6 +98,24 @@ fn ensure_voice_cli_binary(
     quiet: bool,
 ) -> Result<()> {
     if effective_use_oss_cuda(args) {
+        // 预检 + 自动回退（仅 bundle 未就绪时；重装幂等不受影响）：
+        // 无 GPU/工具包的机器不再白下 360MB 后崩溃循环，直接装 vendor CPU 版
+        if !args.use_oss_cuda && !voice_cli_cuda_bundle_present(install_dir) {
+            let (has_smi, cublas_ok) = crate::cli::assets::linux_cuda_runtime_available();
+            let report = crate::cli::assets::cuda_preflight_report(has_smi, cublas_ok);
+            if !report.is_empty() {
+                println!("  ⚠️ CUDA 预检未通过（nvidia-smi={has_smi}, libcublas={cublas_ok}）");
+                for line in report.lines() {
+                    println!("{line}");
+                }
+                println!("  → 自动回退安装 CPU 版本（vendor 内置二进制）");
+                println!(
+                    "    如明确需要 CUDA bundle: 修复上述环境后重装，或加 --use-oss-cuda 强制"
+                );
+                ensure_bundled_binary(SERVICE_NAME, install_dir, quiet)?;
+                return Ok(());
+            }
+        }
         download_oss_cuda_bundle(args, install_dir, quiet)?;
         return Ok(());
     }
@@ -158,6 +176,19 @@ fn download_oss_cuda_bundle(
 
 fn upgrade_voice_cli(install_dir: &Path, oss_base: Option<&str>) -> Result<()> {
     if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        // 与 install 同款预检：无 GPU 环境不再盲下 CUDA bundle，
+        // 回退升级 CPU vendor 二进制（upgrade_bundled_binary 含自动重启）；
+        // 显式 --oss-base 视为用户明确意图，跳过预检
+        let (has_smi, cublas_ok) = crate::cli::assets::linux_cuda_runtime_available();
+        let report = crate::cli::assets::cuda_preflight_report(has_smi, cublas_ok);
+        if !report.is_empty() && oss_base.is_none() {
+            println!("  ⚠️ CUDA 预检未通过（nvidia-smi={has_smi}, libcublas={cublas_ok}）");
+            for line in report.lines() {
+                println!("{line}");
+            }
+            println!("  → 回退升级 CPU 版本（当前安装若为 CUDA 版保持不动）");
+            return upgrade_bundled_binary(SERVICE_NAME, install_dir);
+        }
         let args = VoiceCliSetupArgs {
             install_dir: Some(install_dir.to_path_buf()),
             use_prebuilt_models: false,
@@ -249,10 +280,16 @@ fn install_full(args: &VoiceCliSetupArgs) -> Result<()> {
         crate::binary_name("voice-cli"),
         install_dir.display()
     );
-    handle_launchd_install_result(service_result, SERVICE_NAME, &manual_cmd)?;
+    let started = handle_launchd_install_result(service_result, SERVICE_NAME, &manual_cmd)?;
     let config_path = install_dir.join(CONFIG_FILENAME);
     let port = read_server_port(&config_path).unwrap_or(DEFAULT_PORT);
-    print_install_success(SERVICE_NAME, &install_dir, port);
+    if started {
+        print_install_success(SERVICE_NAME, &install_dir, port)?;
+    } else {
+        // SSH-only 降级：有意未启动（桌面登录后自启），非失败——退出码 0
+        println!("\n✅ {SERVICE_NAME} 已安装（服务未启动：等待桌面登录自启，或手动运行上方命令）");
+        println!("   Dir: {}", install_dir.display());
+    }
     Ok(())
 }
 

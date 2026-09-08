@@ -43,6 +43,15 @@ chmod +x "$INSTALL/document-parser"
 echo "==> doctor"
 "$BIN" doctor
 
+# voice-cli 冒烟：vendor 目录内直接跑 --version（clap 内建、零模型加载零 GPU）
+# ——伴生库同目录，链接期问题（如 Windows DLL 缺失）在此当场暴露
+if [[ -x "$PKG/vendor/$VENDOR_KEY/voice-cli$BIN_SUFFIX" ]]; then
+  echo "==> voice-cli --version"
+  "$PKG/vendor/$VENDOR_KEY/voice-cli$BIN_SUFFIX" --version
+else
+  echo "==> voice-cli not bundled in this slice — skipping version smoke"
+fi
+
 echo "==> service install (dry-run)"
 "$BIN" document-parser service install --install-dir "$INSTALL" --dry-run
 

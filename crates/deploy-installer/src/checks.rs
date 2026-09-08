@@ -201,7 +201,9 @@ fn extract_pid_from_ss(stdout: &str) -> Option<String> {
 }
 
 /// Whether this unit is already active (idempotent reinstall should not fail on own port).
-fn unit_is_active(name: &str, backend: ServiceBackend) -> bool {
+///
+/// pub：upgrade 流程在替换二进制前探测"服务在跑?"复用（三后端名形差异在此收敛）。
+pub fn unit_is_active(name: &str, backend: ServiceBackend) -> bool {
     match backend {
         ServiceBackend::Launchd => {
             let spec = ServiceSpec {

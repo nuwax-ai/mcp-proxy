@@ -57,6 +57,38 @@ pub fn voice_cli_cuda_bundle_present(install_dir: &Path) -> bool {
         })
 }
 
+/// Linux CUDA 运行时预检（voice-cli CUDA bundle 的启动前置）。
+///
+/// bundle 不含 libcublas——它依赖系统 CUDA 工具包（/usr/local/cuda/lib64）或
+/// ldconfig 可达的 CUDA 库；nvidia-smi 只证明驱动。两者任一缺失时 CUDA bundle
+/// 装上也无法启动（131 无 GPU 机实测：libcublas.so.12 not found 崩溃循环）。
+pub fn linux_cuda_runtime_available() -> (bool, bool) {
+    // nvidia-smi 可执行且退出成功
+    let has_smi = std::process::Command::new("nvidia-smi")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success());
+    // libcublas：CUDA 工具包目录存在，或 ldconfig 缓存可解析
+    let cublas_in_toolkit = std::path::Path::new("/usr/local/cuda/lib64/libcublas.so.12").exists();
+    let cublas_in_ldconfig = std::process::Command::new("ldconfig")
+        .arg("-p")
+        .output()
+        .ok()
+        .is_some_and(|o| String::from_utf8_lossy(&o.stdout).contains("libcublas.so.12"));
+    (has_smi, cublas_in_toolkit || cublas_in_ldconfig)
+}
+
+/// 纯函数：预检结果 → 提示文案（四分支单测；空串 = 预检通过无需提示）。
+pub fn cuda_preflight_report(has_smi: bool, cublas_ok: bool) -> String {
+    match (has_smi, cublas_ok) {
+        (true, true) => String::new(),
+        (true, false) => "检测到 NVIDIA 驱动（nvidia-smi）但缺 CUDA 工具包库（libcublas.so.12）——\n  安装: sudo apt install cuda-toolkit-12-6（或 nvidia-cuda-toolkit）".into(),
+        (false, true) => "未检测到 nvidia-smi（无 NVIDIA 驱动/GPU）——CUDA bundle 无法使用 GPU\n  如需 GPU 加速: 安装 NVIDIA 驱动后重装".into(),
+        (false, false) => "未检测到 NVIDIA GPU 与 CUDA 运行时（nvidia-smi、libcublas 均缺失）——\n  CUDA bundle 在本机无法启动；GPU 加速需: NVIDIA 驱动 + cuda-toolkit".into(),
+    }
+}
+
 /// systemd drop-in for CUDA/cuDNN `LD_LIBRARY_PATH` (install_dir first for bundled .so).
 pub fn build_cuda_sherpa_drop_in(
     install_dir: &Path,
@@ -393,5 +425,14 @@ mod tests {
         let bad = work.path().join("bad.tar.gz");
         std::fs::write(&bad, b"not a tarball").unwrap();
         assert!(extract_tarball_at(&bad, &install, true, "bad").is_err());
+    }
+
+    #[test]
+    fn cuda_preflight_report_all_branches() {
+        use super::cuda_preflight_report;
+        assert_eq!(cuda_preflight_report(true, true), "");
+        assert!(cuda_preflight_report(true, false).contains("cuda-toolkit"));
+        assert!(cuda_preflight_report(false, true).contains("nvidia-smi"));
+        assert!(cuda_preflight_report(false, false).contains("均缺失"));
     }
 }

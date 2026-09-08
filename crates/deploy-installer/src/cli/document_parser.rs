@@ -176,10 +176,16 @@ fn install_full(args: &SetupArgs) -> Result<()> {
         crate::binary_name("document-parser"),
         install_dir.display()
     );
-    handle_launchd_install_result(service_result, SERVICE_NAME, &manual_cmd)?;
+    let started = handle_launchd_install_result(service_result, SERVICE_NAME, &manual_cmd)?;
     let config_path = install_dir.join(CONFIG_FILENAME);
     let port = read_server_port(&config_path).unwrap_or(DEFAULT_PORT);
-    print_install_success(SERVICE_NAME, &install_dir, port);
+    if started {
+        print_install_success(SERVICE_NAME, &install_dir, port)?;
+    } else {
+        // SSH-only 降级：有意未启动（桌面登录后自启），非失败——退出码 0
+        println!("\n✅ {SERVICE_NAME} 已安装（服务未启动：等待桌面登录自启，或手动运行上方命令）");
+        println!("   Dir: {}", install_dir.display());
+    }
     Ok(())
 }
 
