@@ -8,7 +8,7 @@ PKG="$ROOT/npm/nuwax-deploy-installer"
 INSTALL="${1:-/tmp/doc-parser-smoke}"
 
 export NUWAX_DEPLOY_ROOT="$PKG/vendor"
-export NUWAX_DEPLOY_VERSION="$(node -p "require('$PKG/package.json').version")"
+export NUWAX_DEPLOY_VERSION="$(PKG_JSON="$PKG/package.json" node -p "require(process.env.PKG_JSON).version")"
 
 case "$(uname -s)-$(uname -m)" in
   Darwin-arm64)  VENDOR_KEY="darwin-arm64" ;;

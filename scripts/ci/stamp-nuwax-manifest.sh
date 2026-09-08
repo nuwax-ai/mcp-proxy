@@ -26,22 +26,22 @@ cp crates/voice-cli/deploy/config.example.yml \
 cp crates/voice-cli/deploy/launchd/com.nuwax.voice-cli.plist \
   "$PKG/vendor/templates/voice-cli/com.nuwax.voice-cli.plist"
 
-node -e "
+MANIFEST_PATH="$PKG/vendor/templates/manifest.json" TARGET_VERSION="$VERSION" node -e "
 const fs = require('fs');
-const p = '$PKG/vendor/templates/manifest.json';
+const p = process.env.MANIFEST_PATH;
 const m = JSON.parse(fs.readFileSync(p, 'utf8'));
-m.version = '$VERSION';
+m.version = process.env.TARGET_VERSION;
 if (!m.assetVersion) {
-  m.assetVersion = '$VERSION'.split('-')[0];
+  m.assetVersion = process.env.TARGET_VERSION.split('-')[0];
 }
 fs.writeFileSync(p, JSON.stringify(m, null, 2) + '\n');
 "
 
-node -e "
+PACKAGE_JSON_PATH="$PKG/package.json" TARGET_VERSION="$VERSION" node -e "
 const fs = require('fs');
-const p = '$PKG/package.json';
+const p = process.env.PACKAGE_JSON_PATH;
 const pkg = JSON.parse(fs.readFileSync(p, 'utf8'));
-pkg.version = '$VERSION';
+pkg.version = process.env.TARGET_VERSION;
 fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');
 "
 

@@ -12,7 +12,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PKG="$ROOT/npm/nuwax-deploy-installer"
-VERSION="${1:-$(node -p "require('$PKG/package.json').version")}"
+VERSION="${1:-$(PKG_JSON="$PKG/package.json" node -p "require(process.env.PKG_JSON).version")}"
 TARGET="${2:-aarch64-apple-darwin}"
 
 case "$TARGET" in
