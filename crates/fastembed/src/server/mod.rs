@@ -111,6 +111,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .layer(cors)
         .layer(body_limit)
         .layer(TraceLayer::new_for_http())
+        // handler panic 转 500 而非硬重置连接（与其余三服务一致的纵深防御）
+        .layer(tower_http::catch_panic::CatchPanicLayer::new())
         .with_state(state)
 }
 

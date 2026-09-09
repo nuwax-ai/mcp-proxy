@@ -60,7 +60,31 @@ pub fn load_document_parser_env(config: Option<&Path>) -> Option<PathBuf> {
 mod tests {
     use super::*;
     use std::fs;
+    use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
+
+    /// 测试改写共享环境变量，cargo test 默认并行——串行化防互踩
+    /// （mcp-common/process_compat 同款）
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    /// Drop 守卫恢复 env：断言失败 panic 时也把变量清掉，不泄漏给同进程其他测试
+    struct EnvRestore {
+        keys: &'static [&'static str],
+    }
+
+    impl Drop for EnvRestore {
+        fn drop(&mut self) {
+            for key in self.keys {
+                // SAFETY: test-only env mutation
+                unsafe {
+                    std::env::remove_var(key);
+                }
+            }
+        }
+    }
 
     #[test]
     fn candidates_prefer_config_dir() {
@@ -71,6 +95,10 @@ mod tests {
 
     #[test]
     fn load_sets_missing_vars_only() {
+        let _env = env_lock().lock().unwrap_or_else(|e| e.into_inner());
+        let _restore = EnvRestore {
+            keys: &["OSS_ACCESS_KEY_ID", "OSS_ACCESS_KEY_SECRET"],
+        };
         let dir = tempdir().unwrap();
         let env_path = dir.path().join(ENV_FILENAME);
         fs::write(
@@ -79,7 +107,7 @@ mod tests {
         )
         .unwrap();
 
-        // SAFETY: test-only env mutation
+        // SAFETY: test-only env mutation（env_lock 串行 + EnvRestore 兜底清理）
         unsafe {
             std::env::remove_var("OSS_ACCESS_KEY_ID");
             std::env::set_var("OSS_ACCESS_KEY_SECRET", "already-set");
@@ -94,10 +122,5 @@ mod tests {
             std::env::var("OSS_ACCESS_KEY_SECRET").unwrap(),
             "already-set"
         );
-
-        unsafe {
-            std::env::remove_var("OSS_ACCESS_KEY_ID");
-            std::env::remove_var("OSS_ACCESS_KEY_SECRET");
-        }
     }
 }

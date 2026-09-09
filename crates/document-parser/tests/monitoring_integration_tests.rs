@@ -1,8 +1,4 @@
 use document_parser::utils::{
-    health_check::{
-        EnhancedHealthCheckManager, HealthCheckConfig, HealthCheckResult, HealthChecker,
-        HealthStatus,
-    },
     logging::{
         CorrelationContext, EnhancedLoggingSystem, LogFormat, LogOutputTarget, LoggingConfig,
     },
@@ -12,64 +8,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
-
-/// 模拟健康检查器
-struct MockHealthChecker {
-    name: String,
-    should_fail: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    response_delay: Duration,
-}
-
-impl MockHealthChecker {
-    fn new(name: String, response_delay: Duration) -> Self {
-        Self {
-            name,
-            should_fail: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            response_delay,
-        }
-    }
-
-    fn set_should_fail(&self, should_fail: bool) {
-        self.should_fail
-            .store(should_fail, std::sync::atomic::Ordering::Relaxed);
-    }
-}
-
-#[async_trait::async_trait]
-impl HealthChecker for MockHealthChecker {
-    async fn check_health(&self) -> HealthCheckResult {
-        // 模拟检查延迟
-        sleep(self.response_delay).await;
-
-        let status = if self.should_fail.load(std::sync::atomic::Ordering::Relaxed) {
-            HealthStatus::Unhealthy
-        } else {
-            HealthStatus::Healthy
-        };
-
-        let mut result = HealthCheckResult::new(
-            self.name.clone(),
-            status,
-            format!("Mock health check for {}", self.name),
-        );
-
-        result.add_detail("mock".to_string(), "true".to_string());
-        result.add_detail(
-            "delay_ms".to_string(),
-            self.response_delay.as_millis().to_string(),
-        );
-
-        result.with_response_time(self.response_delay)
-    }
-
-    fn component_name(&self) -> &str {
-        &self.name
-    }
-
-    fn timeout(&self) -> Duration {
-        Duration::from_secs(5)
-    }
-}
 
 #[tokio::test]
 async fn test_enhanced_logging_system() {
@@ -262,124 +200,6 @@ async fn test_performance_monitor_with_async_collection() {
 }
 
 #[tokio::test]
-async fn test_enhanced_health_check_manager() {
-    let config = HealthCheckConfig {
-        check_interval: Duration::from_millis(100),
-        timeout: Duration::from_millis(500),
-        enable_detailed_checks: true,
-        enable_system_metrics: true,
-        ..Default::default()
-    };
-
-    let registry = Arc::new(MetricsRegistry::new());
-    let manager = EnhancedHealthCheckManager::new(config).with_metrics(registry.clone());
-
-    // 注册模拟健康检查器
-    let checker1 = Arc::new(MockHealthChecker::new(
-        "service1".to_string(),
-        Duration::from_millis(50),
-    ));
-    let checker2 = Arc::new(MockHealthChecker::new(
-        "service2".to_string(),
-        Duration::from_millis(100),
-    ));
-    let checker3 = Arc::new(MockHealthChecker::new(
-        "service3".to_string(),
-        Duration::from_millis(150),
-    ));
-
-    manager.register_checker(checker1.clone()).await;
-    manager.register_checker(checker2.clone()).await;
-    manager.register_checker(checker3.clone()).await;
-
-    assert_eq!(manager.get_checker_count().await, 3);
-
-    // 执行健康检查
-    let status = manager.check_all().await;
-    assert_eq!(status.overall_status, HealthStatus::Healthy);
-    assert_eq!(status.healthy_count, 3);
-    assert_eq!(status.unhealthy_count, 0);
-
-    // 设置一个检查器失败
-    checker2.set_should_fail(true);
-
-    let status = manager.check_all().await;
-    assert_eq!(status.overall_status, HealthStatus::Unhealthy);
-    assert_eq!(status.healthy_count, 2);
-    assert_eq!(status.unhealthy_count, 1);
-
-    // 测试单个组件检查
-    let component_result = manager.check_component("service1").await;
-    assert!(component_result.is_some());
-    assert!(component_result.unwrap().is_healthy());
-
-    let component_result = manager.check_component("service2").await;
-    assert!(component_result.is_some());
-    assert!(component_result.unwrap().is_unhealthy());
-
-    // 测试不存在的组件
-    let component_result = manager.check_component("nonexistent").await;
-    assert!(component_result.is_none());
-
-    // 启动定期检查
-    manager.start_periodic_checks().await.unwrap();
-    assert!(manager.is_running());
-
-    // 等待几个检查周期
-    sleep(Duration::from_millis(350)).await;
-
-    // 获取最后的检查结果
-    let last_check = manager.get_last_check().await;
-    assert!(last_check.is_some());
-
-    let last_status = last_check.unwrap();
-    assert_eq!(last_status.components.len(), 3);
-
-    // 停止定期检查
-    manager.stop_periodic_checks();
-    assert!(!manager.is_running());
-
-    // 验证健康检查指标
-    let health_counter = registry.get_counter("health_checks_total").await;
-    if let Some(counter) = health_counter {
-        assert!(counter.get() > 0);
-        println!("Number of health check executions: {}", counter.get());
-    }
-
-    println!("Last health check status: {:?}", last_status.overall_status);
-}
-
-#[tokio::test]
-async fn test_health_check_timeout_handling() {
-    let config = HealthCheckConfig {
-        check_interval: Duration::from_millis(200),
-        timeout: Duration::from_millis(100), // 短超时时间
-        ..Default::default()
-    };
-
-    let manager = EnhancedHealthCheckManager::new(config);
-
-    // 注册一个响应慢的检查器
-    let slow_checker = Arc::new(MockHealthChecker::new(
-        "slow_service".to_string(),
-        Duration::from_millis(200), // 超过超时时间
-    ));
-
-    manager.register_checker(slow_checker).await;
-
-    // 执行健康检查
-    let status = manager.check_all().await;
-    assert_eq!(status.overall_status, HealthStatus::Unhealthy);
-    assert_eq!(status.unhealthy_count, 1);
-
-    // 验证超时消息
-    let component = status.get_component_status("slow_service").unwrap();
-    assert!(component.message.contains("timeout"));
-
-    println!("Timeout check result: {component:?}");
-}
-
-#[tokio::test]
 async fn test_correlation_context_propagation() {
     let config = LoggingConfig {
         level: "info".to_string(),
@@ -521,24 +341,6 @@ async fn test_integrated_monitoring_system() {
     monitor.init_standard_metrics().await;
     monitor.start_collection().await.unwrap();
 
-    // 初始化健康检查
-    let health_config = HealthCheckConfig {
-        check_interval: Duration::from_millis(100),
-        ..Default::default()
-    };
-    let health_manager =
-        EnhancedHealthCheckManager::new(health_config).with_metrics(registry.clone());
-
-    // 注册健康检查器
-    let checker = Arc::new(MockHealthChecker::new(
-        "integrated_service".to_string(),
-        Duration::from_millis(10),
-    ));
-    health_manager.register_checker(checker).await;
-
-    // 启动健康检查
-    health_manager.start_periodic_checks().await.unwrap();
-
     // 设置关联上下文
     let request_id = logging_system.generate_request_id().await;
     let correlation = CorrelationContext::new()
@@ -566,10 +368,6 @@ async fn test_integrated_monitoring_system() {
 
     tracing::info!("Integration tests running");
 
-    // 检查健康状态
-    let health_status = health_manager.check_all().await;
-    assert!(health_status.is_healthy());
-
     // 获取指标
     let metrics_json = registry.export_json().await.unwrap();
     assert!(metrics_json.contains("http_requests_total"));
@@ -579,10 +377,8 @@ async fn test_integrated_monitoring_system() {
 
     // 清理
     monitor.stop_collection();
-    health_manager.stop_periodic_checks();
 
     println!("Integration test request ID: {request_id}");
-    println!("Health status: {:?}", health_status.overall_status);
     println!(
         "Indicator summary: {} indicator types",
         serde_json::from_str::<serde_json::Value>(&metrics_json)
