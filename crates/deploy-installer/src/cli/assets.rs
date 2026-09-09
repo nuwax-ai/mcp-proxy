@@ -177,8 +177,8 @@ pub fn resolve_linux_tier(i: &LinuxTierInputs) -> VoiceCliLinuxTier {
 ///
 /// 返回 `None` 表示需要真探测（预检自动档）。拆出来的目的：让调用方在梯子
 /// 前三级已定时**跳过探测**（nvidia-smi/ldconfig/探针子进程），尤其双 skip
-/// 强制 CPU 的用户不该被坏驱动的 10s 探针超时卡住。`resolve_linux_tier`
-/// 唯一入口调用本函数，两级不会漂移。
+/// 强制 CPU 的用户不该被坏驱动的 10s 探针超时卡住。`resolve_linux_tier` 与
+/// 懒探测调用方（voice-cli 侧 `linux_tier_probe`）共用本函数，两级不会漂移。
 pub fn early_linux_tier(i: &LinuxTierInputs) -> Option<VoiceCliLinuxTier> {
     if i.use_cuda {
         return Some(VoiceCliLinuxTier::Cuda);
@@ -382,6 +382,82 @@ pub fn extract_tarball_at(
     if !status.success() {
         bail!("failed to extract {label} archive: {}", archive.display());
     }
+    if !quiet {
+        println!("  {label}: extracted to {}", install_dir.display());
+    }
+    Ok(())
+}
+
+/// 下载 voice-cli GPU bundle 并**原子落位**：先解压到 `install_dir` 下的临时
+/// staging 子目录，再对已知成员逐个 [`copy_file_atomic`]（rename 顶替）就位。
+///
+/// 为什么不直接 `tar -xzf -C install_dir`：tar 对**正在运行**的二进制/.so 是
+/// 原地截断写，Linux 以 ETXTBSY 拒绝（rename 顶替运行中文件才合法——语义同
+/// `copy_file_atomic` 的注释）。档位互切（如 vulkan 机上 `install
+/// --use-oss-cuda`）会覆盖运行中的 voice-cli 与伴生 .so，直解即炸。成员清单
+/// 已知（`VOICE_CLI_*_BUNDLE_FILES`），逐成员校验缺失即报错。
+pub fn download_and_extract_bundle_atomic(
+    url: &str,
+    install_dir: &Path,
+    members: &[&str],
+    archive_basename: &str,
+    quiet: bool,
+    label: &str,
+) -> Result<()> {
+    let archive = install_dir.join(archive_basename);
+    if !quiet {
+        println!("  {label}: downloading {url}");
+    }
+    let mut curl = Command::new("curl");
+    curl.args(["-fL"]);
+    if quiet {
+        curl.args(["-s", "-S"]);
+    } else {
+        curl.arg("-#");
+    }
+    let status = curl
+        .args([url, "-o", &archive.display().to_string()])
+        .status()
+        .with_context(|| format!("curl download {label}"))?;
+    if !status.success() {
+        let _ = fs::remove_file(&archive);
+        bail!("failed to download {label} from {url}");
+    }
+
+    let staging = install_dir.join(format!(".bundle-staging-{}", std::process::id()));
+    // 残留 staging（上次中断）先清：同 pid 重入或手工残留都不影响本次落位
+    let _ = fs::remove_dir_all(&staging);
+    let place = (|| -> Result<()> {
+        fs::create_dir_all(&staging)
+            .with_context(|| format!("create staging dir {}", staging.display()))?;
+        let status = Command::new("tar")
+            .args([
+                "-xzf",
+                &archive.display().to_string(),
+                "-C",
+                &staging.display().to_string(),
+            ])
+            .status()
+            .with_context(|| format!("extract {label}"))?;
+        if !status.success() {
+            bail!("failed to extract {label} archive: {}", archive.display());
+        }
+        for name in members {
+            let src = staging.join(name);
+            let dst = install_dir.join(name);
+            if !src.exists() {
+                bail!("{label} archive missing member {name}");
+            }
+            // fs::copy 保留权限位（tar 里的可执行位随之就位），make_executable 兜底
+            copy_file_atomic(&src, &dst)?;
+            make_executable(&dst)?;
+        }
+        Ok(())
+    })();
+    // 归档与 staging 无论成败都清掉（成员已原子就位，回滚不需要它们）
+    let _ = fs::remove_dir_all(&staging);
+    let _ = fs::remove_file(&archive);
+    place?;
     if !quiet {
         println!("  {label}: extracted to {}", install_dir.display());
     }
@@ -661,10 +737,36 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
+    fn voice_cli_vulkan_bundle_rejects_empty_marker() {
+        let dir = TempDir::new().unwrap();
+        for name in ["voice-cli", "libsherpa-onnx-c-api.so", "libonnxruntime.so"] {
+            std::fs::write(dir.path().join(name), b"x").unwrap();
+        }
+        // 空 marker（只 touch 未写内容，present 判定要求 len>0）不算 vulkan 档
+        std::fs::write(dir.path().join(VOICE_CLI_VULKAN_BUNDLE_MARKER), b"").unwrap();
+        assert!(!voice_cli_vulkan_bundle_present(dir.path()));
+    }
+
+    #[test]
     #[cfg(not(target_os = "linux"))]
     fn voice_cli_vulkan_bundle_not_applicable_off_linux() {
         let dir = TempDir::new().unwrap();
         assert!(!voice_cli_vulkan_bundle_present(dir.path()));
+    }
+
+    /// installed 压过单 skip：skip 只挡"自动选档"，不推翻已装事实（推翻用双 skip）。
+    #[test]
+    fn resolve_linux_tier_installed_beats_single_skip() {
+        assert_eq!(
+            resolve_linux_tier(&LinuxTierInputs {
+                skip_cuda: true,
+                cuda_installed: true,
+                vulkan_ok: true,
+                ..all_false()
+            }),
+            VoiceCliLinuxTier::Cuda
+        );
     }
 
     /// 三档梯子真值表（纯函数，任意平台可测）。

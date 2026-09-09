@@ -119,18 +119,24 @@ pub struct VoiceCliSetupArgs {
     pub oss_base: Option<String>,
     /// Download prebuilt voice-cli CUDA bundle from OSS (default tier on Linux
     /// x86_64 when an NVIDIA GPU + CUDA toolkit are detected)
-    #[arg(long, conflicts_with = "use_oss_vulkan")]
+    #[arg(
+        long,
+        conflicts_with_all = ["use_oss_vulkan", "skip_oss_cuda"]
+    )]
     pub use_oss_cuda: bool,
     /// Skip OSS CUDA bundle download (auto tier may still pick Vulkan; with
     /// --skip-oss-vulkan forces the CPU build)
-    #[arg(long)]
+    #[arg(long, conflicts_with = "use_oss_cuda")]
     pub skip_oss_cuda: bool,
     /// Download prebuilt voice-cli Vulkan bundle from OSS (non-NVIDIA GPU on
     /// Linux x86_64; auto tier when CUDA is unavailable but Vulkan is)
-    #[arg(long, conflicts_with = "use_oss_cuda")]
+    #[arg(
+        long,
+        conflicts_with_all = ["use_oss_cuda", "skip_oss_vulkan"]
+    )]
     pub use_oss_vulkan: bool,
     /// Skip OSS Vulkan bundle download (with --skip-oss-cuda forces the CPU build)
-    #[arg(long)]
+    #[arg(long, conflicts_with = "use_oss_vulkan")]
     pub skip_oss_vulkan: bool,
     /// NVIDIA CUDA toolkit lib dir for systemd LD_LIBRARY_PATH (Linux CUDA)
     #[arg(long)]
@@ -233,6 +239,36 @@ mod tests {
             "--use-oss-vulkan",
         ]);
         assert!(vulkan_only.is_ok(), "单独 --use-oss-vulkan 应通过");
+    }
+
+    /// 同档 use+skip 组合拒绝（--use-oss-cuda --skip-oss-cuda 一类：旧代码按
+    /// skip 落 CPU、新梯子按 use 直取——语义会跨版本翻转，必须在解析期报错
+    /// 而不是静默二选一）
+    #[test]
+    fn same_tier_use_and_skip_conflict() {
+        for conflict in [
+            ["--use-oss-cuda", "--skip-oss-cuda"],
+            ["--use-oss-vulkan", "--skip-oss-vulkan"],
+        ] {
+            let combined = Cli::try_parse_from([
+                "deploy-installer",
+                "voice-cli",
+                "install",
+                conflict[0],
+                conflict[1],
+            ]);
+            assert!(combined.is_err(), "{:?} 同档 use+skip 应被拒绝", conflict);
+        }
+        // 跨档组合仍合法：--use-oss-vulkan + --skip-oss-cuda（明确"不要 cuda、
+        // 要 vulkan"）不冲突
+        let cross = Cli::try_parse_from([
+            "deploy-installer",
+            "voice-cli",
+            "install",
+            "--use-oss-vulkan",
+            "--skip-oss-cuda",
+        ]);
+        assert!(cross.is_ok(), "跨档 use+skip 组合应通过");
     }
 
     /// 隐藏探针子命令可解析且不出现在 help（面向父进程 reexec，非用户接口）

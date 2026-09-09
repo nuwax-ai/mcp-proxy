@@ -17,10 +17,18 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-PKG_JSON="$ROOT/npm/nuwax-deploy-installer/package.json"
 OSS_PREFIX="uploads/voice-cli"
 PUBLIC_BASE="https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/${OSS_PREFIX}"
 MARKER=".voice-cli-vulkan"
+
+log() {
+  printf '==> %s\n' "$*"
+}
+
+die() {
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 1
+}
 
 SRC_DIR=""
 POSITIONAL=()
@@ -36,7 +44,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     -h | --help)
-      sed -n '2,19p' "$0"
+      sed -n '2,16p' "$0"
       exit 0
       ;;
     *)
@@ -46,8 +54,17 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-VERSION="${POSITIONAL[0]:-$(node -p "require('$PKG_JSON').version")}"
+# 默认版本取 manifest assetVersion（**不是** package.json——仓库内 package.json
+# 的 version 在发版 stamp 前是旧值，如 0.2.1；安装器按 assetVersion 拼 OSS 文件名，
+# 打错版本号的包上传后 404、auto 档全体静默回退 CPU）
+MANIFEST_JSON="$ROOT/npm/nuwax-deploy-installer/vendor/templates/manifest.json"
+ASSET_VERSION="$(MANIFEST_JSON="$MANIFEST_JSON" node -e \
+  "console.log(JSON.parse(require('fs').readFileSync(process.env.MANIFEST_JSON,'utf8')).assetVersion || '')")"
+VERSION="${POSITIONAL[0]:-$ASSET_VERSION}"
 VERSION="${VERSION%%-*}"
+[[ -n "$ASSET_VERSION" ]] || die "manifest.json has no assetVersion"
+[[ "$VERSION" == "$ASSET_VERSION" ]] || \
+  die "version $VERSION != manifest assetVersion $ASSET_VERSION (bump assetVersion first)"
 ARCHIVE_NAME="voice-cli-vulkan-linux-x64-${VERSION}.tar.gz"
 OUTPUT_DIR="$ROOT/dist/voice-cli/v${VERSION}"
 OUTPUT_PATH="$OUTPUT_DIR/$ARCHIVE_NAME"
@@ -57,15 +74,6 @@ if [[ -z "$SRC_DIR" ]]; then
 fi
 
 REQUIRED=(voice-cli libsherpa-onnx-c-api.so libonnxruntime.so)
-
-log() {
-  printf '==> %s\n' "$*"
-}
-
-die() {
-  printf 'ERROR: %s\n' "$*" >&2
-  exit 1
-}
 
 [[ -d "$SRC_DIR" ]] || die "source dir not found: $SRC_DIR"
 for f in "${REQUIRED[@]}"; do

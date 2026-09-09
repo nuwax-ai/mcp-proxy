@@ -55,6 +55,12 @@ for f in "${REQUIRED[@]}"; do
   }
 done
 
+# 可执行位：丢失会导致 systemd ExecStart 权限拒绝，且上传后难以排查
+[[ -x "$EXTRACT_DIR/voice-cli" ]] || {
+  echo "ERROR: voice-cli is not executable in the archive" >&2
+  exit 1
+}
+
 # marker 内容带 vulkan 标识（档位判据，内容错=装错包）
 grep -q '^vulkan ' "$EXTRACT_DIR/.voice-cli-vulkan" || {
   echo "ERROR: .voice-cli-vulkan marker content is not 'vulkan <version>'" >&2

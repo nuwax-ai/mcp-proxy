@@ -14,8 +14,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::cli::assets::{
-    VOICE_CLI_VULKAN_BUNDLE_MARKER, VoiceCliLinuxTier, WHISPER_DEFAULT_MODEL,
-    build_cuda_sherpa_drop_in, cuda_preflight_report, default_cuda_lib_dir, detect_cudnn_lib_dir,
+    VOICE_CLI_CUDA_BUNDLE_FILES, VOICE_CLI_VULKAN_BUNDLE_FILES, VOICE_CLI_VULKAN_BUNDLE_MARKER,
+    VoiceCliLinuxTier, WHISPER_DEFAULT_MODEL, build_cuda_sherpa_drop_in, cuda_preflight_report,
+    default_cuda_lib_dir, detect_cudnn_lib_dir, download_and_extract_bundle_atomic,
     download_and_extract_tarball, ensure_whisper_pack_models, patch_whisper_default_model,
     voice_cli_cuda_bundle_present, voice_cli_vulkan_bundle_present, vulkan_preflight_report,
     whisper_large_v3_present, whisper_pack_satisfied,
@@ -165,6 +166,18 @@ fn remove_vulkan_marker(install_dir: &Path) {
     let _ = fs::remove_file(install_dir.join(VOICE_CLI_VULKAN_BUNDLE_MARKER));
 }
 
+/// 档位互斥清理（→CPU 方向）：删 CUDA bundle 专属 .so——providers_cuda 残留会让
+/// `voice_cli_cuda_bundle_present()` 仍判 true，双 skip 强制降级后下次 auto
+/// install/upgrade 会静默跳回 CUDA 档，撤销用户的强制选择。
+fn remove_cuda_exclusive_files(install_dir: &Path) {
+    for stale in [
+        "libonnxruntime_providers_cuda.so",
+        "libonnxruntime_providers_shared.so",
+    ] {
+        let _ = fs::remove_file(install_dir.join(stale));
+    }
+}
+
 fn resolve_models_pack(args: &VoiceCliSetupArgs) -> Result<WhisperModelsPack> {
     WhisperModelsPack::parse(&args.models).ok_or_else(|| {
         anyhow::anyhow!(
@@ -250,7 +263,10 @@ fn ensure_voice_cli_binary(
                 }
             }
             ensure_bundled_binary(SERVICE_NAME, install_dir, quiet)?;
+            // 互斥清 →CPU 方向全套：marker + CUDA 专属 .so（vendor CPU 二进制已
+            // 顶替 voice-cli，残留 .so 会让下次误判回 CUDA 档）
             remove_vulkan_marker(install_dir);
+            remove_cuda_exclusive_files(install_dir);
             Ok(())
         }
     }
@@ -284,9 +300,10 @@ fn download_oss_cuda_bundle(
         );
     };
 
-    download_and_extract_tarball(
+    download_and_extract_bundle_atomic(
         &url,
         install_dir,
+        VOICE_CLI_CUDA_BUNDLE_FILES,
         "voice-cli-cuda-prebuilt.tar.gz",
         quiet,
         "voice-cli CUDA",
@@ -335,9 +352,10 @@ fn download_oss_vulkan_bundle(
         );
     };
 
-    download_and_extract_tarball(
+    download_and_extract_bundle_atomic(
         &url,
         install_dir,
+        VOICE_CLI_VULKAN_BUNDLE_FILES,
         "voice-cli-vulkan-prebuilt.tar.gz",
         quiet,
         "voice-cli Vulkan",
@@ -421,12 +439,27 @@ fn upgrade_voice_cli(install_dir: &Path, oss_base: Option<&str>) -> Result<()> {
         }
         VoiceCliLinuxTier::Vulkan => {
             let args = upgrade_bundle_args(install_dir, None, probe.tier);
-            download_oss_vulkan_bundle(&args, install_dir, false)?;
-            print_bundle_upgraded("Vulkan", install_dir);
-            Ok(())
+            // 与 install 的 auto 档同款优雅降级：vulkan 是替用户选的（此路径无
+            // 已装 GPU 档可降——installed-first 已排除），资产缺失回退升 CPU
+            // vendor 二进制而非整体报错
+            match download_oss_vulkan_bundle(&args, install_dir, false) {
+                Ok(()) => {
+                    print_bundle_upgraded("Vulkan", install_dir);
+                    Ok(())
+                }
+                Err(e) => {
+                    println!("  ⚠️ Vulkan bundle 获取失败（{e}）");
+                    println!("  → 回退升级 CPU 版本（vendor 二进制）");
+                    upgrade_bundled_binary(SERVICE_NAME, install_dir)
+                }
+            }
         }
         VoiceCliLinuxTier::Cpu => {
-            print_gpu_preflight_warnings(&probe);
+            // 此路径 probe 必然真跑过（installed/显式旗标在前面上方已分流），
+            // 守卫是防御性的：防止未来把 skip 旗标接进探测参数后用占位值谎报
+            if probe.probed {
+                print_gpu_preflight_warnings(&probe);
+            }
             println!("  → 回退升级 CPU 版本（vendor 二进制）");
             upgrade_bundled_binary(SERVICE_NAME, install_dir)
         }

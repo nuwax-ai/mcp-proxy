@@ -92,15 +92,25 @@ pub fn run() -> Result<()> {
             );
         }
         let (loader_ok, gpu_ok) = crate::cli::assets::linux_vulkan_runtime_available();
+        let cuda_ok = has_smi && cublas_ok;
         if !gpu_ok {
-            println!(
-                "  vulkan env: WARN (no hardware Vulkan GPU: loader={loader_ok}, gpu={gpu_ok} — \
-                 AMD/Intel GPU needs libvulkan1 + mesa-vulkan-drivers; \
-                 voice-cli install will use the CPU build)"
-            );
+            if cuda_ok {
+                // CUDA 机器（无 mesa/nvidia vulkan ICD 是常态）：tier 走 CUDA，
+                // vulkan 不可用不影响最终档位——只提示，不下"将用 CPU"的错误结论
+                println!(
+                    "  vulkan env: WARN (no hardware Vulkan GPU: loader={loader_ok}, gpu={gpu_ok} — \
+                     not used; the CUDA tier is available on this machine)"
+                );
+            } else {
+                println!(
+                    "  vulkan env: WARN (no hardware Vulkan GPU: loader={loader_ok}, gpu={gpu_ok} — \
+                     AMD/Intel GPU needs libvulkan1 + mesa-vulkan-drivers; \
+                     voice-cli install will use the CPU build)"
+                );
+            }
         }
         // 三档汇总（只看预检信号；实际档位还受旗标/已装状态影响，见 resolve_linux_tier）
-        let tier = if has_smi && cublas_ok {
+        let tier = if cuda_ok {
             "CUDA"
         } else if gpu_ok {
             "Vulkan"
