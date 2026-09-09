@@ -1,20 +1,24 @@
-//! `deploy-installer voice-cli` — macOS setup + OSS Whisper models + Linux CUDA OSS bundle.
+//! `deploy-installer voice-cli` — macOS setup + OSS Whisper models + Linux 三档
+//! （CUDA OSS bundle / Vulkan OSS bundle / vendor CPU，见 `VoiceCliLinuxTier`）。
 
 use crate::{
     DropIn, InstallOptions, ServiceIdentity, ServiceSpec, WhisperModelsPack, bundled_binary_path,
     bundled_templates_dir, copy_if_exists, default_voice_cli_install_dir, deploy_asset_version,
-    install, optional_voice_cli_cuda_url, optional_whisper_download_url,
-    voice_cli_cuda_archive_filename, voice_cli_cuda_download_url_from_base,
-    whisper_download_url_from_base,
+    install, optional_voice_cli_cuda_url, optional_voice_cli_vulkan_url,
+    optional_whisper_download_url, voice_cli_cuda_archive_filename,
+    voice_cli_cuda_download_url_from_base, voice_cli_vulkan_archive_filename,
+    voice_cli_vulkan_download_url_from_base, whisper_download_url_from_base,
 };
 use anyhow::{Context, Result, bail};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::cli::assets::{
-    WHISPER_DEFAULT_MODEL, build_cuda_sherpa_drop_in, default_cuda_lib_dir, detect_cudnn_lib_dir,
+    VOICE_CLI_VULKAN_BUNDLE_MARKER, VoiceCliLinuxTier, WHISPER_DEFAULT_MODEL,
+    build_cuda_sherpa_drop_in, cuda_preflight_report, default_cuda_lib_dir, detect_cudnn_lib_dir,
     download_and_extract_tarball, ensure_whisper_pack_models, patch_whisper_default_model,
-    voice_cli_cuda_bundle_present, whisper_large_v3_present, whisper_pack_satisfied,
+    voice_cli_cuda_bundle_present, voice_cli_vulkan_bundle_present, vulkan_preflight_report,
+    whisper_large_v3_present, whisper_pack_satisfied,
 };
 use crate::cli::common::{
     CONFIG_FILENAME, canonicalize_install_dir, dispatch_service_action, ensure_bundled_binary,
@@ -57,14 +61,82 @@ fn effective_use_prebuilt_models(args: &VoiceCliSetupArgs) -> bool {
     cfg!(target_os = "macos")
 }
 
-fn effective_use_oss_cuda(args: &VoiceCliSetupArgs) -> bool {
-    if args.skip_oss_cuda {
-        return false;
+/// 档位探测结果：tier + 原始探测值（回退提示需要区分"缺哪一项"）。
+struct LinuxTierProbe {
+    tier: VoiceCliLinuxTier,
+    /// (nvidia-smi, libcublas)
+    cuda: (bool, bool),
+    /// (vulkan loader, 硬件 GPU)
+    vulkan: (bool, bool),
+}
+
+impl LinuxTierProbe {
+    /// 非 Linux x86_64 平台的占位档位（探测值全 false）。
+    #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+    fn cpu_default() -> Self {
+        Self {
+            tier: VoiceCliLinuxTier::Cpu,
+            cuda: (false, false),
+            vulkan: (false, false),
+        }
     }
-    if args.use_oss_cuda {
-        return true;
+}
+
+/// setup/install 全程唯一的档位决策点（非 Linux x86_64 恒 CPU）。
+/// 探测只在此跑一次，ensure/汇总/安装提示共用结果。
+fn linux_tier_probe(args: &VoiceCliSetupArgs, install_dir: &Path) -> LinuxTierProbe {
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    {
+        let cuda = crate::cli::assets::linux_cuda_runtime_available();
+        let vulkan = crate::cli::assets::linux_vulkan_runtime_available();
+        let tier = crate::cli::assets::resolve_linux_tier(&crate::cli::assets::LinuxTierInputs {
+            use_cuda: args.use_oss_cuda,
+            skip_cuda: args.skip_oss_cuda,
+            use_vulkan: args.use_oss_vulkan,
+            skip_vulkan: args.skip_oss_vulkan,
+            cuda_ok: cuda.0 && cuda.1,
+            vulkan_ok: vulkan.1,
+            cuda_installed: voice_cli_cuda_bundle_present(install_dir),
+            vulkan_installed: voice_cli_vulkan_bundle_present(install_dir),
+        });
+        LinuxTierProbe { tier, cuda, vulkan }
     }
-    cfg!(all(target_os = "linux", target_arch = "x86_64"))
+    #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+    {
+        let _ = (args, install_dir);
+        LinuxTierProbe::cpu_default()
+    }
+}
+
+/// 档位回退 CPU 时的预检报告打印（提示不阻塞——用户定的原则）。
+fn print_gpu_preflight_warnings(probe: &LinuxTierProbe) {
+    let cuda_report = cuda_preflight_report(probe.cuda.0, probe.cuda.1);
+    if !cuda_report.is_empty() {
+        println!(
+            "  ⚠️ CUDA 预检未通过（nvidia-smi={}, libcublas={}）",
+            probe.cuda.0, probe.cuda.1
+        );
+        for line in cuda_report.lines() {
+            println!("{line}");
+        }
+    }
+    let vk_report = vulkan_preflight_report(probe.vulkan.0, probe.vulkan.1);
+    if !vk_report.is_empty() {
+        println!(
+            "  ⚠️ Vulkan 预检未通过（loader={}, gpu={}）",
+            probe.vulkan.0, probe.vulkan.1
+        );
+        for line in vk_report.lines() {
+            println!("{line}");
+        }
+    }
+}
+
+/// 档位互斥清理：CPU/CUDA 档安装后删除 vulkan bundle marker——marker 与二进制
+/// 档位不符会让下次 install/upgrade 误判档位（vulkan 二进制与 CPU 版按文件
+/// 不可区分，marker 是唯一判据）。
+fn remove_vulkan_marker(install_dir: &Path) {
+    let _ = fs::remove_file(install_dir.join(VOICE_CLI_VULKAN_BUNDLE_MARKER));
 }
 
 fn resolve_models_pack(args: &VoiceCliSetupArgs) -> Result<WhisperModelsPack> {
@@ -95,41 +167,61 @@ fn resolve_cudnn_lib_dir_from_service(args: &ServiceDirArgs) -> Option<PathBuf> 
 fn ensure_voice_cli_binary(
     args: &VoiceCliSetupArgs,
     install_dir: &Path,
+    probe: &LinuxTierProbe,
     quiet: bool,
 ) -> Result<()> {
-    if effective_use_oss_cuda(args) {
-        // 预检 + 自动回退（仅 bundle 未就绪时；重装幂等不受影响）：
-        // 无 GPU/工具包的机器不再白下 360MB 后崩溃循环，直接装 vendor CPU 版
-        if !args.use_oss_cuda && !voice_cli_cuda_bundle_present(install_dir) {
-            let (has_smi, cublas_ok) = crate::cli::assets::linux_cuda_runtime_available();
-            let report = crate::cli::assets::cuda_preflight_report(has_smi, cublas_ok);
-            if !report.is_empty() {
-                println!("  ⚠️ CUDA 预检未通过（nvidia-smi={has_smi}, libcublas={cublas_ok}）");
-                for line in report.lines() {
-                    println!("{line}");
-                }
-                println!("  → 自动回退安装 CPU 版本（vendor 内置二进制）");
-                println!(
-                    "    如明确需要 CUDA bundle: 修复上述环境后重装，或加 --use-oss-cuda 强制"
-                );
-                ensure_bundled_binary(SERVICE_NAME, install_dir, quiet)?;
+    match probe.tier {
+        VoiceCliLinuxTier::Cuda => {
+            // 预检已折入档位解析（tier==Cuda 即显式强制/已装/预检通过三者之一），
+            // 无需重复预检；无 GPU 机器走 Cpu 分支提示并回退
+            download_oss_cuda_bundle(args, install_dir, quiet)?;
+            Ok(())
+        }
+        VoiceCliLinuxTier::Vulkan => {
+            if args.use_oss_vulkan {
+                // 显式强制：与 --use-oss-cuda 同语义，资产缺失按错误上报
+                download_oss_vulkan_bundle(args, install_dir, quiet)?;
                 return Ok(());
             }
+            // auto 档优雅降级：vulkan 档是安装器替用户做的决定（manifest 键缺失
+            // 或下载失败），不硬失败——WARN 后回退 CPU；显式强制则保持 bail
+            match download_oss_vulkan_bundle(args, install_dir, quiet) {
+                Ok(()) => Ok(()),
+                Err(e) => {
+                    if !quiet {
+                        println!("  ⚠️ Vulkan bundle 获取失败（{e}）");
+                        println!("  → 自动回退安装 CPU 版本（vendor 内置二进制）");
+                    }
+                    ensure_bundled_binary(SERVICE_NAME, install_dir, quiet)?;
+                    remove_vulkan_marker(install_dir);
+                    Ok(())
+                }
+            }
         }
-        download_oss_cuda_bundle(args, install_dir, quiet)?;
-        return Ok(());
+        VoiceCliLinuxTier::Cpu => {
+            if cfg!(windows)
+                && !bundled_binary_path(SERVICE_NAME).exists()
+                && !install_dir.join(crate::binary_name(SERVICE_NAME)).exists()
+            {
+                bail!(
+                    "voice-cli is not bundled in this Windows release — only document-parser is \
+                     supported here; run `deploy-installer document-parser install`"
+                );
+            }
+            // 无 GPU 机器：双预检报告 + 提示不阻塞（131 实测教训——白下 360MB 后
+            // 崩溃循环；现在直接装 CPU 版并说明原因与升级路径）
+            if !quiet && cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+                print_gpu_preflight_warnings(probe);
+                println!("  → 安装 CPU 版本（vendor 内置二进制，不影响功能）");
+                println!(
+                    "    如需 GPU 加速: 按上方提示修复环境后重装，或加 --use-oss-cuda/--use-oss-vulkan 强制"
+                );
+            }
+            ensure_bundled_binary(SERVICE_NAME, install_dir, quiet)?;
+            remove_vulkan_marker(install_dir);
+            Ok(())
+        }
     }
-    if cfg!(windows)
-        && !bundled_binary_path(SERVICE_NAME).exists()
-        && !install_dir.join(crate::binary_name(SERVICE_NAME)).exists()
-    {
-        bail!(
-            "voice-cli is not bundled in this Windows release — only document-parser is \
-             supported here; run `deploy-installer document-parser install`"
-        );
-    }
-    ensure_bundled_binary(SERVICE_NAME, install_dir, quiet)?;
-    Ok(())
 }
 
 fn download_oss_cuda_bundle(
@@ -171,47 +263,147 @@ fn download_oss_cuda_bundle(
             install_dir.display()
         );
     }
+    // 档位互斥：清 vulkan marker（防"cuda .so + vulkan marker"并存的档位歧义）
+    remove_vulkan_marker(install_dir);
     Ok(())
 }
 
-fn upgrade_voice_cli(install_dir: &Path, oss_base: Option<&str>) -> Result<()> {
-    if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
-        // 与 install 同款预检：无 GPU 环境不再盲下 CUDA bundle，
-        // 回退升级 CPU vendor 二进制（upgrade_bundled_binary 含自动重启）；
-        // 显式 --oss-base 视为用户明确意图，跳过预检
-        let (has_smi, cublas_ok) = crate::cli::assets::linux_cuda_runtime_available();
-        let report = crate::cli::assets::cuda_preflight_report(has_smi, cublas_ok);
-        if !report.is_empty() && oss_base.is_none() {
-            println!("  ⚠️ CUDA 预检未通过（nvidia-smi={has_smi}, libcublas={cublas_ok}）");
-            for line in report.lines() {
-                println!("{line}");
-            }
-            println!("  → 回退升级 CPU 版本（当前安装若为 CUDA 版保持不动）");
-            return upgrade_bundled_binary(SERVICE_NAME, install_dir);
+fn download_oss_vulkan_bundle(
+    args: &VoiceCliSetupArgs,
+    install_dir: &Path,
+    quiet: bool,
+) -> Result<()> {
+    if voice_cli_vulkan_bundle_present(install_dir) {
+        if !quiet {
+            println!("  binary: Vulkan bundle already present, skipping download");
         }
-        let args = VoiceCliSetupArgs {
-            install_dir: Some(install_dir.to_path_buf()),
-            use_prebuilt_models: false,
-            skip_models: true,
-            models: "large-v3".into(),
-            oss_base: oss_base.map(String::from),
-            use_oss_cuda: true,
-            skip_oss_cuda: false,
-            cuda_lib_dir: None,
-            cudnn_lib_dir: None,
-        };
-        download_oss_cuda_bundle(&args, install_dir, false)?;
-        println!(
-            "✅ upgraded voice-cli CUDA bundle in {}",
-            install_dir.display()
-        );
-        println!("   Run: deploy-installer voice-cli service restart");
         return Ok(());
     }
-    upgrade_bundled_binary(SERVICE_NAME, install_dir)
+
+    let version = deploy_asset_version();
+    let archive = voice_cli_vulkan_archive_filename(&version);
+    let url = if let Some(base) = args.oss_base.as_deref() {
+        voice_cli_vulkan_download_url_from_base(base)
+    } else if let Some(url) = optional_voice_cli_vulkan_url() {
+        url
+    } else {
+        bail!(
+            "prebuilt voice-cli Vulkan bundle requires --oss-base or voiceCliVulkan URL in \
+             vendor/templates/manifest.json (upload {archive} to OSS first)"
+        );
+    };
+
+    download_and_extract_tarball(
+        &url,
+        install_dir,
+        "voice-cli-vulkan-prebuilt.tar.gz",
+        quiet,
+        "voice-cli Vulkan",
+    )?;
+
+    if !voice_cli_vulkan_bundle_present(install_dir) {
+        bail!(
+            "Vulkan bundle incomplete under {} — expected voice-cli, sherpa/onnx .so files \
+             and {} marker",
+            install_dir.display(),
+            VOICE_CLI_VULKAN_BUNDLE_MARKER
+        );
+    }
+    // 档位互斥：清 CUDA bundle 专属 .so——vulkan 档的 sherpa 是 CPU 版，
+    // providers_cuda 残留会让 cuda_present 误判为 true（档位判定歧义）
+    for stale in [
+        "libonnxruntime_providers_cuda.so",
+        "libonnxruntime_providers_shared.so",
+    ] {
+        let _ = fs::remove_file(install_dir.join(stale));
+    }
+    Ok(())
 }
 
-fn setup(args: &VoiceCliSetupArgs, quiet: bool, installing: bool) -> Result<PathBuf> {
+/// upgrade 路径构造 bundle 下载参数（跳过模型/伴生目录，仅驱动下载）。
+fn upgrade_bundle_args(
+    install_dir: &Path,
+    oss_base: Option<&str>,
+    tier: VoiceCliLinuxTier,
+) -> VoiceCliSetupArgs {
+    VoiceCliSetupArgs {
+        install_dir: Some(install_dir.to_path_buf()),
+        use_prebuilt_models: false,
+        skip_models: true,
+        models: "large-v3".into(),
+        oss_base: oss_base.map(String::from),
+        use_oss_cuda: tier == VoiceCliLinuxTier::Cuda,
+        skip_oss_cuda: false,
+        use_oss_vulkan: tier == VoiceCliLinuxTier::Vulkan,
+        skip_oss_vulkan: false,
+        cuda_lib_dir: None,
+        cudnn_lib_dir: None,
+    }
+}
+
+fn print_bundle_upgraded(label: &str, install_dir: &Path) {
+    println!(
+        "✅ upgraded voice-cli {label} bundle in {}",
+        install_dir.display()
+    );
+    println!("   Run: deploy-installer voice-cli service restart");
+}
+
+fn upgrade_voice_cli(install_dir: &Path, oss_base: Option<&str>) -> Result<()> {
+    if !cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        return upgrade_bundled_binary(SERVICE_NAME, install_dir);
+    }
+    // installed-first：保留已装档位升级——顺带修旧问题（已装 CUDA 但驱动临时
+    // 不可用/工具包缺失时，旧逻辑会用 vendor CPU 二进制覆盖掉 CUDA 安装）
+    if voice_cli_cuda_bundle_present(install_dir) {
+        let args = upgrade_bundle_args(install_dir, oss_base, VoiceCliLinuxTier::Cuda);
+        download_oss_cuda_bundle(&args, install_dir, false)?;
+        print_bundle_upgraded("CUDA", install_dir);
+        return Ok(());
+    }
+    if voice_cli_vulkan_bundle_present(install_dir) {
+        let args = upgrade_bundle_args(install_dir, oss_base, VoiceCliLinuxTier::Vulkan);
+        download_oss_vulkan_bundle(&args, install_dir, false)?;
+        print_bundle_upgraded("Vulkan", install_dir);
+        return Ok(());
+    }
+    if oss_base.is_some() {
+        // 显式 --oss-base：用户明确意图，保持历史语义走 CUDA 下载
+        let args = upgrade_bundle_args(install_dir, oss_base, VoiceCliLinuxTier::Cuda);
+        download_oss_cuda_bundle(&args, install_dir, false)?;
+        print_bundle_upgraded("CUDA", install_dir);
+        return Ok(());
+    }
+    // 未装任何 bundle：三档解析（与 install 同款预检；CPU 档回退升级 vendor
+    // 二进制，upgrade_bundled_binary 含自动重启）
+    let probe_args = upgrade_bundle_args(install_dir, None, VoiceCliLinuxTier::Cpu);
+    let probe = linux_tier_probe(&probe_args, install_dir);
+    match probe.tier {
+        VoiceCliLinuxTier::Cuda => {
+            let args = upgrade_bundle_args(install_dir, None, probe.tier);
+            download_oss_cuda_bundle(&args, install_dir, false)?;
+            print_bundle_upgraded("CUDA", install_dir);
+            Ok(())
+        }
+        VoiceCliLinuxTier::Vulkan => {
+            let args = upgrade_bundle_args(install_dir, None, probe.tier);
+            download_oss_vulkan_bundle(&args, install_dir, false)?;
+            print_bundle_upgraded("Vulkan", install_dir);
+            Ok(())
+        }
+        VoiceCliLinuxTier::Cpu => {
+            print_gpu_preflight_warnings(&probe);
+            println!("  → 回退升级 CPU 版本（vendor 二进制）");
+            upgrade_bundled_binary(SERVICE_NAME, install_dir)
+        }
+    }
+}
+
+fn setup(
+    args: &VoiceCliSetupArgs,
+    quiet: bool,
+    installing: bool,
+) -> Result<(PathBuf, VoiceCliLinuxTier)> {
     let install_dir = resolve_install_dir(args);
     fs::create_dir_all(&install_dir)
         .with_context(|| format!("create install dir {}", install_dir.display()))?;
@@ -220,7 +412,8 @@ fn setup(args: &VoiceCliSetupArgs, quiet: bool, installing: bool) -> Result<Path
         println!("==> voice-cli setup → {}", install_dir.display());
     }
 
-    ensure_voice_cli_binary(args, &install_dir, quiet)?;
+    let probe = linux_tier_probe(args, &install_dir);
+    ensure_voice_cli_binary(args, &install_dir, &probe, quiet)?;
     copy_templates(&install_dir, quiet)?;
     fs::create_dir_all(install_dir.join("models"))
         .with_context(|| format!("create models dir under {}", install_dir.display()))?;
@@ -232,7 +425,7 @@ fn setup(args: &VoiceCliSetupArgs, quiet: bool, installing: bool) -> Result<Path
 
     if effective_use_prebuilt_models(args) {
         download_prebuilt_whisper(args, &install_dir, quiet)?;
-    } else if !quiet && effective_use_oss_cuda(args) {
+    } else if !quiet && probe.tier != VoiceCliLinuxTier::Cpu {
         println!("  models: place ggml-*.bin under models/ (Whisper OSS is macOS-only in phase 1)");
     } else if !quiet {
         println!("  models: skipped (use --use-prebuilt-models or omit --skip-models on macOS)");
@@ -245,20 +438,24 @@ fn setup(args: &VoiceCliSetupArgs, quiet: bool, installing: bool) -> Result<Path
         } else if effective_use_prebuilt_models(args) {
             println!("   Whisper default model: {WHISPER_DEFAULT_MODEL}");
         }
-        if effective_use_oss_cuda(args) && voice_cli_cuda_bundle_present(&install_dir) {
+        if probe.tier == VoiceCliLinuxTier::Cuda && voice_cli_cuda_bundle_present(&install_dir) {
             println!("   Binary: voice-cli CUDA bundle (OSS)");
+        }
+        if probe.tier == VoiceCliLinuxTier::Vulkan && voice_cli_vulkan_bundle_present(&install_dir)
+        {
+            println!("   Binary: voice-cli Vulkan bundle (OSS)");
         }
         if !installing {
             println!("   Next: deploy-installer voice-cli install");
             println!("   Default listen port: {DEFAULT_PORT} (document-parser uses 8087)");
         }
     }
-    Ok(install_dir)
+    Ok((install_dir, probe.tier))
 }
 
 fn install_full(args: &VoiceCliSetupArgs) -> Result<()> {
-    let install_dir = setup(args, false, true)?;
-    if !effective_use_prebuilt_models(args) && !effective_use_oss_cuda(args) {
+    let (install_dir, tier) = setup(args, false, true)?;
+    if !effective_use_prebuilt_models(args) && tier == VoiceCliLinuxTier::Cpu {
         println!(
             "\n⚠️  Whisper models not downloaded. Run without --skip-models or place \
              models/ggml-large-v3.bin manually."

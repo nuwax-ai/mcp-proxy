@@ -3,6 +3,7 @@ pub mod common;
 mod doctor;
 pub mod document_parser;
 pub mod env_config;
+mod probe_vulkan;
 pub mod voice_cli;
 
 use anyhow::Result;
@@ -29,11 +30,15 @@ pub enum Commands {
         #[command(subcommand)]
         action: DocumentParserAction,
     },
-    /// voice-cli deployment commands (macOS launchd + Linux CUDA systemd)
+    /// voice-cli deployment commands (macOS launchd + Linux CUDA/Vulkan systemd)
     VoiceCli {
         #[command(subcommand)]
         action: VoiceCliAction,
     },
+    /// Vulkan GPU probe (internal; runs in a crash-isolated subprocess for
+    /// voice-cli tier detection — exit code, not for interactive use)
+    #[command(hide = true, name = "__probe-vulkan")]
+    ProbeVulkan,
 }
 
 #[derive(Subcommand)]
@@ -112,12 +117,21 @@ pub struct VoiceCliSetupArgs {
     /// OSS base URL prefix for voice-cli optional assets
     #[arg(long)]
     pub oss_base: Option<String>,
-    /// Download prebuilt voice-cli CUDA bundle from OSS (default on Linux x86_64)
-    #[arg(long)]
+    /// Download prebuilt voice-cli CUDA bundle from OSS (default tier on Linux
+    /// x86_64 when an NVIDIA GPU + CUDA toolkit are detected)
+    #[arg(long, conflicts_with = "use_oss_vulkan")]
     pub use_oss_cuda: bool,
-    /// Skip OSS CUDA bundle download (use vendor binary or existing install)
+    /// Skip OSS CUDA bundle download (auto tier may still pick Vulkan; with
+    /// --skip-oss-vulkan forces the CPU build)
     #[arg(long)]
     pub skip_oss_cuda: bool,
+    /// Download prebuilt voice-cli Vulkan bundle from OSS (non-NVIDIA GPU on
+    /// Linux x86_64; auto tier when CUDA is unavailable but Vulkan is)
+    #[arg(long, conflicts_with = "use_oss_cuda")]
+    pub use_oss_vulkan: bool,
+    /// Skip OSS Vulkan bundle download (with --skip-oss-cuda forces the CPU build)
+    #[arg(long)]
+    pub skip_oss_vulkan: bool,
     /// NVIDIA CUDA toolkit lib dir for systemd LD_LIBRARY_PATH (Linux CUDA)
     #[arg(long)]
     pub cuda_lib_dir: Option<PathBuf>,
@@ -158,6 +172,7 @@ pub fn run(cli: Cli) -> Result<()> {
         Commands::Doctor => doctor::run(),
         Commands::DocumentParser { action } => document_parser::run(action),
         Commands::VoiceCli { action } => voice_cli::run(action),
+        Commands::ProbeVulkan => probe_vulkan::run(),
     }
 }
 
@@ -187,5 +202,51 @@ mod tests {
             "x.tar.gz",
         ]);
         assert!(solo.is_ok(), "单独传 --venv-file 应通过");
+    }
+
+    /// --use-oss-cuda 与 --use-oss-vulkan 互斥（显式档位只能给一个；
+    /// skip 对不互斥——双 skip 是合法的强制 CPU 组合）
+    #[test]
+    fn oss_cuda_conflicts_with_oss_vulkan() {
+        let combined = Cli::try_parse_from([
+            "deploy-installer",
+            "voice-cli",
+            "install",
+            "--use-oss-cuda",
+            "--use-oss-vulkan",
+        ]);
+        assert!(combined.is_err(), "双显式档位应被 clap 拒绝");
+
+        let both_skip = Cli::try_parse_from([
+            "deploy-installer",
+            "voice-cli",
+            "install",
+            "--skip-oss-cuda",
+            "--skip-oss-vulkan",
+        ]);
+        assert!(both_skip.is_ok(), "双 skip（强制 CPU）应通过");
+
+        let vulkan_only = Cli::try_parse_from([
+            "deploy-installer",
+            "voice-cli",
+            "install",
+            "--use-oss-vulkan",
+        ]);
+        assert!(vulkan_only.is_ok(), "单独 --use-oss-vulkan 应通过");
+    }
+
+    /// 隐藏探针子命令可解析且不出现在 help（面向父进程 reexec，非用户接口）
+    #[test]
+    fn probe_vulkan_subcommand_hidden_but_parseable() {
+        let parsed = Cli::try_parse_from(["deploy-installer", "__probe-vulkan"]);
+        assert!(parsed.is_ok(), "探针子命令应可解析");
+        // 验证子命令确实 hide（面向父进程 reexec，非用户接口）
+        let help = <Cli as clap::CommandFactory>::command()
+            .render_help()
+            .to_string();
+        assert!(
+            !help.contains("__probe-vulkan"),
+            "探针不应出现在 help: {help}"
+        );
     }
 }

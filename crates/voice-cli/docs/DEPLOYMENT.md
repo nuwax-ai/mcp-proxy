@@ -81,6 +81,23 @@ cargo build -p voice-cli --features vulkan --release
 whisper.cpp 的 **ggml Vulkan backend** 跨厂商支持 AMD/Intel/NVIDIA，无需 CUDA。
 whisper.cpp 1.8.3 在 AMD/Intel 核显上实测有显著加速（参考 [Phoronix](https://www.phoronix.com/news/Whisper-cpp-1.8.3-12x-Perf)）。
 
+**方式一：deploy-installer 预编译 Vulkan bundle（推荐，Linux x86_64）**
+
+```bash
+# 运行时依赖只需 loader + GPU 驱动（无需 SDK/glslc——那是源码编译才要的）
+sudo apt install -y libvulkan1 mesa-vulkan-drivers
+
+deploy-installer voice-cli install --install-dir ~/voice-cli
+```
+
+安装器三档自动检测：NVIDIA+CUDA → CUDA bundle；无 NVIDIA 但探针枚举到硬件
+Vulkan GPU → Vulkan bundle（`voice-cli-vulkan-linux-x64-{version}.tar.gz`，含
+`.voice-cli-vulkan` 档位 marker）；无 GPU → 提示后装 CPU 版（不阻塞）。显式
+`--use-oss-vulkan` 强制 Vulkan 档；`--skip-oss-cuda --skip-oss-vulkan` 强制 CPU。
+检测用 GPU 探针在崩溃隔离的子进程里跑（ash 标准 API，坏驱动不影响安装器）。
+
+**方式二：源码自编（其他架构 / 定制）**
+
 **1）装 Vulkan 驱动 + 编译依赖**
 
 ```bash

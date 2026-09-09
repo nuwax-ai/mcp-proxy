@@ -236,6 +236,51 @@ deploy-installer voice-cli install --install-dir ~/voice-cli
 # 可选: --cuda-lib-dir /usr/local/cuda/lib64 --cudnn-lib-dir <path>
 ```
 
+### Linux Vulkan（三期）
+
+| manifest 键 | OSS 文件 | 说明 |
+|-------------|----------|------|
+| `voiceCliVulkan.linux-x64` | `voice-cli-vulkan-linux-x64-{version}.tar.gz` | binary（ggml-vulkan 静态链入）+ 2× CPU `.so` + `.voice-cli-vulkan` marker，~60MB |
+
+**三档自动检测**（`assets.rs::resolve_linux_tier`，顺序即优先级）：
+显式 `--use-oss-cuda`/`--use-oss-vulkan` → 双 skip（强制 CPU）→ 已装档位幂等保留 →
+预检（NVIDIA+libcublas → CUDA；Vulkan 探针 → Vulkan；否则 CPU + WARN 回退）。
+
+- **Vulkan GPU 探针**：隐藏子命令 `__probe-vulkan`（ash 标准绑定，零扩展
+  instance → 枚举设备 → deviceType 驱动自报，llvmpipe 软件渲染如实报 CPU 型）；
+  父进程自 reexec 子进程 + 10s 超时——坏驱动 segfault/死等只影响探针，
+  安装器按"无 Vulkan"降级回 CPU，不中断安装
+- **marker 文件**：vulkan 二进制与 CPU vendor 版伴生 `.so` 完全相同，按文件
+  不可区分——bundle 内 `.voice-cli-vulkan`（内容 `vulkan {VERSION}`）是档位
+  唯一判据；档位切换时安装器自动互斥清理（cuda↔vulkan↔cpu）
+- **行为变化**：`--skip-oss-cuda` 从"强制 CPU"变为"跳过 cuda 档仍可自动
+  vulkan"；强制 CPU 用双 skip `--skip-oss-cuda --skip-oss-vulkan`
+- **upgrade installed-first**：已装 CUDA/Vulkan bundle 的机器升级保留档位
+  （修"驱动临时不可用时 CPU 二进制覆盖 CUDA 安装"旧问题）
+
+**构建配方**（编译机 192.168.32.226，编译期无需 GPU）：
+
+```bash
+# 一次性依赖（glslc 来自 glslang-tools；libvulkan-dev 提供 find_package(Vulkan)）
+sudo apt install -y libvulkan-dev glslang-tools
+# 构建（rpath $ORIGIN 必须——否则 systemd 下伴生 .so 找不到，启动 127）
+RUSTFLAGS="-C link-arg=-Wl,-rpath,\$ORIGIN" \
+  cargo build --release -p voice-cli --features vulkan
+# 验证（必做）
+readelf -d target/release/voice-cli | grep -E 'RUNPATH|RPATH'   # 应含 $ORIGIN
+ldd target/release/voice-cli | grep vulkan                      # 应有 libvulkan.so.1 => 系统
+# sherpa CPU .so 复用 CUDA 构建产物（libsherpa-onnx-c-api.so / libonnxruntime.so）
+```
+
+打包/上传/校验：
+
+```bash
+bash scripts/ci/pack-voice-cli-vulkan-linux-x64.sh 0.2.12
+# 上传: oss://nuwa-packages/uploads/voice-cli/voice-cli-vulkan-linux-x64-0.2.12.tar.gz
+bash scripts/ci/verify-oss-voice-cli-vulkan-url.sh \
+  https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/voice-cli-vulkan-linux-x64-0.2.12.tar.gz
+```
+
 ---
 
 ## 5. 路线图摘要
@@ -244,7 +289,7 @@ deploy-installer voice-cli install --install-dir ~/voice-cli
 |------|-----------------|---------------|----------------------|
 | `deploy-installer` 子命令 | ✅ | ✅ | ✅ |
 | npm vendor 二进制 | ✅ darwin-arm64 | ✅ + dylib | ❌（走 OSS bundle） |
-| 大依赖 OSS | venv | Whisper | CUDA bundle |
+| 大依赖 OSS | venv | Whisper | CUDA / Vulkan bundle |
 | 服务管理 | LaunchAgent / systemd | 同左 | systemd + cuda drop-in |
 
 **未做（三期）**：TTS/Kokoro OSS、npm `vendor/linux-x64/`、同机 GPU 共存调优文档、Linux Whisper OSS manifest。

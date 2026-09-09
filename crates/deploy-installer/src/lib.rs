@@ -26,9 +26,10 @@ pub use bundles::{
     WhisperModelsPack, binary_name, bundled_binary_path, bundled_templates_dir, copy_if_exists,
     default_document_parser_install_dir, default_voice_cli_install_dir, deploy_asset_version,
     deploy_root, deploy_version, make_executable, optional_venv_download_url,
-    optional_voice_cli_cuda_url, optional_whisper_download_url, platform_vendor_key,
-    vendor_key_for, voice_cli_cuda_archive_filename, voice_cli_cuda_download_url_from_base,
-    whisper_download_url_from_base,
+    optional_voice_cli_cuda_url, optional_voice_cli_vulkan_url, optional_whisper_download_url,
+    platform_vendor_key, vendor_key_for, voice_cli_cuda_archive_filename,
+    voice_cli_cuda_download_url_from_base, voice_cli_vulkan_archive_filename,
+    voice_cli_vulkan_download_url_from_base, whisper_download_url_from_base,
 };
 #[cfg(target_os = "macos")]
 pub use checks::macos_gui_session_present;

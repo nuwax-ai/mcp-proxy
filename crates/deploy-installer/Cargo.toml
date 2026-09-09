@@ -19,5 +19,9 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 service-manager = { workspace = true }
 
+# Vulkan GPU 探针（`__probe-vulkan` 子命令）：仅 Linux 需要（vulkan 档仅 linux-x64）
+[target.'cfg(target_os = "linux")'.dependencies]
+ash = { workspace = true }
+
 [dev-dependencies]
 tempfile = { workspace = true }

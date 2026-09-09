@@ -95,6 +95,28 @@ curl -s http://localhost:8077/health                         # 200 healthy
 curl -s http://localhost:8077/api/v1/tts/voices | grep -o num_speakers\":[0-9]*   # 103
 ```
 
+### 2.5 AMD / Intel GPU（Vulkan）—— 无 CUDA 的 GPU 加速
+
+NVIDIA 走上面的 CUDA 路线；AMD/Intel GPU（含核显，如 Radeon 780M）用 Vulkan
+档——仅加速 STT 的 whisper 引擎（TTS/sherpa ASR 仍 CPU），详见
+[`crates/voice-cli/docs/DEPLOYMENT.md` §3.3](../crates/voice-cli/docs/DEPLOYMENT.md)。
+
+```bash
+# 运行时依赖（loader + 驱动；无需 SDK）
+sudo apt install -y libvulkan1 mesa-vulkan-drivers
+
+# deploy-installer 自动三档检测（NVIDIA→CUDA / Vulkan GPU→Vulkan / 无→CPU）
+deploy-installer voice-cli install --install-dir ~/voice-cli
+# 显式指定: --use-oss-vulkan 强制 Vulkan; --skip-oss-cuda --skip-oss-vulkan 强制 CPU
+```
+
+确认真用上 Vulkan（没装好会静默回退 CPU，必须看日志）：
+
+```bash
+journalctl -u voice-cli -n 100 --no-pager | grep -i ggml_vulkan
+# → ggml_vulkan: Found 1 Vulkan devices: ...
+```
+
 ---
 
 ## 3. document-parser 部署(CPU)

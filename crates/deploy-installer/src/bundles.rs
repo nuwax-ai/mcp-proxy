@@ -19,6 +19,8 @@ struct OptionalAssets {
     whisper_all: std::collections::HashMap<String, String>,
     #[serde(default, rename = "voiceCliCuda")]
     voice_cli_cuda: std::collections::HashMap<String, String>,
+    #[serde(default, rename = "voiceCliVulkan")]
+    voice_cli_vulkan: std::collections::HashMap<String, String>,
 }
 
 /// Which prebuilt Whisper ggml tarball to fetch from OSS.
@@ -202,6 +204,23 @@ pub fn optional_voice_cli_cuda_url() -> Option<String> {
 pub fn voice_cli_cuda_download_url_from_base(base: &str) -> String {
     let version = deploy_asset_version();
     let name = voice_cli_cuda_archive_filename(&version);
+    format!("{}/{}", base.trim_end_matches('/'), name)
+}
+
+/// OSS tarball basename for prebuilt voice-cli Vulkan bundle (Linux x86_64).
+pub fn voice_cli_vulkan_archive_filename(version: &str) -> String {
+    format!("voice-cli-vulkan-linux-x64-{version}.tar.gz")
+}
+
+/// Resolve optional voice-cli Vulkan bundle URL from manifest (Linux x86_64 only).
+pub fn optional_voice_cli_vulkan_url() -> Option<String> {
+    optional_asset_url(|assets| assets.voice_cli_vulkan.get("linux-x64"))
+}
+
+/// Build voice-cli Vulkan tarball URL from an OSS base directory.
+pub fn voice_cli_vulkan_download_url_from_base(base: &str) -> String {
+    let version = deploy_asset_version();
+    let name = voice_cli_vulkan_archive_filename(&version);
     format!("{}/{}", base.trim_end_matches('/'), name)
 }
 
@@ -391,6 +410,29 @@ mod tests {
         let url = url.unwrap();
         assert!(
             url.contains(&format!("voice-cli-cuda-linux-x64-{expected}.tar.gz")),
+            "got {url}"
+        );
+        assert!(!url.contains("beta"));
+    }
+
+    #[test]
+    fn optional_voice_cli_vulkan_url_from_manifest() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../npm/nuwax-deploy-installer/vendor");
+        let expected = manifest_asset_version();
+        // SAFETY: test-only env mutation; no concurrent env access in unit tests.
+        unsafe {
+            std::env::set_var("NUWAX_DEPLOY_ROOT", root.display().to_string());
+            std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.1-beta.2");
+        }
+        // 与 cuda URL 测试不同：不按 platform_vendor_key 查表（linux-x64 直查），
+        // 任意平台都能断言（vulkan bundle 是 manifest 新增键，缺失即测试失败）
+        let url = optional_voice_cli_vulkan_url();
+        assert!(url.is_some(), "manifest should provide voiceCliVulkan URL");
+        let url = url.unwrap();
+        assert!(
+            url.contains(&format!("voice-cli-vulkan-linux-x64-{expected}.tar.gz")),
             "got {url}"
         );
         assert!(!url.contains("beta"));

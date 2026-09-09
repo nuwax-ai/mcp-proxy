@@ -164,6 +164,12 @@ sled = "0.34"
 # 可执行文件查找
 which = "8.0"
 
+# Vulkan 绑定（deploy-installer Linux 三档检测的 GPU 探针）：标准能力查询
+# vkCreateInstance→enumerate→deviceType 由驱动自报（wgpu 同款库）。
+# 仅挂 deploy-installer 的 linux target——运行期经 libloading 加载 libvulkan.so.1，
+# 编译期无需 Vulkan SDK，mac/win 构建不受影响。
+ash = "0.38"
+
 # 国际化支持
 rust-i18n = "4.2"
 

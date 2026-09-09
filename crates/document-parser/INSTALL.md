@@ -81,7 +81,7 @@ deploy-installer document-parser install --venv-file /path/to/venv-macos-arm64-x
 
 - 默认安装目录 `~/document-parser`，端口 8087；**不要**装在 Documents / Desktop / iCloud 目录（macOS 服务权限限制）
 - macOS 上安装命令需要当前用户在本机图形界面登录（纯 SSH 场景见 [mac-mini-quickstart.md](../deploy-installer/doc/mac-mini-quickstart.md)）
-- 支持平台：macOS Apple Silicon、Linux x86_64（含 NVIDIA CUDA 包）、Windows x64（document-parser；voice-cli 视构建情况）——见 [MAINTAINER.md](../deploy-installer/doc/MAINTAINER.md)
+- 支持平台：macOS Apple Silicon、Linux x86_64（voice-cli 三档自动检测：NVIDIA CUDA 包 / AMD·Intel Vulkan 包 / CPU）、Windows x64（document-parser；voice-cli 视构建情况）——见 [MAINTAINER.md](../deploy-installer/doc/MAINTAINER.md)
 - 详细步骤（含 voice-cli 组合部署、SSH 场景）见 [mac-mini-quickstart.md](../deploy-installer/doc/mac-mini-quickstart.md)
 
 ### 方式二：cargo install（全平台，含 Windows）

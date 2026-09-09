@@ -79,13 +79,35 @@ pub fn run() -> Result<()> {
         } else {
             println!("  oss cuda:   WARN (no voiceCliCuda URL in manifest.json)");
         }
+        if let Some(url) = crate::optional_voice_cli_vulkan_url() {
+            println!("  oss vulkan: OK ({url})");
+        } else {
+            println!("  oss vulkan: WARN (no voiceCliVulkan URL in manifest.json)");
+        }
         if !has_smi || !cublas_ok {
             println!(
                 "  cuda env:   WARN (no NVIDIA GPU/CUDA toolkit: nvidia-smi={has_smi}, \
                  libcublas={cublas_ok} — CUDA bundle will not start; \
-                 voice-cli install will fall back to the CPU build)"
+                 voice-cli install will fall back to the Vulkan/CPU tier)"
             );
         }
+        let (loader_ok, gpu_ok) = crate::cli::assets::linux_vulkan_runtime_available();
+        if !gpu_ok {
+            println!(
+                "  vulkan env: WARN (no hardware Vulkan GPU: loader={loader_ok}, gpu={gpu_ok} — \
+                 AMD/Intel GPU needs libvulkan1 + mesa-vulkan-drivers; \
+                 voice-cli install will use the CPU build)"
+            );
+        }
+        // 三档汇总（只看预检信号；实际档位还受旗标/已装状态影响，见 resolve_linux_tier）
+        let tier = if has_smi && cublas_ok {
+            "CUDA"
+        } else if gpu_ok {
+            "Vulkan"
+        } else {
+            "CPU"
+        };
+        println!("  voice-cli tier (auto): {tier}");
     }
 
     if cfg!(target_os = "macos") {
