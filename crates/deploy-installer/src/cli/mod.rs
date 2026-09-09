@@ -3,7 +3,9 @@ pub mod common;
 mod doctor;
 pub mod document_parser;
 pub mod env_config;
+pub mod linux_gpu;
 mod probe_vulkan;
+pub mod tarball;
 pub mod voice_cli;
 
 use anyhow::Result;

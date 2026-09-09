@@ -73,7 +73,7 @@ pub fn run() -> Result<()> {
     check_upload_backend(&parser_dir);
 
     if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
-        let (has_smi, cublas_ok) = crate::cli::assets::linux_cuda_runtime_available();
+        let (has_smi, cublas_ok) = crate::cli::linux_gpu::linux_cuda_runtime_available();
         if let Some(url) = crate::optional_voice_cli_cuda_url() {
             println!("  oss cuda:   OK ({url})");
         } else {
@@ -91,7 +91,7 @@ pub fn run() -> Result<()> {
                  voice-cli install will fall back to the Vulkan/CPU tier)"
             );
         }
-        let (loader_ok, gpu_ok) = crate::cli::assets::linux_vulkan_runtime_available();
+        let (loader_ok, gpu_ok) = crate::cli::linux_gpu::linux_vulkan_runtime_available();
         let cuda_ok = has_smi && cublas_ok;
         if !gpu_ok {
             if cuda_ok {

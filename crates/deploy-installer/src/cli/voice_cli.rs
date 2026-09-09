@@ -15,17 +15,20 @@ use std::path::{Path, PathBuf};
 
 use crate::cli::assets::{
     VOICE_CLI_CUDA_BUNDLE_FILES, VOICE_CLI_VULKAN_BUNDLE_FILES, VOICE_CLI_VULKAN_BUNDLE_MARKER,
-    VoiceCliLinuxTier, WHISPER_DEFAULT_MODEL, build_cuda_sherpa_drop_in, cuda_preflight_report,
-    default_cuda_lib_dir, detect_cudnn_lib_dir, download_and_extract_bundle_atomic,
-    download_and_extract_tarball, ensure_whisper_pack_models, patch_whisper_default_model,
-    voice_cli_cuda_bundle_present, voice_cli_vulkan_bundle_present, vulkan_preflight_report,
-    whisper_large_v3_present, whisper_pack_satisfied,
+    WHISPER_DEFAULT_MODEL, ensure_whisper_pack_models, patch_whisper_default_model,
+    voice_cli_cuda_bundle_present, voice_cli_vulkan_bundle_present, whisper_large_v3_present,
+    whisper_pack_satisfied,
 };
 use crate::cli::common::{
     CONFIG_FILENAME, canonicalize_install_dir, dispatch_service_action, ensure_bundled_binary,
     handle_launchd_install_result, print_install_success, read_server_port, resolve_user_group,
     upgrade_bundled_binary,
 };
+use crate::cli::linux_gpu::{
+    VoiceCliLinuxTier, build_cuda_sherpa_drop_in, cuda_preflight_report, default_cuda_lib_dir,
+    detect_cudnn_lib_dir, vulkan_preflight_report,
+};
+use crate::cli::tarball::{download_and_extract_bundle_atomic, download_and_extract_tarball};
 use crate::cli::{ServiceAction, ServiceDirArgs, VoiceCliAction, VoiceCliSetupArgs};
 
 const SERVICE_NAME: &str = "voice-cli";
@@ -95,7 +98,7 @@ impl LinuxTierProbe {
 fn linux_tier_probe(args: &VoiceCliSetupArgs, install_dir: &Path) -> LinuxTierProbe {
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     {
-        use crate::cli::assets::{LinuxTierInputs, early_linux_tier};
+        use crate::cli::linux_gpu::{LinuxTierInputs, early_linux_tier};
         let inputs_without_probe = LinuxTierInputs {
             use_cuda: args.use_oss_cuda,
             skip_cuda: args.skip_oss_cuda,
@@ -114,9 +117,9 @@ fn linux_tier_probe(args: &VoiceCliSetupArgs, install_dir: &Path) -> LinuxTierPr
                 probed: false,
             };
         }
-        let cuda = crate::cli::assets::linux_cuda_runtime_available();
-        let vulkan = crate::cli::assets::linux_vulkan_runtime_available();
-        let tier = crate::cli::assets::resolve_linux_tier(&LinuxTierInputs {
+        let cuda = crate::cli::linux_gpu::linux_cuda_runtime_available();
+        let vulkan = crate::cli::linux_gpu::linux_vulkan_runtime_available();
+        let tier = crate::cli::linux_gpu::resolve_linux_tier(&LinuxTierInputs {
             cuda_ok: cuda.0 && cuda.1,
             vulkan_ok: vulkan.1,
             ..inputs_without_probe

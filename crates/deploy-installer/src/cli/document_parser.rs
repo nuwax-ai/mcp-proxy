@@ -8,7 +8,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::cli::assets::{download_and_extract_tarball, extract_tarball_at};
 use crate::cli::common::{
     CONFIG_FILENAME, canonicalize_install_dir, dispatch_service_action, ensure_bundled_binary,
     handle_launchd_install_result, print_install_success, read_server_port, resolve_user_group,
@@ -18,6 +17,7 @@ use crate::cli::env_config::{
     apply_upload_config_from_env, custom_upload_configured, oss_keys_configured,
     upload_backend_configured,
 };
+use crate::cli::tarball::{download_and_extract_tarball, extract_tarball_at};
 use crate::cli::{DocumentParserAction, ServiceAction, ServiceDirArgs, SetupArgs};
 
 const SERVICE_NAME: &str = "document-parser";

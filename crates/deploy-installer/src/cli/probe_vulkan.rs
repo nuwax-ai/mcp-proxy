@@ -8,7 +8,7 @@
 
 use anyhow::Result;
 
-/// 探针退出码语义（父侧解析见 [`crate::cli::assets::map_probe_exit`]）。
+/// 探针退出码语义（父侧解析见 [`crate::cli::linux_gpu::map_probe_exit`]）。
 #[cfg(target_os = "linux")]
 const EXIT_GPU_FOUND: i32 = 0;
 #[cfg(target_os = "linux")]
