@@ -1,0 +1,126 @@
+# document-parser 部署指南
+
+多格式文档解析服务（PDF / Word / Excel / PowerPoint / Markdown 等 → 结构化 Markdown）。Rust HTTP 服务 + Python 解析引擎（MinerU / MarkItDown），通过统一部署 CLI **deploy-installer**（npm 包 `nuwax-deploy-installer`）一键安装：复制二进制 → 准备 Python 环境 → 写配置 → 注册系统服务（launchd / systemd / 任务计划程序）→ 等待健康检查通过。
+
+> voice-cli（语音转写/TTS）的部署见姊妹篇 [deploy-voice-cli.md](./deploy-voice-cli.md)。
+
+## 1. 环境要求
+
+| 项目 | Linux | macOS | Windows |
+|------|-------|-------|---------|
+| 操作系统 | Ubuntu 22.04+（glibc ≥ 2.35）等 | 14.0+（MinerU 要求） | Windows 10 / 11 |
+| 硬件 | 8GB+ RAM，磁盘 5GB+ | 同左（Apple Silicon 原生） | 同左 |
+| 系统库 | 无桌面服务器需预装 X11/GL 基础库（见 §7.1） | 无需 | 无需 |
+| Node.js | 18+（deploy-installer 方式必需） | 同左 | 同左 |
+| GPU（可选） | NVIDIA CUDA 加速 PDF 解析（见 §6） | 不适用（CPU） | 不适用（CPU） |
+
+## 2. 安装 deploy-installer
+
+```bash
+npm install -g nuwax-deploy-installer
+```
+
+> 🇨🇳 国内网络建议先配 npm 镜像（包约 80MB，直连 npmjs 很慢，npmmirror 实测快 40 倍以上）：
+>
+> ```bash
+> npm config set registry https://registry.npmmirror.com
+> ```
+>
+> 注意：普通用户全局安装需要 sudo，而 **sudo 不读用户级 `~/.npmrc`**——镜像要对 sudo 安装生效需内联传参：
+>
+> ```bash
+> sudo npm install -g nuwax-deploy-installer --registry https://registry.npmmirror.com
+> ```
+>
+> npmmirror 同步有 10–60 分钟延迟，刚发布的 beta 可能未同步，急用可临时直连 npmjs。
+
+装完自检环境（平台、二进制完整性、磁盘、系统库、上传后端配置）：
+
+```bash
+deploy-installer doctor
+```
+
+## 3. Linux sudoers（systemd 机器必需）
+
+Linux 上服务注册/启停/日志需要非交互 sudo，在 sudoers 配置受限 NOPASSWD（推荐做法）：
+
+```text
+用户名 ALL=(root) NOPASSWD: /usr/bin/systemctl, /usr/bin/journalctl, /usr/bin/install, /usr/bin/mkdir, /usr/bin/rm
+```
+
+五枚命令分别覆盖：服务管理（systemctl/journalctl）+ unit 文件写删（install/mkdir/rm）。缺后三枚会在 unit 落盘时挂住。
+
+## 4. 准备上传后端凭证（二选一，必需）
+
+解析产物（Markdown / 图片）需要上传后端，安装前导出对应凭证（也可装完再写入 `~/document-parser/.document-parser.env`）：
+
+```bash
+# 方案 A：阿里云 OSS（云端部署）
+export OSS_ACCESS_KEY_ID=你的Key
+export OSS_ACCESS_KEY_SECRET=你的Secret
+
+# 方案 B：自建系统上传接口（私有部署，nuwax 风格 REST 契约）
+export DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL=https://your-system.example.com
+export DOCUMENT_PARSER_CUSTOM_UPLOAD_API_KEY=你的APIKey
+```
+
+未配置任何后端时 install 会明确报错并列出配置方式——不会带着坏配置静默“成功”。
+
+## 5. 一键部署
+
+```bash
+deploy-installer document-parser install
+```
+
+默认安装目录 `~/document-parser`、端口 **8087**。各平台差异：
+
+- **macOS**：自动下载预编译 Python 环境（OSS，约 330MB）；下载源不可达时自动回退 uv 现场构建（耗时数分钟）。**不要**装在 Documents / Desktop / iCloud 目录（launchd 服务权限限制）。
+- **Linux**：服务内通过 uv 自动创建 `./venv` 并安装 MinerU/MarkItDown（首次启动后台进行，健康检查最长等 120s，装完前解析任务排队）。
+- **Windows**：以当前用户计划任务（任务名 `com.nuwax.document-parser`，S4U 登录、开机自启、崩溃自动重启）注册服务。
+- **纯内网**（无法访问 OSS 下载源）：用本地 venv 包离线安装
+  `deploy-installer document-parser install --venv-file /path/to/venv-macos-arm64-x.y.z.tar.gz`
+
+命令结束时健康检查通过会打印 `✅ document-parser → http://127.0.0.1:8087`；超时则如实报错并给出平台对应的排障命令（Linux `journalctl -u document-parser -n 30` / Windows 任务计划程序历史 / macOS logs 目录）。
+
+> **SSH 登录的 Mac 特例**：launchd 需要图形会话。纯 SSH 下 plist 已写入、服务等桌面登录后自启，install 以退出码 0 结束并打印手动启动命令——这是有意降级，不是失败。
+
+## 6. 验证
+
+```bash
+# 健康检查
+curl http://localhost:8087/health
+
+# 解析链路冒烟（同步接口，小文件）
+echo "# hello" > /tmp/t.md
+curl -X POST "http://localhost:8087/api/v1/documents/parse-sync" -F "file=@/tmp/t.md"
+
+# 接口文档（Swagger UI）
+open http://localhost:8087/api/docs
+```
+
+## 7. 服务管理与升级
+
+```bash
+deploy-installer document-parser service status
+deploy-installer document-parser service restart
+deploy-installer document-parser service uninstall
+deploy-installer document-parser upgrade        # 换新二进制并自动重启在跑的服务
+```
+
+### 7.1 常见问题
+
+| 现象 | 原因与处理 |
+|------|-----------|
+| Linux 启动即挂，日志报 libxcb/libGL 缺失 | 无桌面服务器缺 X11/GL 基础库：Debian/Ubuntu `apt install libxcb1 libxkbcommon-x11-0 libgl1 libglib2.0-0`；RHEL 系 `dnf install libxcb libxkbcommon libXext libXrender mesa-libGL glib2`（doctor 会提前检出） |
+| 健康检查超时 | 按报错里的平台命令看服务日志；Linux 首启含 MinerU 环境安装，耐心等或重跑 install |
+| Python 环境问题 | 服务目录下 `document-parser troubleshoot` 一键诊断 |
+| NVIDIA 机器想用 CUDA 解析 | 安装 NVIDIA 驱动 + CUDA toolkit 后重装；无 GPU 自动走 CPU，不阻塞 |
+
+## 8. 其他安装方式
+
+deploy-installer 之外还有两条路径（详见 [crates/document-parser/INSTALL.md](../../../document-parser/INSTALL.md)）：
+
+- **cargo install**：`cargo install --git https://github.com/nuwax-ai/mcp-proxy document-parser --locked`（不取源码，需 Rust 工具链；Windows 主路径之一）
+- **GitHub Releases**：手动下载对应平台产物解压
+
+两者装完后同样执行 `document-parser uv-init` 初始化 Python 引擎，再用内置 `document-parser service install` 注册服务。

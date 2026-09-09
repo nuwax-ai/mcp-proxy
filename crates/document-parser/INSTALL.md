@@ -13,7 +13,7 @@
 | 硬件 | 8GB+ RAM，5GB+ 磁盘 | 同左（Apple Silicon 原生支持） | 同左 |
 | 系统库 | X11/GL 基础库（无桌面服务器需预装）：Debian/Ubuntu `apt install libxcb1 libxkbcommon-x11-0 libgl1 libglib2.0-0`；RHEL 系 `dnf install libxcb libxkbcommon libXext libXrender mesa-libGL glib2` | 无需 | 无需 |
 | Python | 3.10+（uv 自动创建 venv，无需系统预装） | 同左 | 同左 |
-| Node.js | 仅 deploy-installer 方式需要（18+） | 同左 | —（该方式不支持 Windows） |
+| Node.js | 仅 deploy-installer 方式需要（18+） | 同左 | 同左 |
 | Rust 工具链 | 仅 `cargo install` 方式需要 | 仅 `cargo install` 方式需要 | 仅 `cargo install` 方式需要 |
 | GPU（可选） | CUDA 加速 PDF 解析 | 不适用（MPS/CPU） | 不适用（CPU） |
 
@@ -23,7 +23,7 @@
 
 三种方式按推荐顺序排列。**deploy-installer 最省事**（自动装 venv、注册服务、等健康检查），**cargo install 不需要获取源码**，二者都不接触本仓库源码。
 
-### 方式一：deploy-installer（推荐，macOS / Linux）
+### 方式一：deploy-installer（推荐，全平台）
 
 统一部署 CLI，以 npm 包发布、**二进制内置在包内**（无需从 GitHub Releases 下载）：
 
@@ -84,7 +84,7 @@ deploy-installer document-parser install --venv-file /path/to/venv-macos-arm64-x
 - 支持平台：macOS Apple Silicon、Linux x86_64（voice-cli 三档自动检测：NVIDIA CUDA 包 / AMD·Intel Vulkan 包 / CPU）、Windows x64（document-parser；voice-cli 视构建情况）——见 [MAINTAINER.md](../deploy-installer/doc/MAINTAINER.md)
 - 详细步骤（含 voice-cli 组合部署、SSH 场景）见 [mac-mini-quickstart.md](../deploy-installer/doc/mac-mini-quickstart.md)
 
-### 方式二：cargo install（全平台，含 Windows）
+### 方式二：cargo install（全平台）
 
 不获取源码，直接从 git 仓库编译安装到 `~/.cargo/bin`（需要 [Rust 工具链](https://rustup.rs)，仅此一次性依赖）：
 
@@ -95,7 +95,7 @@ document-parser --version
 
 > ⚠️ 包名说明：crates.io 上的 `document-parser` 是**无关的第三方包**，不要 `cargo install document-parser`；本服务只能用 `--git` 方式安装。
 
-Windows 用户主路径即此方式（Rust MSVC 工具链 + 本命令），随后同样执行第 3 步初始化 Python 引擎。
+Windows 上此方式与 deploy-installer 并行可用（Rust MSVC 工具链 + 本命令），随后同样执行第 3 步初始化 Python 引擎。
 
 > ⚠️ **默认安装分支提示**：`cargo install --git` 不带 `--tag/--branch` 时安装 **main** 分支；新功能先发布在发布 tag 上，稳定用户可显式指定，如 `cargo install --git https://github.com/nuwax-ai/mcp-proxy --tag deploy-v0.2.9 document-parser --locked`。
 
@@ -157,12 +157,12 @@ storage:
     path: "/api/v1/file/upload"                   # nuwax 契约默认值
 ```
 
-监听地址与端口：
+监听地址与端口（默认 8087，与 [config.example.yml](deploy/config/config.example.yml) 一致）：
 
 ```yaml
 server:
   host: "0.0.0.0"
-  port: 8077
+  port: 8087
 ```
 
 ## 5. 启动与验证
@@ -172,8 +172,8 @@ server:
 document-parser server
 
 # 健康检查 / API 文档
-curl http://localhost:8077/health
-# Swagger UI: http://localhost:8077/api/docs
+curl http://localhost:8087/health
+# Swagger UI: http://localhost:8087/api/docs
 ```
 
 快速验证解析链路（同步接口，小文件）：
