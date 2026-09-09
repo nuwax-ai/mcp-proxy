@@ -68,6 +68,9 @@ struct LinuxTierProbe {
     cuda: (bool, bool),
     /// (vulkan loader, 硬件 GPU)
     vulkan: (bool, bool),
+    /// 探测是否真的跑过（false = 梯子前三级已定：显式旗标/双 skip/已装档位，
+    /// 此时 cuda/vulkan 探测值是 false 占位，**不可用于打印"预检未通过"**）
+    probed: bool,
 }
 
 impl LinuxTierProbe {
@@ -78,28 +81,51 @@ impl LinuxTierProbe {
             tier: VoiceCliLinuxTier::Cpu,
             cuda: (false, false),
             vulkan: (false, false),
+            probed: false,
         }
     }
 }
 
 /// setup/install 全程唯一的档位决策点（非 Linux x86_64 恒 CPU）。
 /// 探测只在此跑一次，ensure/汇总/安装提示共用结果。
+///
+/// 懒探测：梯子前三级（显式旗标/双 skip/已装档位）已定时完全跳过探测——
+/// 不白跑 nvidia-smi/探针子进程，坏驱动死等时也不会卡住强制 CPU 的用户。
 fn linux_tier_probe(args: &VoiceCliSetupArgs, install_dir: &Path) -> LinuxTierProbe {
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     {
-        let cuda = crate::cli::assets::linux_cuda_runtime_available();
-        let vulkan = crate::cli::assets::linux_vulkan_runtime_available();
-        let tier = crate::cli::assets::resolve_linux_tier(&crate::cli::assets::LinuxTierInputs {
+        use crate::cli::assets::{LinuxTierInputs, early_linux_tier};
+        let inputs_without_probe = LinuxTierInputs {
             use_cuda: args.use_oss_cuda,
             skip_cuda: args.skip_oss_cuda,
             use_vulkan: args.use_oss_vulkan,
             skip_vulkan: args.skip_oss_vulkan,
-            cuda_ok: cuda.0 && cuda.1,
-            vulkan_ok: vulkan.1,
+            cuda_ok: false,
+            vulkan_ok: false,
             cuda_installed: voice_cli_cuda_bundle_present(install_dir),
             vulkan_installed: voice_cli_vulkan_bundle_present(install_dir),
+        };
+        if let Some(tier) = early_linux_tier(&inputs_without_probe) {
+            return LinuxTierProbe {
+                tier,
+                cuda: (false, false),
+                vulkan: (false, false),
+                probed: false,
+            };
+        }
+        let cuda = crate::cli::assets::linux_cuda_runtime_available();
+        let vulkan = crate::cli::assets::linux_vulkan_runtime_available();
+        let tier = crate::cli::assets::resolve_linux_tier(&LinuxTierInputs {
+            cuda_ok: cuda.0 && cuda.1,
+            vulkan_ok: vulkan.1,
+            ..inputs_without_probe
         });
-        LinuxTierProbe { tier, cuda, vulkan }
+        LinuxTierProbe {
+            tier,
+            cuda,
+            vulkan,
+            probed: true,
+        }
     }
     #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
     {
@@ -208,14 +234,20 @@ fn ensure_voice_cli_binary(
                      supported here; run `deploy-installer document-parser install`"
                 );
             }
-            // 无 GPU 机器：双预检报告 + 提示不阻塞（131 实测教训——白下 360MB 后
-            // 崩溃循环；现在直接装 CPU 版并说明原因与升级路径）
             if !quiet && cfg!(all(target_os = "linux", target_arch = "x86_64")) {
-                print_gpu_preflight_warnings(probe);
-                println!("  → 安装 CPU 版本（vendor 内置二进制，不影响功能）");
-                println!(
-                    "    如需 GPU 加速: 按上方提示修复环境后重装，或加 --use-oss-cuda/--use-oss-vulkan 强制"
-                );
+                if probe.probed {
+                    // auto 档落选：双预检报告 + 提示不阻塞（131 实测教训——白下
+                    // 360MB 后崩溃循环；现在直接装 CPU 版并说明原因与升级路径）
+                    print_gpu_preflight_warnings(probe);
+                    println!("  → 安装 CPU 版本（vendor 内置二进制，不影响功能）");
+                    println!(
+                        "    如需 GPU 加速: 按上方提示修复环境后重装，或加 --use-oss-cuda/--use-oss-vulkan 强制"
+                    );
+                } else {
+                    // 双 skip 强制 CPU：用户主动选择，未做探测——不能谎报"预检
+                    // 未通过"，也不该引导"修复环境"（环境没问题）
+                    println!("  → 强制安装 CPU 版本（--skip-oss-cuda --skip-oss-vulkan）");
+                }
             }
             ensure_bundled_binary(SERVICE_NAME, install_dir, quiet)?;
             remove_vulkan_marker(install_dir);
@@ -229,6 +261,9 @@ fn download_oss_cuda_bundle(
     install_dir: &Path,
     quiet: bool,
 ) -> Result<()> {
+    // 档位互斥清入口（含下方 already-present 早退）：清 vulkan marker，防
+    // "cuda bundle 完整 + marker 残留"的双档并存态（手工摆放/中断安装场景）
+    remove_vulkan_marker(install_dir);
     if voice_cli_cuda_bundle_present(install_dir) {
         if !quiet {
             println!("  binary: CUDA bundle already present, skipping download");
@@ -263,8 +298,6 @@ fn download_oss_cuda_bundle(
             install_dir.display()
         );
     }
-    // 档位互斥：清 vulkan marker（防"cuda .so + vulkan marker"并存的档位歧义）
-    remove_vulkan_marker(install_dir);
     Ok(())
 }
 
@@ -273,6 +306,15 @@ fn download_oss_vulkan_bundle(
     install_dir: &Path,
     quiet: bool,
 ) -> Result<()> {
+    // 档位互斥清入口（含下方 already-present 早退）：清 CUDA bundle 专属 .so——
+    // vulkan 档的 sherpa 是 CPU 版，providers_cuda 残留会让 cuda_present 误判
+    // 为 true（手工摆放/中断安装的双档并存态同样要清）
+    for stale in [
+        "libonnxruntime_providers_cuda.so",
+        "libonnxruntime_providers_shared.so",
+    ] {
+        let _ = fs::remove_file(install_dir.join(stale));
+    }
     if voice_cli_vulkan_bundle_present(install_dir) {
         if !quiet {
             println!("  binary: Vulkan bundle already present, skipping download");
@@ -308,14 +350,6 @@ fn download_oss_vulkan_bundle(
             install_dir.display(),
             VOICE_CLI_VULKAN_BUNDLE_MARKER
         );
-    }
-    // 档位互斥：清 CUDA bundle 专属 .so——vulkan 档的 sherpa 是 CPU 版，
-    // providers_cuda 残留会让 cuda_present 误判为 true（档位判定歧义）
-    for stale in [
-        "libonnxruntime_providers_cuda.so",
-        "libonnxruntime_providers_shared.so",
-    ] {
-        let _ = fs::remove_file(install_dir.join(stale));
     }
     Ok(())
 }

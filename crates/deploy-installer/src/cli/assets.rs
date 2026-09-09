@@ -161,20 +161,8 @@ pub struct LinuxTierInputs {
 ///    升级不漂移）；4. 预检自动档，cuda 先于 vulkan（NVIDIA 机器即使同时有
 ///    vulkan ICD 也走 CUDA——sherpa/TTS 的 CUDA 加速只有 CUDA 档有）。
 pub fn resolve_linux_tier(i: &LinuxTierInputs) -> VoiceCliLinuxTier {
-    if i.use_cuda {
-        return VoiceCliLinuxTier::Cuda;
-    }
-    if i.use_vulkan {
-        return VoiceCliLinuxTier::Vulkan;
-    }
-    if i.skip_cuda && i.skip_vulkan {
-        return VoiceCliLinuxTier::Cpu;
-    }
-    if i.cuda_installed {
-        return VoiceCliLinuxTier::Cuda;
-    }
-    if i.vulkan_installed {
-        return VoiceCliLinuxTier::Vulkan;
+    if let Some(tier) = early_linux_tier(i) {
+        return tier;
     }
     if !i.skip_cuda && i.cuda_ok {
         return VoiceCliLinuxTier::Cuda;
@@ -183,6 +171,31 @@ pub fn resolve_linux_tier(i: &LinuxTierInputs) -> VoiceCliLinuxTier {
         return VoiceCliLinuxTier::Vulkan;
     }
     VoiceCliLinuxTier::Cpu
+}
+
+/// 梯子的前三级（显式旗标 / 双 skip / 已装档位）——**与运行时探测无关**。
+///
+/// 返回 `None` 表示需要真探测（预检自动档）。拆出来的目的：让调用方在梯子
+/// 前三级已定时**跳过探测**（nvidia-smi/ldconfig/探针子进程），尤其双 skip
+/// 强制 CPU 的用户不该被坏驱动的 10s 探针超时卡住。`resolve_linux_tier`
+/// 唯一入口调用本函数，两级不会漂移。
+pub fn early_linux_tier(i: &LinuxTierInputs) -> Option<VoiceCliLinuxTier> {
+    if i.use_cuda {
+        return Some(VoiceCliLinuxTier::Cuda);
+    }
+    if i.use_vulkan {
+        return Some(VoiceCliLinuxTier::Vulkan);
+    }
+    if i.skip_cuda && i.skip_vulkan {
+        return Some(VoiceCliLinuxTier::Cpu);
+    }
+    if i.cuda_installed {
+        return Some(VoiceCliLinuxTier::Cuda);
+    }
+    if i.vulkan_installed {
+        return Some(VoiceCliLinuxTier::Vulkan);
+    }
+    None
 }
 
 /// Vulkan GPU 探针超时：坏驱动常见死等而非返回错误（GPU 卡死态），必须可超时。
@@ -775,6 +788,52 @@ mod tests {
                 ..all_false()
             }),
             VoiceCliLinuxTier::Cpu
+        );
+    }
+
+    /// early 梯子（与探测无关的前三级）：命中返回 Some，需探测返回 None。
+    #[test]
+    fn early_linux_tier_skips_probe_when_decided() {
+        // 显式旗标/双 skip/已装档位 → 无需探测
+        assert_eq!(
+            early_linux_tier(&LinuxTierInputs {
+                use_cuda: true,
+                ..all_false()
+            }),
+            Some(VoiceCliLinuxTier::Cuda)
+        );
+        assert_eq!(
+            early_linux_tier(&LinuxTierInputs {
+                skip_cuda: true,
+                skip_vulkan: true,
+                ..all_false()
+            }),
+            Some(VoiceCliLinuxTier::Cpu)
+        );
+        assert_eq!(
+            early_linux_tier(&LinuxTierInputs {
+                vulkan_installed: true,
+                ..all_false()
+            }),
+            Some(VoiceCliLinuxTier::Vulkan)
+        );
+        // 无旗标、未装 → 需要探测（即使探测值全真，early 也不能替它决定）
+        assert_eq!(early_linux_tier(&LinuxTierInputs { ..all_false() }), None);
+        assert_eq!(
+            early_linux_tier(&LinuxTierInputs {
+                cuda_ok: true,
+                vulkan_ok: true,
+                ..all_false()
+            }),
+            None
+        );
+        // 单 skip 不构成 early 决定（仍需探测另一档）
+        assert_eq!(
+            early_linux_tier(&LinuxTierInputs {
+                skip_cuda: true,
+                ..all_false()
+            }),
+            None
         );
     }
 
