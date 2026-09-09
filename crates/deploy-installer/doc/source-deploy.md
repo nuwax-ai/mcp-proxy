@@ -1,8 +1,9 @@
-# 部署指南 (Deployment Guide)
+# 源码编译路线部署（Linux 服务器）
 
-> voice-cli + document-parser 生产部署操作手册 —— 基于 deploy-installer（原 systemd-installer）`service install` 方式
-> 配套设计文档:[SYSTEMD_SERVICE_INSTALLER_DESIGN.md](./SYSTEMD_SERVICE_INSTALLER_DESIGN.md)
-> 适用:Ubuntu / systemd / NVIDIA CUDA 服务器
+> **npm 一键路线**（推荐，无需本仓库源码）见 [deploy-document-parser.md](./deploy-document-parser.md) / [deploy-voice-cli.md](./deploy-voice-cli.md)——本篇是**源码编译路线**：适合需要自定义 feature、离线内网、或参与开发的场景。
+> 服务注册复用同一套能力：二进制内置 `service install` 子命令（unit 模板内嵌），无需手写 unit 文件。
+> 适用:Ubuntu / systemd；voice-cli GPU（NVIDIA CUDA / AMD·Intel Vulkan）编译机
+> 配套设计文档:[SYSTEMD_SERVICE_INSTALLER_DESIGN.md](../../../spec/SYSTEMD_SERVICE_INSTALLER_DESIGN.md)
 
 ---
 
@@ -37,7 +38,7 @@ export PATH=/usr/local/cuda/bin:$PATH
 git clone <repo-url> mcp-proxy && cd mcp-proxy   # test 分支(含 deploy-installer)
 ```
 
-> 详细编译依赖(sherpa 缓存、Swagger UI 等)见 [`crates/voice-cli/deploy/README.md`](../crates/voice-cli/deploy/README.md)。
+> 详细编译依赖(sherpa 缓存、Swagger UI 等)见 [`crates/voice-cli/deploy/README.md`](../../voice-cli/deploy/README.md)。
 
 ---
 
@@ -95,27 +96,11 @@ curl -s http://localhost:8077/health                         # 200 healthy
 curl -s http://localhost:8077/api/v1/tts/voices | grep -o num_speakers\":[0-9]*   # 103
 ```
 
-### 2.5 AMD / Intel GPU（Vulkan）—— 无 CUDA 的 GPU 加速
+### 2.5 AMD / Intel GPU（Vulkan）
 
-NVIDIA 走上面的 CUDA 路线；AMD/Intel GPU（含核显，如 Radeon 780M）用 Vulkan
-档——仅加速 STT 的 whisper 引擎（TTS/sherpa ASR 仍 CPU），详见
-[`crates/voice-cli/docs/DEPLOYMENT.md` §3.3](../crates/voice-cli/docs/DEPLOYMENT.md)。
-
-```bash
-# 运行时依赖（loader + 驱动；无需 SDK）
-sudo apt install -y libvulkan1 mesa-vulkan-drivers
-
-# deploy-installer 自动三档检测（NVIDIA→CUDA / Vulkan GPU→Vulkan / 无→CPU）
-deploy-installer voice-cli install --install-dir ~/voice-cli
-# 显式指定: --use-oss-vulkan 强制 Vulkan; --skip-oss-cuda --skip-oss-vulkan 强制 CPU
-```
-
-确认真用上 Vulkan（没装好会静默回退 CPU，必须看日志）：
-
-```bash
-journalctl -u voice-cli -n 100 --no-pager | grep -i ggml_vulkan
-# → ggml_vulkan: Found 1 Vulkan devices: ...
-```
+源码路线同样支持：`cargo build --release -p voice-cli --features vulkan`
+（编译依赖与验证命令见 [`crates/voice-cli/docs/DEPLOYMENT.md` §3.3](../../voice-cli/docs/DEPLOYMENT.md)；
+三档语义、显式旗标与验证判据见 [deploy-voice-cli.md §4-§5](./deploy-voice-cli.md)——npm 与源码两条路线共享同一套档位约定）。
 
 ---
 
@@ -224,7 +209,7 @@ echo <sudo_pass> | sudo -S systemctl start $BIN
 
 ## 7. 相关文档
 
-- voice-cli 编译/模型/CUDA/Vulkan 细则:[`crates/voice-cli/deploy/README.md`](../crates/voice-cli/deploy/README.md)、[`crates/voice-cli/docs/DEPLOYMENT.md`](../crates/voice-cli/docs/DEPLOYMENT.md)
-- document-parser venv/PITFALLS:[`crates/document-parser/deploy/README.md`](../crates/document-parser/deploy/README.md)、[`PITFALLS.md`](../crates/document-parser/deploy/PITFALLS.md)
-- deploy-installer 设计(架构/ServiceSpec/决策):[`SYSTEMD_SERVICE_INSTALLER_DESIGN.md`](./SYSTEMD_SERVICE_INSTALLER_DESIGN.md)（历史文档名）
-- Mac Mini npm 部署:[`crates/deploy-installer/doc/mac-mini-quickstart.md`](../crates/deploy-installer/doc/mac-mini-quickstart.md)
+- voice-cli 编译/模型/CUDA/Vulkan 细则:[`crates/voice-cli/deploy/README.md`](../../voice-cli/deploy/README.md)、[`crates/voice-cli/docs/DEPLOYMENT.md`](../../voice-cli/docs/DEPLOYMENT.md)
+- document-parser venv/PITFALLS:[`crates/document-parser/deploy/README.md`](../../document-parser/deploy/README.md)、[`PITFALLS.md`](../../document-parser/deploy/PITFALLS.md)
+- deploy-installer 设计(架构/ServiceSpec/决策):[`spec/SYSTEMD_SERVICE_INSTALLER_DESIGN.md`](../../../spec/SYSTEMD_SERVICE_INSTALLER_DESIGN.md)
+- Mac Mini npm 部署:[mac-mini-quickstart.md](./mac-mini-quickstart.md)

@@ -118,7 +118,7 @@ deploy-installer document-parser upgrade        # 换新二进制并自动重启
 
 ## 8. 其他安装方式
 
-deploy-installer 之外还有两条路径（详见 [crates/document-parser/INSTALL.md](../../../document-parser/INSTALL.md)）：
+deploy-installer 之外还有两条路径（详见 [crates/document-parser/INSTALL.md](../../../crates/document-parser/INSTALL.md)）：
 
 - **cargo install**：`cargo install --git https://github.com/nuwax-ai/mcp-proxy document-parser --locked`（不取源码，需 Rust 工具链；Windows 主路径之一）
 - **GitHub Releases**：手动下载对应平台产物解压

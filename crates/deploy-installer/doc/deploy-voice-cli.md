@@ -122,4 +122,4 @@ whisper:
   default_model: "large-v3"   # models/ 下已有的 ggml-*.bin 名（不含前缀）
 ```
 
-STT/TTS 引擎选择（whisper | sensevoice、Kokoro | ZipVoice）、批转写并发、模型目录等完整配置见 [crates/voice-cli/docs/DEPLOYMENT.md](../../../voice-cli/docs/DEPLOYMENT.md)。
+STT/TTS 引擎选择（whisper | sensevoice、Kokoro | ZipVoice）、批转写并发、模型目录等完整配置见 [crates/voice-cli/docs/DEPLOYMENT.md](../../../crates/voice-cli/docs/DEPLOYMENT.md)。

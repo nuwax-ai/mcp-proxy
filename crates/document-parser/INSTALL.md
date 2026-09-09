@@ -25,64 +25,16 @@
 
 ### 方式一：deploy-installer（推荐，全平台）
 
-统一部署 CLI，以 npm 包发布、**二进制内置在包内**（无需从 GitHub Releases 下载）：
+统一部署 CLI（npm 包 `nuwax-deploy-installer`，二进制内置在包内），复制二进制 → 准备 Python 环境 → 写配置 → 注册系统服务 → 等待健康检查，一条命令完成：
 
 ```bash
-# 需要 Node.js 18+（macOS: brew install node）
-npm install -g nuwax-deploy-installer
-# 环境自检（平台、二进制、磁盘空间、GUI 会话）
-deploy-installer doctor
-
-# 一键安装 document-parser：复制二进制 → 下载预编译 venv（约 300MB）
-# → 写配置 → 注册系统服务（launchd/systemd）→ 等待 /health 就绪
+npm install -g nuwax-deploy-installer     # 需要 Node.js 18+
 deploy-installer document-parser install
-
-# 服务管理
-deploy-installer document-parser service status
 ```
 
-> 🇨🇳 **国内网络建议先配置 npm 镜像**（包体积约 80MB，直连 npmjs 仅 ~200KB/s，
-> npmmirror 实测快 40 倍以上）：
->
-> ```bash
-> npm config set registry https://registry.npmmirror.com
-> ```
->
-> 注意 npmmirror 同步有约 10–60 分钟延迟——刚发布的最新 beta 可能暂未同步，
-> 急用可临时直连：`npm install -g nuwax-deploy-installer@beta --registry https://registry.npmjs.org`。
-> 另外普通用户全局安装需要 sudo——**sudo 不会读取用户级 `~/.npmrc` 的镜像配置**，
-> 镜像对 sudo 安装生效需内联传参：
->
-> ```bash
-> sudo npm install -g nuwax-deploy-installer@beta --registry https://registry.npmmirror.com
-> ```
->
-> Linux systemd 机器还需非交互 sudo：在 sudoers 配置受限 NOPASSWD（推荐做法）
-> `用户名 ALL=(root) NOPASSWD: /usr/bin/systemctl, /usr/bin/journalctl, /usr/bin/install, /usr/bin/mkdir, /usr/bin/rm`
-> （systemctl/journalctl 管理服务 + install/mkdir/rm 写删 unit 文件——226 实测缺后三枚会在 unit 落盘时挂）。
+默认目录 `~/document-parser`、端口 8087；**不要**装在 Documents / Desktop / iCloud 目录（macOS 服务权限限制）；纯 SSH 的 Mac 会降级为“桌面登录后自启”（见 mac-mini-quickstart.md）。
 
-document-parser 需要上传后端凭证（**OSS 或自定义上传后端二选一**），安装前先导出（也可装完后写入 `~/document-parser/.document-parser.env`）：
-
-```bash
-# 方案 A：阿里云 OSS（云端部署）
-export OSS_ACCESS_KEY_ID=你的Key
-export OSS_ACCESS_KEY_SECRET=你的Secret
-
-# 方案 B：自建系统上传接口（私有部署，nuwax 风格——契约见 CUSTOM_UPLOAD_API.md）
-export DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL=https://your-system.example.com
-export DOCUMENT_PARSER_CUSTOM_UPLOAD_API_KEY=你的APIKey
-```
-
-纯内网环境（无法访问 OSS 下载源）可用本地 venv 包离线安装：
-
-```bash
-deploy-installer document-parser install --venv-file /path/to/venv-macos-arm64-x.y.z.tar.gz
-```
-
-- 默认安装目录 `~/document-parser`，端口 8087；**不要**装在 Documents / Desktop / iCloud 目录（macOS 服务权限限制）
-- macOS 上安装命令需要当前用户在本机图形界面登录（纯 SSH 场景见 [mac-mini-quickstart.md](../deploy-installer/doc/mac-mini-quickstart.md)）
-- 支持平台：macOS Apple Silicon、Linux x86_64（voice-cli 三档自动检测：NVIDIA CUDA 包 / AMD·Intel Vulkan 包 / CPU）、Windows x64（document-parser；voice-cli 视构建情况）——见 [MAINTAINER.md](../deploy-installer/doc/MAINTAINER.md)
-- 详细步骤（含 voice-cli 组合部署、SSH 场景）见 [mac-mini-quickstart.md](../deploy-installer/doc/mac-mini-quickstart.md)
+**前置准备**（安装前必读）——npm 国内镜像与 sudo 内联、Linux sudoers 五命令 allowlist、上传后端凭证（OSS 或自定义接口二选一）、纯内网 `--venv-file` 离线安装、验证与服务管理、常见问题：完整步骤见 **[deploy-installer/doc/deploy-document-parser.md](../deploy-installer/doc/deploy-document-parser.md)**；voice-cli 姊妹篇 [deploy-voice-cli.md](../deploy-installer/doc/deploy-voice-cli.md)。
 
 ### 方式二：cargo install（全平台）
 
@@ -203,7 +155,7 @@ document-parser service uninstall
 
 | 平台 | 服务管理器 | 说明 |
 |------|-----------|------|
-| Linux | systemd | 原生支持；用户级或系统级单元，详见 [SYSTEMD_SETUP_GUIDE.md](SYSTEMD_SETUP_GUIDE.md) |
+| Linux | systemd | 原生支持；`service install` 自动写 unit（模板内嵌），手动/进阶场景见 [source-deploy.md](../deploy-installer/doc/source-deploy.md) |
 | macOS | launchd | 原生支持；生成 plist 并加载 |
 | Windows | —（无内置） | 用 [NSSM](https://nssm.cc/) 注册系统服务：`nssm install DocumentParser "C:\path\document-parser.exe" "server"`；或用任务计划程序设置开机启动 |
 

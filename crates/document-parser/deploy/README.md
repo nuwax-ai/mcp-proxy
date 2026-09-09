@@ -75,7 +75,7 @@ document-parser service restart
 
 ## 更多
 
-- `../SYSTEMD_SETUP_GUIDE.md` — systemd 原理
+- `../../deploy-installer/doc/source-deploy.md` — 源码编译路线部署（systemd 注册由 `service install` 自动完成）
 - `PITFALLS.md` — 踩坑
 
 ## Mac 本地验证
