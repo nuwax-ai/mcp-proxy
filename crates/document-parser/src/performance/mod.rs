@@ -6,7 +6,6 @@ pub mod cache_manager;
 pub mod concurrency_optimizer;
 pub mod memory_optimizer;
 pub mod metrics_collector;
-// pub mod resource_monitor; // 模块不存在，暂时注释
 
 use crate::config::AppConfig;
 use crate::error::AppError;
@@ -21,7 +20,6 @@ pub struct PerformanceOptimizer {
     concurrency_optimizer: Arc<concurrency_optimizer::ConcurrencyOptimizer>,
     cache_manager: Arc<cache_manager::CacheManager>,
     metrics_collector: Arc<metrics_collector::MetricsCollector>,
-    // resource_monitor: Arc<resource_monitor::ResourceMonitor>, // 模块不存在，暂时注释
     _config: PerformanceConfig,
 }
 
@@ -34,29 +32,23 @@ impl PerformanceOptimizer {
             Arc::new(concurrency_optimizer::ConcurrencyOptimizer::new(config).await?);
         let cache_manager = Arc::new(cache_manager::CacheManager::new(config).await?);
         let metrics_collector = Arc::new(metrics_collector::MetricsCollector::new(config).await?);
-        // let resource_monitor = Arc::new(resource_monitor::ResourceMonitor::new(config).await?); // 模块不存在，暂时注释
 
         Ok(Self {
             memory_optimizer,
             concurrency_optimizer,
             cache_manager,
             metrics_collector,
-            // resource_monitor, // 模块不存在，暂时注释
             _config: performance_config,
         })
     }
 
-    /// 启动性能监控
+    /// 启动性能监控（预留：后台监控循环尚未接线，当前为空操作）
     pub async fn start_monitoring(&self) -> Result<(), AppError> {
-        // self.resource_monitor.start_monitoring().await?; // 模块不存在，暂时注释
-        // self.metrics_collector.start_monitoring().await?; // 方法不存在，暂时注释
         Ok(())
     }
 
-    /// 停止性能监控
+    /// 停止性能监控（预留：与 start_monitoring 对称，当前为空操作）
     pub async fn stop_monitoring(&self) -> Result<(), AppError> {
-        // self.resource_monitor.stop_monitoring().await?; // 模块不存在，暂时注释
-        // self.metrics_collector.stop_monitoring().await?; // 方法不存在，暂时注释
         Ok(())
     }
 
@@ -80,29 +72,8 @@ impl PerformanceOptimizer {
         &self.metrics_collector
     }
 
-    // /// 获取资源监控器
-    // pub fn resource_monitor(&self) -> &Arc<resource_monitor::ResourceMonitor> {
-    //     &self.resource_monitor
-    // } // 模块不存在，暂时注释
-
-    // /// 启动资源监控
-    // pub async fn start_resource_monitoring(&self) -> Result<(), DocumentParserError> {
-    //     self.resource_monitor.start_monitoring().await
-    // } // 模块不存在，暂时注释
-
-    // /// 停止资源监控
-    // pub async fn stop_resource_monitoring(&self) -> Result<(), DocumentParserError> {
-    //     self.resource_monitor.stop_monitoring().await
-    // } // 模块不存在，暂时注释
-
-    // /// 获取资源统计
-    // pub async fn get_resource_stats(&self) -> Result<resource_monitor::ResourceStats, DocumentParserError> {
-    //     self.resource_monitor.get_stats().await
-    // } // 模块不存在，暂时注释
-
-    /// 优化资源使用
+    /// 优化资源使用（预留：资源监控组件已删除，当前为空操作）
     pub async fn optimize_resources(&self) -> Result<(), AppError> {
-        // self.resource_monitor.optimize().await // 模块不存在，暂时注释
         Ok(())
     }
 
@@ -122,8 +93,6 @@ impl PerformanceOptimizer {
 
     /// 获取性能报告
     pub async fn get_performance_report(&self) -> Result<PerformanceReport, AppError> {
-        // let system_resources = self.resource_monitor.get_system_resources().await?; // 模块不存在，暂时注释
-        // let app_resources = self.resource_monitor.get_application_resources().await?; // 模块不存在，暂时注释
         let metrics = self.metrics_collector.get_stats().await?;
         let cache_stats = self.cache_manager.get_stats().await?;
 
@@ -140,8 +109,10 @@ impl PerformanceOptimizer {
 /// 性能报告
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PerformanceReport {
-    pub system_resources: serde_json::Value, // resource_monitor::SystemResourceStatus, // 模块不存在，暂时使用通用类型
-    pub application_resources: serde_json::Value, // resource_monitor::ApplicationResourceStatus, // 模块不存在，暂时使用通用类型
+    /// 系统资源状态（占位空值——resource_monitor 组件已删除，字段保留以兼容序列化）
+    pub system_resources: serde_json::Value,
+    /// 应用资源状态（占位空值——同上）
+    pub application_resources: serde_json::Value,
     pub metrics: serde_json::Value,
     pub cache_stats: serde_json::Value,
     pub generated_at: SystemTime,
@@ -154,7 +125,6 @@ pub struct DetailedPerformanceReport {
     pub concurrency_stats: concurrency_optimizer::ConcurrencyStats,
     pub cache_stats: cache_manager::CacheStats,
     pub metrics: metrics_collector::MetricsSnapshot,
-    // pub resource_stats: resource_monitor::ResourceStats, // 模块不存在，暂时注释
     pub timestamp: chrono::DateTime<chrono::Utc>,
 }
 

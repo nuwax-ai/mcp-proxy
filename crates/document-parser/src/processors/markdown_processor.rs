@@ -12,8 +12,9 @@ use std::time::Instant;
 use tokio::sync::Mutex;
 use tracing::{debug, info, instrument, warn};
 
-/// 缓存族与章节/搜索族方法（`impl MarkdownProcessor` 的子模块拆分）。
+/// 缓存族方法（键生成/读写/清理/统计）。
 mod cache;
+/// 章节与搜索族方法（章节定位/全文搜索/上下文提取/相关度评分）。
 mod search;
 
 /// Markdown处理器配置

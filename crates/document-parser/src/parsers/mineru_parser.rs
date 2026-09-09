@@ -13,9 +13,11 @@ use tokio::sync::RwLock;
 use tracing::{debug, error, info, instrument, warn};
 use uuid::{NoContext, Timestamp, Uuid};
 
+/// 环境校验族方法（环境验证/就绪等待/地区检测）。
 mod environment;
+/// 子进程执行族方法（命令构建/输出流监控/路径解析）。
 mod execute;
-/// 输出读取族方法（`impl MinerUParser` 的子模块拆分）。
+/// 输出读取族方法（输出目录调试/Markdown 定位/递归查找）。
 mod output;
 
 /// MinerU 子进程 stderr 输出行的分级（用于按内容选择日志级别，避免 tqdm/loguru 正常输出污染 ERROR 日志）。

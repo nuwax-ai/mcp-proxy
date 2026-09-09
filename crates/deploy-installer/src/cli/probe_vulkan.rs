@@ -3,7 +3,7 @@
 //! 探测走 Vulkan 标准能力查询（ash 绑定）：零扩展建 instance（无头安全，不碰
 //! X11/Wayland surface）→ 枚举物理设备 → deviceType 由**驱动自报**（llvmpipe 等
 //! 软件渲染如实上报 CPU 型，无需启发式）。父进程以子进程方式运行本探针并设
-//! 超时（见 assets::spawn_vulkan_probe），探针异常一律按"无 Vulkan"降级——
+//! 超时（见 linux_gpu::spawn_vulkan_probe），探针异常一律按"无 Vulkan"降级——
 //! 崩溃域被隔离在探针进程内，安装器本体不受坏驱动影响。
 
 use anyhow::Result;

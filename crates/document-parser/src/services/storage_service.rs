@@ -11,8 +11,9 @@ use sled::{
 };
 use tokio::sync::RwLock;
 
-/// 缓存层与维护/备份族方法（`impl StorageService` 的子模块拆分）。
+/// 缓存层方法（内存缓存/过滤器匹配/通用缓存/失效清理）。
 mod cache;
+/// 维护与备份族方法（过期清理/压缩/后台维护/备份恢复）。
 mod maintenance;
 
 /// 存储键前缀

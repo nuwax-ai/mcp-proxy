@@ -12,7 +12,11 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-/// curl 下载到 `archive`（两个下载入口共用；失败时删除半截文件）。
+/// curl 下载到 `archive`（两个下载入口共用）。
+///
+/// 失败时删除半截归档——比旧 `download_and_extract_tarball` 的"失败留残 file"
+/// 语义更严（重试总是 `-o` 覆盖写，无消费方依赖残留），与 bundle 原子落位
+/// 入口的清理行为统一。
 fn curl_download(url: &str, archive: &Path, quiet: bool, label: &str) -> Result<()> {
     let mut curl = Command::new("curl");
     curl.args(["-fL"]);

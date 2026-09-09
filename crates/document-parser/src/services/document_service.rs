@@ -22,8 +22,9 @@ use crate::processors::markdown_processor::{CacheStatistics, MarkdownProcessorCo
 use crate::services::TaskService;
 use crate::services::upload_pipeline::TaskUploader;
 
-/// 图片上传/路径替换/换签族方法（`impl DocumentService` 的子模块拆分）。
+/// 图片上传/路径替换/换签族方法。
 mod images;
+/// 任务生命周期族方法（状态安全更新/任务创建/状态查询）。
 mod tasks;
 
 /// Configuration for DocumentService

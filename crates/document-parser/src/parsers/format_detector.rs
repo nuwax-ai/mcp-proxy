@@ -9,7 +9,7 @@ use std::time::Instant;
 use tokio::io::AsyncReadExt;
 use tracing::{debug, warn};
 
-/// 安全检查族方法与 SecurityConfig 构建（`FormatDetector` 的子模块拆分）。
+/// 安全检查族方法（文件安全校验/格式安全评估）与 SecurityConfig 构建。
 mod security;
 
 /// 格式检测器
