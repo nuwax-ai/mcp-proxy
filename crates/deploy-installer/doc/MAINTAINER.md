@@ -178,30 +178,32 @@ npm view nuwax-deploy-installer dist-tags
 
 ## 4. OSS 可选资源
 
-大文件不进 npm。打包脚本里的版本号应使用 **`assetVersion`**（当前 `0.2.1`），不是 npm beta 号。
+大文件不进 npm。打包脚本里的版本号应使用 **`assetVersion`**（当前 `0.2.13`），不是 npm beta 号。
 
 ### Mac（一期）
 
 | manifest 键 | OSS 文件（`{version}` = `assetVersion`） | 用途 |
 |-------------|-------------------------------------------|------|
-| `venv.darwin-arm64` | `venv-macos-arm64-{version}.tar.gz` | document-parser Python 环境 |
-| `whisperLargeV3.darwin-arm64` | `whisper-ggml-large-v3-{version}.tar.gz` | voice-cli 默认模型 |
-| `whisperAll.darwin-arm64` | `whisper-ggml-all-{version}.tar.gz` | 全档模型 |
+| `venv.darwin-arm64` | `v{version}/venv-macos-arm64-{version}.tar.gz` | document-parser Python 环境 |
+| `whisperLargeV3.darwin-arm64` | `v{version}/whisper-ggml-large-v3-{version}.tar.gz` | voice-cli 默认模型 |
+| `whisperAll.darwin-arm64` | `v{version}/whisper-ggml-all-{version}.tar.gz` | 全档模型 |
 
-公开 URL 前缀：
+公开 URL 前缀（**0.2.13 起按版本号目录组织**——控制台按版本分组、清理旧版本
+直接删 `v*/` 前缀；`v0.2.13/` 之前的历史资产平铺在服务目录根下，保留不删，
+老 npm 包的平铺 URL 仍有效）：
 
 ```
-https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/document-parser/
-https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/
+https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/document-parser/v{version}/
+https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/
 ```
 
 #### 打包 venv（Mac 上执行）
 
 ```bash
-bash scripts/ci/pack-document-parser-venv-macos-arm64.sh 0.2.1
-# 上传: oss://nuwa-packages/uploads/document-parser/venv-macos-arm64-0.2.1.tar.gz
+bash scripts/ci/pack-document-parser-venv-macos-arm64.sh 0.2.13
+# 上传: oss://nuwa-packages/uploads/document-parser/v0.2.13/venv-macos-arm64-0.2.13.tar.gz
 bash scripts/ci/verify-oss-venv-url.sh --extract \
-  https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/document-parser/venv-macos-arm64-0.2.1.tar.gz
+  https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/document-parser/v0.2.13/venv-macos-arm64-0.2.13.tar.gz
 ```
 
 上传新 venv 后：改 `manifest.json` 的 `assetVersion` → 发 npm beta 验证。
@@ -209,24 +211,24 @@ bash scripts/ci/verify-oss-venv-url.sh --extract \
 #### 打包 Whisper ggml
 
 ```bash
-bash scripts/ci/pack-voice-cli-whisper-ggml.sh 0.2.1          # 默认 large-v3
-bash scripts/ci/pack-voice-cli-whisper-ggml.sh --all 0.2.1    # 全档
-# 上传: oss://nuwa-packages/uploads/voice-cli/whisper-ggml-large-v3-0.2.1.tar.gz
+bash scripts/ci/pack-voice-cli-whisper-ggml.sh 0.2.13          # 默认 large-v3
+bash scripts/ci/pack-voice-cli-whisper-ggml.sh --all 0.2.13    # 全档
+# 上传: oss://nuwa-packages/uploads/voice-cli/v0.2.13/whisper-ggml-large-v3-0.2.13.tar.gz
 bash scripts/ci/verify-oss-whisper-url.sh \
-  https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/whisper-ggml-large-v3-0.2.1.tar.gz
+  https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v0.2.13/whisper-ggml-large-v3-0.2.13.tar.gz
 ```
 
 ### Linux CUDA（二期）
 
 | manifest 键 | OSS 文件 | 说明 |
 |-------------|----------|------|
-| `voiceCliCuda.linux-x64` | `voice-cli-cuda-linux-x64-{version}.tar.gz` | binary + 4× `.so`，~360MB |
+| `voiceCliCuda.linux-x64` | `v{version}/voice-cli-cuda-linux-x64-{version}.tar.gz` | binary + 4× `.so`，~360MB |
 
 ```bash
-bash scripts/ci/pack-voice-cli-cuda-linux-x64.sh 0.2.1
-# 上传: oss://nuwa-packages/uploads/voice-cli/voice-cli-cuda-linux-x64-0.2.1.tar.gz
+bash scripts/ci/pack-voice-cli-cuda-linux-x64.sh 0.2.13
+# 上传: oss://nuwa-packages/uploads/voice-cli/v0.2.13/voice-cli-cuda-linux-x64-0.2.13.tar.gz
 bash scripts/ci/verify-oss-voice-cli-cuda-url.sh \
-  https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/voice-cli-cuda-linux-x64-0.2.1.tar.gz
+  https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v0.2.13/voice-cli-cuda-linux-x64-0.2.13.tar.gz
 ```
 
 Linux 用户安装（Whisper 模型需自备；manifest 暂未配 Linux whisper URL）：
@@ -240,7 +242,7 @@ deploy-installer voice-cli install --install-dir ~/voice-cli
 
 | manifest 键 | OSS 文件 | 说明 |
 |-------------|----------|------|
-| `voiceCliVulkan.linux-x64` | `voice-cli-vulkan-linux-x64-{version}.tar.gz` | binary（ggml-vulkan 静态链入）+ 2× CPU `.so` + `.voice-cli-vulkan` marker，~60MB |
+| `voiceCliVulkan.linux-x64` | `v{version}/voice-cli-vulkan-linux-x64-{version}.tar.gz` | binary（ggml-vulkan 静态链入）+ 2× CPU `.so` + `.voice-cli-vulkan` marker，~60MB |
 
 **三档自动检测**（`assets.rs::resolve_linux_tier`，顺序即优先级）：
 显式 `--use-oss-cuda`/`--use-oss-vulkan` → 双 skip（强制 CPU）→ 已装档位幂等保留 →
@@ -275,10 +277,10 @@ ldd target/release/voice-cli | grep vulkan                      # 应有 libvulk
 打包/上传/校验：
 
 ```bash
-bash scripts/ci/pack-voice-cli-vulkan-linux-x64.sh 0.2.12
-# 上传: oss://nuwa-packages/uploads/voice-cli/voice-cli-vulkan-linux-x64-0.2.12.tar.gz
+bash scripts/ci/pack-voice-cli-vulkan-linux-x64.sh 0.2.13
+# 上传: oss://nuwa-packages/uploads/voice-cli/v0.2.13/voice-cli-vulkan-linux-x64-0.2.13.tar.gz
 bash scripts/ci/verify-oss-voice-cli-vulkan-url.sh \
-  https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/voice-cli-vulkan-linux-x64-0.2.12.tar.gz
+  https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v0.2.13/voice-cli-vulkan-linux-x64-0.2.13.tar.gz
 ```
 
 ---

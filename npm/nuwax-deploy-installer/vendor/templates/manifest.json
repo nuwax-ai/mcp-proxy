@@ -1,21 +1,22 @@
 {
   "version": "0.2.1",
-  "assetVersion": "0.2.12",
+  "assetVersion": "0.2.13",
   "optionalAssets": {
     "venv": {
-      "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/document-parser/venv-macos-arm64-{version}.tar.gz"
+      "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/document-parser/v{version}/venv-macos-arm64-{version}.tar.gz"
     },
     "whisperLargeV3": {
-      "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/whisper-ggml-large-v3-{version}.tar.gz"
+      "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/whisper-ggml-large-v3-{version}.tar.gz"
     },
     "whisperAll": {
-      "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/whisper-ggml-all-{version}.tar.gz"
+      "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/whisper-ggml-all-{version}.tar.gz"
     },
     "voiceCliCuda": {
-      "linux-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/voice-cli-cuda-linux-x64-{version}.tar.gz"
+      "linux-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/voice-cli-cuda-linux-x64-{version}.tar.gz"
     },
     "voiceCliVulkan": {
-      "linux-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/voice-cli-vulkan-linux-x64-{version}.tar.gz"
+      "linux-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/voice-cli-vulkan-linux-x64-{version}.tar.gz"
     }
   }
 }
+

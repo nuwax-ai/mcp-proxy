@@ -81,7 +81,7 @@ log "voice-cli CUDA linux-x64 pack"
 echo "  version: $VERSION"
 echo "  source:  $SRC_DIR"
 echo "  output:  $OUTPUT_PATH"
-echo "  OSS:     oss://nuwa-packages/${OSS_PREFIX}/${ARCHIVE_NAME}"
+echo "  OSS:     oss://nuwa-packages/${OSS_PREFIX}/v${VERSION}/${ARCHIVE_NAME}"
 echo
 
 mkdir -p "$OUTPUT_DIR"
@@ -112,8 +112,8 @@ cat >"${OUTPUT_PATH}.meta.json" <<EOF
   "sha256": "${SHA}",
   "size_bytes": ${SIZE},
   "files": [${FILES_JSON}],
-  "oss_object_key": "${OSS_PREFIX}/${ARCHIVE_NAME}",
-  "public_url": "${PUBLIC_BASE}/${ARCHIVE_NAME}"
+  "oss_object_key": "${OSS_PREFIX}/v${VERSION}/${ARCHIVE_NAME}",
+  "public_url": "${PUBLIC_BASE}/v${VERSION}/${ARCHIVE_NAME}"
 }
 EOF
 
