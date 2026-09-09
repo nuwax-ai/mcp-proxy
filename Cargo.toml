@@ -34,21 +34,21 @@ resolver = "2"
 
 # 统一版本管理：所有 crate 用 version.workspace = true 继承此处版本，bump 只改这一处
 [workspace.package]
-version = "0.2.7"
+version = "0.2.8"
 edition = "2024"
 
 [workspace.dependencies]
 # 内部 crate（依赖版本串也集中在此，配合 [workspace.package] 实现根一处维护）
-mcp-proxy = { version = "0.2.7", path = "crates/mcp-proxy" }
-mcp-common = { version = "0.2.7", path = "crates/mcp-common" }
-mcp-proxy-args = { version = "0.2.7", path = "crates/mcp-proxy-args" }
-mcp-sse-proxy = { version = "0.2.7", path = "crates/mcp-sse-proxy" }
-mcp-streamable-proxy = { version = "0.2.7", path = "crates/mcp-streamable-proxy" }
-oss-client = { version = "0.2.7", path = "crates/oss-client" }
+mcp-proxy = { version = "0.2.8", path = "crates/mcp-proxy" }
+mcp-common = { version = "0.2.8", path = "crates/mcp-common" }
+mcp-proxy-args = { version = "0.2.8", path = "crates/mcp-proxy-args" }
+mcp-sse-proxy = { version = "0.2.8", path = "crates/mcp-sse-proxy" }
+mcp-streamable-proxy = { version = "0.2.8", path = "crates/mcp-streamable-proxy" }
+oss-client = { version = "0.2.8", path = "crates/oss-client" }
 deploy-installer = { version = "0.2.0", path = "crates/deploy-installer" }
 # run_code_rmcp 已 vendor 到本地（crates/run-code-rmcp/）；发布 mcp-stdio-proxy 时仍需 version
 # 以便 cargo publish 把 path 依赖解析为 crates.io 上的同名版本
-run_code_rmcp = { version = "0.2.7", path = "crates/run-code-rmcp" }
+run_code_rmcp = { version = "0.2.8", path = "crates/run-code-rmcp" }
 # voice-toolkit 已 vendor 到本地（crates/voice-toolkit 等 4 个 crate），不再从 crates.io 拉取
 voice-toolkit = { path = "crates/voice-toolkit", features = ["audio"] }
 # FFmpeg wrapper：统一到 2.5（voice-cli 原 2.2 + voice crates 2.5 → 合并）
