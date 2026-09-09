@@ -1,6 +1,10 @@
 # ============================================================================
 # MCP 包发布到 crates.io (mk/publish.mk)
 # ============================================================================
+# 注意：所有 cargo publish 必须带 --registry crates-io——本机 ~/.cargo/config.toml
+# 将 crates-io 源替换为 ustc 镜像（[source.crates-io] replace-with='ustc'），
+# cargo 检测到源替换时拒绝发布，要求显式指定目标 registry。
+# （镜像只影响依赖解析下载，发布恒走 crates.io，旗标不改变发布目的地。）
 
 # 所有需要与 [workspace.package] 保持同版本的内部依赖键。
 # 修改 workspace crate 时必须同步维护该列表；版本更新会在写入前后执行一致性校验。
@@ -63,32 +67,32 @@ mcp-publish:
 	@echo "📦 开始发布 MCP 相关包到 crates.io..."
 	@echo ""
 	@echo "1️⃣  发布 mcp-common..."
-	cd crates/mcp-common && cargo publish
+	cd crates/mcp-common && cargo publish --registry crates-io
 	@echo "⏳ 等待 10 秒让 crates.io 索引更新..."
 	@sleep 10
 	@echo ""
 	@echo "2️⃣  发布 mcp-sse-proxy..."
-	cd crates/mcp-sse-proxy && cargo publish
+	cd crates/mcp-sse-proxy && cargo publish --registry crates-io
 	@echo "⏳ 等待 10 秒让 crates.io 索引更新..."
 	@sleep 10
 	@echo ""
 	@echo "3️⃣  发布 mcp-streamable-proxy..."
-	cd crates/mcp-streamable-proxy && cargo publish
+	cd crates/mcp-streamable-proxy && cargo publish --registry crates-io
 	@echo "⏳ 等待 10 秒让 crates.io 索引更新..."
 	@sleep 10
 	@echo ""
 	@echo "4️⃣  发布 mcp-proxy-args..."
-	cd crates/mcp-proxy-args && cargo publish
+	cd crates/mcp-proxy-args && cargo publish --registry crates-io
 	@echo "⏳ 等待 10 秒让 crates.io 索引更新..."
 	@sleep 10
 	@echo ""
 	@echo "5️⃣  发布 run_code_rmcp..."
-	cd crates/run-code-rmcp && cargo publish
+	cd crates/run-code-rmcp && cargo publish --registry crates-io
 	@echo "⏳ 等待 10 秒让 crates.io 索引更新..."
 	@sleep 10
 	@echo ""
 	@echo "6️⃣  发布 mcp-stdio-proxy..."
-	cd crates/mcp-proxy && cargo publish
+	cd crates/mcp-proxy && cargo publish --registry crates-io
 	@echo ""
 	@echo "✅ 所有 MCP 包发布成功！"
 
@@ -98,17 +102,17 @@ mcp-publish-remaining:
 	@echo "📦 发布剩余包：mcp-proxy-args → run_code_rmcp → mcp-stdio-proxy..."
 	@echo ""
 	@echo "1️⃣  发布 mcp-proxy-args..."
-	cd crates/mcp-proxy-args && cargo publish
+	cd crates/mcp-proxy-args && cargo publish --registry crates-io
 	@echo "⏳ 等待 10 秒让 crates.io 索引更新..."
 	@sleep 10
 	@echo ""
 	@echo "2️⃣  发布 run_code_rmcp..."
-	cd crates/run-code-rmcp && cargo publish
+	cd crates/run-code-rmcp && cargo publish --registry crates-io
 	@echo "⏳ 等待 10 秒让 crates.io 索引更新..."
 	@sleep 10
 	@echo ""
 	@echo "3️⃣  发布 mcp-stdio-proxy..."
-	cd crates/mcp-proxy && cargo publish
+	cd crates/mcp-proxy && cargo publish --registry crates-io
 	@echo ""
 	@echo "✅ 剩余 MCP 包发布成功！"
 
@@ -118,22 +122,22 @@ mcp-publish-dry-run:
 	@echo "🔍 预览将要发布的 MCP 包..."
 	@echo ""
 	@echo "1️⃣  mcp-common:"
-	cd crates/mcp-common && cargo publish --dry-run
+	cd crates/mcp-common && cargo publish --registry crates-io --dry-run
 	@echo ""
 	@echo "2️⃣  mcp-sse-proxy:"
-	cd crates/mcp-sse-proxy && cargo publish --dry-run
+	cd crates/mcp-sse-proxy && cargo publish --registry crates-io --dry-run
 	@echo ""
 	@echo "3️⃣  mcp-streamable-proxy:"
-	cd crates/mcp-streamable-proxy && cargo publish --dry-run
+	cd crates/mcp-streamable-proxy && cargo publish --registry crates-io --dry-run
 	@echo ""
 	@echo "4️⃣  mcp-proxy-args:"
-	cd crates/mcp-proxy-args && cargo publish --dry-run
+	cd crates/mcp-proxy-args && cargo publish --registry crates-io --dry-run
 	@echo ""
 	@echo "5️⃣  run_code_rmcp:"
-	cd crates/run-code-rmcp && cargo publish --dry-run
+	cd crates/run-code-rmcp && cargo publish --registry crates-io --dry-run
 	@echo ""
 	@echo "6️⃣  mcp-stdio-proxy:"
-	cd crates/mcp-proxy && cargo publish --dry-run
+	cd crates/mcp-proxy && cargo publish --registry crates-io --dry-run
 	@echo ""
 	@echo "✅ 预览完成（未实际发布）"
 
