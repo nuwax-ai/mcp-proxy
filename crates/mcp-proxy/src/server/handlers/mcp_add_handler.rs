@@ -36,8 +36,8 @@ pub async fn add_route_handler(
 
         let mcp_plugin_json = params.mcp_json_config;
         // 将mcp_plugin_json转换为 McpServerConfig 结构体
-        let mcp_server_config =
-            McpServerConfig::try_from(mcp_plugin_json.clone()).expect("解析 MCP 配置失败");
+        let mcp_server_config = McpServerConfig::try_from(mcp_plugin_json.clone())
+            .map_err(|e| AppError::mcp_server_error(format!("解析 MCP 配置失败: {e}")))?;
 
         let mcp_type = params.mcp_type.unwrap_or(McpType::default());
 

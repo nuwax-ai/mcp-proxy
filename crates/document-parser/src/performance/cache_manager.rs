@@ -374,23 +374,18 @@ impl DocumentCache {
     }
 
     pub async fn get(&self, key: &str) -> Option<CacheEntry<Vec<u8>>> {
-        if let Some(entry) = self.cache.get(key) {
-            // 更新访问计数
-            if let Some(count) = self.access_count.get(key) {
-                count.fetch_add(1, Ordering::Relaxed);
-            }
-
-            // 更新LRU顺序
-            let mut order = self.access_order.lock().await;
-            if let Some(pos) = order.iter().position(|k| k == key) {
-                let key = order.remove(pos);
-                order.push(key);
-            }
-
-            Some(entry.clone())
-        } else {
-            None
+        // 先克隆 value 让分片读守卫在语句末释放，再更新计数/LRU——持守卫跨
+        // await 会与 evict_fifo（持 order 锁后写同一分片）构成 AB 死锁
+        let value = self.cache.get(key).map(|entry| entry.value().clone())?;
+        if let Some(count) = self.access_count.get(key) {
+            count.fetch_add(1, Ordering::Relaxed);
         }
+        let mut order = self.access_order.lock().await;
+        if let Some(pos) = order.iter().position(|k| k == key) {
+            let key = order.remove(pos);
+            order.push(key);
+        }
+        Some(value)
     }
 
     pub async fn remove(&self, key: &str) {
@@ -414,11 +409,19 @@ impl DocumentCache {
     }
 
     pub async fn evict_lru(&self) {
-        let mut order = self.access_order.lock().await;
-        if let Some(key) = order.first().cloned() {
+        // 与 evict_fifo 同款模式：锁内只出队取 key，锁释放后再删 map——
+        // 避免持 order 锁写 DashMap（一旦 get() 持读守卫跨 await 即成 AB 死锁）
+        let evicted = {
+            let mut order = self.access_order.lock().await;
+            if order.is_empty() {
+                None
+            } else {
+                Some(order.remove(0))
+            }
+        };
+        if let Some(key) = evicted {
             self.cache.remove(&key);
             self.access_count.remove(&key);
-            order.remove(0);
         }
     }
 
@@ -440,17 +443,28 @@ impl DocumentCache {
     }
 
     pub async fn evict_fifo(&self) {
-        let mut order = self.access_order.lock().await;
-        if let Some(key) = order.first().cloned() {
+        // 不持 order 锁写 DashMap（与 get() 的"读守卫跨 await"构成 AB 死锁）：
+        // 锁内只出队取 key，锁释放后再删 cache/计数
+        let evicted = {
+            let mut order = self.access_order.lock().await;
+            if order.is_empty() {
+                None
+            } else {
+                Some(order.remove(0))
+            }
+        };
+        if let Some(key) = evicted {
             self.cache.remove(&key);
             self.access_count.remove(&key);
-            order.remove(0);
         }
     }
 
     pub async fn evict_random(&self) {
-        if let Some(entry) = self.cache.iter().next() {
-            let key = entry.key().clone();
+        // 先克隆 key 让 Ref 读守卫在语句末释放，再调 remove——remove 要对同一
+        // DashMap 分片取写锁，守卫存活期间调用是同分片读写死锁（dashmap 规范：
+        // 不要在持 Ref 时对同一 map 做写操作）
+        let key = self.cache.iter().next().map(|entry| entry.key().clone());
+        if let Some(key) = key {
             self.remove(&key).await;
         }
     }
@@ -527,21 +541,18 @@ impl ResultCache {
     }
 
     pub async fn get(&self, key: &str) -> Option<CacheEntry<ParseResult>> {
-        if let Some(entry) = self.cache.get(key) {
-            if let Some(count) = self.access_count.get(key) {
-                count.fetch_add(1, Ordering::Relaxed);
-            }
-
-            let mut order = self.access_order.lock().await;
-            if let Some(pos) = order.iter().position(|k| k == key) {
-                let key = order.remove(pos);
-                order.push(key);
-            }
-
-            Some(entry.clone())
-        } else {
-            None
+        // 先克隆 value 让分片读守卫在语句末释放，再更新计数/LRU——持守卫跨
+        // await 会与 evict_fifo（持 order 锁后写同一分片）构成 AB 死锁
+        let value = self.cache.get(key).map(|entry| entry.value().clone())?;
+        if let Some(count) = self.access_count.get(key) {
+            count.fetch_add(1, Ordering::Relaxed);
         }
+        let mut order = self.access_order.lock().await;
+        if let Some(pos) = order.iter().position(|k| k == key) {
+            let key = order.remove(pos);
+            order.push(key);
+        }
+        Some(value)
     }
 
     pub async fn remove(&self, key: &str) {
@@ -565,11 +576,19 @@ impl ResultCache {
     }
 
     pub async fn evict_lru(&self) {
-        let mut order = self.access_order.lock().await;
-        if let Some(key) = order.first().cloned() {
+        // 与 evict_fifo 同款模式：锁内只出队取 key，锁释放后再删 map——
+        // 避免持 order 锁写 DashMap（一旦 get() 持读守卫跨 await 即成 AB 死锁）
+        let evicted = {
+            let mut order = self.access_order.lock().await;
+            if order.is_empty() {
+                None
+            } else {
+                Some(order.remove(0))
+            }
+        };
+        if let Some(key) = evicted {
             self.cache.remove(&key);
             self.access_count.remove(&key);
-            order.remove(0);
         }
     }
 
@@ -591,17 +610,28 @@ impl ResultCache {
     }
 
     pub async fn evict_fifo(&self) {
-        let mut order = self.access_order.lock().await;
-        if let Some(key) = order.first().cloned() {
+        // 不持 order 锁写 DashMap（与 get() 的"读守卫跨 await"构成 AB 死锁）：
+        // 锁内只出队取 key，锁释放后再删 cache/计数
+        let evicted = {
+            let mut order = self.access_order.lock().await;
+            if order.is_empty() {
+                None
+            } else {
+                Some(order.remove(0))
+            }
+        };
+        if let Some(key) = evicted {
             self.cache.remove(&key);
             self.access_count.remove(&key);
-            order.remove(0);
         }
     }
 
     pub async fn evict_random(&self) {
-        if let Some(entry) = self.cache.iter().next() {
-            let key = entry.key().clone();
+        // 先克隆 key 让 Ref 读守卫在语句末释放，再调 remove——remove 要对同一
+        // DashMap 分片取写锁，守卫存活期间调用是同分片读写死锁（dashmap 规范：
+        // 不要在持 Ref 时对同一 map 做写操作）
+        let key = self.cache.iter().next().map(|entry| entry.key().clone());
+        if let Some(key) = key {
             self.remove(&key).await;
         }
     }
@@ -676,21 +706,18 @@ impl MetadataCache {
     }
 
     pub async fn get(&self, key: &str) -> Option<CacheEntry<DocumentMetadata>> {
-        if let Some(entry) = self.cache.get(key) {
-            if let Some(count) = self.access_count.get(key) {
-                count.fetch_add(1, Ordering::Relaxed);
-            }
-
-            let mut order = self.access_order.lock().await;
-            if let Some(pos) = order.iter().position(|k| k == key) {
-                let key = order.remove(pos);
-                order.push(key);
-            }
-
-            Some(entry.clone())
-        } else {
-            None
+        // 先克隆 value 让分片读守卫在语句末释放，再更新计数/LRU——持守卫跨
+        // await 会与 evict_fifo（持 order 锁后写同一分片）构成 AB 死锁
+        let value = self.cache.get(key).map(|entry| entry.value().clone())?;
+        if let Some(count) = self.access_count.get(key) {
+            count.fetch_add(1, Ordering::Relaxed);
         }
+        let mut order = self.access_order.lock().await;
+        if let Some(pos) = order.iter().position(|k| k == key) {
+            let key = order.remove(pos);
+            order.push(key);
+        }
+        Some(value)
     }
 
     pub async fn remove(&self, key: &str) {
@@ -714,11 +741,19 @@ impl MetadataCache {
     }
 
     pub async fn evict_lru(&self) {
-        let mut order = self.access_order.lock().await;
-        if let Some(key) = order.first().cloned() {
+        // 与 evict_fifo 同款模式：锁内只出队取 key，锁释放后再删 map——
+        // 避免持 order 锁写 DashMap（一旦 get() 持读守卫跨 await 即成 AB 死锁）
+        let evicted = {
+            let mut order = self.access_order.lock().await;
+            if order.is_empty() {
+                None
+            } else {
+                Some(order.remove(0))
+            }
+        };
+        if let Some(key) = evicted {
             self.cache.remove(&key);
             self.access_count.remove(&key);
-            order.remove(0);
         }
     }
 
@@ -740,17 +775,28 @@ impl MetadataCache {
     }
 
     pub async fn evict_fifo(&self) {
-        let mut order = self.access_order.lock().await;
-        if let Some(key) = order.first().cloned() {
+        // 不持 order 锁写 DashMap（与 get() 的"读守卫跨 await"构成 AB 死锁）：
+        // 锁内只出队取 key，锁释放后再删 cache/计数
+        let evicted = {
+            let mut order = self.access_order.lock().await;
+            if order.is_empty() {
+                None
+            } else {
+                Some(order.remove(0))
+            }
+        };
+        if let Some(key) = evicted {
             self.cache.remove(&key);
             self.access_count.remove(&key);
-            order.remove(0);
         }
     }
 
     pub async fn evict_random(&self) {
-        if let Some(entry) = self.cache.iter().next() {
-            let key = entry.key().clone();
+        // 先克隆 key 让 Ref 读守卫在语句末释放，再调 remove——remove 要对同一
+        // DashMap 分片取写锁，守卫存活期间调用是同分片读写死锁（dashmap 规范：
+        // 不要在持 Ref 时对同一 map 做写操作）
+        let key = self.cache.iter().next().map(|entry| entry.key().clone());
+        if let Some(key) = key {
             self.remove(&key).await;
         }
     }

@@ -164,20 +164,13 @@ pub struct McpServerUrlConfig {
 
 // 添加一个公共方法来获取实际的URL（优先使用url，其次baseUrl）
 impl McpServerUrlConfig {
-    /// 获取实际的URL（优先使用url，其次baseUrl）
-    pub fn get_url(&self) -> &str {
-        self.url
-            .as_deref()
-            .or(self.base_url.as_deref())
-            .expect("至少需要提供 url 或 baseUrl 字段")
-    }
-
-    /// 获取实际的URL的可变引用
-    pub fn get_url_mut(&mut self) -> &mut String {
-        if self.url.is_none() && self.base_url.is_some() {
-            self.url = self.base_url.take();
-        }
-        self.url.as_mut().expect("至少需要提供 url 或 baseUrl 字段")
+    /// 获取实际的URL（优先使用url，其次baseUrl）。
+    ///
+    /// 返回 Option：字段全部可缺省（serde untagged 下 `{}` 也能解析成 Url
+    /// 变体），None 时调用方按 Fail Fast 报"缺少 url/baseUrl"——此前返回
+    /// &str + 内部 expect 会被用户配置直接触发 panic。
+    pub fn get_url(&self) -> Option<&str> {
+        self.url.as_deref().or(self.base_url.as_deref())
     }
 
     /// 检查是否提供了URL字段
@@ -653,11 +646,13 @@ impl From<String> for McpJsonServerParameters {
             return mcp_json_server_parameters;
         }
 
-        // 如果标准格式失败，尝试使用灵活格式
-        let flexible_config: FlexibleMcpConfig = s
-            .try_into()
-            .expect("Failed to convert to FlexibleMcpConfig");
-        let services = flexible_config.get_all_services().clone();
+        // 如果标准格式失败，尝试使用灵活格式；灵活格式也失败（非 JSON /
+        // 找不到服务，如 `{"foo":1}`）时返回空结构，由上层 try_get_first
+        // 统一报"未找到 MCP 服务"——From 不可失败，这里 panic 会被未鉴权的
+        // add 端点用户输入直接触发
+        let services = FlexibleMcpConfig::try_from(s)
+            .map(|config| config.get_all_services().clone())
+            .unwrap_or_default();
 
         McpJsonServerParameters {
             mcp_servers: services,
@@ -798,7 +793,7 @@ mod tests {
         match mcp_server_config {
             McpServerConfig::Url(url_config) => {
                 assert_eq!(
-                    url_config.get_url(),
+                    url_config.get_url().unwrap(),
                     "https://aip.baidubce.com/mcp/image_recognition/sse?Authorization=Bearer%20bce-v3/ALTAK-zX2w0VFXauTMxEf5BypEl/1835f7e1886946688b132e9187392d9fee8f3c06"
                 );
             }
@@ -831,7 +826,7 @@ mod tests {
 
         match mcp_server_config {
             McpServerConfig::Url(url_config) => {
-                assert_eq!(url_config.get_url(), "https://mcp.amap.com/sse");
+                assert_eq!(url_config.get_url().unwrap(), "https://mcp.amap.com/sse");
                 assert_eq!(url_config.disabled, Some(false));
                 assert_eq!(url_config.timeout, Some(60));
                 assert_eq!(url_config.r#type, Some("sse".to_string()));
@@ -871,7 +866,7 @@ mod tests {
 
         match mcp_server_config {
             McpServerConfig::Url(url_config) => {
-                assert_eq!(url_config.get_url(), "https://example.com/mcp");
+                assert_eq!(url_config.get_url().unwrap(), "https://example.com/mcp");
                 assert_eq!(url_config.r#type, Some("stream".to_string()));
                 assert_eq!(
                     url_config.get_protocol_type(),
@@ -902,7 +897,7 @@ mod tests {
 
         match mcp_server_config {
             McpServerConfig::Url(url_config) => {
-                assert_eq!(url_config.get_url(), "https://example.com/mcp");
+                assert_eq!(url_config.get_url().unwrap(), "https://example.com/mcp");
                 assert_eq!(url_config.r#type, Some("http".to_string()));
                 assert_eq!(
                     url_config.get_protocol_type(),
@@ -1078,7 +1073,10 @@ mod tests {
         match mcp_server_config {
             McpServerConfig::Url(url_config) => {
                 // 应该优先使用 url 字段
-                assert_eq!(url_config.get_url(), "https://primary.example.com/mcp");
+                assert_eq!(
+                    url_config.get_url().unwrap(),
+                    "https://primary.example.com/mcp"
+                );
                 assert!(url_config.has_url());
             }
             McpServerConfig::Command(_) => {

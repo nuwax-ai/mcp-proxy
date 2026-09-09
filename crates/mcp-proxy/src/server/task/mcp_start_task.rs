@@ -92,8 +92,11 @@ pub async fn integrate_server_with_axum(
                     Err(_) => {
                         // If parsing fails, auto-detect
                         debug!("Protocol type '{}' unrecognized, auto-detecting", type_str);
+                        let url = url_config
+                            .get_url()
+                            .ok_or_else(|| anyhow::anyhow!("URL 配置缺少 url/baseUrl 字段"))?;
                         let detected_protocol = crate::server::detect_mcp_protocol_with_headers(
-                            url_config.get_url(),
+                            url,
                             Some(&detection_headers),
                         )
                         .await
@@ -115,12 +118,12 @@ pub async fn integrate_server_with_axum(
                 // No type field, auto-detect
                 debug!("No type field specified, auto-detecting protocol");
 
-                crate::server::detect_mcp_protocol_with_headers(
-                    url_config.get_url(),
-                    Some(&detection_headers),
-                )
-                .await
-                .context("Auto-detection failed")?
+                let url = url_config
+                    .get_url()
+                    .ok_or_else(|| anyhow::anyhow!("URL 配置缺少 url/baseUrl 字段"))?;
+                crate::server::detect_mcp_protocol_with_headers(url, Some(&detection_headers))
+                    .await
+                    .context("Auto-detection failed")?
             }
         }
     };
@@ -295,7 +298,9 @@ async fn connect_stream_backend(
         _ => return Err(anyhow::anyhow!("Stream backend requires URL-based config")),
     };
 
-    let url = url_config.get_url();
+    let url = url_config
+        .get_url()
+        .ok_or_else(|| anyhow::anyhow!("URL 配置缺少 url/baseUrl 字段"))?;
     info!(
         "Connecting to Streamable HTTP backend (SSE frontend) \
          - MCP ID: {}, URL: {}",
@@ -334,12 +339,15 @@ fn build_sse_backend_config(
                 "URL-based MCP service cannot use Stdio protocol"
             )),
             McpProtocol::Sse => {
-                info!("Connecting to SSE backend: {}", url_config.get_url());
+                let url = url_config
+                    .get_url()
+                    .ok_or_else(|| anyhow::anyhow!("URL 配置缺少 url/baseUrl 字段"))?;
+                info!("Connecting to SSE backend: {url}");
                 // 合并 auth_token → Authorization，与探测/Stream 连接路径共用 merge_headers_with_auth
                 let headers =
                     merge_headers_with_auth(&url_config.headers, url_config.auth_token.as_deref())?;
                 Ok(SseBackendConfig::SseUrl {
-                    url: url_config.get_url().to_string(),
+                    url: url.to_string(),
                     headers: if headers.is_empty() {
                         None
                     } else {
@@ -384,17 +392,17 @@ fn build_stream_backend_config(
                     ))
                 }
                 McpProtocol::Stream => {
-                    info!(
-                        "Connecting to Streamable HTTP backend: {}",
-                        url_config.get_url()
-                    );
+                    let url = url_config
+                        .get_url()
+                        .ok_or_else(|| anyhow::anyhow!("URL 配置缺少 url/baseUrl 字段"))?;
+                    info!("Connecting to Streamable HTTP backend: {url}");
                     // 合并 auth_token → Authorization，与 SSE 后端 / 探测路径一致
                     let headers = merge_headers_with_auth(
                         &url_config.headers,
                         url_config.auth_token.as_deref(),
                     )?;
                     Ok(StreamBackendConfig::Url {
-                        url: url_config.get_url().to_string(),
+                        url: url.to_string(),
                         headers: if headers.is_empty() {
                             None
                         } else {

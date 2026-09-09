@@ -280,22 +280,21 @@ pub struct BatchError {
 pub struct ResponseHeaders;
 
 impl ResponseHeaders {
-    /// 添加CORS头
+    /// 添加CORS头（常量头值用 `HeaderValue::from_static`——免 parse 免 unwrap）
     pub fn cors() -> axum::http::HeaderMap {
+        use axum::http::HeaderValue;
         let mut headers = axum::http::HeaderMap::new();
         headers.insert(
             axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN,
-            "*".parse().unwrap(),
+            HeaderValue::from_static("*"),
         );
         headers.insert(
             axum::http::header::ACCESS_CONTROL_ALLOW_METHODS,
-            "GET, POST, PUT, DELETE, OPTIONS".parse().unwrap(),
+            HeaderValue::from_static("GET, POST, PUT, DELETE, OPTIONS"),
         );
         headers.insert(
             axum::http::header::ACCESS_CONTROL_ALLOW_HEADERS,
-            "Content-Type, Authorization, X-Requested-With"
-                .parse()
-                .unwrap(),
+            HeaderValue::from_static("Content-Type, Authorization, X-Requested-With"),
         );
         headers
     }
@@ -305,18 +304,21 @@ impl ResponseHeaders {
         let mut headers = axum::http::HeaderMap::new();
         headers.insert(
             axum::http::header::CACHE_CONTROL,
-            format!("public, max-age={max_age}").parse().unwrap(),
+            format!("public, max-age={max_age}")
+                .parse()
+                // u32 格式化必为合法 ASCII，回退仅防御
+                .unwrap_or_else(|_| axum::http::HeaderValue::from_static("public")),
         );
         headers
     }
 
-    /// 添加内容类型头
+    /// 添加内容类型头（参数来自调用方/配置，非 ASCII 会 parse 失败——回退通用类型而非 panic）
     pub fn content_type(content_type: &str) -> axum::http::HeaderMap {
         let mut headers = axum::http::HeaderMap::new();
-        headers.insert(
-            axum::http::header::CONTENT_TYPE,
-            content_type.parse().unwrap(),
-        );
+        let value = content_type
+            .parse()
+            .unwrap_or_else(|_| axum::http::HeaderValue::from_static("application/octet-stream"));
+        headers.insert(axum::http::header::CONTENT_TYPE, value);
         headers
     }
 }
@@ -330,12 +332,9 @@ pub async fn response_time_middleware(request: Request, next: Next) -> Response 
     let mut response = next.run(request).await;
     let duration = start.elapsed();
 
-    response.headers_mut().insert(
-        "X-Response-Time",
-        format!("{:.2}ms", duration.as_secs_f64() * 1000.0)
-            .parse()
-            .unwrap(),
-    );
+    if let Ok(value) = format!("{:.2}ms", duration.as_secs_f64() * 1000.0).parse() {
+        response.headers_mut().insert("X-Response-Time", value);
+    }
 
     response
 }

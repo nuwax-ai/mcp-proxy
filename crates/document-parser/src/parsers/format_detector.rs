@@ -297,18 +297,21 @@ impl FormatDetector {
                     result.fallback_methods = fallback_methods.clone();
                     result.security_status = self.assess_security_status(&result.format, file_path);
 
-                    if best_result.is_none()
-                        || result.confidence > best_result.as_ref().unwrap().confidence
+                    if best_result
+                        .as_ref()
+                        .is_none_or(|best| result.confidence > best.confidence)
                     {
                         best_result = Some(result);
                     }
 
-                    if best_result.as_ref().unwrap().confidence >= 0.9 {
+                    if let Some(best) = best_result.as_ref()
+                        && best.confidence >= 0.9
+                    {
                         debug!(
                             "High confidence detection successful: magic_number ({})",
-                            best_result.as_ref().unwrap().confidence
+                            best.confidence
                         );
-                        return Ok(best_result.unwrap());
+                        return Ok(best.clone());
                     }
                 }
                 Ok(None) => {
@@ -330,8 +333,9 @@ impl FormatDetector {
                     result.fallback_methods = fallback_methods.clone();
                     result.security_status = self.assess_security_status(&result.format, file_path);
 
-                    if best_result.is_none()
-                        || result.confidence > best_result.as_ref().unwrap().confidence
+                    if best_result
+                        .as_ref()
+                        .is_none_or(|best| result.confidence > best.confidence)
                     {
                         best_result = Some(result);
                     }
@@ -351,8 +355,9 @@ impl FormatDetector {
                 result.fallback_methods = fallback_methods.clone();
                 result.security_status = self.assess_security_status(&result.format, file_path);
 
-                if best_result.is_none()
-                    || result.confidence > best_result.as_ref().unwrap().confidence
+                if best_result
+                    .as_ref()
+                    .is_none_or(|best| result.confidence > best.confidence)
                 {
                     best_result = Some(result);
                 }
@@ -370,8 +375,9 @@ impl FormatDetector {
                     result.fallback_methods = fallback_methods.clone();
                     result.security_status = self.assess_security_status(&result.format, file_path);
 
-                    if best_result.is_none()
-                        || result.confidence > best_result.as_ref().unwrap().confidence
+                    if best_result
+                        .as_ref()
+                        .is_none_or(|best| result.confidence > best.confidence)
                     {
                         best_result = Some(result);
                     }
@@ -445,10 +451,11 @@ impl FormatDetector {
             best_result = Some(result);
         }
 
-        if best_result.is_none() || best_result.as_ref().unwrap().confidence < 0.9 {
+        if best_result.as_ref().is_none_or(|r| r.confidence < 0.9) {
             if let Ok(Some(result)) = self.detect_by_magic_number_async(file_path).await {
-                if best_result.is_none()
-                    || result.confidence > best_result.as_ref().unwrap().confidence
+                if best_result
+                    .as_ref()
+                    .is_none_or(|best| result.confidence > best.confidence)
                 {
                     best_result = Some(result);
                 }
@@ -457,12 +464,13 @@ impl FormatDetector {
             }
         }
 
-        if (best_result.is_none() || best_result.as_ref().unwrap().confidence < 0.9)
+        if best_result.as_ref().is_none_or(|r| r.confidence < 0.9)
             && let Some(mime) = mime_type
         {
             if let Some(result) = self.detect_by_mime_type(mime) {
-                if best_result.is_none()
-                    || result.confidence > best_result.as_ref().unwrap().confidence
+                if best_result
+                    .as_ref()
+                    .is_none_or(|best| result.confidence > best.confidence)
                 {
                     best_result = Some(result);
                 }
@@ -471,10 +479,11 @@ impl FormatDetector {
             }
         }
 
-        if best_result.is_none() || best_result.as_ref().unwrap().confidence < 0.9 {
+        if best_result.as_ref().is_none_or(|r| r.confidence < 0.9) {
             if let Some(result) = self.detect_by_extension(file_path) {
-                if best_result.is_none()
-                    || result.confidence > best_result.as_ref().unwrap().confidence
+                if best_result
+                    .as_ref()
+                    .is_none_or(|best| result.confidence > best.confidence)
                 {
                     best_result = Some(result);
                 }

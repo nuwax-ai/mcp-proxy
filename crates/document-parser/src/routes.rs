@@ -45,7 +45,10 @@ pub fn create_routes(state: AppState) -> Router {
                 .layer(CorsLayer::permissive())
                 .layer(DefaultBodyLimit::max(
                     get_global_file_size_config().max_file_size.bytes() as usize,
-                )),
+                ))
+                // handler panic 转 500 响应而非硬重置连接（纵深防御——配合
+                // 生产代码零 unwrap/expect 的规范兜底）
+                .layer(tower_http::catch_panic::CatchPanicLayer::new()),
         )
         .with_state(state)
 }

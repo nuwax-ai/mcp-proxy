@@ -146,7 +146,7 @@ pub async fn upload_file_to_oss(
                 }
             };
 
-            if let Err(e) = std::fs::write(temp_file.path(), &data) {
+            if let Err(e) = tokio::fs::write(temp_file.path(), &data).await {
                 error!("Failed to write to temporary file: {}", e);
                 return ApiResponse::internal_error::<FileUploadResponse>("文件写入失败")
                     .into_response();

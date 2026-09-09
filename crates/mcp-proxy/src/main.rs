@@ -41,7 +41,7 @@ async fn main() -> Result<()> {
     // 初始化 Rustls CryptoProvider（必须在任何使用 TLS 的代码之前）
     rustls::crypto::ring::default_provider()
         .install_default()
-        .expect("Failed to install rustls crypto provider");
+        .expect("安装 rustls CryptoProvider 失败（进程级一次性初始化，失败不可恢复）");
 
     // 解析命令行参数
     let cli = Cli::parse();
@@ -142,8 +142,8 @@ async fn run_server_mode() -> Result<()> {
     // 过滤掉 rmcp 的 trace/debug 级别日志，只保留 warn/error，避免 span 生命周期管理问题
     // see: https://github.com/tokio-rs/tracing/issues/2778
     console_filter = console_filter
-        .add_directive("rmcp=warn".parse().unwrap())
-        .add_directive("run_code_rmcp=warn".parse().unwrap());
+        .add_directive(static_directive("rmcp=warn"))
+        .add_directive(static_directive("run_code_rmcp=warn"));
 
     // 使用 tracing-subscriber 初始化日志记录器
     let console_layer = tracing_subscriber::fmt::layer()
@@ -165,8 +165,8 @@ async fn run_server_mode() -> Result<()> {
 
     // 修复 rmcp 库的 span clone panic 问题（同样应用于文件日志）
     log_filter = log_filter
-        .add_directive("rmcp=warn".parse().unwrap())
-        .add_directive("run_code_rmcp=warn".parse().unwrap());
+        .add_directive(static_directive("rmcp=warn"))
+        .add_directive(static_directive("run_code_rmcp=warn"));
 
     // 配置文件日志层：使用 compact 格式，避免显示完整的 span 嵌套链，减少日志膨胀
     let file_layer = tracing_subscriber::fmt::layer()
@@ -181,10 +181,10 @@ async fn run_server_mode() -> Result<()> {
     // 修复 rmcp 库的 span clone panic 问题（同样应用于 OpenTelemetry 层）
     // 只为 warn 和以上级别创建 span，避免过多的 span 导致 clone 问题
     let telemetry_filter = EnvFilter::new("warn")
-        .add_directive("mcp_proxy=debug".parse().unwrap())
-        .add_directive("mcp_stdio_proxy=debug".parse().unwrap())
-        .add_directive("rmcp=error".parse().unwrap())
-        .add_directive("run_code_rmcp=error".parse().unwrap());
+        .add_directive(static_directive("mcp_proxy=debug"))
+        .add_directive(static_directive("mcp_stdio_proxy=debug"))
+        .add_directive(static_directive("rmcp=error"))
+        .add_directive(static_directive("run_code_rmcp=error"));
 
     // 配置 OpenTelemetry（添加过滤器以避免 span clone panic）
     let telemetry_layer = tracing_opentelemetry::layer().with_filter(telemetry_filter);
@@ -317,6 +317,12 @@ async fn run_server_mode() -> Result<()> {
 
     info!("Shutdown complete");
     Ok(())
+}
+
+/// 静态 tracing directive（启动期一次性解析；文案拼错属于程序 bug，fail fast）。
+fn static_directive(s: &str) -> tracing_subscriber::filter::Directive {
+    s.parse()
+        .unwrap_or_else(|e| panic!("内置 tracing directive 拼写错误（程序 bug）: {s} — {e:?}"))
 }
 
 // 监听多种终止信号

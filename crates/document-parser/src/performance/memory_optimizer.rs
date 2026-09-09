@@ -115,6 +115,8 @@ impl MemoryOptimizer {
         #[cfg(target_os = "linux")]
         {
             // 在 Linux 上尝试将空闲内存归还给系统
+            // SAFETY: libc FFI 调用；malloc_trim(0) 对分配器状态无破坏性假设，
+            // 参数 0 表示整理所有 arena，无指针别名问题
             unsafe {
                 libc::malloc_trim(0);
             }

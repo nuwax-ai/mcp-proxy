@@ -110,6 +110,7 @@ tower-http = { version = "0.7", features = [
     "fs",
     "trace",
     "limit",
+    "catch-panic",
 ] }
 axum-extra = { version = "0.12", features = ["typed-header"] }
 utoipa = { version = "5.5", features = ["axum_extras", "chrono", "uuid"] }

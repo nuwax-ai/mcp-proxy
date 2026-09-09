@@ -70,6 +70,7 @@ pub async fn get_router(state: AppState) -> Result<Router, AppError> {
         )
         .route("/api/run_code_with_log", post(run_code_handler))
         .layer(DefaultBodyLimit::max(20 * 1024 * 1024))
+        .layer(tower_http::catch_panic::CatchPanicLayer::new())
         .layer(cors);
 
     // 创建基本路由

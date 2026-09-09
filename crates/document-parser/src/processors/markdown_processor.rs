@@ -421,9 +421,9 @@ impl MarkdownProcessor {
                         let toc_item = TocItem::new(
                             id.clone(),
                             title.clone(),
-                            level_num.try_into().unwrap(),
-                            0, // start_pos
-                            0, // end_pos
+                            u8::try_from(level_num).unwrap_or(6), // HeadingLevel 恒 1..=6，回退不可达
+                            0,                                    // start_pos
+                            0,                                    // end_pos
                         );
 
                         // 构建层次结构
@@ -449,7 +449,7 @@ impl MarkdownProcessor {
                             }
                         }
 
-                        stack.push((level_num.try_into().unwrap(), title, id));
+                        stack.push((u8::try_from(level_num).unwrap_or(6), title, id)); // HeadingLevel 恒 1..=6，回退不可达
                     }
                 }
             }
