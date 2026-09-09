@@ -69,7 +69,7 @@ jobs:
           -p voice-toolkit -p rs-voice-toolkit-audio
 
   check-windows:
-    name: Check deploy-installer on Windows (MSVC)
+    name: Check deploy-installer + document-parser on Windows (MSVC)
     runs-on: windows-latest
     defaults:
       run:
@@ -77,5 +77,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      # document-parser 也进 Windows 产物（vendor windows-x64），但此前只在
+      # release workflow 才编译验证——重构类提交在分支 CI 上存在 Windows
+      # 盲区，这里一并覆盖
       - name: cargo check
-        run: cargo check -p deploy-installer --all-targets
+        run: cargo check -p deploy-installer -p document-parser --all-targets

@@ -72,10 +72,7 @@ impl super::StorageService {
     }
 
     /// 查找过期任务
-    pub(super) async fn find_expired_tasks(
-        &self,
-        now: SystemTime,
-    ) -> Result<Vec<DocumentTask>, AppError> {
+    async fn find_expired_tasks(&self, now: SystemTime) -> Result<Vec<DocumentTask>, AppError> {
         let mut expired_tasks = Vec::new();
 
         for result in self.tasks_tree.scan_prefix(TASK_PREFIX.as_bytes()) {
@@ -99,7 +96,7 @@ impl super::StorageService {
     }
 
     /// 清理内存缓存
-    pub(super) async fn cleanup_memory_cache(&self) -> usize {
+    async fn cleanup_memory_cache(&self) -> usize {
         let mut cache = self.memory_cache.write().await;
         let now = SystemTime::now();
         let mut cleaned_count = 0;
@@ -121,7 +118,7 @@ impl super::StorageService {
     }
 
     /// 压缩数据库
-    pub(super) async fn compact_database(&self) -> Result<(), AppError> {
+    async fn compact_database(&self) -> Result<(), AppError> {
         log::info!("Start compressing the database");
 
         // 刷新所有树
@@ -180,7 +177,7 @@ impl super::StorageService {
     }
 
     /// 同步到磁盘
-    pub(super) async fn sync_to_disk(&self) -> Result<(), AppError> {
+    async fn sync_to_disk(&self) -> Result<(), AppError> {
         self.compact_database().await?;
 
         // 更新同步时间

@@ -66,7 +66,7 @@ impl super::MinerUParser {
     }
 
     /// 等待环境依赖安装完成
-    pub(super) async fn wait_for_environment_ready(&self) -> Result<(), AppError> {
+    async fn wait_for_environment_ready(&self) -> Result<(), AppError> {
         let environment_manager = EnvironmentManager::for_current_directory()
             .map_err(|e| AppError::MinerU(format!("创建环境管理器失败: {e}")))?;
 
