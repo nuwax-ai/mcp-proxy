@@ -10,7 +10,7 @@ use serde_json::Value;
 use crate::AppError;
 
 ///代码运行请求
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct RunCodeMessageRequest {
     //js运行参数
     pub json_param: HashMap<String, Value>,
@@ -35,6 +35,16 @@ impl RunCodeMessageRequest {
 
 /// 执行js/ts/python代码,通过 uv/deno 命令方式执行
 // #[axum::debug_handler]
+#[utoipa::path(
+    post,
+    path = "/api/run_code_with_log",
+    tag = "code-run",
+    request_body = RunCodeMessageRequest,
+    responses(
+        (status = 200, description = "代码执行结果：data 为脚本约定入口（JS/TS 为 handler，Python 为 handler/main）的返回值，success=false 时 error 携带错误日志",
+            body = RunCodeHttpResult)
+    )
+)]
 pub async fn run_code_handler(
     Json(run_code_message_request): Json<RunCodeMessageRequest>,
 ) -> Result<impl IntoResponse, AppError> {

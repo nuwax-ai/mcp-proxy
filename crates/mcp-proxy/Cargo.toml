@@ -34,6 +34,10 @@ mcp-sse-proxy = { workspace = true }
 axum = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
+# OpenAPI 文档（Swagger UI + Scalar 双风格）
+utoipa = { workspace = true }
+utoipa-swagger-ui = { workspace = true, features = ["axum"] }
+utoipa-scalar = { workspace = true }
 tokio = { workspace = true, features = ["macros", "net", "rt", "rt-multi-thread", "signal", "io-util"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }

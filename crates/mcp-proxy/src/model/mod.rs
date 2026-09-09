@@ -13,6 +13,7 @@ pub use global::{
 pub use http_result::HttpResult;
 pub use mcp_check_status_model::{
     CheckMcpStatusRequestParams, CheckMcpStatusResponseParams, CheckMcpStatusResponseStatus,
+    McpStatusResponseEnum,
 };
 pub use mcp_config::{McpConfig, McpType};
 pub use mcp_router_model::{

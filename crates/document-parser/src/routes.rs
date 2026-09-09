@@ -13,6 +13,7 @@ use axum::{
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use utoipa::OpenApi;
+use utoipa_scalar::{Scalar, Servable};
 use utoipa_swagger_ui::SwaggerUi;
 
 /// 创建应用路由
@@ -23,6 +24,9 @@ pub fn create_routes(state: AppState) -> Router {
         .route("/ready", get(health_handler::ready_check))
         // OpenAPI 文档路由 - 使用 utoipa-swagger-ui 内置支持
         .merge(SwaggerUi::new("/api/docs").url("/api/docs/openapi.json", ApiDoc::openapi()))
+        // Scalar 风格文档（与 Swagger UI 共用同一份 OpenAPI 文档；UI JS 由浏览器从
+        // 公网 CDN 加载，内网浏览器不可出网时页面白屏，用 Swagger UI 不受影响）
+        .merge(Scalar::with_url("/api/docs/scalar", ApiDoc::openapi()))
         // 文档处理路由
         .nest(
             "/api/v1/documents",

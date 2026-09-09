@@ -94,6 +94,15 @@ pub fn create_swagger_ui() -> SwaggerUi {
         .config(utoipa_swagger_ui::Config::new(["/api/docs/openapi.json"]))
 }
 
+/// Scalar 风格文档 UI（与 Swagger UI 并存，共用同一份 OpenAPI 文档）
+///
+/// UI JS 由浏览器从公网 CDN 加载，内网浏览器不可出网时页面白屏，
+/// Swagger UI 资产编译期内嵌不受影响。
+pub fn create_scalar_docs() -> axum::Router {
+    use utoipa_scalar::{Scalar, Servable};
+    axum::Router::new().merge(Scalar::with_url("/api/docs/scalar", ApiDoc::openapi()))
+}
+
 /// Get OpenAPI JSON specification
 pub fn get_openapi_json() -> utoipa::openapi::OpenApi {
     ApiDoc::openapi()

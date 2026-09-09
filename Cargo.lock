@@ -1905,6 +1905,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "utoipa",
+ "utoipa-scalar",
  "utoipa-swagger-ui",
  "uuid",
  "winapi",
@@ -2188,6 +2189,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "utoipa",
+ "utoipa-scalar",
  "utoipa-swagger-ui",
 ]
 
@@ -3682,6 +3684,9 @@ dependencies = [
  "tracing-opentelemetry",
  "tracing-subscriber",
  "urlencoding",
+ "utoipa",
+ "utoipa-scalar",
+ "utoipa-swagger-ui",
  "uuid",
  "windows 0.62.2",
 ]
@@ -5867,6 +5872,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "utoipa",
 ]
 
 [[package]]
@@ -8125,6 +8131,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "utoipa-scalar"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59559e1509172f6b26c1cdbc7247c4ddd1ac6560fe94b584f81ee489b141f719"
+dependencies = [
+ "axum",
+ "serde",
+ "serde_json",
+ "utoipa",
+]
+
+[[package]]
 name = "utoipa-swagger-ui"
 version = "9.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8242,6 +8260,7 @@ dependencies = [
  "transcribe-rs",
  "url",
  "utoipa",
+ "utoipa-scalar",
  "utoipa-swagger-ui",
  "uuid",
  "voice-toolkit",

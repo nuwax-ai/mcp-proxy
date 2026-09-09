@@ -6,6 +6,7 @@ use std::{
 
 use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use anyhow::{Context as _, Result};
 
@@ -15,7 +16,7 @@ use super::mcp_config::McpType;
 pub static GLOBAL_SSE_MCP_ROUTES_PREFIX: &str = "/mcp/sse";
 pub static GLOBAL_STREAM_MCP_ROUTES_PREFIX: &str = "/mcp/stream";
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, ToSchema)]
 pub struct AddRouteParams {
     //mcp的json配置
     pub mcp_json_config: String,
@@ -361,7 +362,7 @@ pub enum McpProtocolPath {
 }
 
 //定义 mcp 协议枚举
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ToSchema)]
 pub enum McpProtocol {
     Stdio,
     Sse,

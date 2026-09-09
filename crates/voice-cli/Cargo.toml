@@ -23,6 +23,7 @@ tower-http = { workspace = true }
 # OpenAPI documentation generation
 utoipa = { workspace = true, features = ["axum_extras", "chrono", "uuid"] }
 utoipa-swagger-ui = { workspace = true, features = ["axum"] }
+utoipa-scalar = { workspace = true }
 
 # Async runtime（workspace tokio 已含 macros/net/rt/rt-multi-thread；voice-cli 再加 signal）
 tokio = { workspace = true, features = ["signal"] }

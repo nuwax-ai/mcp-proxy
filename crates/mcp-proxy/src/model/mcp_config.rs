@@ -2,6 +2,7 @@ use std::str::FromStr;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use super::{McpProtocol, mcp_router_model::McpServerConfig};
 
@@ -32,7 +33,7 @@ fn default_mcp_type() -> McpType {
     McpType::OneShot
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, ToSchema)]
 pub enum McpType {
     // 持续运行
     Persistent,

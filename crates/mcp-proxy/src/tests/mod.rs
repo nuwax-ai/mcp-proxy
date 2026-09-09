@@ -10,3 +10,7 @@ pub mod coze_mcp_test;
 // Protocol detection tests - SSE vs Streamable HTTP
 #[cfg(test)]
 pub mod protocol_detection_test;
+
+// OpenAPI docs routes tests - Swagger UI + Scalar
+#[cfg(test)]
+pub mod docs_route_test;

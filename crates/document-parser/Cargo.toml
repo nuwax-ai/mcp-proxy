@@ -38,6 +38,7 @@ serde_yaml = { workspace = true }
 # OpenAPI文档生成
 utoipa = { workspace = true, features = ["axum_extras", "chrono", "uuid"] }
 utoipa-swagger-ui = { workspace = true, features = ["axum"] }
+utoipa-scalar = { workspace = true }
 
 # 数据库和存储
 sled = "0.34"

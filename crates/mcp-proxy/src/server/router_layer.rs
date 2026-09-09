@@ -75,6 +75,8 @@ pub async fn get_router(state: AppState) -> Result<Router, AppError> {
 
     // 创建基本路由
     let app: Router<AppState> = Router::new().merge(health).merge(api);
+    // OpenAPI 文档 UI（Swagger UI + Scalar 双风格；无状态路由，with_state 前 merge）
+    let app = app.merge(super::openapi::create_docs_router());
 
     // 添加状态
     let app = app.with_state(state.clone());

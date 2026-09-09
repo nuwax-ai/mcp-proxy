@@ -42,7 +42,9 @@ pub async fn create_routes_with_state(shared_state: handlers::AppState) -> crate
         // Add shared state
         .with_state(shared_state.clone())
         // Merge Swagger UI routes
-        .merge(openapi::create_swagger_ui());
+        .merge(openapi::create_swagger_ui())
+        // Merge Scalar 风格文档 routes（与 Swagger UI 并存）
+        .merge(openapi::create_scalar_docs());
 
     // 统一中间件挂载
     let app = set_layer(

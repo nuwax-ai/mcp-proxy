@@ -96,6 +96,9 @@ curl -X POST "http://localhost:8087/api/v1/documents/parse-sync" -F "file=@/tmp/
 
 # 接口文档（Swagger UI）
 open http://localhost:8087/api/docs
+
+# 接口文档（Scalar 风格，与 Swagger UI 并存；UI JS 由浏览器从公网 CDN 加载）
+open http://localhost:8087/api/docs/scalar
 ```
 
 ## 7. 服务管理与升级

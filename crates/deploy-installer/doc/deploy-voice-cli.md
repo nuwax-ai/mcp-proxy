@@ -85,6 +85,9 @@ curl -X POST http://localhost:8077/transcribe -F "file=@test.wav"
 # TTS 音色清单 / 合成（详见 Swagger UI）
 curl http://localhost:8077/api/v1/tts/voices
 open http://localhost:8077/api/docs
+
+# Scalar 风格接口文档（与 Swagger UI 并存；UI JS 由浏览器从公网 CDN 加载）
+open http://localhost:8077/api/docs/scalar
 ```
 
 Linux GPU 档验证加速是否生效：服务日志（`journalctl -u voice-cli -f`）转写时出现 `ggml_cuda: using CUDA` 或 `ggml_vulkan: Found ... Vulkan devices` 即在走 GPU。

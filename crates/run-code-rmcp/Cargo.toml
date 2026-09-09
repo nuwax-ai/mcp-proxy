@@ -28,6 +28,8 @@ tempfile = { workspace = true }
 clap = { workspace = true }
 once_cell = { workspace = true }
 async-trait = { workspace = true }
+# OpenAPI schema（mcp-proxy 文档声明 RunCodeHttpResult 用）
+utoipa = { workspace = true }
 
 # crate 专属依赖（workspace 未集中管理）
 env_logger = "0.11"

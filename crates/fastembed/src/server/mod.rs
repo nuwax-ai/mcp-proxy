@@ -14,6 +14,7 @@ use tower_http::{
     trace::TraceLayer,
 };
 use utoipa::OpenApi;
+use utoipa_scalar::{Scalar, Servable};
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::config::AppConfig;
@@ -101,10 +102,13 @@ pub fn create_router(state: Arc<AppState>) -> Router {
 
     // 创建 Swagger UI（无状态路由）
     let swagger = SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi());
+    // Scalar 风格文档（与 Swagger UI 并存；UI JS 由浏览器从公网 CDN 加载）
+    let scalar = Scalar::with_url("/api/docs/scalar", ApiDoc::openapi());
 
     // 创建 API 路由（有状态）
     Router::new()
         .merge(swagger)
+        .merge(scalar)
         .route("/health", get(handle_health))
         .route("/api/embeddings", post(handle_embed))
         .route("/api/models/available", get(handle_list_models))
