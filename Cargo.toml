@@ -119,6 +119,9 @@ utoipa-swagger-ui = { version = "9", features = ["axum"] }
 utoipa-scalar = { version = "0.3", features = ["axum"] }
 dashmap = "6.2"
 arc-swap = "1.9"
+# Windows canonicalize 返回 \\?\ 扩展长度路径，子进程（mineru 等 Python CLI）不认——
+# dunce 返回普通绝对路径（Unix 行为等同 std）
+dunce = "1"
 # WebSocket 客户端（test-e2e 用；axum "ws" feature 已把 tungstenite 0.29 拉进 lock，零新增编译）
 tokio-tungstenite = "0.29"
 futures-util = "0.3"

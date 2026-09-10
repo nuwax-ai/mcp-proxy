@@ -35,6 +35,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 
+dunce = { workspace = true }
+
 # OpenAPI文档生成
 utoipa = { workspace = true, features = ["axum_extras", "chrono", "uuid"] }
 utoipa-swagger-ui = { workspace = true, features = ["axum"] }

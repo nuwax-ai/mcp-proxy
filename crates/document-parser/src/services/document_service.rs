@@ -225,8 +225,7 @@ impl DocumentService {
         if !path.exists() {
             return Err(anyhow::anyhow!("文件不存在: {}", path.display()));
         }
-        let absolute_path = path
-            .canonicalize()
+        let absolute_path = dunce::canonicalize(path)
             .context("无法获取文件绝对路径")?
             .to_string_lossy()
             .to_string();

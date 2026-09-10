@@ -40,9 +40,9 @@ impl super::MinerUParser {
             return Err(AppError::MinerU(format!("输入文件不存在: {file_path}")));
         }
 
-        // 获取文件绝对路径
-        let absolute_file_path = std::path::Path::new(file_path)
-            .canonicalize()
+        // 获取文件绝对路径（dunce：Windows 的 std canonicalize 返回 \\?\ 扩展
+        // 长度路径，mineru CLI 不认——实测 Win53 PDF 解析从未通过的根因）
+        let absolute_file_path = dunce::canonicalize(std::path::Path::new(file_path))
             .map_err(|e| AppError::MinerU(format!("无法获取文件绝对路径: {e}")))?
             .to_string_lossy()
             .to_string();

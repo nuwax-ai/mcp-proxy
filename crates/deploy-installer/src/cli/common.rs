@@ -33,7 +33,10 @@ pub fn read_server_port(config_path: &Path) -> Option<u16> {
 }
 
 pub fn canonicalize_install_dir(path: &Path) -> PathBuf {
-    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+    // dunce：Windows 的 std canonicalize 返回 \\?\ 扩展长度路径——进了任务计划
+    // XML 的 WorkingDirectory/Command 后 schtasks 无法正确处理（实测 53 服务
+    // 行为异常）。dunce 在 Windows 返回普通绝对路径，Unix 行为等同 std。
+    dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 pub fn resolve_user_group(user: Option<String>) -> Result<(String, String)> {
