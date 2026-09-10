@@ -298,10 +298,8 @@ fn read_whisper_default_model(config_path: &Path) -> Option<String> {
             in_whisper = t.starts_with("whisper:");
             continue;
         }
-        if in_whisper {
-            if let Some(rest) = t.strip_prefix("default_model:") {
-                return Some(rest.trim().trim_matches('"').trim_matches('\'').to_string());
-            }
+        if in_whisper && let Some(rest) = t.strip_prefix("default_model:") {
+            return Some(rest.trim().trim_matches('"').trim_matches('\'').to_string());
         }
     }
     None

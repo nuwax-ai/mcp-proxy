@@ -320,6 +320,7 @@ impl super::MinerUParser {
 /// Unix 用 /proc 探活；非 Unix 平台跳过（Windows JobObject 行为靠实机验证）。
 #[cfg(all(test, unix))]
 mod tree_kill_tests {
+    use super::kill_tree;
     use std::process::Stdio;
     use std::time::Duration;
     use tokio::process::Command;
