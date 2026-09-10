@@ -418,7 +418,7 @@ mod tree_kill_tests {
 pub(crate) struct DummyRx;
 #[cfg(windows)]
 impl DummyRx {
-    async fn recv(&mut self) -> Option<(String, String)> {
+    pub(crate) async fn recv(&mut self) -> Option<(String, String)> {
         // 永不产出：select 的输出臂在 Windows 下天然休眠
         std::future::pending().await
     }
