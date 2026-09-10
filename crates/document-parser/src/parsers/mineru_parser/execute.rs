@@ -101,6 +101,23 @@ impl super::MinerUParser {
             debug!("MinerU sets model source (MINERU_MODEL_SOURCE): modelscope");
         }
 
+        // Windows 的 tokio 管道是 OVERLAPPED 句柄——mineru.exe 会把继承的句柄
+        // 传给其本地 api 子进程（uvicorn），跨进程继承后 I/O 失败 → api 健康
+        // 检查超时 → 退出码 120（Win53 实测；python/Git Bash 同步句柄直跑全过）。
+        // 对策：Windows 下 stdout/stderr 重定向到任务目录日志文件（同步句柄，
+        // 等价于已验证成功的 `>` 重定向），结束后读取分类
+        #[cfg(windows)]
+        {
+            let task_dir = output_dir.parent().unwrap_or(output_dir);
+            let _ = std::fs::create_dir_all(task_dir);
+            let out_log = std::fs::File::create(task_dir.join("stdout.log"))
+                .map_err(|e| AppError::MinerU(format!("创建 stdout.log 失败: {e}")))?;
+            let err_log = std::fs::File::create(task_dir.join("stderr.log"))
+                .map_err(|e| AppError::MinerU(format!("创建 stderr.log 失败: {e}")))?;
+            cmd.stdout(Stdio::from(out_log))
+                .stderr(Stdio::from(err_log));
+        }
+        #[cfg(unix)]
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
         info!(
@@ -112,10 +129,9 @@ impl super::MinerUParser {
         info!("Execute MinerU command: {:?}", cmd);
 
         // 进程树级击杀：Unix 进程组（process-wrap；孙进程一并终止——Win53 曾
-        // 僵尸泄漏）。Windows 弃用 process-wrap：实测其 spawn 路径与 mineru
-        // 3.4.5 不兼容（退出码 120，无论 JobObject 还是仅 CreationFlags 包
-        // 装器），改用 tokio Command 原生 creation_flags + KillOnDrop（与
-        // 直跑成功路径等价）；树杀由 kill_tree 的 taskkill /T 承担
+        // 僵尸泄漏）。Windows 原生 creation_flags + KillOnDrop（flags 本身无
+        // 害——python 逐一复刻验证；真正的雷是上面的 OVERLAPPED 管道）；
+        // 树杀由 kill_tree 的 taskkill /T 承担
         #[cfg(unix)]
         let mut child = {
             let mut wrapped = process_wrap::tokio::CommandWrap::from(cmd);
@@ -141,31 +157,41 @@ impl super::MinerUParser {
 
         info!("MinerU process has been started, PID: {:?}", child.id());
 
-        // 监控进程输出（unix: wrapped ChildWrapper；windows: 原生 Child——统一经辅助取流）
-        let stdout = child_stdout(&mut child).unwrap();
-        let stderr = child_stderr(&mut child).unwrap();
-
-        let stdout_reader = BufReader::new(stdout);
-        let stderr_reader = BufReader::new(stderr);
-
+        // 输出监控（Windows 走文件重定向，无实时流——结束后读文件兜底）
+        #[cfg(unix)]
         let (tx, mut rx) = mpsc::channel(100);
-        let tx_clone = tx.clone();
+        #[cfg(unix)]
+        let (stdout_task, stderr_task); // 声明提外：unix JoinHandle / windows DummyTask
+        #[cfg(unix)]
+        {
+            let stdout = child_stdout(&mut child).unwrap();
+            let stderr = child_stderr(&mut child).unwrap();
 
-        // 监控stdout
-        let stdout_task = tokio::spawn(async move {
-            let mut lines = stdout_reader.lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                let _ = tx.send(("stdout".to_string(), line)).await;
-            }
-        });
+            let stdout_reader = BufReader::new(stdout);
+            let stderr_reader = BufReader::new(stderr);
 
-        // 监控stderr
-        let stderr_task = tokio::spawn(async move {
-            let mut lines = stderr_reader.lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                let _ = tx_clone.send(("stderr".to_string(), line)).await;
-            }
-        });
+            let tx_clone = tx.clone();
+
+            // 监控stdout
+            stdout_task = tokio::spawn(async move {
+                let mut lines = stdout_reader.lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let _ = tx.send(("stdout".to_string(), line)).await;
+                }
+            });
+
+            // 监控stderr
+            stderr_task = tokio::spawn(async move {
+                let mut lines = stderr_reader.lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let _ = tx_clone.send(("stderr".to_string(), line)).await;
+                }
+            });
+        }
+        #[cfg(windows)]
+        let mut rx = DummyRx;
+        #[cfg(windows)]
+        let (stdout_task, stderr_task) = (DummyTask, DummyTask);
 
         // 监控进程和输出
         let timeout_seconds = if self.config.timeout == 0 {
@@ -229,6 +255,14 @@ impl super::MinerUParser {
                     result = child.wait() => {
                         match result {
                             Ok(status) => {
+                                // Windows 文件重定向：结束后读 stderr.log 兜底填充
+                                #[cfg(windows)]
+                                {
+                                    let task_dir = output_dir.parent().unwrap_or(output_dir);
+                                    if let Ok(content) = std::fs::read_to_string(task_dir.join("stderr.log")) {
+                                        stderr_output = content;
+                                    }
+                                }
                                 if status.success() {
                                     info!("The MinerU process completed successfully with exit code: {}", status.code().unwrap_or(0));
                                     return Ok(());
@@ -377,6 +411,23 @@ mod tree_kill_tests {
             "kill 进程组后孙进程 {grandchild_pid} 仍存活（树击杀失效）"
         );
     }
+}
+
+/// Windows 文件重定向模式下的占位通道/任务（select 结构与 unix 保持同构）
+#[cfg(windows)]
+pub(crate) struct DummyRx;
+#[cfg(windows)]
+impl DummyRx {
+    async fn recv(&mut self) -> Option<(String, String)> {
+        // 永不产出：select 的输出臂在 Windows 下天然休眠
+        std::future::pending().await
+    }
+}
+#[cfg(windows)]
+pub(crate) struct DummyTask;
+#[cfg(windows)]
+impl DummyTask {
+    fn abort(&self) {}
 }
 
 /// 平台统一的子进程句柄：Unix 用 process-wrap 的 ChildWrapper（进程组语义）；

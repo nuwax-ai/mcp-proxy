@@ -3,6 +3,20 @@
 
 use crate::config::GlobalFileSizeConfig;
 use crate::error::AppError;
+
+/// Windows 文件重定向的日志路径（output_file 旁）
+#[cfg(windows)]
+fn output_log_path(output_file: &std::path::Path) -> std::path::PathBuf {
+    let mut p = output_file.as_os_str().to_os_string();
+    p.push(".stdout.log");
+    std::path::PathBuf::from(p)
+}
+#[cfg(windows)]
+fn err_log_path(output_file: &std::path::Path) -> std::path::PathBuf {
+    let mut p = output_file.as_os_str().to_os_string();
+    p.push(".stderr.log");
+    std::path::PathBuf::from(p)
+}
 use crate::models::DocumentFormat;
 use crate::parsers::mineru_parser::execute::kill_tree;
 use std::path::Path;
@@ -89,6 +103,18 @@ impl super::MarkItDownParser {
             cmd.arg("--keep-data-uris");
         }
 
+        // Windows 的 tokio 管道是 OVERLAPPED 句柄，跨子进程继承不安全
+        //（mineru 同款问题，详见 mineru execute 注释）——统一文件重定向
+        #[cfg(windows)]
+        {
+            let out_log = std::fs::File::create(output_log_path(output_file))
+                .map_err(|e| AppError::MarkItDown(format!("创建 stdout 日志失败: {e}")))?;
+            let err_log = std::fs::File::create(err_log_path(output_file))
+                .map_err(|e| AppError::MarkItDown(format!("创建 stderr 日志失败: {e}")))?;
+            cmd.stdout(Stdio::from(out_log))
+                .stderr(Stdio::from(err_log));
+        }
+        #[cfg(unix)]
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
         debug!("Execute MarkItDown command: {:?}", cmd);
@@ -115,31 +141,44 @@ impl super::MarkItDownParser {
                 .map_err(|e| AppError::MarkItDown(format!("启动MarkItDown进程失败: {e}")))?
         };
 
-        // 监控进程输出（unix: wrapped ChildWrapper；windows: 原生 Child）
-        let stdout = crate::parsers::mineru_parser::execute::child_stdout(&mut child).unwrap();
-        let stderr = crate::parsers::mineru_parser::execute::child_stderr(&mut child).unwrap();
-
-        let stdout_reader = BufReader::new(stdout);
-        let stderr_reader = BufReader::new(stderr);
-
+        // 输出监控（Windows 文件重定向，无实时流——结束后读文件兜底）
+        #[cfg(unix)]
         let (tx, mut rx) = mpsc::channel(100);
-        let tx_clone = tx.clone();
+        #[cfg(unix)]
+        let (stdout_task, stderr_task);
+        #[cfg(unix)]
+        {
+            let stdout = crate::parsers::mineru_parser::execute::child_stdout(&mut child).unwrap();
+            let stderr = crate::parsers::mineru_parser::execute::child_stderr(&mut child).unwrap();
 
-        // 监控stdout
-        let stdout_task = tokio::spawn(async move {
-            let mut lines = stdout_reader.lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                let _ = tx.send(("stdout".to_string(), line)).await;
-            }
-        });
+            let stdout_reader = BufReader::new(stdout);
+            let stderr_reader = BufReader::new(stderr);
 
-        // 监控stderr
-        let stderr_task = tokio::spawn(async move {
-            let mut lines = stderr_reader.lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                let _ = tx_clone.send(("stderr".to_string(), line)).await;
-            }
-        });
+            let tx_clone = tx.clone();
+
+            // 监控stdout
+            stdout_task = tokio::spawn(async move {
+                let mut lines = stdout_reader.lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let _ = tx.send(("stdout".to_string(), line)).await;
+                }
+            });
+
+            // 监控stderr
+            stderr_task = tokio::spawn(async move {
+                let mut lines = stderr_reader.lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    let _ = tx_clone.send(("stderr".to_string(), line)).await;
+                }
+            });
+        }
+        #[cfg(windows)]
+        let mut rx = crate::parsers::mineru_parser::execute::DummyRx;
+        #[cfg(windows)]
+        let (stdout_task, stderr_task) = (
+            crate::parsers::mineru_parser::execute::DummyTask,
+            crate::parsers::mineru_parser::execute::DummyTask,
+        );
 
         // 监控进程和输出
         let timeout_duration = Duration::from_secs(self.config.timeout_seconds);
@@ -190,6 +229,21 @@ impl super::MarkItDownParser {
                     result = child.wait() => {
                         match result {
                             Ok(status) => {
+                                // Windows 文件重定向：结束后读日志兜底
+                                #[cfg(windows)]
+                                {
+                                    if let Ok(content) = std::fs::read_to_string(err_log_path(output_file)) {
+                                        stderr_output = content;
+                                    }
+                                    if let Ok(content) = std::fs::read_to_string(output_log_path(output_file)) {
+                                        for line in content.lines() {
+                                            if line.contains("Created temp file:")
+                                                && let Some(fp) = line.split("Created temp file:").nth(1) {
+                                                    temp_files.push(fp.trim().to_string());
+                                                }
+                                        }
+                                    }
+                                }
                                 if status.success() {
                                     return Ok(temp_files);
                                 } else {
