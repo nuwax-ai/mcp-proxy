@@ -1,6 +1,6 @@
 # voice-cli 部署指南
 
-语音转写（STT）+ 语音合成（TTS）服务：Whisper / SenseVoice 引擎转写，sherpa-onnx（Kokoro / ZipVoice）合成。通过统一部署 CLI **deploy-installer**（npm 包 `nuwax-deploy-installer`）一键安装：复制二进制与伴生库 → 下载 Whisper 模型（macOS）→ 写配置 → 注册系统服务 → 等待健康检查通过。
+语音转写（STT）+ 语音合成（TTS）服务：Whisper / SenseVoice 引擎转写，sherpa-onnx（Kokoro / ZipVoice）合成。通过统一部署 CLI **deploy-installer**（npm 包 `nuwax-deploy-installer`）一键安装：复制二进制与伴生库 → 下载 Whisper 模型（全平台）→ 写配置 → 注册系统服务 → 等待健康检查通过。
 
 > document-parser（文档解析）的部署见姊妹篇 [deploy-document-parser.md](./deploy-document-parser.md)。
 
@@ -47,7 +47,7 @@ deploy-installer voice-cli install
 默认安装目录 `~/voice-cli`、端口 **8077**。各平台差异：
 
 - **macOS**：自动从 OSS 下载 Whisper large-v3 模型（约 2.8GB，写入 `models/ggml-large-v3.bin`）；二进制 Metal 加速开箱即用。
-- **Linux**：按 GPU 档位自动选 CUDA / Vulkan / CPU 包（见 §4）。**Whisper 模型 OSS 只提供 macOS 下载源**——Linux 需自备：从 [whisper.cpp 模型源](https://huggingface.co/ggerganov/whisper.cpp) 下载 `ggml-*.bin` 放入 `~/voice-cli/models/`（国内网络不通 HF 时可经代理机器下载后 scp 过去）。
+- **Linux**：按 GPU 档位自动选 CUDA / Vulkan / CPU 包（见 §4）；Whisper large-v3 模型自动从 OSS 下载（与 macOS 同源）。
 - **Windows**：CPU 版二进制 + 伴生 DLL，以当前用户计划任务（`com.nuwax.voice-cli`）注册服务。
 
 健康检查通过打印 `✅ voice-cli → http://127.0.0.1:8077`；超时如实报错（GPU 档位装错是常见原因之一，见 §6）。
@@ -88,7 +88,13 @@ open http://localhost:8077/api/docs
 
 # Scalar 风格接口文档（与 Swagger UI 并存；UI JS 由浏览器从公网 CDN 加载）
 open http://localhost:8077/api/docs/scalar
+
+# 一键自验（health/文档/转写冒烟——模型在场时）
+deploy-installer voice-cli verify
 ```
+
+Whisper 模型默认全平台自动下载（Mac/Linux/Windows 同一 OSS 包，ggml 平台无关）；
+`--skip-models` 跳过后可重跑 install 补齐。
 
 Linux GPU 档验证加速是否生效：服务日志（`journalctl -u voice-cli -f`）转写时出现 `ggml_cuda: using CUDA` 或 `ggml_vulkan: Found ... Vulkan devices` 即在走 GPU。
 
@@ -109,7 +115,7 @@ deploy-installer voice-cli upgrade        # Linux 保档升级 + 自动重启；
 | CUDA 档服务起不来，日志 `libcublas.so.12 not found` | bundle 不含 CUDA 库，依赖系统 toolkit：装 `cuda-toolkit` 后重装（doctor 的 libcublas 预检可提前发现） |
 | Vulkan 档起不来，`libvulkan.so.1` 缺失 | `sudo apt install -y libvulkan1 mesa-vulkan-drivers` |
 | 转写报音频处理错误 | 系统 ffmpeg 未装（§1 的安装命令；doctor 检查项） |
-| Linux 上模型 404 / 转写无模型 | Linux 不走 OSS 模型下载——手工放 `models/ggml-*.bin`（§3） |
+| 转写无模型 / 模型缺失 | 重跑 install 自动从 OSS 补下载；或手工放 `models/ggml-*.bin`（模型源见 [whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp)） |
 | 想换档位 | 直接带目标旗标重跑 install（自动互斥清理），如 CUDA 机器降级：`install --skip-oss-cuda --skip-oss-vulkan` |
 
 ## 7. 配置

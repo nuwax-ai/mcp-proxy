@@ -99,7 +99,13 @@ open http://localhost:8087/api/docs
 
 # 接口文档（Scalar 风格，与 Swagger UI 并存；UI JS 由浏览器从公网 CDN 加载）
 open http://localhost:8087/api/docs/scalar
+
+# 一键自验（health/ready/文档/parse 冒烟/模型就绪性）
+deploy-installer document-parser verify
 ```
+
+install 默认自动从 OSS 下载 MinerU 模型缓存（~1GB → `~/.cache/modelscope`），
+装完即解析 PDF；`--skip-models` 跳过（首跑将从 ModelScope 下载，部分网络慢/卡）。
 
 ## 7. 服务管理与升级
 

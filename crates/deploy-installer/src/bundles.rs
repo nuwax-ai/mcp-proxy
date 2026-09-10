@@ -21,6 +21,10 @@ struct OptionalAssets {
     voice_cli_cuda: std::collections::HashMap<String, String>,
     #[serde(default, rename = "voiceCliVulkan")]
     voice_cli_vulkan: std::collections::HashMap<String, String>,
+    /// MinerU pipeline 模型缓存包（平台无关——三平台同 URL，模型是纯文件）。
+    /// URL 不含 {version} 占位符：模型版本独立于包版本（PDF-Extract-Kit-1.0）
+    #[serde(default, rename = "mineruModels")]
+    mineru_models: std::collections::HashMap<String, String>,
 }
 
 /// Which prebuilt Whisper ggml tarball to fetch from OSS.
@@ -171,7 +175,7 @@ pub fn default_voice_cli_install_dir() -> PathBuf {
 }
 
 /// 用户主目录（unix HOME；Windows USERPROFILE——npm 全局运行环境两者其一存在）。
-fn home_dir() -> Option<PathBuf> {
+pub(crate) fn home_dir() -> Option<PathBuf> {
     std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .filter(|v| !v.is_empty())
@@ -229,6 +233,19 @@ pub fn optional_whisper_download_url(pack: WhisperModelsPack) -> Option<String> 
     optional_asset_url(|assets| match pack {
         WhisperModelsPack::LargeV3 => assets.whisper_large_v3.get(platform_vendor_key()),
         WhisperModelsPack::All => assets.whisper_all.get(platform_vendor_key()),
+    })
+}
+
+/// Resolve optional MinerU pipeline models cache URL from manifest.
+///
+/// 模型平台无关（三平台键同 URL）——按本平台键取，缺键时回退任一可用键
+/// （manifest 只配部分平台的容错）。
+pub fn optional_mineru_models_url() -> Option<String> {
+    optional_asset_url(|assets| {
+        assets
+            .mineru_models
+            .get(platform_vendor_key())
+            .or_else(|| assets.mineru_models.values().next())
     })
 }
 
@@ -377,21 +394,34 @@ mod tests {
             std::env::set_var("NUWAX_DEPLOY_ROOT", root.display().to_string());
             std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.1-beta.2");
         }
-        // whisper 资产同样仅 darwin（按 platform_vendor_key 查表）
-        if cfg!(target_os = "macos") {
-            let url = optional_whisper_download_url(WhisperModelsPack::LargeV3)
-                .expect("manifest should provide whisperLargeV3 URL");
-            assert!(
-                url.contains(&format!("whisper-ggml-large-v3-{expected}.tar.gz")),
-                "got {url}"
-            );
-            assert!(!url.contains("beta"));
-        } else {
-            assert!(
-                optional_whisper_download_url(WhisperModelsPack::LargeV3).is_none(),
-                "manifest has no whisper asset for this platform"
-            );
+        // whisper 资产全平台（ggml 平台无关，三平台同 URL——2026-09-10 起）
+        let url = optional_whisper_download_url(WhisperModelsPack::LargeV3)
+            .expect("manifest should provide whisperLargeV3 URL on every platform");
+        assert!(
+            url.contains(&format!("whisper-ggml-large-v3-{expected}.tar.gz")),
+            "got {url}"
+        );
+        assert!(!url.contains("beta"));
+    }
+
+    #[test]
+    fn optional_mineru_models_url_from_manifest() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../npm/nuwax-deploy-installer/vendor");
+        // SAFETY: test-only env mutation; no concurrent env access in unit tests.
+        unsafe {
+            std::env::set_var("NUWAX_DEPLOY_ROOT", root.display().to_string());
+            std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.1-beta.2");
         }
+        let url = optional_mineru_models_url()
+            .expect("manifest should provide mineruModels URL on every platform");
+        // 模型版本独立于包版本：URL 无 {version} 占位符（替换为 no-op）、稳定路径
+        assert!(
+            url.contains("mineru-pipeline-models-pdf-extract-kit-1.0.tar.gz"),
+            "got {url}"
+        );
+        assert!(!url.contains("0.2."), "models URL 不应带包版本: {url}");
     }
 
     #[test]

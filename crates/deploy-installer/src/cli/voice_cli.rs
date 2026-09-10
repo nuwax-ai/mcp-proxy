@@ -46,6 +46,7 @@ pub fn run(action: VoiceCliAction) -> Result<()> {
             upgrade_voice_cli(&dir, None)
         }
         VoiceCliAction::Service { action } => run_service(action),
+        VoiceCliAction::Verify { install_dir } => crate::cli::verify::verify_voice_cli(install_dir),
     }
 }
 
@@ -62,7 +63,9 @@ fn effective_use_prebuilt_models(args: &VoiceCliSetupArgs) -> bool {
     if args.use_prebuilt_models {
         return true;
     }
-    cfg!(target_os = "macos")
+    // ggml 模型平台无关（whisper tar 三平台同 URL）——默认全平台下载，
+    // 装完即用（2026-09-10 前仅 macOS，Windows/Linux 装完不能转写）
+    true
 }
 
 /// 档位探测结果：tier + 原始探测值（回退提示需要区分"缺哪一项"）。
@@ -508,10 +511,8 @@ fn setup(
 
     if effective_use_prebuilt_models(args) {
         download_prebuilt_whisper(args, &install_dir, quiet)?;
-    } else if !quiet && probe.tier != VoiceCliLinuxTier::Cpu {
-        println!("  models: place ggml-*.bin under models/ (Whisper OSS is macOS-only in phase 1)");
     } else if !quiet {
-        println!("  models: skipped (use --use-prebuilt-models or omit --skip-models on macOS)");
+        println!("  models: skipped (--skip-models); place models/ggml-*.bin manually if needed");
     }
 
     if !quiet {

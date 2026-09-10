@@ -88,19 +88,30 @@ impl super::MarkItDownParser {
             cmd.arg("--keep-data-uris");
         }
 
-        cmd.stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
         debug!("Execute MarkItDown command: {:?}", cmd);
 
-        let mut child = cmd
+        // 进程树级击杀（同 mineru execute：Unix ProcessGroup / Windows JobObject）
+        let mut wrapped = process_wrap::tokio::CommandWrap::from(cmd);
+        #[cfg(unix)]
+        wrapped.wrap(process_wrap::tokio::ProcessGroup::leader());
+        #[cfg(windows)]
+        {
+            use process_wrap::tokio::{CreationFlags, JobObject};
+            use windows::Win32::System::Threading::{CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW};
+            wrapped.wrap(CreationFlags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP));
+            wrapped.wrap(JobObject);
+        }
+        wrapped.wrap(process_wrap::tokio::KillOnDrop);
+
+        let mut child = wrapped
             .spawn()
             .map_err(|e| AppError::MarkItDown(format!("启动MarkItDown进程失败: {e}")))?;
 
         // 监控进程输出
-        let stdout = child.stdout.take().unwrap();
-        let stderr = child.stderr.take().unwrap();
+        let stdout = child.stdout().take().unwrap();
+        let stderr = child.stderr().take().unwrap();
 
         let stdout_reader = BufReader::new(stdout);
         let stderr_reader = BufReader::new(stderr);
@@ -136,7 +147,7 @@ impl super::MarkItDownParser {
                     // 检查取消
                     _ = tokio::time::sleep(Duration::from_millis(100)) => {
                         if cancellation_token.is_cancelled().await {
-                            let _ = child.kill().await;
+                            let _ = Box::into_pin(child.kill()).await;
                             return Err(AppError::MarkItDown("解析已取消".to_string()));
                         }
                     }
@@ -200,7 +211,7 @@ impl super::MarkItDownParser {
         let temp_files = match process_result {
             Ok(result) => result?,
             Err(_) => {
-                let _ = child.kill().await;
+                let _ = Box::into_pin(child.kill()).await;
                 return Err(AppError::MarkItDown(format!(
                     "MarkItDown执行超时（{}秒）",
                     self.config.timeout_seconds

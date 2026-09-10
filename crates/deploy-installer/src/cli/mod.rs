@@ -6,6 +6,7 @@ pub mod env_config;
 pub mod linux_gpu;
 mod probe_vulkan;
 pub mod tarball;
+pub mod verify;
 pub mod voice_cli;
 
 use anyhow::Result;
@@ -61,6 +62,12 @@ pub enum DocumentParserAction {
         #[command(subcommand)]
         action: ServiceAction,
     },
+    /// Post-install verification: health/ready, API docs, parse smoke
+    Verify {
+        /// Install directory (default: ~/document-parser)
+        #[arg(long)]
+        install_dir: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -80,6 +87,12 @@ pub enum VoiceCliAction {
         #[command(subcommand)]
         action: ServiceAction,
     },
+    /// Post-install verification: health, API docs, transcribe smoke
+    Verify {
+        /// Install directory (default: ~/voice-cli)
+        #[arg(long)]
+        install_dir: Option<PathBuf>,
+    },
 }
 
 #[derive(clap::Args, Clone)]
@@ -97,6 +110,14 @@ pub struct SetupArgs {
     /// mutually exclusive with --use-prebuilt-venv / --no-prebuilt-venv)
     #[arg(long, conflicts_with_all = ["use_prebuilt_venv", "no_prebuilt_venv"])]
     pub venv_file: Option<PathBuf>,
+    /// Download prebuilt MinerU pipeline models from OSS to ~/.cache/modelscope
+    /// (default: on; PDF parsing works immediately after install)
+    #[arg(long)]
+    pub use_prebuilt_models: bool,
+    /// Skip MinerU models download (first PDF parse will fetch from ModelScope,
+    /// which can stall or take minutes on some networks)
+    #[arg(long)]
+    pub skip_models: bool,
     /// OSS base URL for optional assets (venv tarball)
     #[arg(long)]
     pub oss_base: Option<String>,

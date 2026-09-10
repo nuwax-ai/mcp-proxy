@@ -1874,6 +1874,7 @@ dependencies = [
  "once_cell",
  "oss-client",
  "parking_lot 0.12.5",
+ "process-wrap 9.1.0",
  "proptest",
  "pulldown-cmark",
  "pulldown-cmark-to-cmark",
@@ -1911,6 +1912,7 @@ dependencies = [
  "utoipa-swagger-ui",
  "uuid",
  "winapi",
+ "windows 0.62.2",
  "wiremock",
 ]
 

@@ -101,9 +101,7 @@ impl super::MinerUParser {
             debug!("MinerU sets model source (MINERU_MODEL_SOURCE): modelscope");
         }
 
-        cmd.stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
         info!(
             "MinerU command parameters: {} -p {} -o {}",
@@ -113,7 +111,21 @@ impl super::MinerUParser {
         );
         info!("Execute MinerU command: {:?}", cmd);
 
-        let mut child = cmd.spawn().map_err(|e| {
+        // 进程树级击杀：Unix 进程组 / Windows JobObject + Drop 清理——
+        // Child::kill 只杀直接子进程，mineru 的孙进程曾成僵尸泄漏（Win53 实测）
+        let mut wrapped = process_wrap::tokio::CommandWrap::from(cmd);
+        #[cfg(unix)]
+        wrapped.wrap(process_wrap::tokio::ProcessGroup::leader());
+        #[cfg(windows)]
+        {
+            use process_wrap::tokio::{CreationFlags, JobObject};
+            use windows::Win32::System::Threading::{CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW};
+            wrapped.wrap(CreationFlags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP));
+            wrapped.wrap(JobObject);
+        }
+        wrapped.wrap(process_wrap::tokio::KillOnDrop);
+
+        let mut child = wrapped.spawn().map_err(|e| {
             error!("Failed to start MinerU process: {}", e);
             AppError::MinerU(format!("启动MinerU进程失败: {e}"))
         })?;
@@ -121,8 +133,8 @@ impl super::MinerUParser {
         info!("MinerU process has been started, PID: {:?}", child.id());
 
         // 监控进程输出
-        let stdout = child.stdout.take().unwrap();
-        let stderr = child.stderr.take().unwrap();
+        let stdout = child.stdout().take().unwrap();
+        let stderr = child.stderr().take().unwrap();
 
         let stdout_reader = BufReader::new(stdout);
         let stderr_reader = BufReader::new(stderr);
@@ -171,7 +183,7 @@ impl super::MinerUParser {
                     // 检查取消
                     _ = tokio::time::sleep(Duration::from_millis(100)) => {
                         if cancellation_token.is_cancelled().await {
-                            let _ = child.kill().await;
+                            let _ = Box::into_pin(child.kill()).await;
                             return Err(AppError::MinerU("解析已取消".to_string()));
                         }
                     }
@@ -255,7 +267,7 @@ impl super::MinerUParser {
                     "MinerU execution timeout ({} seconds), terminating process",
                     timeout_seconds
                 );
-                let _ = child.kill().await;
+                let _ = Box::into_pin(child.kill()).await;
 
                 // 提供更详细的超时信息
                 let timeout_msg = format!(
@@ -298,5 +310,61 @@ impl super::MinerUParser {
             );
             Ok("mineru".to_string())
         }
+    }
+}
+
+/// 进程树击杀回归：ProcessGroup 包装下 kill 直接子进程时，孙进程必须一并终止
+/// （此前 Child::kill 只杀直接子进程——Win53 实测 mineru 孙进程僵尸泄漏）。
+/// Unix 用 /proc 探活；非 Unix 平台跳过（Windows JobObject 行为靠实机验证）。
+#[cfg(all(test, unix))]
+mod tree_kill_tests {
+    use std::process::Stdio;
+    use std::time::Duration;
+    use tokio::process::Command;
+
+    #[tokio::test]
+    async fn process_group_kill_terminates_grandchildren() {
+        let marker = std::env::temp_dir().join("dp-treekill-test.pid");
+        let marker_str = marker.display().to_string();
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", &format!("sleep 300 & echo $! > {marker_str}; wait")])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        let mut wrapped = process_wrap::tokio::CommandWrap::from(cmd);
+        wrapped.wrap(process_wrap::tokio::ProcessGroup::leader());
+        let mut child = wrapped.spawn().expect("spawn sh");
+
+        // 等 sh 写出孙进程 pid 并让 sleep 真正起跑
+        let mut grandchild_pid = None;
+        for _ in 0..20 {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            if let Ok(content) = std::fs::read_to_string(&marker)
+                && let Ok(pid) = content.trim().parse::<u32>()
+            {
+                grandchild_pid = Some(pid);
+                break;
+            }
+        }
+        let grandchild_pid = grandchild_pid.expect("sh 应写出孙进程 pid");
+        let _ = std::fs::remove_file(&marker);
+        let alive = |pid: u32| unsafe { libc::kill(pid as i32, 0) == 0 };
+        assert!(alive(grandchild_pid), "孙进程应已在运行（前置条件）");
+
+        let _ = Box::into_pin(child.kill()).await;
+
+        // 组击杀后孙进程应消失（短暂宽限轮询）
+        let mut gone = false;
+        for _ in 0..30 {
+            if !alive(grandchild_pid) {
+                gone = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        assert!(
+            gone,
+            "kill 进程组后孙进程 {grandchild_pid} 仍存活（树击杀失效）"
+        );
     }
 }

@@ -71,6 +71,7 @@ pub fn run() -> Result<()> {
     check_install_dir_path(&parser_dir);
     check_disk_space(&voice_dir);
     check_upload_backend(&parser_dir);
+    check_mineru_models();
 
     if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
         let (has_smi, cublas_ok) = crate::cli::linux_gpu::linux_cuda_runtime_available();
@@ -535,6 +536,31 @@ fn check_sudo() -> Result<()> {
             println!("  sudo:       WARN (password may be required for service install)");
             Ok(())
         }
+    }
+}
+
+/// MinerU pipeline 模型缓存检查（~/.cache/modelscope）：缺失时首跑 PDF 解析会
+/// 从 ModelScope 下载——部分网络下死循环到超时（2026-09-10 Win53 实测）。
+/// WARN 级：不阻断（模型可后补），给出补齐指引。
+fn check_mineru_models() {
+    let present = crate::home_dir()
+        .map(|h| {
+            h.join(".cache/modelscope/models/OpenDataLab--PDF-Extract-Kit-1.0/snapshots")
+                .exists()
+        })
+        .unwrap_or(false);
+    if present {
+        println!("  mineru models: OK (~/.cache/modelscope, PDF 解析即装即用)");
+    } else if crate::optional_mineru_models_url().is_some() {
+        println!(
+            "  mineru models: WARN (not downloaded — 首跑 PDF 解析将从 ModelScope 下载，\
+             部分网络会慢/卡死；重跑 install 自动从 OSS 供给)"
+        );
+    } else {
+        println!(
+            "  mineru models: WARN (no mineruModels URL in manifest.json — 首跑 PDF 解析\
+             将从 ModelScope 下载)"
+        );
     }
 }
 

@@ -1,7 +1,7 @@
 use crate::{
     InstallOptions, ServiceIdentity, ServiceSpec, bundled_templates_dir, copy_if_exists,
-    default_document_parser_install_dir, deploy_asset_version, install, optional_venv_download_url,
-    write_user_file,
+    default_document_parser_install_dir, deploy_asset_version, install, optional_mineru_models_url,
+    optional_venv_download_url, write_user_file,
 };
 use anyhow::{Context, Result, bail};
 use std::fs;
@@ -36,6 +36,9 @@ pub fn run(action: DocumentParserAction) -> Result<()> {
             upgrade_bundled_binary(SERVICE_NAME, &dir)
         }
         DocumentParserAction::Service { action } => run_service(action),
+        DocumentParserAction::Verify { install_dir } => {
+            crate::cli::verify::verify_document_parser(install_dir)
+        }
     }
 }
 
@@ -101,6 +104,11 @@ fn setup(args: &SetupArgs, quiet: bool, installing: bool) -> Result<PathBuf> {
     } else if !quiet {
         println!("  venv: already exists, skipping uv-init");
     }
+
+    // MinerU pipeline 模型缓存（~/.cache/modelscope，用户级、跨安装目录）：
+    // 缺模型时首跑 PDF 解析会从 ModelScope 下载——部分网络下死循环到
+    // 3600s 超时（Win53 实测）。默认安装期从自家 OSS 供给（~1GB，幂等跳过）。
+    ensure_mineru_models(args, quiet);
 
     patch_config_for_macos(&install_dir.join(CONFIG_FILENAME))?;
 
@@ -583,6 +591,81 @@ fn patch_config_for_macos(config_path: &Path) -> Result<()> {
     let patched = content.replace("device: \"cpu\"", "device: \"mps\"");
     fs::write(config_path, patched)?;
     Ok(())
+}
+
+/// MinerU pipeline 模型缓存目录特征（PDF-Extract-Kit-1.0 的 snapshot 根）——
+/// 幂等判定与下载后验共用
+fn mineru_models_cache_present() -> bool {
+    crate::home_dir()
+        .map(|h| {
+            h.join(".cache/modelscope/models/OpenDataLab--PDF-Extract-Kit-1.0/snapshots")
+                .exists()
+        })
+        .unwrap_or(false)
+}
+
+/// 供给 MinerU pipeline 模型到 `~/.cache/modelscope`（tar 顶层 `modelscope/` →
+/// 解压到 `~/.cache` 即落位）。
+///
+/// 语义与 venv 不同：URL 缺失/网络失败**WARN 降级不 bail**——模型可由首跑
+/// PDF 解析从 ModelScope 自下（只是部分网络会慢/死循环），不应阻断安装。
+fn ensure_mineru_models(args: &SetupArgs, quiet: bool) {
+    if args.skip_models {
+        if !quiet {
+            println!(
+                "  mineru models: skipped (--skip-models); first PDF parse will download from ModelScope"
+            );
+        }
+        return;
+    }
+    if mineru_models_cache_present() {
+        if !quiet {
+            println!("  mineru models: cache present, skipping download");
+        }
+        return;
+    }
+    let Some(url) = optional_mineru_models_url() else {
+        if !quiet {
+            println!(
+                "  mineru models: WARN (no mineruModels URL in manifest.json — first PDF parse will download from ModelScope)"
+            );
+        }
+        return;
+    };
+    let Some(home) = crate::home_dir() else {
+        if !quiet {
+            println!("  mineru models: WARN (cannot resolve home directory)");
+        }
+        return;
+    };
+    let cache_dir = home.join(".cache");
+    if let Err(e) = std::fs::create_dir_all(&cache_dir) {
+        println!(
+            "  mineru models: WARN (create {}: {e})",
+            cache_dir.display()
+        );
+        return;
+    }
+    let quiet_dl = quiet;
+    if let Err(e) = download_and_extract_tarball(
+        &url,
+        &cache_dir,
+        "mineru-models.tar.gz",
+        quiet_dl,
+        "mineru models",
+    ) {
+        println!(
+            "  mineru models: WARN (download failed: {e:#}; first PDF parse will download from ModelScope)"
+        );
+        return;
+    }
+    if !mineru_models_cache_present() {
+        println!(
+            "  mineru models: WARN (archive extracted but expected cache layout not found under ~/.cache/modelscope)"
+        );
+    } else if !quiet {
+        println!("  mineru models: ready (~/.cache/modelscope)");
+    }
 }
 
 #[cfg(test)]

@@ -243,6 +243,7 @@ deploy-installer voice-cli install --install-dir ~/voice-cli
 | manifest 键 | OSS 文件 | 说明 |
 |-------------|----------|------|
 | `voiceCliVulkan.linux-x64` | `v{version}/voice-cli-vulkan-linux-x64-{version}.tar.gz` | binary（ggml-vulkan 静态链入）+ 2× CPU `.so` + `.voice-cli-vulkan` marker，~60MB |
+| `mineruModels.*` | `models/mineru-pipeline-models-pdf-extract-kit-1.0.tar.gz` | PDF-Extract-Kit-1.0 模型缓存（999MB，**平台无关三键同 URL**；解压到 `~/.cache`；URL 无 {version}——模型版本独立于包版本）。来源：任一机器 `tar czf -C ~/.cache modelscope` 打包上传 |
 
 **三档自动检测**（`assets.rs::resolve_linux_tier`，顺序即优先级）：
 显式 `--use-oss-cuda`/`--use-oss-vulkan` → 双 skip（强制 CPU）→ 已装档位幂等保留 →
