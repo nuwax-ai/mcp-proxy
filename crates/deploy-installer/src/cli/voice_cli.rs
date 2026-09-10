@@ -14,10 +14,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::cli::assets::{
-    VOICE_CLI_CUDA_BUNDLE_FILES, VOICE_CLI_VULKAN_BUNDLE_FILES, VOICE_CLI_VULKAN_BUNDLE_MARKER,
-    WHISPER_DEFAULT_MODEL, ensure_whisper_pack_models, patch_whisper_default_model,
-    voice_cli_cuda_bundle_present, voice_cli_vulkan_bundle_present, whisper_large_v3_present,
-    whisper_pack_satisfied,
+    VOICE_CLI_CUDA_BUNDLE_FILES, VOICE_CLI_CUDA_BUNDLE_MARKER, VOICE_CLI_VULKAN_BUNDLE_FILES,
+    VOICE_CLI_VULKAN_BUNDLE_MARKER, WHISPER_DEFAULT_MODEL, ensure_whisper_pack_models,
+    patch_whisper_default_model, voice_cli_bundle_marker_version, voice_cli_cuda_bundle_present,
+    voice_cli_vulkan_bundle_present, whisper_large_v3_present, whisper_pack_satisfied,
 };
 use crate::cli::common::{
     CONFIG_FILENAME, canonicalize_install_dir, dispatch_service_action, ensure_bundled_binary,
@@ -283,14 +283,18 @@ fn download_oss_cuda_bundle(
     // 档位互斥清入口（含下方 already-present 早退）：清 vulkan marker，防
     // "cuda bundle 完整 + marker 残留"的双档并存态（手工摆放/中断安装场景）
     remove_vulkan_marker(install_dir);
-    if voice_cli_cuda_bundle_present(install_dir) {
+    let version = deploy_asset_version();
+    // 已装且版本一致才跳过——marker 版本不同/未知（旧安装）都重下，否则已装
+    // GPU 档的机器 upgrade 永远拿不到新二进制（present 只判文件齐全）
+    if voice_cli_cuda_bundle_present(install_dir)
+        && voice_cli_bundle_marker_version(install_dir, VOICE_CLI_CUDA_BUNDLE_MARKER).as_deref()
+            == Some(version.as_str())
+    {
         if !quiet {
             println!("  binary: CUDA bundle already present, skipping download");
         }
         return Ok(());
     }
-
-    let version = deploy_asset_version();
     let archive = voice_cli_cuda_archive_filename(&version);
     let url = if let Some(base) = args.oss_base.as_deref() {
         voice_cli_cuda_download_url_from_base(base)
@@ -318,6 +322,11 @@ fn download_oss_cuda_bundle(
             install_dir.display()
         );
     }
+    // 版本 marker（不在 tar 内，安装器写入；写失败不阻断——代价仅是下次升级多下一次）
+    let _ = fs::write(
+        install_dir.join(VOICE_CLI_CUDA_BUNDLE_MARKER),
+        format!("cuda {version}"),
+    );
     Ok(())
 }
 
@@ -335,14 +344,18 @@ fn download_oss_vulkan_bundle(
     ] {
         let _ = fs::remove_file(install_dir.join(stale));
     }
-    if voice_cli_vulkan_bundle_present(install_dir) {
+    let version = deploy_asset_version();
+    // 已装且 marker 版本一致才跳过（marker 由 pack 脚本随 tar 写入 "vulkan {VERSION}"）；
+    // 版本不同/未知一律重下——否则 vulkan 档机器的 upgrade 永远空操作
+    if voice_cli_vulkan_bundle_present(install_dir)
+        && voice_cli_bundle_marker_version(install_dir, VOICE_CLI_VULKAN_BUNDLE_MARKER).as_deref()
+            == Some(version.as_str())
+    {
         if !quiet {
             println!("  binary: Vulkan bundle already present, skipping download");
         }
         return Ok(());
     }
-
-    let version = deploy_asset_version();
     let archive = voice_cli_vulkan_archive_filename(&version);
     let url = if let Some(base) = args.oss_base.as_deref() {
         voice_cli_vulkan_download_url_from_base(base)

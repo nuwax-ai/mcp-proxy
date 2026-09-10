@@ -63,6 +63,12 @@ pub const VOICE_CLI_CUDA_BUNDLE_FILES: &[&str] = &[];
 /// bundle 内必须自带标记（pack 脚本写入 "vulkan {VERSION}"，非空才有效）。
 pub const VOICE_CLI_VULKAN_BUNDLE_MARKER: &str = ".voice-cli-vulkan";
 
+/// CUDA bundle 版本 marker（安装器在 bundle 落位后写入 "cuda {VERSION}"）。
+/// 与 vulkan marker 不同：不在 bundle tar 内、由安装器写入（CUDA tar 格式不改动，
+/// 存量 bundle 无需重打）；档位判定仍靠 providers_cuda.so，此 marker 仅用于
+/// 升级时的版本比对——旧安装无此文件视为版本未知，升级时重下刷新。
+pub const VOICE_CLI_CUDA_BUNDLE_MARKER: &str = ".voice-cli-cuda";
+
 /// Linux Vulkan OSS bundle: binary + sherpa/onnx CPU .so + 档位 marker。
 /// （whisper/ggml-vulkan 全静态链入二进制；运行时 Vulkan 依赖只有系统
 /// libvulkan.so.1，无需 bundle 自带。sherpa 与 vulkan feature 正交——TTS/ASR 仍 CPU。）
@@ -93,6 +99,14 @@ pub fn voice_cli_vulkan_bundle_present(install_dir: &Path) -> bool {
             let path = install_dir.join(name);
             path.exists() && fs::metadata(&path).map(|m| m.len() > 0).unwrap_or(false)
         })
+}
+
+/// 读 bundle 档位 marker 的版本（内容形如 "vulkan 0.2.14" / "cuda 0.2.14"，
+/// 由 pack 脚本或安装器写入）。marker 缺失/非两段格式返回 None（版本未知，
+/// 调用方应按"需要重新下载"处理，而非沿用旧 bundle）。
+pub fn voice_cli_bundle_marker_version(install_dir: &Path, marker: &str) -> Option<String> {
+    let content = fs::read_to_string(install_dir.join(marker)).ok()?;
+    content.split_whitespace().nth(1).map(str::to_string)
 }
 
 /// Set `whisper.default_model` in a YAML config (line-based, whisper section only).
@@ -241,6 +255,32 @@ pub(crate) fn maybe_copy_companion_libs(
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn bundle_marker_version_parses_two_segment_content() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join(".voice-cli-vulkan"), "vulkan 0.2.14").unwrap();
+        assert_eq!(
+            voice_cli_bundle_marker_version(dir.path(), VOICE_CLI_VULKAN_BUNDLE_MARKER),
+            Some("0.2.14".to_string())
+        );
+    }
+
+    #[test]
+    fn bundle_marker_version_none_on_missing_or_malformed() {
+        let dir = TempDir::new().unwrap();
+        // 无 marker（旧安装 / CPU 档）→ None
+        assert_eq!(
+            voice_cli_bundle_marker_version(dir.path(), VOICE_CLI_CUDA_BUNDLE_MARKER),
+            None
+        );
+        // 单段内容（旧格式只要求非空）→ None（版本未知）
+        std::fs::write(dir.path().join(VOICE_CLI_CUDA_BUNDLE_MARKER), "cuda").unwrap();
+        assert_eq!(
+            voice_cli_bundle_marker_version(dir.path(), VOICE_CLI_CUDA_BUNDLE_MARKER),
+            None
+        );
+    }
 
     #[test]
     fn whisper_pack_large_v3_rejects_tiny_stub() {

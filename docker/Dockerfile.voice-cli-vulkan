@@ -1,0 +1,64 @@
+# syntax=docker/dockerfile:1
+# voice-cli Linux x86_64 **Vulkan 档** 构建容器（OSS bundle 用）。
+#
+# 与 Dockerfile.voice-cli（CPU/CUDA 通用）的差异：
+# - 基底 ubuntu:24.04（**必须 ≥24.04**：glslc 独立包 jammy 没有；glibc 下限随之为
+#   2.39，与 226 构建机配方等价，vulkan 档目标机均为新 Ubuntu；npm 切片仍是 22.04）
+# - 安装 libvulkan-dev + glslc/glslang-tools（ggml-vulkan 编译期编译 .comp shader，
+#   FindVulkan 找不到 glslc 会失败；编译期无需 GPU/驱动）
+# - rpath $ORIGIN 由仓库根 .cargo/config.toml 的 unix 段提供（Linux 生效），
+#   构建 RUN 内 readelf 校验缺失即失败（systemd 下伴生 .so 找不到会启动 127）
+# - export 阶段带出伴生 CPU .so 两枚（bundle 打包脚本 pack-voice-cli-vulkan 的输入）
+#
+# 用法（Mac Docker Desktop，amd64 走 Rosetta）：
+#   bash docker/fetch-sherpa.sh amd64   # 已含 static；shared-lib 变体见 README
+#   docker buildx build --platform linux/amd64 --target export \
+#     --output type=local,dest=./dist/voice-cli-vulkan \
+#     -f docker/Dockerfile.voice-cli-vulkan .
+#   bash scripts/ci/pack-voice-cli-vulkan-linux-x64.sh   # 版本取 manifest assetVersion
+FROM ubuntu:24.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl build-essential pkg-config git \
+    libclang-dev clang cmake \
+    libvulkan-dev glslang-tools glslc \
+    && rm -rf /var/lib/apt/lists/*
+
+# rustup 走 rsproxy 镜像（ustc 的 rustup-init 路径 404；容器网络经宿主，
+# 直连 static.rust-lang.org 慢/不稳）
+ENV RUSTUP_DIST_SERVER=https://rsproxy.cn \
+    RUSTUP_UPDATE_ROOT=https://rsproxy.cn/rustup
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.93.0 --profile minimal
+ENV PATH=/root/.cargo/bin:$PATH
+
+# crates.io 依赖解析走 ustc sparse 镜像（只影响下载源，不影响产物）
+RUN mkdir -p /root/.cargo && printf '[source.crates-io]\nreplace-with = "ustc"\n\n[source.ustc]\nregistry = "sparse+https://mirrors.ustc.edu.cn/crates.io-index/"\n' > /root/.cargo/config.toml
+
+WORKDIR /app
+COPY . .
+# 仓库根 .cargo/ 被 .dockerignore 排除（COPY . . 拿不到），rpath $ORIGIN 的
+# target rustflags 在其中——从 docker/ 显式补入镜像的 .cargo/（与 home 的
+# 镜像 config 分层合并：home=源替换，repo=rpath）。
+# 宿主侧配套：cp .cargo/config.toml docker/cargo-config-linux-rpath.toml
+COPY docker/cargo-config-linux-rpath.toml .cargo/config.toml
+
+# sherpa-onnx 预编译 C 库缓存（shared-lib 变体，fetch 脚本不含——手动下载：
+#   ghproxy 下载 sherpa-onnx-v1.13.3-linux-x64-shared-lib.tar.bz2 到本目录）
+ENV SHERPA_ONNX_ARCHIVE_DIR=/app/docker/sherpa-cache
+
+ARG VOICE_FEATURES=vulkan
+RUN cargo build --release -p voice-cli --features "${VOICE_FEATURES}" \
+    && echo "=== rpath check ===" \
+    && (readelf -d target/release/voice-cli | grep -E 'RUNPATH|RPATH' \
+        || echo "!! no RUNPATH/RPATH entry") \
+    && mkdir -p /output \
+    && cp target/release/voice-cli /output/ \
+    && find target/sherpa-onnx-prebuilt \
+        \( -name 'libsherpa-onnx-c-api.so' -o -name 'libonnxruntime.so' \) \
+        -exec cp {} /output/ \; \
+    && ls -la /output/ \
+    && readelf -d /output/voice-cli | grep -E 'RUNPATH|RPATH' | grep -F '$ORIGIN'
+
+FROM scratch AS export
+COPY --from=builder /output/ /
