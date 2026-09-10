@@ -427,7 +427,7 @@ impl DummyRx {
 pub(crate) struct DummyTask;
 #[cfg(windows)]
 impl DummyTask {
-    fn abort(&self) {}
+    pub(crate) fn abort(&self) {}
 }
 
 /// 平台统一的子进程句柄：Unix 用 process-wrap 的 ChildWrapper（进程组语义）；
