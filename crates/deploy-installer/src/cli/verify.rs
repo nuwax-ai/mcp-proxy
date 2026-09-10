@@ -238,32 +238,45 @@ pub fn verify_voice_cli(install_dir: Option<PathBuf>) -> Result<()> {
         }
     }
 
-    // 3. whisper 模型在场 → 转写冒烟；缺失 → WARN 跳过
-    let has_model = std::fs::read_dir(dir.join("models"))
+    // 3. whisper 模型在场 → 转写冒烟；缺失 → WARN 跳过。
+    // 模型选择：config 的 whisper.default_model（安装器 patch 为 large-v3）对应的
+    // ggml 文件在场则用之；否则回退任一在场 ggml-*.bin（vulkan/cuda 档机器可能
+    // 只放了 base——default 与实际不符时不误报）
+    let models_dir = dir.join("models");
+    let present_models: Vec<String> = std::fs::read_dir(&models_dir)
         .map(|entries| {
-            entries.filter_map(|e| e.ok()).any(|e| {
-                let n = e.file_name().to_string_lossy().to_string();
-                n.starts_with("ggml-") && n.ends_with(".bin")
-            })
+            entries
+                .filter_map(|e| e.ok())
+                .filter_map(|e| {
+                    let n = e.file_name().to_string_lossy().to_string();
+                    n.strip_prefix("ggml-")
+                        .and_then(|s| s.strip_suffix(".bin"))
+                        .map(String::from)
+                })
+                .collect()
         })
-        .unwrap_or(false);
-    if !has_model {
+        .unwrap_or_default();
+    let Some(model) = read_whisper_default_model(&dir.join(CONFIG_FILENAME))
+        .filter(|m| present_models.contains(m))
+        .or_else(|| present_models.first().cloned())
+    else {
         println!("  transcribe:    WARN (no models/ggml-*.bin — 重跑 install 下载，或手动放置)");
         return finish("voice-cli", failures);
-    }
+    };
 
-    // default_model 由安装器 patch 为 large-v3；正弦波转写只验链路完整性
     let wav = std::env::temp_dir().join(format!("vc-verify-{}.wav", std::process::id()));
     write_sine_wav(&wav, 1.0)?;
     let body = curl_post_file(
         &format!("{base}/transcribe"),
         &wav,
         "file",
-        &[("model", "large-v3")],
+        &[("model", model.as_str())],
     );
     let _ = std::fs::remove_file(&wav);
     match body {
-        Some(b) if code_ok(&b, "transcribe") => println!("  transcribe:    OK (STT 链路完整)"),
+        Some(b) if code_ok(&b, "transcribe") => {
+            println!("  transcribe:    OK (model={model}, STT 链路完整)")
+        }
         _ => {
             println!("  transcribe:    FAIL");
             failures += 1;
@@ -271,6 +284,27 @@ pub fn verify_voice_cli(install_dir: Option<PathBuf>) -> Result<()> {
     }
 
     finish("voice-cli", failures)
+}
+
+/// 读 config.yml 的 `whisper.default_model`（安装器 patch 为 large-v3；
+/// 简单行扫描，照 read_server_port 模式）
+fn read_whisper_default_model(config_path: &Path) -> Option<String> {
+    let content = std::fs::read_to_string(config_path).ok()?;
+    let mut in_whisper = false;
+    for line in content.lines() {
+        let t = line.trim();
+        if !line.starts_with(' ') && !line.starts_with('\t') && !t.is_empty() && !t.starts_with('#')
+        {
+            in_whisper = t.starts_with("whisper:");
+            continue;
+        }
+        if in_whisper {
+            if let Some(rest) = t.strip_prefix("default_model:") {
+                return Some(rest.trim().trim_matches('"').trim_matches('\'').to_string());
+            }
+        }
+    }
+    None
 }
 
 fn finish(service: &str, failures: u32) -> Result<()> {
