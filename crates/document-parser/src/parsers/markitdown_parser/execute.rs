@@ -107,9 +107,9 @@ impl super::MarkItDownParser {
         //（mineru 同款问题，详见 mineru execute 注释）——统一文件重定向
         #[cfg(windows)]
         {
-            let out_log = std::fs::File::create(output_log_path(output_file))
+            let out_log = std::fs::File::create(output_log_path(&output_file))
                 .map_err(|e| AppError::MarkItDown(format!("创建 stdout 日志失败: {e}")))?;
-            let err_log = std::fs::File::create(err_log_path(output_file))
+            let err_log = std::fs::File::create(err_log_path(&output_file))
                 .map_err(|e| AppError::MarkItDown(format!("创建 stderr 日志失败: {e}")))?;
             cmd.stdout(Stdio::from(out_log))
                 .stderr(Stdio::from(err_log));
@@ -232,10 +232,10 @@ impl super::MarkItDownParser {
                                 // Windows 文件重定向：结束后读日志兜底
                                 #[cfg(windows)]
                                 {
-                                    if let Ok(content) = std::fs::read_to_string(err_log_path(output_file)) {
+                                    if let Ok(content) = std::fs::read_to_string(err_log_path(&output_file)) {
                                         stderr_output = content;
                                     }
-                                    if let Ok(content) = std::fs::read_to_string(output_log_path(output_file)) {
+                                    if let Ok(content) = std::fs::read_to_string(output_log_path(&output_file)) {
                                         for line in content.lines() {
                                             if line.contains("Created temp file:")
                                                 && let Some(fp) = line.split("Created temp file:").nth(1) {
