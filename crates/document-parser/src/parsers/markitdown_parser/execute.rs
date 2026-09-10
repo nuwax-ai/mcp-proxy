@@ -93,28 +93,31 @@ impl super::MarkItDownParser {
 
         debug!("Execute MarkItDown command: {:?}", cmd);
 
-        // 进程树级击杀（同 mineru execute：Unix ProcessGroup / Windows JobObject）
-        let mut wrapped = process_wrap::tokio::CommandWrap::from(cmd);
+        // 进程树级击杀（同 mineru execute：Unix 进程组；Windows 原生 creation_flags，
+        // process-wrap 的 spawn 路径与 mineru 3.4.5 不兼容，详见 mineru execute 注释）
         #[cfg(unix)]
-        wrapped.wrap(process_wrap::tokio::ProcessGroup::leader());
+        let mut child = {
+            let mut wrapped = process_wrap::tokio::CommandWrap::from(cmd);
+            wrapped.wrap(process_wrap::tokio::ProcessGroup::leader());
+            wrapped.wrap(process_wrap::tokio::KillOnDrop);
+            wrapped
+                .spawn()
+                .map_err(|e| AppError::MarkItDown(format!("启动MarkItDown进程失败: {e}")))?
+        };
         #[cfg(windows)]
-        {
-            // JobObject 实测与 mineru 3.4.5 的本地 api 子进程不兼容（Win53 退出码
-            // 120、输出为空）——只用无害的 CreationFlags；树杀走 kill_tree 的
-            // taskkill /T（不改变子进程运行环境）
-            use process_wrap::tokio::CreationFlags;
-            use windows::Win32::System::Threading::{CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW};
-            wrapped.wrap(CreationFlags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP));
-        }
-        wrapped.wrap(process_wrap::tokio::KillOnDrop);
+        let mut child = {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+            cmd.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
+            cmd.kill_on_drop(true);
+            cmd.spawn()
+                .map_err(|e| AppError::MarkItDown(format!("启动MarkItDown进程失败: {e}")))?
+        };
 
-        let mut child = wrapped
-            .spawn()
-            .map_err(|e| AppError::MarkItDown(format!("启动MarkItDown进程失败: {e}")))?;
-
-        // 监控进程输出
-        let stdout = child.stdout().take().unwrap();
-        let stderr = child.stderr().take().unwrap();
+        // 监控进程输出（unix: wrapped ChildWrapper；windows: 原生 Child）
+        let stdout = crate::parsers::mineru_parser::execute::child_stdout(&mut child).unwrap();
+        let stderr = crate::parsers::mineru_parser::execute::child_stderr(&mut child).unwrap();
 
         let stdout_reader = BufReader::new(stdout);
         let stderr_reader = BufReader::new(stderr);

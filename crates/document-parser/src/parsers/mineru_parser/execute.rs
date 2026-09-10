@@ -111,32 +111,39 @@ impl super::MinerUParser {
         );
         info!("Execute MinerU command: {:?}", cmd);
 
-        // 进程树级击杀：Unix 进程组 / Windows JobObject + Drop 清理——
-        // Child::kill 只杀直接子进程，mineru 的孙进程曾成僵尸泄漏（Win53 实测）
-        let mut wrapped = process_wrap::tokio::CommandWrap::from(cmd);
+        // 进程树级击杀：Unix 进程组（process-wrap；孙进程一并终止——Win53 曾
+        // 僵尸泄漏）。Windows 弃用 process-wrap：实测其 spawn 路径与 mineru
+        // 3.4.5 不兼容（退出码 120，无论 JobObject 还是仅 CreationFlags 包
+        // 装器），改用 tokio Command 原生 creation_flags + KillOnDrop（与
+        // 直跑成功路径等价）；树杀由 kill_tree 的 taskkill /T 承担
         #[cfg(unix)]
-        wrapped.wrap(process_wrap::tokio::ProcessGroup::leader());
+        let mut child = {
+            let mut wrapped = process_wrap::tokio::CommandWrap::from(cmd);
+            wrapped.wrap(process_wrap::tokio::ProcessGroup::leader());
+            wrapped.wrap(process_wrap::tokio::KillOnDrop);
+            wrapped.spawn().map_err(|e| {
+                error!("Failed to start child process: {}", e);
+                AppError::MinerU(format!("启动MinerU进程失败: {e}"))
+            })?
+        };
         #[cfg(windows)]
-        {
-            // JobObject 实测与 mineru 3.4.5 的本地 api 子进程不兼容（Win53 退出码
-            // 120、输出为空）——只用无害的 CreationFlags；树杀走 kill_tree 的
-            // taskkill /T（不改变子进程运行环境）
-            use process_wrap::tokio::CreationFlags;
-            use windows::Win32::System::Threading::{CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW};
-            wrapped.wrap(CreationFlags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP));
-        }
-        wrapped.wrap(process_wrap::tokio::KillOnDrop);
-
-        let mut child = wrapped.spawn().map_err(|e| {
-            error!("Failed to start MinerU process: {}", e);
-            AppError::MinerU(format!("启动MinerU进程失败: {e}"))
-        })?;
+        let mut child = {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+            cmd.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
+            cmd.kill_on_drop(true);
+            cmd.spawn().map_err(|e| {
+                error!("Failed to start child process: {}", e);
+                AppError::MinerU(format!("启动MinerU进程失败: {e}"))
+            })?
+        };
 
         info!("MinerU process has been started, PID: {:?}", child.id());
 
-        // 监控进程输出
-        let stdout = child.stdout().take().unwrap();
-        let stderr = child.stderr().take().unwrap();
+        // 监控进程输出（unix: wrapped ChildWrapper；windows: 原生 Child——统一经辅助取流）
+        let stdout = child_stdout(&mut child).unwrap();
+        let stderr = child_stderr(&mut child).unwrap();
 
         let stdout_reader = BufReader::new(stdout);
         let stderr_reader = BufReader::new(stderr);
@@ -372,15 +379,52 @@ mod tree_kill_tests {
     }
 }
 
-/// 进程树击杀：Unix 在 ProcessGroup::leader 下 kill 即组杀；Windows 用
-/// `taskkill /PID <pid> /T /F`（官方树杀，孙进程一并终止——JobObject 方案与
-/// mineru 3.4.5 本地 api 子进程不兼容，Win53 实测退出码 120）
-pub(crate) async fn kill_tree(child: &mut Box<dyn process_wrap::tokio::ChildWrapper>) {
+/// 平台统一的子进程句柄：Unix 用 process-wrap 的 ChildWrapper（进程组语义）；
+/// Windows 用原生 tokio Child（process-wrap 的 spawn 路径与 mineru 3.4.5 的
+/// 本地 api 子进程不兼容——Win53 实测退出码 120，无论 JobObject 还是仅
+/// CreationFlags 包装器；原生 creation_flags 与直跑成功路径等价）
+#[cfg(unix)]
+pub(crate) type ManagedChild = Box<dyn process_wrap::tokio::ChildWrapper>;
+#[cfg(windows)]
+pub(crate) type ManagedChild = tokio::process::Child;
+
+pub(crate) fn child_stdout(child: &mut ManagedChild) -> Option<tokio::process::ChildStdout> {
+    #[cfg(unix)]
+    {
+        child.stdout().take()
+    }
+    #[cfg(windows)]
+    {
+        child.stdout.take()
+    }
+}
+
+pub(crate) fn child_stderr(child: &mut ManagedChild) -> Option<tokio::process::ChildStderr> {
+    #[cfg(unix)]
+    {
+        child.stderr().take()
+    }
+    #[cfg(windows)]
+    {
+        child.stderr.take()
+    }
+}
+
+/// 进程树击杀：Unix 在 ProcessGroup::leader 下 kill 即组杀；Windows 先
+/// `taskkill /PID <pid> /T /F`（官方树杀，孙进程一并终止）再 child.kill()
+pub(crate) async fn kill_tree(child: &mut ManagedChild) {
     #[cfg(windows)]
     if let Some(pid) = child.id() {
         let _ = std::process::Command::new("taskkill")
             .args(["/PID", &pid.to_string(), "/T", "/F"])
             .status();
     }
-    let _ = Box::into_pin(child.kill()).await;
+    #[cfg(unix)]
+    {
+        let _ = Box::into_pin(child.kill()).await;
+    }
+    #[cfg(windows)]
+    {
+        let _ = child.kill().await;
+    }
 }
