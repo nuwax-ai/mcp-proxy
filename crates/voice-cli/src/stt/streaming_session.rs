@@ -78,6 +78,13 @@ impl std::error::Error for SessionError {}
 pub trait Decoder: Send + Sync + 'static {
     /// 同步解码 samples → 带时间戳的 segments
     fn decode(&self, samples: &[f32]) -> Result<Vec<SttSegment>, SttError>;
+
+    /// 握手期预热（默认 no-op）。Whisper 实现预初始化引擎池——把懒加载失败
+    /// （模型文件缺失/损坏）从首帧 decode 提前到 ready 之前，客户端能立即
+    /// 收到 error 事件而非 ready 后静默断开。
+    fn prepare(&self) -> Result<(), SttError> {
+        Ok(())
+    }
 }
 
 /// transcribe-rs Whisper 解码器（真实实现）
@@ -89,6 +96,11 @@ pub struct WhisperDecoder {
 }
 
 impl Decoder for WhisperDecoder {
+    fn prepare(&self) -> Result<(), SttError> {
+        let key = EngineKey::new(&self.model_id);
+        get_or_init_whisper(key, self.model_path.clone(), self.pool_size).map(|_| ())
+    }
+
     fn decode(&self, samples: &[f32]) -> Result<Vec<SttSegment>, SttError> {
         let key = EngineKey::new(&self.model_id);
         let pool = get_or_init_whisper(key, self.model_path.clone(), self.pool_size)?;

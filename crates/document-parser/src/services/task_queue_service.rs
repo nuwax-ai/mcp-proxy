@@ -231,10 +231,10 @@ impl TaskQueueService {
         // 将所有进行中任务统一改为 pending 状态，然后重新入队
         // 这样 worker 真正执行时会重新设置为 processing 状态
         for task_id in all_need_process_tasks.clone() {
-            // 使用强制更新，跳过状态转换验证（仅在服务重启恢复时使用）
+            // 强制更新（跳过终态保护——重启恢复需覆盖任何遗留状态）
             if let Err(e) = self
                 .task_service
-                .update_task_status(task_id, TaskStatus::new_pending())
+                .force_update_task_status(task_id, TaskStatus::new_pending())
                 .await
             {
                 warn!("Failed to re-mark ongoing task status {}: {}", task_id, e);
@@ -553,10 +553,19 @@ impl TaskQueueService {
         });
     }
 
-    /// 启动健康检查协程
+    /// 启动健康检查协程（含孤儿任务看门狗）
+    ///
+    /// 两层职责：
+    /// 1. 活跃 worker 挂账超时告警（原逻辑：elapsed > 2×task_timeout 只 warn +
+    ///    置 is_healthy=0——worker 自身有 task_timeout 强杀，这里保持观测不动手）
+    /// 2. **孤儿看门狗**：DB 里 Processing 但**不在** processing_tasks 挂账里的
+    ///    任务（服务异常路径遗留：worker 崩溃/重启竞态/未来 bug），且心跳
+    ///    （updated_at）停滞超过 2×task_timeout——没人会再推进它，写 Failed
+    ///    释放。不碰挂账中的任务（worker 的超时兜底负责），避免与 worker 竞争。
     async fn spawn_health_checker(&self) {
         let is_healthy = Arc::clone(&self.is_healthy);
         let processing_tasks = Arc::clone(&self.processing_tasks);
+        let task_service = Arc::clone(&self.task_service);
         let config = self.config.clone();
         let mut shutdown_rx = self.shutdown_receiver.clone();
 
@@ -575,7 +584,7 @@ impl TaskQueueService {
                         let now = Instant::now();
                         let mut unhealthy_tasks = 0;
 
-                        // 检查是否有任务超时
+                        // 1. 活跃 worker 挂账超时告警
                         {
                             let tasks = processing_tasks.read().await;
                             for (task_id, context) in tasks.iter() {
@@ -583,6 +592,46 @@ impl TaskQueueService {
                                 if elapsed > config.task_timeout * 2 {
                                     warn!("Possibly stuck task detected: {} (running time: {:?})", task_id, elapsed);
                                     unhealthy_tasks += 1;
+                                }
+                            }
+                        }
+
+                        // 2. 孤儿看门狗：DB Processing 且不在挂账、心跳停滞的任务
+                        //    写 Failed（幂等：set_task_error 有终态保护）
+                        if let Ok(stats) = task_service.get_task_stats().await {
+                            let active: std::collections::HashSet<String> = {
+                                let tasks = processing_tasks.read().await;
+                                tasks.keys().cloned().collect()
+                            };
+                            for orphan_id in &stats.processing_ids {
+                                if active.contains(orphan_id) {
+                                    continue;
+                                }
+                                let Ok(Some(task)) = task_service.get_task(orphan_id).await else {
+                                    continue;
+                                };
+                                let stale_for = chrono::Utc::now()
+                                    .signed_duration_since(task.updated_at);
+                                let threshold =
+                                    chrono::Duration::from_std(config.task_timeout * 2)
+                                        .unwrap_or(chrono::Duration::hours(2));
+                                if stale_for > threshold {
+                                    error!(
+                                        "Watchdog: orphan Processing task {} marked Failed \
+                                         (no worker owns it, updated_at stalled {}s ago)",
+                                        orphan_id, stale_for.num_seconds()
+                                    );
+                                    let _ = task_service
+                                        .set_task_error(
+                                            orphan_id,
+                                            format!(
+                                                "任务疑似孤儿（看门狗）：无 worker 处理且 \
+                                                 心跳停滞 {}s，超过 {}s 阈值",
+                                                stale_for.num_seconds(),
+                                                threshold.num_seconds()
+                                            ),
+                                        )
+                                        .await;
                                 }
                             }
                         }

@@ -43,34 +43,9 @@ pub enum ProcessingStage {
     Cancelled,
 }
 
-/// 取消令牌
-#[derive(Debug, Clone)]
-pub struct CancellationToken {
-    inner: Arc<RwLock<bool>>,
-}
-
-impl Default for CancellationToken {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl CancellationToken {
-    pub fn new() -> Self {
-        Self {
-            inner: Arc::new(RwLock::new(false)),
-        }
-    }
-
-    pub async fn cancel(&self) {
-        let mut cancelled = self.inner.write().await;
-        *cancelled = true;
-    }
-
-    pub async fn is_cancelled(&self) -> bool {
-        *self.inner.read().await
-    }
-}
+// CancellationToken 统一复用 mineru_parser 的定义（此前两份等价副本并存；
+// 任务级取消打通需要跨引擎共用同一类型），re-export 保持本模块旧引用不变
+pub use super::mineru_parser::CancellationToken;
 
 /// MarkItDown配置
 #[derive(Debug, Clone)]
@@ -675,6 +650,15 @@ impl MarkItDownParser {
 #[async_trait]
 impl DocumentParser for MarkItDownParser {
     async fn parse(&self, file_path: &str) -> Result<ParseResult, AppError> {
+        self.parse_with_cancel(file_path, None).await
+    }
+
+    /// 任务级取消：令牌经 parse_with_progress 传给 execute 层 select 轮询
+    async fn parse_with_cancel(
+        &self,
+        file_path: &str,
+        cancel: Option<CancellationToken>,
+    ) -> Result<ParseResult, AppError> {
         let detector = FormatDetector::new();
         let detection = detector.detect_format(file_path, None)?;
         let format = detection.format;
@@ -691,7 +675,7 @@ impl DocumentParser for MarkItDownParser {
             |_progress| {
                 // 默认不处理进度回调
             },
-            None,
+            cancel,
         )
         .await
     }

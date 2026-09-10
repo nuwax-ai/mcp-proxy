@@ -223,6 +223,34 @@ impl AppConfig {
             });
         }
 
+        // 上传后端防呆：OSS 密钥已生效（后端选了 OSS）而 bucket 仍是模板占位符时，
+        // 异步上传要到运行期才炸 E010（2026-09-10 三机深测实测）——提前到启动期。
+        // custom 上传后端（DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL 已设，经
+        // .document-parser.env 注入进程环境）不走 OSS 上传，跳过校验。
+        let custom_backend = std::env::var("DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL")
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false);
+        if !custom_backend && self.storage.oss.keys_effective() {
+            for (field, bucket) in [
+                ("storage.oss.public_bucket", &self.storage.oss.public_bucket),
+                (
+                    "storage.oss.private_bucket",
+                    &self.storage.oss.private_bucket,
+                ),
+            ] {
+                if super::storage::OSS_BUCKET_PLACEHOLDERS.contains(&bucket.as_str()) {
+                    return Err(ConfigError::Validation {
+                        field: field.to_string(),
+                        message: format!(
+                            "OSS bucket 仍是模板占位符 {bucket}——请在 config.yml 填真实 \
+                             bucket，或在 .document-parser.env 设置 \
+                             ALIYUN_OSS_PUBLIC_BUCKET/ALIYUN_OSS_PRIVATE_BUCKET"
+                        ),
+                    });
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -506,6 +534,70 @@ impl AppConfig {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    /// OSS bucket 占位符校验的三态：密钥未生效不校验 / OSS+占位符拒绝 / custom 后端豁免。
+    /// 触碰进程环境的用例须持锁串行（cross_validate 读 DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL）。
+    #[test]
+    fn test_oss_bucket_placeholder_guard() {
+        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let old_custom = std::env::var("DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL").ok();
+        // SAFETY: 测试进程内持 ENV_LOCK 串行修改该环境变量，无并发访问
+        unsafe { std::env::remove_var("DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL") };
+
+        let mut config = AppConfig::load_base_config().unwrap();
+        // 显式设占位符 + 字面量密钥：不依赖加载到的 config.yml 内容（本地开发
+        // config 可能有真实 bucket），保证三种状态的输入确定
+        config.storage.oss.public_bucket = "your-public-bucket".to_string();
+        config.storage.oss.private_bucket = "your-private-bucket".to_string();
+        config.storage.oss.access_key_id = "${OSS_ACCESS_KEY_ID}".to_string();
+        config.storage.oss.access_key_secret = "${OSS_ACCESS_KEY_SECRET}".to_string();
+        // 模板默认：bucket 是占位符但密钥是 ${...} 字面量（未生效）→ 后端未选 OSS，不校验
+        assert!(
+            config.validate().is_ok(),
+            "OSS 密钥未生效时占位符 bucket 不应触发校验"
+        );
+
+        // 密钥生效（模拟 env 覆盖后）+ 占位符 bucket → 启动期拒绝（异步上传 E010 前移）
+        config.storage.oss.access_key_id = "real-ak".to_string();
+        config.storage.oss.access_key_secret = "real-sk".to_string();
+        let err = config
+            .validate()
+            .expect_err("OSS 后端 + 占位符 bucket 应在启动期被拒绝");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("your-public-bucket") || msg.contains("占位符"),
+            "报错应可定位问题: {msg}"
+        );
+
+        // bucket 修正后通过
+        config.storage.oss.public_bucket = "nuwa-packages".to_string();
+        config.storage.oss.private_bucket = "nuwa-packages".to_string();
+        assert!(config.validate().is_ok());
+
+        // custom 上传后端部署（env 已设）不走 OSS 上传 → 占位符放行（131/53 既有模式）
+        config.storage.oss.public_bucket = "your-public-bucket".to_string();
+        config.storage.oss.private_bucket = "your-private-bucket".to_string();
+        // SAFETY: 同上，持锁串行
+        unsafe {
+            std::env::set_var(
+                "DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL",
+                "https://x.example.com",
+            )
+        };
+        assert!(
+            config.validate().is_ok(),
+            "custom 后端部署应跳过 OSS bucket 校验"
+        );
+
+        // SAFETY: 同上，持锁串行还原
+        unsafe {
+            match old_custom {
+                Some(v) => std::env::set_var("DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL", v),
+                None => std::env::remove_var("DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL"),
+            }
+        }
+    }
 
     #[test]
     fn test_default_config_loading() {

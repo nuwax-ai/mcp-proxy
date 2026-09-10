@@ -22,6 +22,10 @@ use crate::processors::markdown_processor::{CacheStatistics, MarkdownProcessorCo
 use crate::services::TaskService;
 use crate::services::upload_pipeline::TaskUploader;
 
+/// 解析期心跳间隔：parse_document 内 30s touch 一次任务记录（updated_at 推进），
+/// 让"长解析"与"卡死"在运维视角可区分（此前 MinerUExecuting 全程零任务写入）
+const PARSE_HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// 图片上传/路径替换/换签族方法。
 mod images;
 /// 任务生命周期族方法（状态安全更新/任务创建/状态查询）。
@@ -164,11 +168,34 @@ impl DocumentService {
     ) -> AnyhowResult<ParseResult> {
         info!("Start parsing the document: {}", file_path);
 
-        // Wrap the entire operation in a timeout
+        // 任务级取消令牌：注册 + 下传（cancel_task → parse_cancel::request_parse_cancel
+        // → execute 层 select 轮询 kill 子进程）；结束路径统一注销
+        let cancel_token = crate::parsers::mineru_parser::CancellationToken::new();
+        crate::services::parse_cancel::register(task_id, cancel_token.clone());
+
+        // 心跳 + 总超时：解析期（尤其 MinerUExecuting 可能数十分钟）此前零任务
+        // 写入，updated_at 冻结在阶段入口，运维无从分辨"在算"还是"已死"——
+        // 30s touch 一次让 updated_at 持续推进；超时/取消/正常结束都停止心跳
         let result = timeout(self.config.task_timeout, async {
-            self.parse_document_internal(task_id, file_path).await
+            let parse_fut = self.parse_document_internal(task_id, file_path, cancel_token);
+            tokio::pin!(parse_fut);
+            let mut heartbeat = tokio::time::interval(PARSE_HEARTBEAT_INTERVAL);
+            heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            heartbeat.tick().await; // 消化 interval 立即到达的首个 tick
+            loop {
+                tokio::select! {
+                    r = &mut parse_fut => break r,
+                    _ = heartbeat.tick() => {
+                        if let Err(e) = self.task_service.touch_task(task_id).await {
+                            warn!("heartbeat: touch task {task_id} failed: {e}");
+                        }
+                    }
+                }
+            }
         })
         .await;
+
+        crate::services::parse_cancel::unregister(task_id);
 
         match result {
             Ok(parse_result) => parse_result,
@@ -240,6 +267,7 @@ impl DocumentService {
         &self,
         task_id: &str,
         file_path: &str,
+        cancel_token: crate::parsers::mineru_parser::CancellationToken,
     ) -> AnyhowResult<ParseResult> {
         debug!(
             "parse_document_internal - Task ID: {}, File path: {}",
@@ -330,7 +358,7 @@ impl DocumentService {
         );
         let parse_result = self
             .dual_parser
-            .parse_document_auto(&absolute_path)
+            .parse_document_auto_with_cancel(&absolute_path, Some(cancel_token))
             .await
             .with_context(|| "文档解析失败[parse_document_internal]".to_string())?;
         debug!(

@@ -11,13 +11,24 @@ use std::path::Path;
 /// 语义与 document-parser 侧 `load_custom_upload_config_from_env` 对齐：
 /// `DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL` trim 后非空即启用自定义后端，
 /// api_key 允许为空（无鉴权部署），path 兜底 `/api/v1/file/upload`。
+///
+/// `ALIYUN_OSS_*_BUCKET` 与运行时 `load_oss_config_from_env` 的覆盖键同名
+/// （app_config.rs）——config.yml 模板的 bucket 占位符可经这两个键注入，
+/// 不落盘则用户须手改 config.yml（安装期有占位符 fail-fast 校验）。
 pub const UPLOAD_ENV_KEYS: &[&str] = &[
     "OSS_ACCESS_KEY_ID",
     "OSS_ACCESS_KEY_SECRET",
+    "ALIYUN_OSS_PUBLIC_BUCKET",
+    "ALIYUN_OSS_PRIVATE_BUCKET",
     "DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL",
     "DOCUMENT_PARSER_CUSTOM_UPLOAD_API_KEY",
     "DOCUMENT_PARSER_CUSTOM_UPLOAD_PATH",
 ];
+
+/// config.yml 模板里 OSS bucket 的占位符值——OSS 密钥已配置而 bucket 仍是
+/// 这些值时，异步上传会在运行期才炸 E010（2026-09-10 三机深测实测），
+/// 安装期与运行期校验都拒绝。
+pub const OSS_BUCKET_PLACEHOLDERS: &[&str] = &["your-public-bucket", "your-private-bucket"];
 
 /// 把上传后端配置（OSS 密钥与/或自定义上传后端变量）从环境落盘到 `.env`。
 ///

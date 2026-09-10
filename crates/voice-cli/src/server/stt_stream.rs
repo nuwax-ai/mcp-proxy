@@ -74,11 +74,32 @@ async fn run_stream_session(socket: WebSocket, state: AppState) {
         );
     }
 
-    // 1. 等 start 帧（10s 超时）
+    // 1. 等 start 帧（10s 超时）——所有失败路径都先推 error 事件再关闭
+    //（客户端能区分"自己 JSON 写错/超时"与网络断开，观测性对齐 TTS 端点）
     let start = match tokio::time::timeout(Duration::from_secs(10), stream.next()).await {
-        Ok(Some(Ok(Message::Text(t)))) => parse_start(&t),
+        Ok(Some(Ok(Message::Text(t)))) => match parse_start(&t) {
+            Ok(f) => f,
+            Err(e) => {
+                warn!("stream session: start 帧解析失败: {e}");
+                let _ = send_event(
+                    &mut sink,
+                    StreamEvent::Error {
+                        message: format!("start 帧解析失败: {e}"),
+                    },
+                )
+                .await;
+                return;
+            }
+        },
         _ => {
             warn!("stream session: 未收到合法 start 帧");
+            let _ = send_event(
+                &mut sink,
+                StreamEvent::Error {
+                    message: "10 秒内未收到合法 start 帧".to_string(),
+                },
+            )
+            .await;
             return;
         }
     };
@@ -178,8 +199,26 @@ async fn run_stream_session(socket: WebSocket, state: AppState) {
         output_script: engine.output_script,
     };
 
+    // 2.5 握手期预热引擎池：模型懒加载失败（文件缺失/损坏）在 ready 之前暴露，
+    // 客户端立即收到 error 而非 ready 后首帧静默断开（2026-09-10 深测 53 实况）
+    {
+        let warm = decoder.clone();
+        let prepared = tokio::task::spawn_blocking(move || warm.prepare()).await;
+        let failure = match prepared {
+            Ok(Ok(())) => None,
+            Ok(Err(e)) => Some(format!("流式引擎预热失败: {e}")),
+            Err(e) => Some(format!("流式引擎预热任务失败: {e}")),
+        };
+        if let Some(message) = failure {
+            let _ = send_event(&mut sink, StreamEvent::Error { message }).await;
+            return;
+        }
+    }
+
     // 3. mpsc + StreamingSession
     let (event_tx, event_rx) = tokio::sync::mpsc::channel::<StreamEvent>(32);
+    // 主循环错误上报通道：sink 已 move 进转发任务，主循环只能经 event 通道发事件
+    let error_tx = event_tx.clone();
     let cancel = Arc::new(AtomicBool::new(false));
     let mut session = StreamingSession::new(session_cfg, decoder.clone(), event_tx, cancel.clone());
 
@@ -227,6 +266,13 @@ async fn run_stream_session(socket: WebSocket, state: AppState) {
                     let samples = pcm_s16le_to_f32(&bytes);
                     if let Err(e) = session.push_samples(&samples).await {
                         warn!("stream session push_samples failed: {e}");
+                        // 经 event 通道告知客户端再退出（sink 在转发任务里）；
+                        // 之后 finish 大概率同样失败，客户端至少拿到失败原因
+                        let _ = error_tx
+                            .send(StreamEvent::Error {
+                                message: format!("音频处理失败: {e}"),
+                            })
+                            .await;
                         break;
                     }
                 }
@@ -243,14 +289,27 @@ async fn run_stream_session(socket: WebSocket, state: AppState) {
 
     // 6. finish（flush + Done）→ forwarder 收 Done 退出
     cancel.store(true, Ordering::Release);
-    if let Err(e) = session.finish().await {
+    let finish_result = session.finish().await;
+    // 先释放两侧 sender 再 join 转发任务：finish 失败时无 Done 事件，
+    // forwarder 只能靠通道关闭退出——若等 forward.await 之后才 drop 会互相等死锁
+    drop(session);
+    if let Err(e) = finish_result {
         warn!("stream session finish failed: {e}");
+        // 收尾失败客户端收不到 Done——经 event 通道补 error，避免只看到连接断开
+        let _ = error_tx
+            .send(StreamEvent::Error {
+                message: format!("会话收尾失败: {e}"),
+            })
+            .await;
     }
+    drop(error_tx);
     let _ = forward.await;
 }
 
-fn parse_start(text: &str) -> StreamStartFrame {
-    serde_json::from_str(text).unwrap_or_default()
+/// 解析 start 帧：非法 JSON 返回错误（调用方推 error 事件）——此前
+/// `unwrap_or_default()` 会静默落空值走默认模型，客户端无从得知帧写错了
+fn parse_start(text: &str) -> Result<StreamStartFrame, String> {
+    serde_json::from_str(text).map_err(|e| format!("非法 JSON: {e}"))
 }
 
 async fn send_event(
@@ -267,4 +326,43 @@ fn pcm_s16le_to_f32(bytes: &[u8]) -> Vec<f32> {
         .chunks_exact(2)
         .map(|c| i16::from_le_bytes([c[0], c[1]]) as f32 / 32768.0)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::stt::SttError;
+    use crate::stt::local_agreement::SttSegment;
+    use crate::stt::streaming_session::Decoder;
+
+    #[test]
+    fn parse_start_accepts_valid_and_rejects_garbage() {
+        // 合法帧：字段齐全
+        let f = parse_start(r#"{"type":"start","sample_rate":16000,"model":"base"}"#)
+            .expect("合法 start 帧应解析成功");
+        assert_eq!(f.sample_rate, Some(16000));
+        assert_eq!(f.model.as_deref(), Some("base"));
+
+        // 合法帧：未知字段忽略（前向兼容）
+        assert!(parse_start(r#"{"type":"start","future_field":1}"#).is_ok());
+
+        // 非法 JSON：显式报错（此前 unwrap_or_default 静默落空值）
+        let err = parse_start("not-json").expect_err("非法 JSON 应报错");
+        assert!(err.contains("非法 JSON"), "报错应说明原因: {err}");
+
+        // 缺 type 字段仍可解析（字段全部可选，与旧语义一致）
+        assert!(parse_start("{}").is_ok());
+    }
+
+    /// 默认 prepare() 是 no-op（新流式引擎可选实现预热；Whisper 已实现）
+    #[test]
+    fn decoder_default_prepare_is_noop() {
+        struct NoopDecoder;
+        impl Decoder for NoopDecoder {
+            fn decode(&self, _samples: &[f32]) -> Result<Vec<SttSegment>, SttError> {
+                Ok(vec![])
+            }
+        }
+        assert!(NoopDecoder.prepare().is_ok());
+    }
 }

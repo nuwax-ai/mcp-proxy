@@ -1,0 +1,18 @@
+[package]
+name = "test-e2e"
+description = "document-parser / voice-cli 已部署服务的端到端集成测试（本地或远程 IP:port 可配）"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+reqwest = { workspace = true, features = ["multipart"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+dotenvy = { workspace = true }
+tokio-tungstenite = { workspace = true }
+futures-util = { workspace = true }

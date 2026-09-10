@@ -3,6 +3,7 @@ pub mod document_service;
 pub mod document_task_processor;
 pub mod image_processor;
 pub mod oss_service;
+pub mod parse_cancel;
 pub mod storage_service;
 pub mod task_queue_service;
 pub mod task_service;

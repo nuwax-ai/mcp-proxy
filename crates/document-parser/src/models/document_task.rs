@@ -248,6 +248,11 @@ impl DocumentTask {
         Ok(())
     }
 
+    /// 心跳 touch：仅推进 updated_at（解析期长任务的存活信号，不改状态/进度）
+    pub fn touch(&mut self) {
+        self.updated_at = Utc::now();
+    }
+
     /// 设置错误信息（带验证）
     pub fn set_error(&mut self, error: String) -> Result<(), AppError> {
         if error.is_empty() {

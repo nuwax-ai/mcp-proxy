@@ -124,6 +124,11 @@ impl SledConfig {
     }
 }
 
+/// config.yml 模板里 OSS bucket 的占位符值。OSS 密钥已配置（后端选了 OSS）
+/// 而 bucket 仍是这些值时，异步上传要到运行期才炸 E010——启动期
+/// [`crate::config::AppConfig::cross_validate`] 会拒绝这种组合。
+pub const OSS_BUCKET_PLACEHOLDERS: &[&str] = &["your-public-bucket", "your-private-bucket"];
+
 /// OSS配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OssConfig {
@@ -140,6 +145,17 @@ pub struct OssConfig {
     pub upload_directory: String,
     /// 区域 (默认: oss-rg-china-mainland)
     pub region: String,
+}
+
+impl OssConfig {
+    /// OSS 密钥是否实际生效：模板的 `${OSS_ACCESS_KEY_*}` 字面量或空值都算未配置
+    /// （真实密钥经 `load_oss_config_from_env` 的环境变量覆盖注入）。
+    pub fn keys_effective(&self) -> bool {
+        !self.access_key_id.is_empty()
+            && self.access_key_id != "${OSS_ACCESS_KEY_ID}"
+            && !self.access_key_secret.is_empty()
+            && self.access_key_secret != "${OSS_ACCESS_KEY_SECRET}"
+    }
 }
 
 /// 默认上传目录

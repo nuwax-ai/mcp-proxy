@@ -14,8 +14,8 @@ use crate::cli::common::{
     upgrade_bundled_binary,
 };
 use crate::cli::env_config::{
-    apply_upload_config_from_env, custom_upload_configured, oss_keys_configured,
-    upload_backend_configured,
+    OSS_BUCKET_PLACEHOLDERS, apply_upload_config_from_env, custom_upload_configured,
+    oss_keys_configured, parse_env_file_value, upload_backend_configured,
 };
 use crate::cli::tarball::{download_and_extract_tarball, extract_tarball_at};
 use crate::cli::{DocumentParserAction, ServiceAction, ServiceDirArgs, SetupArgs};
@@ -146,6 +146,8 @@ fn install_full(args: &SetupArgs) -> Result<()> {
         println!("   Option A — OSS (cloud deployment):");
         println!("     export OSS_ACCESS_KEY_ID=your_key");
         println!("     export OSS_ACCESS_KEY_SECRET=your_secret");
+        println!("     export ALIYUN_OSS_PUBLIC_BUCKET=your_bucket");
+        println!("     export ALIYUN_OSS_PRIVATE_BUCKET=your_bucket");
         println!("   Option B — custom upload backend (private deployment, nuwax-style REST):");
         println!(
             "     export DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL=https://your-system.example.com"
@@ -160,6 +162,13 @@ fn install_full(args: &SetupArgs) -> Result<()> {
              or DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL, or edit the file above",
             env_path.display()
         );
+    }
+
+    // OSS 后端防呆：密钥已配而 bucket 仍是模板占位符时，异步上传会在运行期
+    // 才炸 E010（2026-09-10 三机深测实测）——安装期 fail-fast 并给出解法。
+    // custom 后端部署不走 OSS，跳过（131/53 既有模式回归）。
+    if oss_keys_configured(&env_path) && !custom_upload_configured(&env_path) {
+        verify_oss_bucket_resolved(&env_path, &install_dir.join(CONFIG_FILENAME))?;
     }
 
     let service_result = run_service(ServiceAction::Install(ServiceDirArgs {
@@ -191,6 +200,73 @@ fn install_full(args: &SetupArgs) -> Result<()> {
 
 fn run_service(action: ServiceAction) -> Result<()> {
     dispatch_service_action(SERVICE_NAME, action, service_install)
+}
+
+/// OSS 后端的 bucket 解析校验：生效值 = `.env` 的 `ALIYUN_OSS_*_BUCKET`
+/// 覆盖（运行时同名 env 生效）> config.yml 的 `public_bucket`/`private_bucket`。
+/// 仍是模板占位符（或缺配置）即报错——给出 env / 手改 config 两种解法。
+fn verify_oss_bucket_resolved(env_path: &Path, config_path: &Path) -> Result<()> {
+    let config_buckets = read_config_yaml_buckets(config_path);
+    let mut offending: Vec<&'static str> = Vec::new();
+
+    for (field, env_key, config_key) in [
+        ("public_bucket", "ALIYUN_OSS_PUBLIC_BUCKET", "public_bucket"),
+        (
+            "private_bucket",
+            "ALIYUN_OSS_PRIVATE_BUCKET",
+            "private_bucket",
+        ),
+    ] {
+        let effective = parse_env_file_value(env_path, env_key)
+            .filter(|v| !v.trim().is_empty())
+            .or_else(|| config_buckets.get(config_key).cloned());
+        let resolved = effective.is_some_and(|v| {
+            let t = v.trim().trim_matches('"').trim_matches('\'');
+            !t.is_empty() && !OSS_BUCKET_PLACEHOLDERS.contains(&t)
+        });
+        if !resolved {
+            offending.push(field);
+        }
+    }
+
+    if offending.is_empty() {
+        return Ok(());
+    }
+    let list = offending.join(" & ");
+    println!("\n⚠️  OSS keys are configured but {list} is still the template placeholder.");
+    println!("   Async uploads would fail at runtime (E010) with this configuration.");
+    println!("   Fix either way, then re-run install:");
+    println!("     export ALIYUN_OSS_PUBLIC_BUCKET=your_bucket   (and ALIYUN_OSS_PRIVATE_BUCKET)");
+    println!(
+        "     — or edit {} and set storage.oss.{} to the real bucket",
+        config_path.display(),
+        offending[0]
+    );
+    bail!(
+        "OSS backend selected but {} unresolved in {} — set ALIYUN_OSS_PUBLIC_BUCKET \
+         / ALIYUN_OSS_PRIVATE_BUCKET or edit storage.oss in the config",
+        list,
+        config_path.display()
+    );
+}
+
+/// 从 config.yml 提取 `public_bucket:` / `private_bucket:` 行的值（模板形状的
+/// 简单行解析，去引号；缺失或找不到文件返回空 map，由调用方按未解析处理）。
+fn read_config_yaml_buckets(config_path: &Path) -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+    let Ok(content) = fs::read_to_string(config_path) else {
+        return map;
+    };
+    for line in content.lines() {
+        let t = line.trim();
+        for key in ["public_bucket", "private_bucket"] {
+            if let Some(rest) = t.strip_prefix(&format!("{key}:")) {
+                let v = rest.trim().trim_matches('"').trim_matches('\'').to_string();
+                map.entry(key.to_string()).or_insert(v);
+            }
+        }
+    }
+    map
 }
 
 fn service_install(args: &ServiceDirArgs) -> Result<()> {
@@ -507,4 +583,78 @@ fn patch_config_for_macos(config_path: &Path) -> Result<()> {
     let patched = content.replace("device: \"cpu\"", "device: \"mps\"");
     fs::write(config_path, patched)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write_pair(dir: &std::path::Path) -> (std::path::PathBuf, std::path::PathBuf) {
+        let env = dir.join(ENV_FILENAME);
+        std::fs::write(&env, "OSS_ACCESS_KEY_ID=ak\nOSS_ACCESS_KEY_SECRET=sk\n").unwrap();
+        let cfg = dir.join(CONFIG_FILENAME);
+        std::fs::write(
+            &cfg,
+            "storage:\n  oss:\n    public_bucket: \"your-public-bucket\"\n    private_bucket: \"your-private-bucket\"\n",
+        )
+        .unwrap();
+        (env, cfg)
+    }
+
+    #[test]
+    fn oss_placeholder_bucket_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let (env, cfg) = write_pair(dir.path());
+        let err = verify_oss_bucket_resolved(&env, &cfg).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("public_bucket"), "报错应点名字段: {msg}");
+        assert!(
+            msg.contains("ALIYUN_OSS_PUBLIC_BUCKET"),
+            "报错应给出解法: {msg}"
+        );
+    }
+
+    #[test]
+    fn bucket_env_override_passes() {
+        let dir = tempfile::tempdir().unwrap();
+        let (env, cfg) = write_pair(dir.path());
+        std::fs::write(
+            &env,
+            "OSS_ACCESS_KEY_ID=ak\nOSS_ACCESS_KEY_SECRET=sk\n\
+             ALIYUN_OSS_PUBLIC_BUCKET=nuwa-packages\nALIYUN_OSS_PRIVATE_BUCKET=nuwa-packages\n",
+        )
+        .unwrap();
+        verify_oss_bucket_resolved(&env, &cfg)
+            .expect("bucket 经 env 覆盖后应通过（运行时同名 env 生效）");
+    }
+
+    #[test]
+    fn real_bucket_in_config_passes() {
+        let dir = tempfile::tempdir().unwrap();
+        let (env, cfg) = write_pair(dir.path());
+        std::fs::write(
+            &cfg,
+            "storage:\n  oss:\n    public_bucket: 'nuwa-packages'\n    private_bucket: nuwa-packages\n",
+        )
+        .unwrap();
+        verify_oss_bucket_resolved(&env, &cfg)
+            .expect("config.yml 填了真实 bucket 应通过（单引号与裸值都要能解析）");
+    }
+
+    #[test]
+    fn config_bucket_line_parser() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("config.yml");
+        std::fs::write(
+            &cfg,
+            "# 注释\npublic_bucket: \"a-bucket\"\n  private_bucket: b-bucket\nendpoint: e\n",
+        )
+        .unwrap();
+        let m = read_config_yaml_buckets(&cfg);
+        assert_eq!(m.get("public_bucket").map(String::as_str), Some("a-bucket"));
+        assert_eq!(
+            m.get("private_bucket").map(String::as_str),
+            Some("b-bucket")
+        );
+    }
 }

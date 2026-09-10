@@ -8,6 +8,21 @@ pub trait DocumentParser: Send + Sync {
     /// 解析文档
     async fn parse(&self, file_path: &str) -> Result<ParseResult, AppError>;
 
+    /// 带取消令牌解析文档（默认忽略令牌优雅退化）。
+    ///
+    /// 任务级取消打通用：DocumentService 持文档 task_id 级令牌经
+    /// [`DualEngineParser::parse_document_auto_with_cancel`] 下传，引擎实现
+    /// 转发给自身 `parse_with_progress` 的取消参数——execute 层 select 轮询
+    /// 令牌并 kill 子进程。未适配的引擎（含测试 mock）走默认实现不受影响。
+    async fn parse_with_cancel(
+        &self,
+        file_path: &str,
+        cancel: Option<crate::parsers::mineru_parser::CancellationToken>,
+    ) -> Result<ParseResult, AppError> {
+        let _ = cancel;
+        self.parse(file_path).await
+    }
+
     /// 检查是否支持指定格式
     fn supports_format(&self, format: &DocumentFormat) -> bool;
 

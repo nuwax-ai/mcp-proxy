@@ -126,6 +126,10 @@ impl TaskService {
     }
 
     /// 更新任务状态
+    ///
+    /// 终态保护：Cancelled/Completed 不被非终态覆盖（用户取消后 worker 的
+    /// 阶段推进会把状态打回 Processing——2026-09-10 深测实测）；需要覆盖
+    /// 终态的场景（仅服务重启恢复）用 [`Self::force_update_task_status`]。
     pub async fn update_task_status(
         &self,
         task_id: &str,
@@ -138,13 +142,47 @@ impl TaskService {
             .await?
             .ok_or_else(|| AppError::Task(format!("任务不存在: {task_id}")))?;
 
+        if matches!(
+            task.status,
+            TaskStatus::Cancelled { .. } | TaskStatus::Completed { .. }
+        ) && !matches!(
+            &status,
+            TaskStatus::Cancelled { .. } | TaskStatus::Completed { .. }
+        ) {
+            warn!(
+                "update_task_status skipped: task {} terminal {:?} 不被 {:?} 覆盖",
+                task_id, task.status, status
+            );
+            return Ok(());
+        }
+
         task.update_status(status)?;
         self.save_task(&task).await?;
 
         Ok(())
     }
 
-    /// 更新任务处理阶段
+    /// 强制更新任务状态（跳过终态保护；仅服务重启的 restore 路径使用）
+    pub async fn force_update_task_status(
+        &self,
+        task_id: &str,
+        status: TaskStatus,
+    ) -> Result<(), AppError> {
+        info!("Force update task status: {} -> {:?}", task_id, status);
+
+        let mut task = self
+            .get_task(task_id)
+            .await?
+            .ok_or_else(|| AppError::Task(format!("任务不存在: {task_id}")))?;
+
+        task.update_status(status)?;
+        self.save_task(&task).await?;
+
+        Ok(())
+    }
+
+    /// 更新任务处理阶段（终态保护同 [`Self::update_task_status`]——取消后的
+    /// 阶段推进不打回 Processing）
     pub async fn update_task_stage(
         &self,
         task_id: &str,
@@ -156,6 +194,17 @@ impl TaskService {
             .get_task(task_id)
             .await?
             .ok_or_else(|| AppError::Task(format!("任务不存在: {task_id}")))?;
+
+        if matches!(
+            task.status,
+            TaskStatus::Cancelled { .. } | TaskStatus::Completed { .. }
+        ) {
+            warn!(
+                "update_task_stage skipped: task {} already terminal {:?}",
+                task_id, task.status
+            );
+            return Ok(());
+        }
 
         let _ = task.update_status(TaskStatus::new_processing(stage));
         self.save_task(&task).await?;
@@ -194,6 +243,20 @@ impl TaskService {
             .get_task(task_id)
             .await?
             .ok_or_else(|| AppError::Task(format!("任务不存在: {task_id}")))?;
+
+        // 终态保护：Cancelled（用户取消后子进程被 kill，解析返回的取消错误会
+        // 走到这里）与 Completed 不被晚到的失败覆盖——状态机单向性
+        if matches!(
+            task.status,
+            TaskStatus::Cancelled { .. } | TaskStatus::Completed { .. }
+        ) {
+            warn!(
+                "set_task_error skipped: task {} already in terminal state {:?}",
+                task_id,
+                std::mem::discriminant(&task.status)
+            );
+            return Ok(());
+        }
 
         task.set_error(error_message)?;
         self.save_task(&task).await?;
@@ -398,6 +461,9 @@ impl TaskService {
     }
 
     /// 取消任务
+    ///
+    /// 状态改为 Cancelled 后触发解析取消令牌（若任务正在解析）：execute 层
+    /// select 轮询到令牌即 kill 解析子进程（此前取消只改状态，子进程照跑）。
     pub async fn cancel_task(
         &self,
         task_id: &str,
@@ -420,7 +486,24 @@ impl TaskService {
 
         self.save_task(&task).await?;
 
+        // 通知解析层中止（令牌由 DocumentService 在解析开始时注册；任务不在
+        // 解析中时无令牌，静默跳过）
+        if crate::services::parse_cancel::request_parse_cancel(task_id).await {
+            info!("Parse cancel signalled for task: {}", task_id);
+        }
+
         Ok(task)
+    }
+
+    /// 心跳 touch：仅推进 updated_at（不改动状态/进度），由 DocumentService
+    /// 解析期 30s 周期调用——让"长解析"与"卡死"在运维视角可区分
+    pub async fn touch_task(&self, task_id: &str) -> Result<(), AppError> {
+        let mut task = self
+            .get_task(task_id)
+            .await?
+            .ok_or_else(|| AppError::Task(format!("任务不存在: {task_id}")))?;
+        task.touch();
+        self.save_task(&task).await
     }
 
     /// 删除任务
@@ -694,4 +777,98 @@ pub struct CompletedTaskTime {
     pub task_id: String,
     /// 执行耗时（毫秒）
     pub processing_time_ms: u64,
+}
+
+#[cfg(test)]
+mod heartbeat_cancel_tests {
+    use super::*;
+    use crate::models::SourceType;
+    use std::sync::Arc;
+    use tempfile::TempDir;
+
+    async fn setup() -> (TempDir, TaskService) {
+        let dir = TempDir::new().unwrap();
+        let db = Arc::new(sled::open(dir.path()).unwrap());
+        let svc = TaskService::new(db).unwrap();
+        (dir, svc)
+    }
+
+    async fn create_pending_task(svc: &TaskService) -> String {
+        let task = svc
+            .create_task(
+                SourceType::Upload,
+                Some("/tmp/x.md".to_string()),
+                Some("x.md".to_string()),
+                None,
+            )
+            .await
+            .unwrap();
+        task.id
+    }
+
+    /// 终态保护：Cancelled 不被晚到的 set_task_error 覆盖
+    ///（取消 → 子进程被 kill → 解析返回取消错误 → worker 走 set_task_error 的防线）
+    #[tokio::test]
+    async fn set_task_error_does_not_overwrite_cancelled() {
+        let (_dir, svc) = setup().await;
+        let id = create_pending_task(&svc).await;
+
+        svc.cancel_task(&id, Some("用户取消".to_string()))
+            .await
+            .unwrap();
+        svc.set_task_error(&id, "解析已取消（子进程被 kill 的迟到错误）".to_string())
+            .await
+            .unwrap();
+
+        let task = svc.get_task(&id).await.unwrap().unwrap();
+        assert!(
+            matches!(task.status, TaskStatus::Cancelled { .. }),
+            "Cancelled 终态不应被 set_task_error 覆盖，实际 {:?}",
+            task.status
+        );
+    }
+
+    /// 心跳 touch：updated_at 推进（手动回拨时间戳模拟长解析后 touch）
+    #[tokio::test]
+    async fn touch_task_advances_updated_at() {
+        let (_dir, svc) = setup().await;
+        let id = create_pending_task(&svc).await;
+
+        // 回拨 updated_at 一小时（模拟 MinerUExecuting 长阶段、无任何任务写入）
+        {
+            let mut task = svc.get_task(&id).await.unwrap().unwrap();
+            task.updated_at = chrono::Utc::now() - chrono::Duration::hours(1);
+            svc.save_task(&task).await.unwrap();
+        }
+
+        svc.touch_task(&id).await.unwrap();
+        let task = svc.get_task(&id).await.unwrap().unwrap();
+        let age = chrono::Utc::now().signed_duration_since(task.updated_at);
+        assert!(
+            age < chrono::Duration::seconds(5),
+            "touch 后 updated_at 应推进到当前，实际距今 {age}"
+        );
+    }
+
+    /// cancel_task 触发解析取消令牌（注册表联动）
+    #[tokio::test]
+    async fn cancel_task_signals_registered_parse_token() {
+        crate::services::parse_cancel::clear_for_test();
+        let (_dir, svc) = setup().await;
+        let id = create_pending_task(&svc).await;
+
+        // 模拟 DocumentService 解析开始时的注册
+        let token = crate::parsers::mineru_parser::CancellationToken::new();
+        crate::services::parse_cancel::register(&id, token.clone());
+
+        svc.cancel_task(&id, None).await.unwrap();
+        assert!(
+            token.is_cancelled().await,
+            "cancel_task 应触发已注册的解析取消令牌"
+        );
+
+        let task = svc.get_task(&id).await.unwrap().unwrap();
+        assert!(matches!(task.status, TaskStatus::Cancelled { .. }));
+        crate::services::parse_cancel::unregister(&id);
+    }
 }

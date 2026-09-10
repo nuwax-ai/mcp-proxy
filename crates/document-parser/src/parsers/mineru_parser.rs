@@ -540,6 +540,15 @@ impl MinerUParser {
 impl DocumentParser for MinerUParser {
     #[instrument(skip(self), fields(file_path = %file_path))]
     async fn parse(&self, file_path: &str) -> Result<ParseResult, AppError> {
+        self.parse_with_cancel(file_path, None).await
+    }
+
+    /// 任务级取消：令牌经 parse_with_progress 传给 execute 层 select 轮询
+    async fn parse_with_cancel(
+        &self,
+        file_path: &str,
+        cancel: Option<CancellationToken>,
+    ) -> Result<ParseResult, AppError> {
         let detector = FormatDetector::new();
         let detection = detector.detect_format(file_path, None)?;
         let format = detection.format;
@@ -555,7 +564,7 @@ impl DocumentParser for MinerUParser {
             |progress| {
                 info!("MinerU parsing progress: {:?}", progress);
             },
-            None,
+            cancel,
         )
         .await
     }
