@@ -118,10 +118,12 @@ impl super::MinerUParser {
         wrapped.wrap(process_wrap::tokio::ProcessGroup::leader());
         #[cfg(windows)]
         {
-            use process_wrap::tokio::{CreationFlags, JobObject};
+            // JobObject 实测与 mineru 3.4.5 的本地 api 子进程不兼容（Win53 退出码
+            // 120、输出为空）——只用无害的 CreationFlags；树杀走 kill_tree 的
+            // taskkill /T（不改变子进程运行环境）
+            use process_wrap::tokio::CreationFlags;
             use windows::Win32::System::Threading::{CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW};
             wrapped.wrap(CreationFlags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP));
-            wrapped.wrap(JobObject);
         }
         wrapped.wrap(process_wrap::tokio::KillOnDrop);
 
@@ -183,7 +185,7 @@ impl super::MinerUParser {
                     // 检查取消
                     _ = tokio::time::sleep(Duration::from_millis(100)) => {
                         if cancellation_token.is_cancelled().await {
-                            let _ = Box::into_pin(child.kill()).await;
+                            kill_tree(&mut child).await;
                             return Err(AppError::MinerU("解析已取消".to_string()));
                         }
                     }
@@ -267,7 +269,7 @@ impl super::MinerUParser {
                     "MinerU execution timeout ({} seconds), terminating process",
                     timeout_seconds
                 );
-                let _ = Box::into_pin(child.kill()).await;
+                kill_tree(&mut child).await;
 
                 // 提供更详细的超时信息
                 let timeout_msg = format!(
@@ -351,7 +353,7 @@ mod tree_kill_tests {
         let alive = |pid: u32| unsafe { libc::kill(pid as i32, 0) == 0 };
         assert!(alive(grandchild_pid), "孙进程应已在运行（前置条件）");
 
-        let _ = Box::into_pin(child.kill()).await;
+        kill_tree(&mut child).await;
 
         // 组击杀后孙进程应消失（短暂宽限轮询）
         let mut gone = false;
@@ -367,4 +369,17 @@ mod tree_kill_tests {
             "kill 进程组后孙进程 {grandchild_pid} 仍存活（树击杀失效）"
         );
     }
+}
+
+/// 进程树击杀：Unix 在 ProcessGroup::leader 下 kill 即组杀；Windows 用
+/// `taskkill /PID <pid> /T /F`（官方树杀，孙进程一并终止——JobObject 方案与
+/// mineru 3.4.5 本地 api 子进程不兼容，Win53 实测退出码 120）
+pub(crate) async fn kill_tree(child: &mut Box<dyn process_wrap::tokio::ChildWrapper>) {
+    #[cfg(windows)]
+    if let Some(pid) = child.id() {
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .status();
+    }
+    let _ = Box::into_pin(child.kill()).await;
 }

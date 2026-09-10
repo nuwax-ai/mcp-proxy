@@ -16,7 +16,7 @@ use uuid::{NoContext, Timestamp, Uuid};
 /// 环境校验族方法（环境验证/就绪等待/地区检测）。
 mod environment;
 /// 子进程执行族方法（命令构建/输出流监控/路径解析）。
-mod execute;
+pub(crate) mod execute;
 /// 输出读取族方法（输出目录调试/Markdown 定位/递归查找）。
 mod output;
 

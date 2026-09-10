@@ -4,6 +4,7 @@
 use crate::config::GlobalFileSizeConfig;
 use crate::error::AppError;
 use crate::models::DocumentFormat;
+use crate::parsers::mineru_parser::execute::kill_tree;
 use std::path::Path;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
@@ -98,10 +99,12 @@ impl super::MarkItDownParser {
         wrapped.wrap(process_wrap::tokio::ProcessGroup::leader());
         #[cfg(windows)]
         {
-            use process_wrap::tokio::{CreationFlags, JobObject};
+            // JobObject 实测与 mineru 3.4.5 的本地 api 子进程不兼容（Win53 退出码
+            // 120、输出为空）——只用无害的 CreationFlags；树杀走 kill_tree 的
+            // taskkill /T（不改变子进程运行环境）
+            use process_wrap::tokio::CreationFlags;
             use windows::Win32::System::Threading::{CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW};
             wrapped.wrap(CreationFlags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP));
-            wrapped.wrap(JobObject);
         }
         wrapped.wrap(process_wrap::tokio::KillOnDrop);
 
@@ -147,7 +150,7 @@ impl super::MarkItDownParser {
                     // 检查取消
                     _ = tokio::time::sleep(Duration::from_millis(100)) => {
                         if cancellation_token.is_cancelled().await {
-                            let _ = Box::into_pin(child.kill()).await;
+                            kill_tree(&mut child).await;
                             return Err(AppError::MarkItDown("解析已取消".to_string()));
                         }
                     }
@@ -211,7 +214,7 @@ impl super::MarkItDownParser {
         let temp_files = match process_result {
             Ok(result) => result?,
             Err(_) => {
-                let _ = Box::into_pin(child.kill()).await;
+                kill_tree(&mut child).await;
                 return Err(AppError::MarkItDown(format!(
                     "MarkItDown执行超时（{}秒）",
                     self.config.timeout_seconds
