@@ -136,10 +136,13 @@ fn run_until_healthy(
     )))
 }
 
-/// 等待端口停止监听：`schtasks /end` 返回时进程只是**开始**终止，监听 socket
-/// 尚未关闭——立即 `/run` 的新实例会 bind 失败（"Address already in use"，
-/// 53 实测，二次 restart 才能恢复）。轮询 netstat 的 LISTENING 行直到消失；
-/// 超时不阻断（打提示后照常启动，保持既有语义），探测工具不可用直接返回。
+/// 等待端口停止监听，超时后**强杀占用进程**（Windows 服务管理常规语义，
+/// 等效 systemd TimeoutStopSec 后 SIGKILL）。
+///
+/// 为什么必须强杀兜底（53 实测）：voice-cli 的优雅关闭（卸 STT/TTS 引擎
+/// 池）实测可超 3 分钟，期间监听 socket 一直不放——纯等待窗口永远赌不赢，
+/// 终态协议的 curl 还会打到垂死旧实例上误判成功（200 来自将死进程）。
+/// 等待 → 超时 → netstat 找 PID → taskkill /T /F → 复验。
 fn wait_port_released(spec: &ServiceSpec, timeout: std::time::Duration) {
     let Some(port) = spec.listen_port else {
         return;
@@ -152,10 +155,29 @@ fn wait_port_released(spec: &ServiceSpec, timeout: std::time::Duration) {
             Err(_) => return,
         }
         if std::time::Instant::now() >= deadline {
-            println!("  note: port {port} still listening after {timeout:?} — starting anyway");
-            return;
+            break;
         }
         std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    // 超时：占用者就是该停未停的旧实例，强杀进程树
+    if let Ok(Some(pid)) = crate::checks::port_occupant(port) {
+        println!(
+            "  note: port {port} held by pid {pid} after {timeout:?} — killing (graceful shutdown overdue)"
+        );
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", &pid, "/T", "/F"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+        // 强杀后复验（taskkill 异步生效，给 OS 一点回收时间）
+        for _ in 0..10 {
+            if matches!(crate::checks::port_occupant(port), Ok(None)) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+    } else {
+        println!("  note: port {port} still listening after {timeout:?} — starting anyway");
     }
 }
 
