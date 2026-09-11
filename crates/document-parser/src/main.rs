@@ -275,9 +275,25 @@ async fn main() -> Result<()> {
 
     info!("Application status initialization successful");
 
-    // 监听地址
+    // 监听地址（SO_REUSEADDR：接管 TIME_WAIT 端口——重启/升级后健康探测的
+    // curl 连接残留 TIME_WAIT，Windows 默认拒绝 bind（os error 10048））
     let addr = format!("{server_host}:{server_port}");
-    let listener = TcpListener::bind(&addr).await?;
+    let sock_addr: std::net::SocketAddr = addr
+        .parse()
+        .unwrap_or_else(|_| std::net::SocketAddr::from(([0, 0, 0, 0], server_port)));
+    let socket = socket2::Socket::new(
+        if sock_addr.is_ipv4() {
+            socket2::Domain::IPV4
+        } else {
+            socket2::Domain::IPV6
+        },
+        socket2::Type::STREAM,
+        Some(socket2::Protocol::TCP),
+    )?;
+    socket.set_reuse_address(true)?;
+    socket.bind(&sock_addr.into())?;
+    socket.listen(1024)?;
+    let listener = TcpListener::from_std(socket.into())?;
 
     // 构建 axum 路由
     let app = create_router(state.clone()).await?;

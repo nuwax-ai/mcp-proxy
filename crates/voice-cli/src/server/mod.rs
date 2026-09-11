@@ -139,13 +139,31 @@ pub async fn handle_server_run(config: &Config) -> crate::Result<()> {
     app = app.layer(axum::Extension(app_state.apalis_storage.clone()));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
-    // 注意：bind 成功前不要打 "listening" 字样——排障时会被误读为监听已建立
-    //（"TCP listener created" 才是 bind 成功的标志）
-    let listener = tokio::net::TcpListener::bind(&addr).await.map_err(|e| {
-        crate::VoiceCliError::Config(format!(
-            "Failed to bind to address {addr}（端口被占用或无权限；若有旧实例正在关闭，稍候重试）: {e}"
-        ))
-    })?;
+    // SO_REUSEADDR：bind 允许接管处于 TIME_WAIT 的端口——重启/升级场景下，
+    // 健康探测的 curl 连接在旧实例死后残留 TIME_WAIT（Windows 默认拒绝 bind
+    // 此类端口，os error 10048；53 实测升级间歇失败的根因）。unix 上同为
+    // 服务端标准实践。注意：bind 失败前不打 "listening" 字样（排障误导）。
+    let socket = socket2::Socket::new(
+        socket2::Domain::IPV4,
+        socket2::Type::STREAM,
+        Some(socket2::Protocol::TCP),
+    )
+    .map_err(|e| crate::VoiceCliError::Config(format!("Failed to create socket on {addr}: {e}")))?;
+    socket
+        .set_reuse_address(true)
+        .map_err(|e| crate::VoiceCliError::Config(format!("Failed to set SO_REUSEADDR: {e}")))?;
+    socket
+        .bind(&addr.into())
+        .map_err(|e| {
+            crate::VoiceCliError::Config(format!(
+                "Failed to bind to address {addr}（端口被占用或无权限；若有旧实例正在关闭，稍候重试）: {e}"
+            ))
+        })?;
+    socket
+        .listen(1024)
+        .map_err(|e| crate::VoiceCliError::Config(format!("Failed to listen on {addr}: {e}")))?;
+    let listener = tokio::net::TcpListener::from_std(socket.into())
+        .map_err(|e| crate::VoiceCliError::Config(format!("Failed to convert listener: {e}")))?;
 
     info!(
         "TCP listener created successfully: {:?}",

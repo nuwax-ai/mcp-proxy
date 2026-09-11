@@ -74,6 +74,7 @@ ferrous-opencc = "0.4"
 
 # Note: rmcp 依赖由各子项目独立管理（mcp-sse-proxy 用 0.10，mcp-streamable-proxy 用 3.1.1）
 tokio = { version = "1.53", features = ["macros", "net", "rt", "rt-multi-thread"] }
+socket2 = "0.6"
 tokio-util = "0.7.19"
 
 # Logging and tracing
