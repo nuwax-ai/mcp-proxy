@@ -83,54 +83,40 @@ pub fn uninstall_task(spec: &ServiceSpec) -> Result<()> {
     Ok(())
 }
 
-/// 重启：结束运行实例 → 等端口释放 → 启动 → **验证端口真正 LISTENING**。
+/// 重启：结束 → 等端口释放 → **run + curl 健康验证循环（≤3 次）**。
 ///
-/// 双重竞态兜底（53 实测）：`/end` 后 (a) 监听 socket 释放有延迟；
-/// (b) 任务 XML 的 RestartOnFailure 会把强杀视为失败自动重拉，与
-/// `/run` 双起竞争——输掉的实例退出后任务可能停在失败态、无进程存活。
-/// 启动后等端口就绪，未就绪自动再 `/run` 一次（把"二次 restart 即愈"
-/// 自动化为一条命令），仍失败明确报错而非静默假成功。
+/// 确定性协议（53 多轮实测迭代出的结论）：/end 后旧实例处于 CTRL 优雅
+/// 关闭期，监听 socket 的释放与内核回收之间存在窗口，单一 `/run` 可能
+/// bind 失败（日志 "Server listening" 打印在 bind 之前，失败无痕）；
+/// netstat 的 LISTENING 也不等于服务可用。只认 `curl /health` 真正响应，
+/// 未通自动再 `/run`（≤3 次，每次 25s 健康窗口），全败明确报错。
 pub fn restart_task(spec: &ServiceSpec) -> Result<()> {
     let name = spec.task_name();
     if let Err(e) = task_scheduler::end(&name) {
         println!("  note: end task: {e}");
     }
-    // 释放等待 45s：旧实例在 /end 的 CTRL 阶段走优雅关闭（voice-cli 关
-    // STT/TTS 引擎池可超 10s），期间仍持有监听 socket——等待必须盖过它
     wait_port_released(spec, std::time::Duration::from_secs(45));
-    task_scheduler::run(&name)?;
-    if !wait_port_listening(spec, std::time::Duration::from_secs(30)) {
-        println!("  note: port not listening after start — retrying /run once");
-        // 对已 Running 的任务 /run 会报"已在运行"——以端口判定为准，忽略命令错误
-        let _ = task_scheduler::run(&name);
-        if !wait_port_listening(spec, std::time::Duration::from_secs(30)) {
-            return Err(InstallerError::Other(format!(
-                "task {name} restarted but port {:?} never came up",
-                spec.listen_port
-            )));
-        }
-    }
-    println!("Restarted {name}");
-    Ok(())
-}
-
-/// 等待端口开始监听（启动成功的判定；探测工具不可用时乐观返回 true）
-fn wait_port_listening(spec: &ServiceSpec, timeout: std::time::Duration) -> bool {
     let Some(port) = spec.listen_port else {
-        return true;
+        // 无端口信息：退回旧行为（run 一次即认为完成）
+        task_scheduler::run(&name)?;
+        println!("Restarted {name}");
+        return Ok(());
     };
-    let deadline = std::time::Instant::now() + timeout;
-    loop {
-        match crate::checks::port_occupant(port) {
-            Ok(Some(_)) => return true,
-            Ok(None) => {}
-            Err(_) => return true,
+    for attempt in 1..=3 {
+        // "已在运行"等命令错误忽略——以健康探测为准
+        let _ = task_scheduler::run(&name);
+        if crate::cli::common::wait_for_health(port, "/health", 25) {
+            if attempt > 1 {
+                println!("  (service healthy after {attempt} start attempts)");
+            }
+            println!("Restarted {name}");
+            return Ok(());
         }
-        if std::time::Instant::now() >= deadline {
-            return false;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(500));
+        println!("  note: health not up after attempt {attempt} — retrying /run");
     }
+    Err(InstallerError::Other(format!(
+        "task {name} restarted but /health never responded on port {port}"
+    )))
 }
 
 /// 等待端口停止监听：`schtasks /end` 返回时进程只是**开始**终止，监听 socket
