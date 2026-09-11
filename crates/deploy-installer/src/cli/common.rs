@@ -89,6 +89,9 @@ const DOCUMENT_PARSER_HEALTH_WAIT_SECS: u64 = 120;
 const UPGRADE_HEALTH_WAIT_SECS: u64 = 45;
 
 /// Poll `http://127.0.0.1:{port}{path}` until curl succeeds or timeout.
+///
+/// 每次探测带 `-m 3` 硬超时——垂死实例的半开连接（accept 队列已关）会让
+/// 无超时的 curl 无限挂起（53 实测：终态协议整体卡死 30 分钟+）。
 pub fn wait_for_health(port: u16, path: &str, timeout_secs: u64) -> bool {
     let url = format!("http://127.0.0.1:{port}{path}");
     let deadline = Instant::now() + Duration::from_secs(timeout_secs);
@@ -96,6 +99,8 @@ pub fn wait_for_health(port: u16, path: &str, timeout_secs: u64) -> bool {
         if Command::new("curl")
             .args([
                 "-fsS",
+                "-m",
+                "3",
                 "-o",
                 if cfg!(windows) { "NUL" } else { "/dev/null" },
                 &url,
