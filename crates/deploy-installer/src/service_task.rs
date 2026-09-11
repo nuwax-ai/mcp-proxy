@@ -95,13 +95,15 @@ pub fn restart_task(spec: &ServiceSpec) -> Result<()> {
     if let Err(e) = task_scheduler::end(&name) {
         println!("  note: end task: {e}");
     }
-    wait_port_released(spec, std::time::Duration::from_secs(10));
+    // 释放等待 45s：旧实例在 /end 的 CTRL 阶段走优雅关闭（voice-cli 关
+    // STT/TTS 引擎池可超 10s），期间仍持有监听 socket——等待必须盖过它
+    wait_port_released(spec, std::time::Duration::from_secs(45));
     task_scheduler::run(&name)?;
-    if !wait_port_listening(spec, std::time::Duration::from_secs(25)) {
+    if !wait_port_listening(spec, std::time::Duration::from_secs(30)) {
         println!("  note: port not listening after start — retrying /run once");
         // 对已 Running 的任务 /run 会报"已在运行"——以端口判定为准，忽略命令错误
         let _ = task_scheduler::run(&name);
-        if !wait_port_listening(spec, std::time::Duration::from_secs(15)) {
+        if !wait_port_listening(spec, std::time::Duration::from_secs(30)) {
             return Err(InstallerError::Other(format!(
                 "task {name} restarted but port {:?} never came up",
                 spec.listen_port
