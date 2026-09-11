@@ -11,6 +11,10 @@ use uuid::{NoContext, Timestamp, Uuid};
 /// 任务服务
 pub struct TaskService {
     tasks_tree: sled::Tree,
+    /// 任务记录写串行锁：get_task → 改 → save_task 的读改写窗口内并发写会互相
+    /// 覆盖（30s 心跳 touch 可回滚刚写入的 Cancelled）。所有改状态的 RMW 方法
+    /// 全程持锁；sled 自身线程安全，读路径不持锁
+    write_lock: tokio::sync::Mutex<()>,
 }
 
 impl TaskService {
@@ -20,7 +24,10 @@ impl TaskService {
             .open_tree("tasks")
             .map_err(|e| AppError::Database(format!("打开任务树失败: {e}")))?;
 
-        Ok(Self { tasks_tree })
+        Ok(Self {
+            tasks_tree,
+            write_lock: tokio::sync::Mutex::new(()),
+        })
     }
 
     /// 创建新任务
@@ -127,9 +134,10 @@ impl TaskService {
 
     /// 更新任务状态
     ///
-    /// 终态保护：Cancelled/Completed 不被非终态覆盖（用户取消后 worker 的
-    /// 阶段推进会把状态打回 Processing——2026-09-10 深测实测）；需要覆盖
-    /// 终态的场景（仅服务重启恢复）用 [`Self::force_update_task_status`]。
+    /// 终态保护：Cancelled/Completed 是单向终态——非终态不得回写（用户取消后
+    /// worker 的阶段推进会把状态打回 Processing），不同终态变体间也不得翻写
+    /// （worker 对已取消任务写 Completed 会抹掉取消事实）；同变体幂等重写放行。
+    /// 需要真正覆盖终态的场景（仅服务重启恢复）用 [`Self::force_update_task_status`]。
     pub async fn update_task_status(
         &self,
         task_id: &str,
@@ -137,20 +145,17 @@ impl TaskService {
     ) -> Result<(), AppError> {
         info!("Update task status: {} -> {:?}", task_id, status);
 
+        let _guard = self.write_lock.lock().await;
         let mut task = self
             .get_task(task_id)
             .await?
             .ok_or_else(|| AppError::Task(format!("任务不存在: {task_id}")))?;
 
-        if matches!(
-            task.status,
-            TaskStatus::Cancelled { .. } | TaskStatus::Completed { .. }
-        ) && !matches!(
-            &status,
-            TaskStatus::Cancelled { .. } | TaskStatus::Completed { .. }
-        ) {
+        if is_terminal(&task.status)
+            && std::mem::discriminant(&task.status) != std::mem::discriminant(&status)
+        {
             warn!(
-                "update_task_status skipped: task {} terminal {:?} 不被 {:?} 覆盖",
+                "update_task_status skipped: task {} terminal {:?} 不被翻写为 {:?}",
                 task_id, task.status, status
             );
             return Ok(());
@@ -170,6 +175,7 @@ impl TaskService {
     ) -> Result<(), AppError> {
         info!("Force update task status: {} -> {:?}", task_id, status);
 
+        let _guard = self.write_lock.lock().await;
         let mut task = self
             .get_task(task_id)
             .await?
@@ -190,15 +196,13 @@ impl TaskService {
     ) -> Result<(), AppError> {
         info!("Update task stage: {} -> {:?}", task_id, stage);
 
+        let _guard = self.write_lock.lock().await;
         let mut task = self
             .get_task(task_id)
             .await?
             .ok_or_else(|| AppError::Task(format!("任务不存在: {task_id}")))?;
 
-        if matches!(
-            task.status,
-            TaskStatus::Cancelled { .. } | TaskStatus::Completed { .. }
-        ) {
+        if is_terminal(&task.status) {
             warn!(
                 "update_task_stage skipped: task {} already terminal {:?}",
                 task_id, task.status
@@ -239,6 +243,7 @@ impl TaskService {
     ) -> Result<(), AppError> {
         error!("Task error: {} -> {}", task_id, error_message);
 
+        let _guard = self.write_lock.lock().await;
         let mut task = self
             .get_task(task_id)
             .await?
@@ -246,10 +251,7 @@ impl TaskService {
 
         // 终态保护：Cancelled（用户取消后子进程被 kill，解析返回的取消错误会
         // 走到这里）与 Completed 不被晚到的失败覆盖——状态机单向性
-        if matches!(
-            task.status,
-            TaskStatus::Cancelled { .. } | TaskStatus::Completed { .. }
-        ) {
+        if is_terminal(&task.status) {
             warn!(
                 "set_task_error skipped: task {} already in terminal state {:?}",
                 task_id,
@@ -374,6 +376,7 @@ impl TaskService {
     /// 的失败路径）调用会白白烧掉一次重试额度。本方法显式传入当前值。
     /// 自身失败会记录 error 日志（调用方无需再吞）。
     pub async fn abort_task(&self, task_id: &str, message: String) -> Result<(), AppError> {
+        let _guard = self.write_lock.lock().await;
         let mut task = match self.get_task(task_id).await {
             Ok(Some(task)) => task,
             Ok(None) => {
@@ -464,6 +467,7 @@ impl TaskService {
     ///
     /// 状态改为 Cancelled 后触发解析取消令牌（若任务正在解析）：execute 层
     /// select 轮询到令牌即 kill 解析子进程（此前取消只改状态，子进程照跑）。
+    /// 令牌触发在写锁外（持锁跨 await 会放大锁竞争，且无必要）。
     pub async fn cancel_task(
         &self,
         task_id: &str,
@@ -471,20 +475,24 @@ impl TaskService {
     ) -> Result<DocumentTask, AppError> {
         info!("Cancel task: {} (reason: {:?})", task_id, reason);
 
-        let mut task = self
-            .get_task(task_id)
-            .await?
-            .ok_or_else(|| AppError::Task(format!("任务不存在: {task_id}")))?;
+        let task = {
+            let _guard = self.write_lock.lock().await;
+            let mut task = self
+                .get_task(task_id)
+                .await?
+                .ok_or_else(|| AppError::Task(format!("任务不存在: {task_id}")))?;
 
-        // 使用任务模型的 cancel 方法
-        task.cancel()?;
+            // 使用任务模型的 cancel 方法（终态任务拒绝取消）
+            task.cancel()?;
 
-        // 如果提供了原因，更新取消状态
-        if let Some(cancel_reason) = reason {
-            task.status = TaskStatus::new_cancelled(Some(cancel_reason));
-        }
+            // 如果提供了原因，更新取消状态
+            if let Some(cancel_reason) = reason {
+                task.status = TaskStatus::new_cancelled(Some(cancel_reason));
+            }
 
-        self.save_task(&task).await?;
+            self.save_task(&task).await?;
+            task
+        };
 
         // 通知解析层中止（令牌由 DocumentService 在解析开始时注册；任务不在
         // 解析中时无令牌，静默跳过）
@@ -496,8 +504,11 @@ impl TaskService {
     }
 
     /// 心跳 touch：仅推进 updated_at（不改动状态/进度），由 DocumentService
-    /// 解析期 30s 周期调用——让"长解析"与"卡死"在运维视角可区分
+    /// 解析期 30s 周期调用——让"长解析"与"卡死"在运维视角可区分。
+    /// 持写锁：touch 的读改写窗口若与 cancel_task 并发，整条覆盖会把刚写入的
+    /// Cancelled 回滚成旧状态
     pub async fn touch_task(&self, task_id: &str) -> Result<(), AppError> {
+        let _guard = self.write_lock.lock().await;
         let mut task = self
             .get_task(task_id)
             .await?
@@ -728,6 +739,14 @@ impl TaskService {
     }
 }
 
+/// 是否处于单向终态（Cancelled / Completed）—— Failed 允许重试/取消，不算
+fn is_terminal(status: &TaskStatus) -> bool {
+    matches!(
+        status,
+        TaskStatus::Cancelled { .. } | TaskStatus::Completed { .. }
+    )
+}
+
 /// 任务统计信息
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct TaskStats {
@@ -824,6 +843,53 @@ mod heartbeat_cancel_tests {
         assert!(
             matches!(task.status, TaskStatus::Cancelled { .. }),
             "Cancelled 终态不应被 set_task_error 覆盖，实际 {:?}",
+            task.status
+        );
+    }
+
+    /// 终态变体间不得翻写：Cancelled 不能被 worker 的 Completed 抹掉取消事实
+    ///（排队期取消的任务被 worker 捞到后的收尾写入防线）
+    #[tokio::test]
+    async fn update_task_status_cannot_flip_cancelled_to_completed() {
+        let (_dir, svc) = setup().await;
+        let id = create_pending_task(&svc).await;
+
+        svc.cancel_task(&id, Some("用户取消".to_string()))
+            .await
+            .unwrap();
+
+        svc.update_task_status(
+            &id,
+            TaskStatus::new_completed(std::time::Duration::from_secs(1)),
+        )
+        .await
+        .unwrap();
+
+        let task = svc.get_task(&id).await.unwrap().unwrap();
+        assert!(
+            matches!(task.status, TaskStatus::Cancelled { .. }),
+            "Cancelled 不应被翻写为 Completed，实际 {:?}",
+            task.status
+        );
+
+        // 同变体幂等重写放行（如取消原因更新）
+        let task = svc.get_task(&id).await.unwrap().unwrap();
+        svc.update_task_status(&id, task.status).await.unwrap();
+    }
+
+    /// 心跳 touch 不回滚 Cancelled（写锁下 RMW 原子化）
+    #[tokio::test]
+    async fn touch_task_keeps_cancelled_status() {
+        let (_dir, svc) = setup().await;
+        let id = create_pending_task(&svc).await;
+
+        svc.cancel_task(&id, None).await.unwrap();
+        svc.touch_task(&id).await.unwrap();
+
+        let task = svc.get_task(&id).await.unwrap().unwrap();
+        assert!(
+            matches!(task.status, TaskStatus::Cancelled { .. }),
+            "touch 不应回滚 Cancelled，实际 {:?}",
             task.status
         );
     }

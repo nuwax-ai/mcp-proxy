@@ -28,6 +28,27 @@ pub fn register(task_id: &str, token: CancellationToken) {
         .insert(task_id.to_string(), token);
 }
 
+/// 注册并返回 RAII 注销 guard：解析 future 无论正常结束、返回 Err、超时还是
+/// 被 drop（worker 超时 drop 整个解析 future），guard 的 Drop 都会注销注册项——
+/// 手工 register/unregister 对在 drop 路径永远走不到 unregister，注册表会泄漏
+pub fn register_guarded(task_id: &str, token: CancellationToken) -> ParseCancelGuard {
+    register(task_id, token);
+    ParseCancelGuard {
+        task_id: task_id.to_string(),
+    }
+}
+
+/// 注销 guard（Drop 时注销注册表项；显式 unregister 与之等价、幂等）
+pub struct ParseCancelGuard {
+    task_id: String,
+}
+
+impl Drop for ParseCancelGuard {
+    fn drop(&mut self) {
+        unregister(&self.task_id);
+    }
+}
+
 /// 注销（解析结束/失败/超时路径统一调用；幂等）
 pub fn unregister(task_id: &str) {
     registry()
@@ -66,6 +87,25 @@ pub fn clear_for_test() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// register_guarded 的 Drop 注销：guard 离开作用域（含 future 被 drop）后
+    /// 注册表不再持有该任务——worker 超时 drop 解析 future 的泄漏路径回归
+    #[tokio::test]
+    async fn guarded_register_unregisters_on_drop() {
+        clear_for_test();
+        let token = CancellationToken::new();
+        {
+            let _guard = register_guarded("task-drop", token.clone());
+            assert_eq!(active_count(), 1);
+            assert!(request_parse_cancel("task-drop").await);
+        }
+        assert_eq!(
+            active_count(),
+            0,
+            "guard drop 后注册表应清空（drop 路径不泄漏）"
+        );
+        assert!(!request_parse_cancel("task-drop").await);
+    }
 
     #[tokio::test]
     async fn registry_roundtrip_register_request_unregister() {

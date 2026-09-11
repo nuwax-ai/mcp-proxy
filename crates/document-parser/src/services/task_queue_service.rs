@@ -1,13 +1,19 @@
+use futures_util::FutureExt;
+use parking_lot::RwLock;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use tokio::sync::{Mutex, RwLock, mpsc, watch};
+use tokio::sync::{Mutex, mpsc, watch};
 use tokio::time::{Duration, Instant, interval, sleep};
 use tracing::{debug, error, info, warn};
 
 use crate::error::AppError;
 use crate::models::{ProcessingStage, TaskStatus};
 use crate::services::TaskService;
+
+/// 孤儿看门狗的 DB 扫描粒度：全表扫描（get_task_stats）在 30s 健康检查里跑
+/// 是纯浪费，而"心跳停滞 2×task_timeout"阈值本就是小时级——5 分钟足够新鲜
+const ORPHAN_SCAN_INTERVAL: Duration = Duration::from_secs(300);
 
 /// 任务队列项
 #[derive(Debug, Clone)]
@@ -148,6 +154,31 @@ struct TaskExecutionContext {
     started_at: Instant,
     _worker_id: usize,
     _retry_count: u32,
+}
+
+/// 挂账守卫：worker 处理任务的任何出口（完成/失败/超时/panic unwinding）都把
+/// 任务从 processing_tasks 移除——手工 remove 在 panic 路径走不到，挂账泄漏
+/// 会让看门狗永远跳过该任务（"有 worker 拥有它"的误判，观测失明）
+struct ProcessingGuard {
+    map: Arc<RwLock<HashMap<String, TaskExecutionContext>>>,
+    task_id: String,
+}
+
+impl Drop for ProcessingGuard {
+    fn drop(&mut self) {
+        self.map.write().remove(&self.task_id);
+    }
+}
+
+/// panic 载荷转可读消息（&str / String / 其它）
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "未知 panic 载荷".to_string()
+    }
 }
 
 impl TaskQueueService {
@@ -340,6 +371,36 @@ impl TaskQueueService {
 
                                 debug!("Worker {} starts processing task: {}", worker_id, task_id);
 
+                                // 终态短路：排队期间被取消/已完成/已失败的残留
+                                // 任务不再执行（此前照跑全量，收尾还会把
+                                // Cancelled 翻写成 Completed）；任务已删除同样跳过
+                                let skip = match task_service.get_task(&task_id).await {
+                                    Ok(Some(task)) => task.status.is_terminal(),
+                                    Ok(None) => {
+                                        debug!(
+                                            "Worker {}: task {} no longer exists, dropping",
+                                            worker_id, task_id
+                                        );
+                                        true
+                                    }
+                                    Err(e) => {
+                                        // 读失败不据此丢任务（保守放行，后续步骤自会暴露错误）
+                                        warn!(
+                                            "Worker {}: read task {} failed: {}",
+                                            worker_id, task_id, e
+                                        );
+                                        false
+                                    }
+                                };
+                                if skip {
+                                    queued_count.fetch_sub(1, Ordering::Relaxed);
+                                    debug!(
+                                        "Worker {}: task {} already terminal, skipping execution",
+                                        worker_id, task_id
+                                    );
+                                    continue;
+                                }
+
                                 // 更新任务状态为处理中
                                 if let Err(e) = task_service.update_task_status(
                                     &task_id,
@@ -350,31 +411,35 @@ impl TaskQueueService {
                                 // 出队计数减一
                                 queued_count.fetch_sub(1, Ordering::Relaxed);
 
-                                // 记录到 processing_tasks，便于统计与健康检查
-                                {
-                                    let mut tasks = processing_tasks.write().await;
-                                    tasks.insert(
-                                        task_id.clone(),
-                                        TaskExecutionContext {
-                                            _task_id: task_id.clone(),
-                                            started_at: start_time,
-                                            _worker_id: worker_id,
-                                            _retry_count: queue_item.retry_count,
-                                        },
-                                    );
-                                }
+                                // 记录到 processing_tasks（守卫 Drop 移除，含 panic 路径）
+                                let _processing_guard = ProcessingGuard {
+                                    map: Arc::clone(&processing_tasks),
+                                    task_id: task_id.clone(),
+                                };
+                                processing_tasks.write().insert(
+                                    task_id.clone(),
+                                    TaskExecutionContext {
+                                        _task_id: task_id.clone(),
+                                        started_at: start_time,
+                                        _worker_id: worker_id,
+                                        _retry_count: queue_item.retry_count,
+                                    },
+                                );
 
-                                // 执行任务处理
+                                // 执行任务处理（catch_unwind：单个任务 panic 记
+                                // Failed 而不是带走 worker——worker 池不缩水）
                                 let result = tokio::time::timeout(
                                     config.task_timeout,
-                                    processor.process_task(&task_id)
+                                    std::panic::AssertUnwindSafe(
+                                        processor.process_task(&task_id)
+                                    ).catch_unwind(),
                                 ).await;
 
                                 let processing_time = start_time.elapsed();
 
                                 // 处理结果
                                 match result {
-                                    Ok(Ok(())) => {
+                                    Ok(Ok(Ok(()))) => {
                                         completed_count.fetch_add(1, Ordering::Relaxed);
 
                                         if let Err(e) = task_service.update_task_status(
@@ -386,13 +451,8 @@ impl TaskQueueService {
 
                                         info!("Worker {} completed the task: {} (time taken: {:?})",
                                                   worker_id, task_id, processing_time);
-                                        // 从 processing 列表移除
-                                        {
-                                            let mut tasks = processing_tasks.write().await;
-                                            tasks.remove(&task_id);
-                                        }
                                     }
-                                    Ok(Err(e)) => {
+                                    Ok(Ok(Err(e))) => {
                                         failed_count.fetch_add(1, Ordering::Relaxed);
 
                                         if let Err(err) = task_service.set_task_error(&task_id, e.to_string()).await {
@@ -400,11 +460,19 @@ impl TaskQueueService {
                                         }
 
                                         error!("Worker {} task failed: {} - {}", worker_id, task_id, e);
-                                        // 从 processing 列表移除
-                                        {
-                                            let mut tasks = processing_tasks.write().await;
-                                            tasks.remove(&task_id);
+                                    }
+                                    Ok(Err(panic_payload)) => {
+                                        failed_count.fetch_add(1, Ordering::Relaxed);
+
+                                        let msg = panic_message(panic_payload.as_ref());
+                                        if let Err(e) = task_service.set_task_error(
+                                            &task_id,
+                                            format!("任务处理 panic: {msg}"),
+                                        ).await {
+                                            error!("Worker {} failed to record task panic: {}", worker_id, e);
                                         }
+
+                                        error!("Worker {} task panicked: {} - {}", worker_id, task_id, msg);
                                     }
                                     Err(_) => {
                                         failed_count.fetch_add(1, Ordering::Relaxed);
@@ -414,11 +482,6 @@ impl TaskQueueService {
                                         }
 
                                         error!("Worker {} task timeout: {} (timeout time: {:?})",worker_id, task_id, config.task_timeout);
-                                        // 从 processing 列表移除
-                                        {
-                                            let mut tasks = processing_tasks.write().await;
-                                            tasks.remove(&task_id);
-                                        }
                                     }
                                 }
                             }
@@ -480,7 +543,7 @@ impl TaskQueueService {
                         let pending_count = queued_count.load(Ordering::Relaxed) as usize;
 
                         let processing_count = {
-                            let tasks = processing_tasks.read().await;
+                            let tasks = processing_tasks.read();
                             tasks.len()
                         };
 
@@ -493,7 +556,7 @@ impl TaskQueueService {
                         // 计算工作协程利用率
                         // 利用率直接使用 processing_count / max_concurrent_tasks
                         let worker_utilization = {
-                            let tasks = processing_tasks.read().await;
+                            let tasks = processing_tasks.read();
                             if config.max_concurrent_tasks > 0 {
                                 (tasks.len() as f64 / config.max_concurrent_tasks as f64).min(1.0)
                             } else { 0.0 }
@@ -519,7 +582,7 @@ impl TaskQueueService {
 
                         // 更新统计信息
                         {
-                            let mut stats_guard = stats.write().await;
+                            let mut stats_guard = stats.write();
                             stats_guard.pending_count = pending_count;
                             stats_guard.processing_count = processing_count;
                             stats_guard.completed_count = completed;
@@ -536,7 +599,7 @@ impl TaskQueueService {
 
                         // 记录处理时间样本
                         {
-                            let tasks = processing_tasks.read().await;
+                            let tasks = processing_tasks.read();
                             for context in tasks.values() {
                                 let elapsed = now.duration_since(context.started_at);
                                 processing_times.push_back(elapsed);
@@ -555,13 +618,16 @@ impl TaskQueueService {
 
     /// 启动健康检查协程（含孤儿任务看门狗）
     ///
-    /// 两层职责：
-    /// 1. 活跃 worker 挂账超时告警（原逻辑：elapsed > 2×task_timeout 只 warn +
-    ///    置 is_healthy=0——worker 自身有 task_timeout 强杀，这里保持观测不动手）
-    /// 2. **孤儿看门狗**：DB 里 Processing 但**不在** processing_tasks 挂账里的
-    ///    任务（服务异常路径遗留：worker 崩溃/重启竞态/未来 bug），且心跳
-    ///    （updated_at）停滞超过 2×task_timeout——没人会再推进它，写 Failed
-    ///    释放。不碰挂账中的任务（worker 的超时兜底负责），避免与 worker 竞争。
+    /// 两个独立节奏：
+    /// 1. 活跃 worker 挂账超时告警（`health_check_interval`，默认 30s，纯内存）：
+    ///    elapsed > 2×task_timeout 只 warn + 置 is_healthy=0——worker 自身有
+    ///    task_timeout 强杀，这里保持观测不动手
+    /// 2. **孤儿看门狗**（5 分钟，DB 全表扫描）：DB 里 Processing 但**不在**
+    ///    processing_tasks 挂账里的任务（服务异常路径遗留：worker 崩溃/重启
+    ///    竞态/未来 bug），且心跳（updated_at）停滞超过 2×task_timeout——没人
+    ///    会再推进它，写 Failed 释放。不碰挂账中的任务（worker 的超时兜底负责），
+    ///    避免与 worker 竞争。全表扫描从 30s 降到这里：阈值本就是小时级，
+    ///    大任务量下高频扫 sled 是纯浪费
     async fn spawn_health_checker(&self) {
         let is_healthy = Arc::clone(&self.is_healthy);
         let processing_tasks = Arc::clone(&self.processing_tasks);
@@ -570,7 +636,8 @@ impl TaskQueueService {
         let mut shutdown_rx = self.shutdown_receiver.clone();
 
         tokio::spawn(async move {
-            let mut interval = interval(config.health_check_interval);
+            let mut health_interval = interval(config.health_check_interval);
+            let mut orphan_interval = interval(ORPHAN_SCAN_INTERVAL);
 
             loop {
                 tokio::select! {
@@ -580,13 +647,13 @@ impl TaskQueueService {
                         }
                     }
 
-                    _ = interval.tick() => {
+                    // 1. 活跃 worker 挂账超时告警（纯内存）
+                    _ = health_interval.tick() => {
                         let now = Instant::now();
                         let mut unhealthy_tasks = 0;
 
-                        // 1. 活跃 worker 挂账超时告警
                         {
-                            let tasks = processing_tasks.read().await;
+                            let tasks = processing_tasks.read();
                             for (task_id, context) in tasks.iter() {
                                 let elapsed = now.duration_since(context.started_at);
                                 if elapsed > config.task_timeout * 2 {
@@ -596,11 +663,21 @@ impl TaskQueueService {
                             }
                         }
 
-                        // 2. 孤儿看门狗：DB Processing 且不在挂账、心跳停滞的任务
-                        //    写 Failed（幂等：set_task_error 有终态保护）
+                        // 更新健康状态
+                        let healthy = unhealthy_tasks == 0;
+                        is_healthy.store(if healthy { 1 } else { 0 }, Ordering::Relaxed);
+
+                        if !healthy {
+                            warn!("Queue service health check failed: {} tasks may be stuck", unhealthy_tasks);
+                        }
+                    }
+
+                    // 2. 孤儿看门狗：DB Processing 且不在挂账、心跳停滞的任务
+                    //    写 Failed（幂等：set_task_error 有终态保护）
+                    _ = orphan_interval.tick() => {
                         if let Ok(stats) = task_service.get_task_stats().await {
                             let active: std::collections::HashSet<String> = {
-                                let tasks = processing_tasks.read().await;
+                                let tasks = processing_tasks.read();
                                 tasks.keys().cloned().collect()
                             };
                             for orphan_id in &stats.processing_ids {
@@ -634,14 +711,6 @@ impl TaskQueueService {
                                         .await;
                                 }
                             }
-                        }
-
-                        // 更新健康状态
-                        let healthy = unhealthy_tasks == 0;
-                        is_healthy.store(if healthy { 1 } else { 0 }, Ordering::Relaxed);
-
-                        if !healthy {
-                            warn!("Queue service health check failed: {} tasks may be stuck", unhealthy_tasks);
                         }
                     }
                 }
@@ -684,13 +753,13 @@ impl TaskQueueService {
 
     /// 获取队列统计信息
     pub async fn get_stats(&self) -> QueueStats {
-        let stats = self.stats.read().await;
+        let stats = self.stats.read();
         stats.clone()
     }
 
     /// 获取正在处理的任务列表
     pub async fn get_processing_tasks(&self) -> Vec<(String, Duration)> {
-        let tasks = self.processing_tasks.read().await;
+        let tasks = self.processing_tasks.read();
         let now = Instant::now();
 
         tasks
@@ -723,7 +792,7 @@ impl TaskQueueService {
         while wait_count < 30 {
             // 最多等待30秒
             let processing_count = {
-                let tasks = self.processing_tasks.read().await;
+                let tasks = self.processing_tasks.read();
                 tasks.len()
             };
 
@@ -747,6 +816,8 @@ mod tests {
 
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tempfile::TempDir;
+
+    use crate::models::SourceType;
 
     struct TestProcessor {
         processed_count: AtomicUsize,
@@ -776,6 +847,55 @@ mod tests {
             info!("Processing task: {}", task_id);
             Ok(())
         }
+    }
+
+    /// 排队期取消的任务不被 worker 执行（终态短路回归：此前照跑全量，收尾还
+    /// 会把 Cancelled 翻写成 Completed）
+    #[tokio::test]
+    async fn cancelled_queued_task_not_processed() {
+        let temp_dir = TempDir::new().unwrap();
+        let db = Arc::new(sled::open(temp_dir.path()).unwrap());
+        let task_service = Arc::new(TaskService::new(db).unwrap());
+
+        let config = QueueConfig {
+            max_concurrent_tasks: 1,
+            task_timeout: Duration::from_secs(5),
+            ..Default::default()
+        };
+        let mut queue_service = TaskQueueService::with_config(task_service.clone(), config);
+        let processor = Arc::new(TestProcessor::new());
+        let processor_handle = Arc::clone(&processor);
+        queue_service.start(processor).await.unwrap();
+
+        let task = task_service
+            .create_task(
+                SourceType::Upload,
+                Some("/tmp/x.md".to_string()),
+                Some("x.md".to_string()),
+                None,
+            )
+            .await
+            .unwrap();
+        task_service.cancel_task(&task.id, None).await.unwrap();
+        queue_service
+            .enqueue_task(task.id.clone(), 1)
+            .await
+            .unwrap();
+
+        sleep(Duration::from_millis(300)).await;
+        assert_eq!(
+            processor_handle.processed_count.load(Ordering::SeqCst),
+            0,
+            "排队期取消的任务不应被 worker 执行"
+        );
+        let t = task_service.get_task(&task.id).await.unwrap().unwrap();
+        assert!(
+            matches!(t.status, TaskStatus::Cancelled { .. }),
+            "取消状态应保持，实际 {:?}",
+            t.status
+        );
+
+        queue_service.shutdown().await.unwrap();
     }
 
     #[tokio::test]

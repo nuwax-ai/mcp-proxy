@@ -169,9 +169,11 @@ impl DocumentService {
         info!("Start parsing the document: {}", file_path);
 
         // 任务级取消令牌：注册 + 下传（cancel_task → parse_cancel::request_parse_cancel
-        // → execute 层 select 轮询 kill 子进程）；结束路径统一注销
+        // → execute 层 select 轮询 kill 子进程）；RAII guard 保证正常/超时/worker
+        // drop 三个出口都注销（手工 unregister 在 drop 路径走不到，会泄漏）
         let cancel_token = crate::parsers::mineru_parser::CancellationToken::new();
-        crate::services::parse_cancel::register(task_id, cancel_token.clone());
+        let _cancel_guard =
+            crate::services::parse_cancel::register_guarded(task_id, cancel_token.clone());
 
         // 心跳 + 总超时：解析期（尤其 MinerUExecuting 可能数十分钟）此前零任务
         // 写入，updated_at 冻结在阶段入口，运维无从分辨"在算"还是"已死"——
@@ -194,8 +196,6 @@ impl DocumentService {
             }
         })
         .await;
-
-        crate::services::parse_cancel::unregister(task_id);
 
         match result {
             Ok(parse_result) => parse_result,
