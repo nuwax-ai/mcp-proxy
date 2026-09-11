@@ -1,6 +1,6 @@
 {
   "version": "0.2.1",
-  "assetVersion": "0.2.14",
+  "assetVersion": "0.2.15",
   "optionalAssets": {
     "venv": {
       "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/document-parser/v{version}/venv-macos-arm64-{version}.tar.gz"

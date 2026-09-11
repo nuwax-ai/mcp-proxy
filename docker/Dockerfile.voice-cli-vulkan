@@ -47,6 +47,13 @@ COPY docker/cargo-config-linux-rpath.toml .cargo/config.toml
 #   ghproxy 下载 sherpa-onnx-v1.13.3-linux-x64-shared-lib.tar.bz2 到本目录）
 ENV SHERPA_ONNX_ARCHIVE_DIR=/app/docker/sherpa-cache
 
+# ggml 默认 GGML_NATIVE=ON 把**构建容器 CPU**（Docker/Rosetta 下检测）的指令集
+# 烘焙进 whisper CPU 代码——部署到无对应指令集的机器（如 Zen2/Zen3 的 AMD
+# APU，vulkan 档的主要人群）推理即崩 c000001d 非法指令（53 实测教训）。
+# whisper-rs-sys 的 build.rs 会把 GGML_* 环境变量转发为 cmake -D；OFF 后
+# ggml 按目标机运行时检测分发指令集（一份二进制安全跑遍所有 CPU）。
+ENV GGML_NATIVE=OFF
+
 ARG VOICE_FEATURES=vulkan
 RUN cargo build --release -p voice-cli --features "${VOICE_FEATURES}" \
     && echo "=== rpath check ===" \

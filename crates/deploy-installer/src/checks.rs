@@ -136,7 +136,7 @@ pub fn netstat_listener_pid(output: &str, port: u16) -> Option<String> {
 
 /// Try to detect which PID holds `port`. Returns Ok(Some(pid)) if occupied,
 /// Ok(None) if free, Err if detection tools unavailable.
-fn port_occupant(port: u16) -> std::result::Result<Option<String>, String> {
+pub(crate) fn port_occupant(port: u16) -> std::result::Result<Option<String>, String> {
     // Windows: netstat -ano（PID 列在行尾；state 名 LISTENING 来自 IP Helper API，不本地化）
     if cfg!(windows) {
         let output = Command::new("netstat")

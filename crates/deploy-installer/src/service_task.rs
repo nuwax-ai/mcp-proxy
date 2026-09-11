@@ -31,6 +31,7 @@ pub fn install_task(spec: &ServiceSpec, dry_run: bool, _enable: bool, start: boo
         if let Err(e) = task_scheduler::end(&name) {
             println!("  note: end previous task instance: {e}");
         }
+        wait_port_released(spec, std::time::Duration::from_secs(10));
     }
     task_scheduler::create_from_xml(&name, &xml_path)?;
     if start {
@@ -82,15 +83,39 @@ pub fn uninstall_task(spec: &ServiceSpec) -> Result<()> {
     Ok(())
 }
 
-/// 重启：结束运行实例后立即按需启动。
+/// 重启：结束运行实例 → 等端口真正释放 → 启动。
 pub fn restart_task(spec: &ServiceSpec) -> Result<()> {
     let name = spec.task_name();
     if let Err(e) = task_scheduler::end(&name) {
         println!("  note: end task: {e}");
     }
+    wait_port_released(spec, std::time::Duration::from_secs(10));
     task_scheduler::run(&name)?;
     println!("Restarted {name}");
     Ok(())
+}
+
+/// 等待端口停止监听：`schtasks /end` 返回时进程只是**开始**终止，监听 socket
+/// 尚未关闭——立即 `/run` 的新实例会 bind 失败（"Address already in use"，
+/// 53 实测，二次 restart 才能恢复）。轮询 netstat 的 LISTENING 行直到消失；
+/// 超时不阻断（打提示后照常启动，保持既有语义），探测工具不可用直接返回。
+fn wait_port_released(spec: &ServiceSpec, timeout: std::time::Duration) {
+    let Some(port) = spec.listen_port else {
+        return;
+    };
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match crate::checks::port_occupant(port) {
+            Ok(None) => return,
+            Ok(Some(_)) => {}
+            Err(_) => return,
+        }
+        if std::time::Instant::now() >= deadline {
+            println!("  note: port {port} still listening after {timeout:?} — starting anyway");
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
 }
 
 /// 打印任务状态、上次结果、任务定义体与最新日志 tail。
