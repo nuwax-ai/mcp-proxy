@@ -10,7 +10,10 @@
 //!   `<EnvironmentVariables>` 元素（Win11 报"系统找不到指定的文件"）。凭证与
 //!   配置走 `.env` 文件由**服务自读**（与 launchd 后端同一模式——launchd 无
 //!   `EnvironmentFile=`，systemd 的 EnvironmentFile 只是冗余便利）。
-//! - `RestartOnFailure`（1 分钟间隔 × 10 次）≈ `Restart=on-failure` + `RestartSec`。
+//! - **无 RestartOnFailure**（曾配 1 分钟 × 10 次，53 实测撤除）：`/end` 强杀被
+//!   记为失败，1 分钟后的自动重拉会**停掉刚被 restart 命令拉起的实例**
+//!   （failure-restart 绕过 MultipleInstancesPolicy=IgnoreNew 直接重启任务），
+//!   双起互杀致 restart 假成功。失败自愈交给安装器 restart / 用户。
 //! - `kill_signal` / `timeout_stop_sec` / `syslog_identifier` / `supplementary_groups`
 //!   在任务计划程序无对应物，忽略（服务自身写文件日志，stdout 不经任务捕获）。
 
@@ -68,10 +71,6 @@ pub fn render_task_xml(spec: &ServiceSpec, run_at_logon: bool) -> Result<String>
     <WakeToRun>false</WakeToRun>
     <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
     <Priority>7</Priority>
-    <RestartOnFailure>
-      <Interval>PT1M</Interval>
-      <Count>10</Count>
-    </RestartOnFailure>
   </Settings>
   <Actions Context="Author">
     <Exec>
@@ -145,7 +144,8 @@ mod tests {
         assert!(xml.contains("<WorkingDirectory>C:\\dp</WorkingDirectory>"));
         assert!(xml.contains("S4U</LogonType>"));
         assert!(xml.contains("PT0S</ExecutionTimeLimit>"));
-        assert!(xml.contains("PT1M</Interval>"));
+        // RestartOnFailure 已撤除（53 实测：failure-restart 会停掉刚拉起的实例）
+        assert!(!xml.contains("RestartOnFailure"));
     }
 
     #[test]
