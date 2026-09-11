@@ -101,6 +101,13 @@ jobs:
             target: x86_64-pc-windows-msvc
             vendor_key: windows-x64
     runs-on: ${{ matrix.os }}
+    env:
+      # ggml/whisper 默认 GGML_NATIVE=ON：把构建机（GitHub Intel runner，带
+      # AVX-512/VNNI）的指令集直接烘焙进二进制——部署到无 AVX-512 的 CPU
+      # （如 AMD Zen2 5700U）whisper 推理立刻崩（c000001d 非法指令，53 实测
+      # 任何模型必崩）。whisper-rs-sys 的 build.rs 会把 GGML_* 环境变量转发
+      # 为 cmake -D；关掉 native 后 ggml 按目标机运行时分发（AVX2 等自动检测）。
+      GGML_NATIVE: "OFF"
     defaults:
       run:
         shell: bash
