@@ -52,6 +52,29 @@ pub fn apply_upload_config_from_env(env_path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// 仅把 `ALIYUN_OSS_*_BUCKET` 两个覆盖键从进程环境 upsert 到 `.env`。
+///
+/// 为什么独立于 [`apply_upload_config_from_env`]：那个函数在"已有后端"时整体
+/// 跳过（防 shell 残留值覆盖用户手改的凭证），但 bucket 占位符防呆的修复
+/// 指引就是"export ALIYUN_OSS_PUBLIC_BUCKET=… 后重跑 install"——重跑时凭证
+/// 已在 .env 里、整体 skip 让 bucket 键永远落不了盘，指引变死循环。本函数
+/// 只碰 bucket 两键（凭证语义不动），export 了才写、没 export 是 no-op
+pub fn apply_bucket_overrides_from_env(env_path: &Path) -> Result<()> {
+    const BUCKET_KEYS: &[&str] = &["ALIYUN_OSS_PUBLIC_BUCKET", "ALIYUN_OSS_PRIVATE_BUCKET"];
+    let mut lines = read_env_lines(env_path)?;
+    let mut changed = false;
+    for key in BUCKET_KEYS {
+        if let Some(value) = std::env::var(key).ok().filter(|s| !s.trim().is_empty()) {
+            upsert_env_line(&mut lines, key, &value);
+            changed = true;
+        }
+    }
+    if changed {
+        write_env_lines(env_path, &lines)?;
+    }
+    Ok(())
+}
+
 /// Whether `.document-parser.env` has non-empty OSS keys.
 ///
 /// 解析语义与运行时 dotenvy 一致（**first-wins**：同键多行取首个非注释行）。
@@ -257,5 +280,52 @@ mod tests {
         assert_eq!(parse_env_file_value(&p, "BAR").as_deref(), Some("plain"));
         assert_eq!(parse_env_file_value(&p, "BAZ").as_deref(), Some("dq"));
         assert_eq!(parse_env_file_value(&p, "MISSING"), None);
+    }
+
+    /// 修复指引闭环回归：export ALIYUN_OSS_*_BUCKET 后重跑 install，bucket 键
+    /// 必须能落盘（此前"已有后端整体 skip"让键永远进不去——死循环）
+    #[test]
+    fn bucket_overrides_upsert_without_touching_credentials() {
+        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = TempDir::new().unwrap();
+        let p = dir.path().join(".env");
+        std::fs::write(&p, "OSS_ACCESS_KEY_ID=ak\nOSS_ACCESS_KEY_SECRET=sk\n").unwrap();
+
+        // 未 export：no-op（不写空值、不动既有内容）
+        // SAFETY: test-only env mutation; 本模块内经 ENV_LOCK 串行。
+        unsafe {
+            std::env::remove_var("ALIYUN_OSS_PUBLIC_BUCKET");
+            std::env::remove_var("ALIYUN_OSS_PRIVATE_BUCKET");
+        }
+        apply_bucket_overrides_from_env(&p).unwrap();
+        assert!(parse_env_file_value(&p, "ALIYUN_OSS_PUBLIC_BUCKET").is_none());
+
+        // export 后：两键 upsert 落盘，凭证行原样保留
+        // SAFETY: test-only env mutation; 本模块内经 ENV_LOCK 串行。
+        unsafe {
+            std::env::set_var("ALIYUN_OSS_PUBLIC_BUCKET", "nuwa-packages");
+            std::env::set_var("ALIYUN_OSS_PRIVATE_BUCKET", "nuwa-packages");
+        }
+        apply_bucket_overrides_from_env(&p).unwrap();
+        assert_eq!(
+            parse_env_file_value(&p, "ALIYUN_OSS_PUBLIC_BUCKET").as_deref(),
+            Some("nuwa-packages")
+        );
+        assert_eq!(
+            parse_env_file_value(&p, "ALIYUN_OSS_PRIVATE_BUCKET").as_deref(),
+            Some("nuwa-packages")
+        );
+        let content = std::fs::read_to_string(&p).unwrap();
+        assert!(
+            content.contains("OSS_ACCESS_KEY_ID=ak"),
+            "凭证行不应被触碰: {content}"
+        );
+
+        // SAFETY: test-only env mutation; 清理避免影响其它测试。
+        unsafe {
+            std::env::remove_var("ALIYUN_OSS_PUBLIC_BUCKET");
+            std::env::remove_var("ALIYUN_OSS_PRIVATE_BUCKET");
+        }
     }
 }

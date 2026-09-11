@@ -225,11 +225,11 @@ impl AppConfig {
 
         // 上传后端防呆：OSS 密钥已生效（后端选了 OSS）而 bucket 仍是模板占位符时，
         // 异步上传要到运行期才炸 E010（2026-09-10 三机深测实测）——提前到启动期。
-        // custom 上传后端（DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL 已设，经
-        // .document-parser.env 注入进程环境）不走 OSS 上传，跳过校验。
-        let custom_backend = std::env::var("DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL")
-            .map(|v| !v.trim().is_empty())
-            .unwrap_or(false);
+        // custom 上传后端不走 OSS 上传，跳过校验。注意：env 覆盖在 validate 之前
+        // 已合并进 self.storage（load_all_from_env → validate 的调用顺序），所以
+        // 这里读配置字段即同时覆盖"env 注入"与"config.yml 直接配置"两条路径——
+        // 此前只查进程 env，config.yml 配了 custom_upload 的部署会被误判
+        let custom_backend = !self.storage.custom_upload.base_url.trim().is_empty();
         if !custom_backend && self.storage.oss.keys_effective() {
             for (field, bucket) in [
                 ("storage.oss.public_bucket", &self.storage.oss.public_bucket),
@@ -536,15 +536,11 @@ mod tests {
     use tempfile::TempDir;
 
     /// OSS bucket 占位符校验的三态：密钥未生效不校验 / OSS+占位符拒绝 / custom 后端豁免。
-    /// 触碰进程环境的用例须持锁串行（cross_validate 读 DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL）。
+    /// custom 后端豁免覆盖两条路径：config.yml 直接配置 与 env 注入（cross_validate
+    /// 读的是已合并的配置字段，不再碰进程 env——config.yml 配了 custom 的部署
+    /// 不会再被误判走 OSS 校验）。
     #[test]
     fn test_oss_bucket_placeholder_guard() {
-        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let old_custom = std::env::var("DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL").ok();
-        // SAFETY: 测试进程内持 ENV_LOCK 串行修改该环境变量，无并发访问
-        unsafe { std::env::remove_var("DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL") };
-
         let mut config = AppConfig::load_base_config().unwrap();
         // 显式设占位符 + 字面量密钥：不依赖加载到的 config.yml 内容（本地开发
         // config 可能有真实 bucket），保证三种状态的输入确定
@@ -575,28 +571,30 @@ mod tests {
         config.storage.oss.private_bucket = "nuwa-packages".to_string();
         assert!(config.validate().is_ok());
 
-        // custom 上传后端部署（env 已设）不走 OSS 上传 → 占位符放行（131/53 既有模式）
+        // 路径一：config.yml 直接配置 custom 上传后端 → 占位符放行（131/53 既有模式）
         config.storage.oss.public_bucket = "your-public-bucket".to_string();
         config.storage.oss.private_bucket = "your-private-bucket".to_string();
-        // SAFETY: 同上，持锁串行
-        unsafe {
-            std::env::set_var(
-                "DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL",
-                "https://x.example.com",
-            )
-        };
+        config.storage.custom_upload.base_url = "https://from-config.example.com".to_string();
         assert!(
             config.validate().is_ok(),
-            "custom 后端部署应跳过 OSS bucket 校验"
+            "config.yml 配置的 custom 后端应跳过 OSS bucket 校验"
         );
+        config.storage.custom_upload.base_url = String::new();
 
-        // SAFETY: 同上，持锁串行还原
-        unsafe {
-            match old_custom {
-                Some(v) => std::env::set_var("DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL", v),
-                None => std::env::remove_var("DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL"),
-            }
-        }
+        // 路径二：env 注入 custom 上传后端（.env → dotenvy 路径）→ 同样放行
+        let env = MapEnv(
+            [(
+                "DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL".to_string(),
+                "https://from-env.example.com".to_string(),
+            )]
+            .into_iter()
+            .collect(),
+        );
+        config.load_all_from_env(&env).unwrap();
+        assert!(
+            config.validate().is_ok(),
+            "env 注入的 custom 后端应跳过 OSS bucket 校验"
+        );
     }
 
     #[test]

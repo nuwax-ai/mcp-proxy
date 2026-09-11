@@ -579,10 +579,10 @@ fn download_prebuilt_whisper(
     install_dir: &Path,
     quiet: bool,
 ) -> Result<()> {
-    let pack = resolve_models_pack(args)?;
-    if whisper_pack_satisfied(install_dir, pack) {
+    let requested = resolve_models_pack(args)?;
+    if whisper_pack_satisfied(install_dir, requested) {
         if !quiet {
-            let label = match pack {
+            let label = match requested {
                 WhisperModelsPack::LargeV3 => "ggml-large-v3.bin",
                 WhisperModelsPack::All => "all models (tiny…large-v3)",
             };
@@ -591,17 +591,43 @@ fn download_prebuilt_whisper(
         return Ok(());
     }
 
-    let version = deploy_asset_version();
-    let archive = pack.archive_filename(&version);
-    let url = if let Some(base) = args.oss_base.as_deref() {
-        whisper_download_url_from_base(base, pack)
-    } else if let Some(url) = optional_whisper_download_url(pack) {
-        url
-    } else {
-        bail!(
-            "prebuilt Whisper models require --oss-base or whisper URLs in \
-             vendor/templates/manifest.json (upload {archive} to OSS first)"
+    // 包解析：--oss-base 显式给 URL 时按请求包直下（资产在不在由下载结果说话）；
+    // manifest 路径下 whisperAll 只在部分平台配键——All 无资产回退 large-v3
+    //（ggml 模型平台无关、三平台都有；Linux/Windows 上 `--models all` 此前
+    // 直接 bail，连默认模型都装不上）；连 large-v3 都无资产才是真错误
+    let effective = match effective_pack(
+        requested,
+        args.oss_base.is_some(),
+        optional_whisper_download_url(WhisperModelsPack::All),
+        optional_whisper_download_url(WhisperModelsPack::LargeV3),
+    ) {
+        Some(pack) => pack,
+        None => {
+            let version = deploy_asset_version();
+            let archive = requested.archive_filename(&version);
+            bail!(
+                "prebuilt Whisper models require --oss-base or whisper URLs in \
+                 vendor/templates/manifest.json (upload {archive} to OSS first)"
+            );
+        }
+    };
+    if effective != requested {
+        println!(
+            "  models: WARN (--models all 在此平台无 whisperAll 资产，回退 large-v3；\
+             全套模型需上传 whisper-ggml-all 资产后重跑，或手动放置 models/ggml-*.bin)"
         );
+        if whisper_pack_satisfied(install_dir, effective) {
+            if !quiet {
+                println!("  models: ggml-large-v3.bin already present, skipping download");
+            }
+            return Ok(());
+        }
+    }
+
+    let url = if let Some(base) = args.oss_base.as_deref() {
+        whisper_download_url_from_base(base, effective)
+    } else {
+        optional_whisper_download_url(effective).expect("effective_pack 已确认该包有可用 URL")
     };
     download_and_extract_tarball(
         &url,
@@ -610,7 +636,27 @@ fn download_prebuilt_whisper(
         quiet,
         "models",
     )?;
-    ensure_whisper_pack_models(install_dir, pack)
+    ensure_whisper_pack_models(install_dir, effective)
+}
+
+/// 请求包 → 实际可下载包（纯函数，便于单测）：--oss-base 恒按请求包；manifest
+/// 路径下 All 无本平台资产时回退 LargeV3；LargeV3 亦无资产返回 None（真错误）
+fn effective_pack(
+    requested: WhisperModelsPack,
+    oss_base: bool,
+    all_url: Option<String>,
+    large_v3_url: Option<String>,
+) -> Option<WhisperModelsPack> {
+    use WhisperModelsPack::{All, LargeV3};
+    if oss_base {
+        return Some(requested);
+    }
+    match requested {
+        LargeV3 => large_v3_url.map(|_| LargeV3),
+        All => all_url
+            .map(|_| All)
+            .or_else(|| large_v3_url.map(|_| LargeV3)),
+    }
 }
 
 fn run_service(action: ServiceAction) -> Result<()> {
@@ -715,4 +761,32 @@ fn copy_templates(install_dir: &Path, quiet: bool) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::effective_pack;
+    use crate::WhisperModelsPack::{All, LargeV3};
+
+    /// `--models all` 平台回归：manifest 无 whisperAll 键的平台（Linux/Windows）
+    /// 回退 large-v3 而不是 bail；--oss-base 恒按请求包
+    #[test]
+    fn effective_pack_falls_back_to_large_v3_when_all_missing() {
+        let url = || Some("https://oss/whisper.tar.gz".to_string());
+
+        // --oss-base：按请求包直下
+        assert_eq!(effective_pack(All, true, None, None), Some(All));
+        assert_eq!(effective_pack(LargeV3, true, None, None), Some(LargeV3));
+
+        // 两包都有资产（darwin-arm64 现状）：按请求包
+        assert_eq!(effective_pack(All, false, url(), url()), Some(All));
+
+        // All 无资产、LargeV3 有（linux/windows 现状）：回退 LargeV3
+        assert_eq!(effective_pack(All, false, None, url()), Some(LargeV3));
+
+        // 连 LargeV3 都无：None（真错误，调用方 bail）
+        assert_eq!(effective_pack(All, false, None, None), None);
+        assert_eq!(effective_pack(LargeV3, false, None, None), None);
+        assert_eq!(effective_pack(LargeV3, false, None, url()), Some(LargeV3));
+    }
 }

@@ -110,12 +110,9 @@ pub struct SetupArgs {
     /// mutually exclusive with --use-prebuilt-venv / --no-prebuilt-venv)
     #[arg(long, conflicts_with_all = ["use_prebuilt_venv", "no_prebuilt_venv"])]
     pub venv_file: Option<PathBuf>,
-    /// Download prebuilt MinerU pipeline models from OSS to ~/.cache/modelscope
-    /// (default: on; PDF parsing works immediately after install)
-    #[arg(long)]
-    pub use_prebuilt_models: bool,
-    /// Skip MinerU models download (first PDF parse will fetch from ModelScope,
-    /// which can stall or take minutes on some networks)
+    /// Skip MinerU models download (models are fetched from OSS by default;
+    /// with this flag, first PDF parse will fetch from ModelScope, which can
+    /// stall or take minutes on some networks)
     #[arg(long)]
     pub skip_models: bool,
     /// OSS base URL for optional assets (venv tarball)

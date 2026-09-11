@@ -14,8 +14,8 @@ use crate::cli::common::{
     upgrade_bundled_binary,
 };
 use crate::cli::env_config::{
-    OSS_BUCKET_PLACEHOLDERS, apply_upload_config_from_env, custom_upload_configured,
-    oss_keys_configured, parse_env_file_value, upload_backend_configured,
+    OSS_BUCKET_PLACEHOLDERS, apply_bucket_overrides_from_env, apply_upload_config_from_env,
+    custom_upload_configured, oss_keys_configured, parse_env_file_value, upload_backend_configured,
 };
 use crate::cli::tarball::{download_and_extract_tarball, extract_tarball_at};
 use crate::cli::{DocumentParserAction, ServiceAction, ServiceDirArgs, SetupArgs};
@@ -176,6 +176,10 @@ fn install_full(args: &SetupArgs) -> Result<()> {
     // 才炸 E010（2026-09-10 三机深测实测）——安装期 fail-fast 并给出解法。
     // custom 后端部署不走 OSS，跳过（131/53 既有模式回归）。
     if oss_keys_configured(&env_path) && !custom_upload_configured(&env_path) {
+        // 先落盘 bucket 覆盖键（export 了才写）：防呆报错的修复指引就是
+        // "export ALIYUN_OSS_*_BUCKET 后重跑 install"，不落盘的话重跑时
+        // 凭证已在 .env、上传配置整体 skip，bucket 永远进不去（死循环）
+        apply_bucket_overrides_from_env(&env_path)?;
         verify_oss_bucket_resolved(&env_path, &install_dir.join(CONFIG_FILENAME))?;
     }
 
@@ -260,6 +264,8 @@ fn verify_oss_bucket_resolved(env_path: &Path, config_path: &Path) -> Result<()>
 
 /// 从 config.yml 提取 `public_bucket:` / `private_bucket:` 行的值（模板形状的
 /// 简单行解析，去引号；缺失或找不到文件返回空 map，由调用方按未解析处理）。
+/// 值含行内注释时先剥离——出厂模板每行都带 `# ← 改成你的` 尾注，不剥的话
+/// `"your-public-bucket"   # ← …` 解析出的值不在占位符列表里，防呆全失效
 fn read_config_yaml_buckets(config_path: &Path) -> std::collections::HashMap<String, String> {
     let mut map = std::collections::HashMap::new();
     let Ok(content) = fs::read_to_string(config_path) else {
@@ -269,12 +275,30 @@ fn read_config_yaml_buckets(config_path: &Path) -> std::collections::HashMap<Str
         let t = line.trim();
         for key in ["public_bucket", "private_bucket"] {
             if let Some(rest) = t.strip_prefix(&format!("{key}:")) {
-                let v = rest.trim().trim_matches('"').trim_matches('\'').to_string();
-                map.entry(key.to_string()).or_insert(v);
+                let v = strip_yaml_inline_comment(rest.trim());
+                let v = v.trim_matches('"').trim_matches('\'');
+                map.entry(key.to_string()).or_insert(v.to_string());
             }
         }
     }
     map
+}
+
+/// 剥离 YAML 值的行内注释：引号值取到闭合引号为止（保留引号让调用方统一剥壳），
+/// 裸值在首个 `#` 处截断（`#` 前至少一个空白才是注释，`a#b` 这种伪注释不截）
+fn strip_yaml_inline_comment(value: &str) -> &str {
+    let bytes = value.as_bytes();
+    if bytes.first() == Some(&b'"') || bytes.first() == Some(&b'\'') {
+        let quote = bytes[0];
+        if let Some(end) = bytes[1..].iter().position(|&b| b == quote).map(|i| i + 1) {
+            return &value[..end + 1];
+        }
+        // 无闭合引号：畸形行，退回裸值规则
+    }
+    match value.find(" #") {
+        Some(idx) => value[..idx].trim_end(),
+        None => value,
+    }
 }
 
 fn service_install(args: &ServiceDirArgs) -> Result<()> {
@@ -624,13 +648,20 @@ fn ensure_mineru_models(args: &SetupArgs, quiet: bool) {
         }
         return;
     }
-    let Some(url) = optional_mineru_models_url() else {
-        if !quiet {
-            println!(
-                "  mineru models: WARN (no mineruModels URL in manifest.json — first PDF parse will download from ModelScope)"
-            );
+    let url = match args.oss_base.as_deref() {
+        // --oss-base 显式给下载源（与 venv/whisper 的 from_base 语义对齐）
+        Some(base) => crate::mineru_models_download_url_from_base(base),
+        None => {
+            let Some(url) = optional_mineru_models_url() else {
+                if !quiet {
+                    println!(
+                        "  mineru models: WARN (no mineruModels URL in manifest.json — first PDF parse will download from ModelScope)"
+                    );
+                }
+                return;
+            };
+            url
         }
-        return;
     };
     let Some(home) = crate::home_dir() else {
         if !quiet {
@@ -738,6 +769,72 @@ mod tests {
         assert_eq!(
             m.get("private_bucket").map(String::as_str),
             Some("b-bucket")
+        );
+    }
+
+    /// 出厂模板形状：每行带 `# ← 改成你的` 尾注——不剥离注释的话解析值带着
+    /// 注释尾巴、不在占位符列表里，防呆在最常见的全新安装场景一次都不触发
+    #[test]
+    fn config_bucket_line_parser_strips_inline_comments() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("config.yml");
+        std::fs::write(
+            &cfg,
+            "storage:\n  oss:\n    endpoint: \"oss-rg-china-mainland.aliyuncs.com\"   # ← 改成你的 OSS endpoint\n    public_bucket: \"your-public-bucket\"               # ← 改成你的公共 bucket\n    private_bucket: \"your-private-bucket\"             # ← 改成你的私有 bucket\n",
+        )
+        .unwrap();
+        let m = read_config_yaml_buckets(&cfg);
+        assert_eq!(
+            m.get("public_bucket").map(String::as_str),
+            Some("your-public-bucket"),
+            "引号值 + 行尾注释应剥出干净占位符（防呆输入）: {:?}",
+            m.get("public_bucket")
+        );
+        assert_eq!(
+            m.get("private_bucket").map(String::as_str),
+            Some("your-private-bucket")
+        );
+
+        // 真实值 + 行尾注释：剥注释后是干净 bucket（不误伤）
+        std::fs::write(
+            &cfg,
+            "    public_bucket: nuwa-packages   # 我的生产桶\n    private_bucket: nuwa-packages #note\n",
+        )
+        .unwrap();
+        let m = read_config_yaml_buckets(&cfg);
+        assert_eq!(
+            m.get("public_bucket").map(String::as_str),
+            Some("nuwa-packages")
+        );
+        assert_eq!(
+            m.get("private_bucket").map(String::as_str),
+            Some("nuwa-packages")
+        );
+
+        // 单引号值 + 尾注
+        std::fs::write(&cfg, "public_bucket: 'your-public-bucket'  # x\n").unwrap();
+        let m = read_config_yaml_buckets(&cfg);
+        assert_eq!(
+            m.get("public_bucket").map(String::as_str),
+            Some("your-public-bucket")
+        );
+    }
+
+    /// 全新安装防呆回归：出厂模板原样（带尾注）+ OSS 密钥 → 必须报 bucket 未解析
+    #[test]
+    fn factory_template_shape_triggers_bucket_guard() {
+        let dir = tempfile::tempdir().unwrap();
+        let (env, cfg) = write_pair(dir.path());
+        // 模拟 copy_templates 落盘的出厂 config.example.yml 原样行
+        std::fs::write(
+            &cfg,
+            "storage:\n  oss:\n    public_bucket: \"your-public-bucket\"               # ← 改成你的公共 bucket\n    private_bucket: \"your-private-bucket\"             # ← 改成你的私有 bucket\n",
+        )
+        .unwrap();
+        let err = verify_oss_bucket_resolved(&env, &cfg).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("public_bucket"),
+            "出厂模板形状必须触发防呆: {err:#}"
         );
     }
 }

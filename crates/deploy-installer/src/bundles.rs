@@ -249,6 +249,16 @@ pub fn optional_mineru_models_url() -> Option<String> {
     })
 }
 
+/// Build MinerU models cache URL from an OSS base directory
+/// （`uploads/document-parser` 层级，与 venv/whisper 的 from_base 模式对齐）。
+/// 模型版本独立于包版本：路径稳定、无 {version} 占位符
+pub fn mineru_models_download_url_from_base(base: &str) -> String {
+    format!(
+        "{}/models/mineru-pipeline-models-pdf-extract-kit-1.0.tar.gz",
+        base.trim_end_matches('/')
+    )
+}
+
 /// Build Whisper tarball URL from an OSS base directory and pack kind.
 pub fn whisper_download_url_from_base(base: &str, pack: WhisperModelsPack) -> String {
     let version = deploy_asset_version();

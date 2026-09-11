@@ -107,8 +107,16 @@ fn write_sine_wav(path: &Path, seconds: f32) -> std::io::Result<()> {
     std::fs::write(path, w)
 }
 
-fn resolve_port(install_dir: &Path, default_port: u16) -> u16 {
-    read_server_port(&install_dir.join(CONFIG_FILENAME)).unwrap_or(default_port)
+/// 解析服务端口 + 来源：config.yml 读不出端口时回退默认值并**明示**——
+/// 服务实际监听非默认端口而这里静默回退时，"not reachable" 会误导排障方向
+fn resolve_port(install_dir: &Path, default_port: u16) -> (u16, &'static str) {
+    match read_server_port(&install_dir.join(CONFIG_FILENAME)) {
+        Some(port) => (port, "config.yml"),
+        None => (
+            default_port,
+            "default — config.yml 未解析到 server.port，请核对实际监听端口",
+        ),
+    }
 }
 
 fn json_paths_nonempty(body: &str) -> bool {
@@ -134,10 +142,10 @@ fn mineru_models_present() -> bool {
 /// `deploy-installer document-parser verify`
 pub fn verify_document_parser(install_dir: Option<PathBuf>) -> Result<()> {
     let dir = install_dir.unwrap_or_else(crate::default_document_parser_install_dir);
-    let port = resolve_port(&dir, 8087);
+    let (port, port_source) = resolve_port(&dir, 8087);
     let base = format!("http://127.0.0.1:{port}");
     println!(
-        "==> document-parser verify → {base} (dir: {})",
+        "==> document-parser verify → {base} (dir: {})\n  port: {port} ({port_source})",
         dir.display()
     );
     let mut failures = 0u32;
@@ -148,7 +156,8 @@ pub fn verify_document_parser(install_dir: Option<PathBuf>) -> Result<()> {
     } else {
         println!("  health:        FAIL (service not reachable on {base})");
         bail!(
-            "document-parser not reachable — run `deploy-installer document-parser service status`"
+            "document-parser not reachable on {base} — run `deploy-installer \
+             document-parser service status`；若服务监听其它端口请检查 config.yml 的 server.port"
         );
     }
 
@@ -205,9 +214,12 @@ pub fn verify_document_parser(install_dir: Option<PathBuf>) -> Result<()> {
 /// `deploy-installer voice-cli verify`
 pub fn verify_voice_cli(install_dir: Option<PathBuf>) -> Result<()> {
     let dir = install_dir.unwrap_or_else(crate::default_voice_cli_install_dir);
-    let port = resolve_port(&dir, 8077);
+    let (port, port_source) = resolve_port(&dir, 8077);
     let base = format!("http://127.0.0.1:{port}");
-    println!("==> voice-cli verify → {base} (dir: {})", dir.display());
+    println!(
+        "==> voice-cli verify → {base} (dir: {})\n  port: {port} ({port_source})",
+        dir.display()
+    );
     let mut failures = 0u32;
 
     // 1. /health（自报版本）
@@ -225,7 +237,10 @@ pub fn verify_voice_cli(install_dir: Option<PathBuf>) -> Result<()> {
         Some(v) => println!("  health:        OK (version {v})"),
         None => {
             println!("  health:        FAIL (service not reachable on {base})");
-            bail!("voice-cli not reachable — run `deploy-installer voice-cli service status`");
+            bail!(
+                "voice-cli not reachable on {base} — run `deploy-installer voice-cli \
+                 service status`；若服务监听其它端口请检查 config.yml 的 server.port"
+            );
         }
     }
 
