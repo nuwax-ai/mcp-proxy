@@ -17,6 +17,29 @@ use crate::cli::assets::maybe_copy_companion_libs;
 
 pub const CONFIG_FILENAME: &str = "config.yml";
 
+/// 剥离 YAML 值的行内注释：引号值取到闭合引号为止（保留引号让调用方统一剥壳），
+/// 裸值在首个 `#` 处截断（`#` 前至少一个空白才是注释，`a#b` 这种伪注释不截）。
+/// 出厂模板的 port/bucket/default_model 行都带 `# ← 说明` 尾注——朴素解析
+/// 不剥注释会读出脏值或直接解析失败
+pub(crate) fn strip_yaml_inline_comment(value: &str) -> &str {
+    let bytes = value.as_bytes();
+    if bytes.first() == Some(&b'"') || bytes.first() == Some(&b'\'') {
+        let quote = bytes[0];
+        if let Some(end) = bytes[1..]
+            .iter()
+            .position(|&b| b == quote)
+            .map(|i| i + 1)
+        {
+            return &value[..end + 1];
+        }
+        // 无闭合引号：畸形行，退回裸值规则
+    }
+    match value.find(" #") {
+        Some(idx) => value[..idx].trim_end(),
+        None => value,
+    }
+}
+
 /// Read first non-comment `port:` value from a YAML-ish config file.
 pub fn read_server_port(config_path: &Path) -> Option<u16> {
     let content = fs::read_to_string(config_path).ok()?;
@@ -26,7 +49,12 @@ pub fn read_server_port(config_path: &Path) -> Option<u16> {
             continue;
         }
         if let Some(rest) = t.strip_prefix("port:") {
-            return rest.trim().parse().ok();
+            return strip_yaml_inline_comment(rest.trim())
+                .trim()
+                .trim_matches('"')
+                .trim_matches('\'')
+                .parse()
+                .ok();
         }
     }
     None
@@ -322,5 +350,29 @@ pub fn dispatch_service_action(
             let dir = resolve_service_install_dir(service_name, &args.install_dir);
             restart_in_dir(service_name, Some(dir)).context("restart failed")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 出厂模板的 port 行带 `# ← 说明` 尾注（93 实机踩到）：不剥注释时
+    /// `8077   # ← 监听端口` 解析失败 → verify 误报"未解析到 server.port"
+    #[test]
+    fn read_server_port_strips_inline_comments_and_quotes() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("config.yml");
+
+        std::fs::write(&cfg, "server:\n  host: \"0.0.0.0\"\n  port: 8077                       # ← 监听端口\n").unwrap();
+        assert_eq!(read_server_port(&cfg), Some(8077), "裸值 + 尾注应解析成功");
+
+        std::fs::write(&cfg, "server:\n  port: \"8088\"  # quoted\n").unwrap();
+        assert_eq!(read_server_port(&cfg), Some(8088), "引号值 + 尾注应解析成功");
+
+        std::fs::write(&cfg, "server:\n  port: 8089\n").unwrap();
+        assert_eq!(read_server_port(&cfg), Some(8089), "裸值无注释应解析成功");
+
+        assert_eq!(read_server_port(&dir.path().join("nope.yml")), None);
     }
 }

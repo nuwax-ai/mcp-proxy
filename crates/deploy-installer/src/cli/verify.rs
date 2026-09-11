@@ -9,7 +9,7 @@ use std::process::Command;
 
 use anyhow::{Result, bail};
 
-use crate::cli::common::{CONFIG_FILENAME, read_server_port};
+use crate::cli::common::{CONFIG_FILENAME, read_server_port, strip_yaml_inline_comment};
 
 fn null_sink() -> &'static str {
     if cfg!(windows) { "NUL" } else { "/dev/null" }
@@ -314,7 +314,13 @@ fn read_whisper_default_model(config_path: &Path) -> Option<String> {
             continue;
         }
         if in_whisper && let Some(rest) = t.strip_prefix("default_model:") {
-            return Some(rest.trim().trim_matches('"').trim_matches('\'').to_string());
+            return Some(
+                strip_yaml_inline_comment(rest.trim())
+                    .trim()
+                    .trim_matches('"')
+                    .trim_matches('\'')
+                    .to_string(),
+            );
         }
     }
     None

@@ -11,7 +11,7 @@ use std::process::Command;
 use crate::cli::common::{
     CONFIG_FILENAME, canonicalize_install_dir, dispatch_service_action, ensure_bundled_binary,
     handle_launchd_install_result, print_install_success, read_server_port, resolve_user_group,
-    upgrade_bundled_binary,
+    strip_yaml_inline_comment, upgrade_bundled_binary,
 };
 use crate::cli::env_config::{
     OSS_BUCKET_PLACEHOLDERS, apply_bucket_overrides_from_env, apply_upload_config_from_env,
@@ -282,23 +282,6 @@ fn read_config_yaml_buckets(config_path: &Path) -> std::collections::HashMap<Str
         }
     }
     map
-}
-
-/// 剥离 YAML 值的行内注释：引号值取到闭合引号为止（保留引号让调用方统一剥壳），
-/// 裸值在首个 `#` 处截断（`#` 前至少一个空白才是注释，`a#b` 这种伪注释不截）
-fn strip_yaml_inline_comment(value: &str) -> &str {
-    let bytes = value.as_bytes();
-    if bytes.first() == Some(&b'"') || bytes.first() == Some(&b'\'') {
-        let quote = bytes[0];
-        if let Some(end) = bytes[1..].iter().position(|&b| b == quote).map(|i| i + 1) {
-            return &value[..end + 1];
-        }
-        // 无闭合引号：畸形行，退回裸值规则
-    }
-    match value.find(" #") {
-        Some(idx) => value[..idx].trim_end(),
-        None => value,
-    }
 }
 
 fn service_install(args: &ServiceDirArgs) -> Result<()> {
