@@ -25,6 +25,13 @@
       "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/document-parser/models/mineru-pipeline-models-pdf-extract-kit-1.0.tar.gz",
       "linux-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/document-parser/models/mineru-pipeline-models-pdf-extract-kit-1.0.tar.gz",
       "windows-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/document-parser/models/mineru-pipeline-models-pdf-extract-kit-1.0.tar.gz"
+    },
+    "ffmpeg": {
+      "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/ffmpeg/ffmpeg-static-darwin-arm64.tar.gz",
+      "darwin-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/ffmpeg/ffmpeg-static-darwin-x64.tar.gz",
+      "linux-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/ffmpeg/ffmpeg-static-linux-x64.tar.gz",
+      "linux-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/ffmpeg/ffmpeg-static-linux-arm64.tar.gz",
+      "windows-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/ffmpeg/ffmpeg-static-windows-x64.tar.gz"
     }
   }
 }

@@ -432,29 +432,42 @@ fn check_windows_python() -> Result<()> {
     Ok(())
 }
 
-/// ffmpeg 检查（voice-cli 的 STT 音频解码依赖，WARN 级 + 各平台安装指引）。
+/// ffmpeg 检查（voice-cli 的 STT 音频解码依赖，WARN 级 + 安装指引）。
 ///
-/// Mac Mini 实测：无 ffmpeg 时 STT 任务失败于"ffmpeg 启动失败 No such file
-/// or directory"——提前在 doctor 暴露并给出安装命令，避免用户转录时才发现。
+/// 解析顺序对齐 ffmpeg-sidecar 的 `ffmpeg_path()`：先系统 PATH，再默认
+/// voice-cli 安装目录的 sidecar 位置（`<dir>/ffmpeg(.exe)`，由
+/// `voice-cli install/upgrade` 自动供给）。两处皆无才 WARN。
 fn check_ffmpeg() {
-    let ok = Command::new("ffmpeg")
+    if Command::new("ffmpeg")
         .arg("-version")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
-        .is_ok_and(|s| s.success());
-    if ok {
-        println!("  ffmpeg:     OK (voice-cli STT 音频解码可用)");
+        .is_ok_and(|s| s.success())
+    {
+        println!("  ffmpeg:     OK (system PATH)");
+        return;
+    }
+    let sidecar = crate::default_voice_cli_install_dir().join(if cfg!(windows) {
+        "ffmpeg.exe"
+    } else {
+        "ffmpeg"
+    });
+    if sidecar.exists() {
+        println!("  ffmpeg:     OK (sidecar: {})", sidecar.display());
         return;
     }
     println!("  ffmpeg:     WARN (缺失——voice-cli 转录任务会失败；仅 document-parser 可忽略)");
+    println!(
+        "    修复: 重跑 `deploy-installer voice-cli install`（自动下载到安装目录），或系统安装："
+    );
     match std::env::consts::OS {
-        "macos" => println!("    安装: brew install ffmpeg"),
+        "macos" => println!("      brew install ffmpeg"),
         "linux" => println!(
-            "    安装: sudo apt install ffmpeg  # Debian/Ubuntu；RHEL 系: sudo dnf install ffmpeg"
+            "      sudo apt install ffmpeg  # Debian/Ubuntu；RHEL 系: sudo dnf install ffmpeg"
         ),
         "windows" => {
-            println!("    安装: winget install Gyan.FFmpeg  (或从 ffmpeg.org 下载后加入 PATH)")
+            println!("      winget install Gyan.FFmpeg  (或从 ffmpeg.org 下载后加入 PATH)")
         }
         _ => {}
     }

@@ -4,10 +4,11 @@
 use crate::{
     DropIn, InstallOptions, ServiceIdentity, ServiceSpec, WhisperModelsPack, bundled_binary_path,
     bundled_templates_dir, copy_if_exists, default_voice_cli_install_dir, deploy_asset_version,
-    install, optional_voice_cli_cuda_url, optional_voice_cli_vulkan_url,
-    optional_whisper_download_url, voice_cli_cuda_archive_filename,
-    voice_cli_cuda_download_url_from_base, voice_cli_vulkan_archive_filename,
-    voice_cli_vulkan_download_url_from_base, whisper_download_url_from_base,
+    ffmpeg_download_url_from_base, install, optional_ffmpeg_url, optional_voice_cli_cuda_url,
+    optional_voice_cli_vulkan_url, optional_whisper_download_url, platform_vendor_key,
+    voice_cli_cuda_archive_filename, voice_cli_cuda_download_url_from_base,
+    voice_cli_vulkan_archive_filename, voice_cli_vulkan_download_url_from_base,
+    whisper_download_url_from_base,
 };
 use anyhow::{Context, Result, bail};
 use std::fs;
@@ -191,6 +192,82 @@ fn resolve_models_pack(args: &VoiceCliSetupArgs) -> Result<WhisperModelsPack> {
             args.models
         )
     })
+}
+
+/// ffmpeg 二进制名（Windows 带 .exe 后缀）
+fn ffmpeg_binary_name() -> String {
+    if cfg!(windows) {
+        "ffmpeg.exe".to_string()
+    } else {
+        "ffmpeg".to_string()
+    }
+}
+
+/// sidecar 位置（voice-cli 可执行文件同目录——ffmpeg-sidecar 的
+/// `ffmpeg_path()` 第一优先级解析点）是否已有 ffmpeg
+pub(crate) fn ffmpeg_sidecar_present(install_dir: &Path) -> bool {
+    install_dir.join(ffmpeg_binary_name()).exists()
+}
+
+/// 系统 PATH 是否有可用 ffmpeg（`ffmpeg_path()` 的第二优先级——系统已装时
+/// 无须 sidecar 供给）
+pub(crate) fn system_ffmpeg_available() -> bool {
+    std::process::Command::new("ffmpeg")
+        .arg("-version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// 供给静态 ffmpeg 到安装目录根部（sidecar 位置）：voice-cli 的 STT 音频
+/// 解码 spawn ffmpeg 子进程（ffmpeg-sidecar），机器无 ffmpeg 时转录必败
+///（53 实测 "program not found"；ffmpeg-sidecar 自带的 auto_download 是
+/// 境外源硬编码，不走）。
+///
+/// - sidecar 在场即幂等 skip；系统 PATH 有 ffmpeg 也 skip（提示用系统的）
+/// - 否则从 `--oss-base` / manifest 下载，原子成员落位（rename 顶替——服务
+///   运行中升级覆盖 ffmpeg.exe 也安全）
+/// - 失败 bail（fail-fast：装 voice-cli 即要 STT，静默缺失比报错更糟）
+fn ensure_ffmpeg(install_dir: &Path, oss_base: Option<&str>, quiet: bool) -> Result<()> {
+    if ffmpeg_sidecar_present(install_dir) {
+        if !quiet {
+            println!("  ffmpeg:       already present, skipping download");
+        }
+        return Ok(());
+    }
+    if system_ffmpeg_available() {
+        if !quiet {
+            println!("  ffmpeg:       using system ffmpeg from PATH");
+        }
+        return Ok(());
+    }
+    let url = match oss_base {
+        Some(base) => ffmpeg_download_url_from_base(base, platform_vendor_key()),
+        None => optional_ffmpeg_url().ok_or_else(|| {
+            anyhow::anyhow!(
+                "no ffmpeg asset for platform {key} — STT 转写需要 ffmpeg；传 --oss-base \
+                 或在 vendor/templates/manifest.json 的 ffmpeg 键补 {key}",
+                key = platform_vendor_key()
+            )
+        })?,
+    };
+    download_and_extract_bundle_atomic(
+        &url,
+        install_dir,
+        &[&ffmpeg_binary_name()],
+        "ffmpeg-static.tar.gz",
+        quiet,
+        "ffmpeg",
+    )?;
+    if !quiet {
+        println!(
+            "  ffmpeg:       ready (sidecar: {})",
+            install_dir.join(ffmpeg_binary_name()).display()
+        );
+    }
+    Ok(())
 }
 
 fn resolve_cuda_lib_dir(args: &VoiceCliSetupArgs) -> Option<PathBuf> {
@@ -421,6 +498,9 @@ fn print_bundle_upgraded(label: &str, install_dir: &Path) {
 }
 
 fn upgrade_voice_cli(install_dir: &Path, oss_base: Option<&str>) -> Result<()> {
+    // ffmpeg 供给愈合点（幂等，skip 在场即返）：存量机器（如 53 曾手工复制前
+    // 的状态）在升级时自动补齐 STT 解码依赖
+    ensure_ffmpeg(install_dir, oss_base, false)?;
     if !cfg!(all(target_os = "linux", target_arch = "x86_64")) {
         return upgrade_bundled_binary(SERVICE_NAME, install_dir);
     }
@@ -514,6 +594,10 @@ fn setup(
     } else if !quiet {
         println!("  models: skipped (--skip-models); place models/ggml-*.bin manually if needed");
     }
+
+    // ffmpeg（STT 音频解码依赖，与 whisper 模型独立——--skip-models 不影响）：
+    // sidecar 在场 / 系统 PATH 有则 skip，否则从 OSS 供给
+    ensure_ffmpeg(&install_dir, args.oss_base.as_deref(), quiet)?;
 
     if !quiet {
         println!("\n✅ setup complete: {}", install_dir.display());
@@ -772,6 +856,7 @@ fn copy_templates(install_dir: &Path, quiet: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::effective_pack;
+    use super::{ffmpeg_binary_name, ffmpeg_sidecar_present};
     use crate::WhisperModelsPack::{All, LargeV3};
 
     /// `--models all` 平台回归：manifest 无 whisperAll 键的平台（Linux/Windows）
@@ -794,5 +879,28 @@ mod tests {
         assert_eq!(effective_pack(All, false, None, None), None);
         assert_eq!(effective_pack(LargeV3, false, None, None), None);
         assert_eq!(effective_pack(LargeV3, false, None, url()), Some(LargeV3));
+    }
+
+    /// ffmpeg sidecar 在场探测（幂等 skip 的判定基础）
+    #[test]
+    fn ffmpeg_sidecar_present_detects_binary() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!ffmpeg_sidecar_present(dir.path()), "空目录应视为缺失");
+        std::fs::write(dir.path().join(ffmpeg_binary_name()), b"x").unwrap();
+        assert!(
+            ffmpeg_sidecar_present(dir.path()),
+            "sidecar 二进制在场应命中"
+        );
+    }
+
+    /// --oss-base 的 ffmpeg URL 与 manifest 文件名约定一致（base 尾斜杠剥除）
+    #[test]
+    fn ffmpeg_url_from_base_matches_manifest_naming() {
+        let url = crate::ffmpeg_download_url_from_base("https://x/uploads/voice-cli/", "linux-x64");
+        assert!(
+            url.ends_with("/ffmpeg/ffmpeg-static-linux-x64.tar.gz"),
+            "{url}"
+        );
+        assert!(!url.contains("//uploads"), "base 尾斜杠应剥除: {url}");
     }
 }

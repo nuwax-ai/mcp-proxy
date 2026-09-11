@@ -25,6 +25,11 @@ struct OptionalAssets {
     /// URL 不含 {version} 占位符：模型版本独立于包版本（PDF-Extract-Kit-1.0）
     #[serde(default, rename = "mineruModels")]
     mineru_models: std::collections::HashMap<String, String>,
+    /// 静态 ffmpeg 二进制（voice-cli STT 音频解码依赖；顶层平铺 ffmpeg(.exe)
+    /// 的 tar.gz）。**平台强相关**——按平台精确取键，无跨平台 fallback
+    ///（错架构二进制比缺失更糟）。URL 无 {version}：ffmpeg 版本独立于包版本
+    #[serde(default)]
+    ffmpeg: std::collections::HashMap<String, String>,
 }
 
 /// Which prebuilt Whisper ggml tarball to fetch from OSS.
@@ -259,6 +264,26 @@ pub fn mineru_models_download_url_from_base(base: &str) -> String {
     )
 }
 
+/// 纯函数：指定 vendor key 的 ffmpeg 资产 URL（任意平台可单测）。
+/// 平台强相关——不做跨平台 fallback（错架构二进制比缺失更糟）
+pub fn ffmpeg_url_for(vendor_key: &str) -> Option<String> {
+    optional_asset_url(|assets| assets.ffmpeg.get(vendor_key))
+}
+
+/// 本平台（vendor key 精确匹配）的 ffmpeg 资产 URL
+pub fn optional_ffmpeg_url() -> Option<String> {
+    ffmpeg_url_for(platform_vendor_key())
+}
+
+/// Build ffmpeg tarball URL from an OSS base directory
+/// （`uploads/voice-cli` 层级；文件名与 manifest 的 ffmpeg-static-<key> 约定一致）
+pub fn ffmpeg_download_url_from_base(base: &str, vendor_key: &str) -> String {
+    format!(
+        "{base}/ffmpeg/ffmpeg-static-{vendor_key}.tar.gz",
+        base = base.trim_end_matches('/')
+    )
+}
+
 /// Build Whisper tarball URL from an OSS base directory and pack kind.
 pub fn whisper_download_url_from_base(base: &str, pack: WhisperModelsPack) -> String {
     let version = deploy_asset_version();
@@ -453,6 +478,27 @@ mod tests {
             "got {url}"
         );
         assert!(!url.contains("beta"));
+    }
+
+    #[test]
+    fn optional_ffmpeg_url_covers_all_five_platforms() {
+        // ffmpeg 资产五平台键齐全（arm64/amd64 双架构）；直查任意宿主可测
+        for key in [
+            "darwin-arm64",
+            "darwin-x64",
+            "linux-x64",
+            "linux-arm64",
+            "windows-x64",
+        ] {
+            let url = ffmpeg_url_for(key).unwrap_or_else(|| panic!("{key} 应有 ffmpeg URL"));
+            assert!(
+                url.contains(&format!("ffmpeg-static-{key}.tar.gz")),
+                "{key}: {url}"
+            );
+        }
+        // 无跨平台 fallback：未知键返回 None
+        assert!(ffmpeg_url_for("windows-arm64").is_none());
+        assert!(ffmpeg_url_for("nope").is_none());
     }
 
     #[test]

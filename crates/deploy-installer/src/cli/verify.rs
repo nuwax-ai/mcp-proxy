@@ -253,7 +253,17 @@ pub fn verify_voice_cli(install_dir: Option<PathBuf>) -> Result<()> {
         }
     }
 
-    // 3. whisper 模型在场 → 转写冒烟；缺失 → WARN 跳过。
+    // 3. ffmpeg 探测（STT 音频解码依赖；纯诊断行不计失败——下方 transcribe
+    //    冒烟才是功能判定；解析顺序对齐 ffmpeg-sidecar：sidecar 先于 PATH）
+    if crate::cli::voice_cli::ffmpeg_sidecar_present(&dir) {
+        println!("  ffmpeg:        OK (sidecar)");
+    } else if crate::cli::voice_cli::system_ffmpeg_available() {
+        println!("  ffmpeg:        OK (system PATH)");
+    } else {
+        println!("  ffmpeg:        WARN (缺失——transcribe 将失败；重跑 install 自动供给)");
+    }
+
+    // 4. whisper 模型在场 → 转写冒烟；缺失 → WARN 跳过。
     // 模型选择：**在场最小档**（tiny→base→…→large-v3）——冒烟只验链路完整，
     // 与模型质量无关；large-v3 在慢 CPU（如 53 的 Zen2 笔记本 U）推理超 300s，
     // 选它做冒烟必然超时误报 FAIL（53 实测；default_model 偏好也要让位）
