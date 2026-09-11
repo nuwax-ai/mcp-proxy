@@ -293,6 +293,9 @@ async fn main() -> Result<()> {
     socket.set_reuse_address(true)?;
     socket.bind(&sock_addr.into())?;
     socket.listen(1024)?;
+    // tokio 的 from_std 要求 non-blocking：socket2 默认 blocking，不设的话
+    // accept 行为未定义（实测：listener 在听、runtime 活着、accept 永久挂死）
+    socket.set_nonblocking(true)?;
     let listener = TcpListener::from_std(socket.into())?;
 
     // 构建 axum 路由

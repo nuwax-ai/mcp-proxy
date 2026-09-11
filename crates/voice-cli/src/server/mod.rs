@@ -162,6 +162,11 @@ pub async fn handle_server_run(config: &Config) -> crate::Result<()> {
     socket
         .listen(1024)
         .map_err(|e| crate::VoiceCliError::Config(format!("Failed to listen on {addr}: {e}")))?;
+    // tokio 的 from_std 要求 non-blocking：socket2 默认 blocking，不设的话
+    // accept 行为未定义（实测：listener 在听、runtime 活着、accept 永久挂死）
+    socket
+        .set_nonblocking(true)
+        .map_err(|e| crate::VoiceCliError::Config(format!("Failed to set non-blocking: {e}")))?;
     let listener = tokio::net::TcpListener::from_std(socket.into())
         .map_err(|e| crate::VoiceCliError::Config(format!("Failed to convert listener: {e}")))?;
 
