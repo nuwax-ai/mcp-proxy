@@ -192,6 +192,10 @@ pub fn upgrade_bundled_binary(service: &str, install_dir: &Path) -> Result<()> {
     // （旧进程继续跑旧版本直到重启）——两种场景都需要重启才生效新版本
     let was_running = crate::checks::unit_is_active(service, crate::platform::current_backend());
     stop_service_for_binary_replace(service, false);
+    // 存量任务定义迁移（实例已 end，重注册安全）：≤0.2.16 的 XML 带
+    // RestartOnFailure，其 failure-restart 会与手动 /run 双起互杀
+    #[cfg(windows)]
+    refresh_stale_task_definition(service, install_dir);
     copy_file_atomic(&bundled, &dst)?;
     make_executable(&dst)?;
     maybe_copy_companion_libs(service, &bundled, install_dir, false)?;
@@ -378,5 +382,29 @@ mod tests {
         assert_eq!(read_server_port(&cfg), Some(8089), "裸值无注释应解析成功");
 
         assert_eq!(read_server_port(&dir.path().join("nope.yml")), None);
+    }
+}
+
+/// Windows：升级时迁移旧任务定义——≤0.2.16 持久化的 XML 带 RestartOnFailure
+/// （failure-restart 停掉手动 `/run` 刚拉起的健康实例，53 实测），文本剥除后
+/// 重注册，免于构造完整 ServiceSpec 重新渲染。读不到/无变化/失败均静默跳过
+/// （迁移是尽力而为，不阻断升级——新装机器的模板本就不含该段）。
+#[cfg(windows)]
+fn refresh_stale_task_definition(service: &str, install_dir: &Path) {
+    let name = format!("com.nuwax.{service}");
+    let xml_path = install_dir.join(format!("{name}.task.xml"));
+    let Ok(xml) = fs::read_to_string(&xml_path) else {
+        return;
+    };
+    let migrated = crate::render_task::strip_restart_on_failure(&xml);
+    if migrated.as_ref() == xml {
+        return;
+    }
+    if crate::installer::write_user_file(&xml_path, &migrated, None).is_err() {
+        return;
+    }
+    match crate::task_scheduler::create_from_xml(&name, &xml_path) {
+        Ok(()) => println!("  task definition migrated (RestartOnFailure removed)"),
+        Err(e) => println!("  note: task re-registration failed: {e}"),
     }
 }

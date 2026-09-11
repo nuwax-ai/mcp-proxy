@@ -139,11 +139,13 @@ pub async fn handle_server_run(config: &Config) -> crate::Result<()> {
     app = app.layer(axum::Extension(app_state.apalis_storage.clone()));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
-    info!("Server listening on {}", addr);
-
-    let listener = tokio::net::TcpListener::bind(&addr)
-        .await
-        .map_err(|e| crate::VoiceCliError::Config(format!("Failed to bind to address: {}", e)))?;
+    // 注意：bind 成功前不要打 "listening" 字样——排障时会被误读为监听已建立
+    //（"TCP listener created" 才是 bind 成功的标志）
+    let listener = tokio::net::TcpListener::bind(&addr).await.map_err(|e| {
+        crate::VoiceCliError::Config(format!(
+            "Failed to bind to address {addr}（端口被占用或无权限；若有旧实例正在关闭，稍候重试）: {e}"
+        ))
+    })?;
 
     info!(
         "TCP listener created successfully: {:?}",

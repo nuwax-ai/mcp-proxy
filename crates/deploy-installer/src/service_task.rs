@@ -11,7 +11,7 @@ use std::fs;
 use std::path::Path;
 
 /// 任务计划程序安装链路：渲染 XML → 持久化到 install_dir → 停旧实例（尽力）
-/// → 注册 → 启动。
+/// → 注册 → 启动（终态协议验证）。
 ///
 /// S4U 主体（无需提权注册、无桌面登录也运行）；注册失败时由上层决定是否用
 /// 无 Principal 的降级 XML 重试（Interactive，仅登录运行）。
@@ -27,21 +27,20 @@ pub fn install_task(spec: &ServiceSpec, dry_run: bool, _enable: bool, start: boo
 
     let name = spec.task_name();
     if task_scheduler::task_exists(&name) {
-        // 已注册则先结束运行实例，让新定义下次启动即生效
+        // 已注册则先结束运行实例，让新定义下次启动即生效（等待窗口同
+        // restart——旧实例优雅关闭期间仍持有监听 socket，见 restart_task）
         if let Err(e) = task_scheduler::end(&name) {
             println!("  note: end previous task instance: {e}");
         }
-        wait_port_released(spec, std::time::Duration::from_secs(10));
+        wait_port_released(spec, std::time::Duration::from_secs(45));
     }
     task_scheduler::create_from_xml(&name, &xml_path)?;
     if start {
-        task_scheduler::run(&name)?;
+        run_until_healthy(spec, &name, std::time::Duration::from_secs(40))?;
+        println!("  started");
     }
     println!("Installed scheduled task {name} → {}", xml_path.display());
     println!("  trigger: at logon (S4U, runs without desktop login)");
-    if start {
-        println!("  started");
-    }
     Ok(())
 }
 
@@ -89,33 +88,51 @@ pub fn uninstall_task(spec: &ServiceSpec) -> Result<()> {
 /// 关闭期，监听 socket 的释放与内核回收之间存在窗口，单一 `/run` 可能
 /// bind 失败（日志 "Server listening" 打印在 bind 之前，失败无痕）；
 /// netstat 的 LISTENING 也不等于服务可用。只认 `curl /health` 真正响应，
-/// 未通自动再 `/run`（≤3 次，每次 25s 健康窗口），全败明确报错。
+/// 未通自动再 `/run`，全败明确报错。
 pub fn restart_task(spec: &ServiceSpec) -> Result<()> {
     let name = spec.task_name();
     if let Err(e) = task_scheduler::end(&name) {
         println!("  note: end task: {e}");
     }
     wait_port_released(spec, std::time::Duration::from_secs(45));
-    let Some(port) = spec.listen_port else {
+    if spec.listen_port.is_none() {
         // 无端口信息：退回旧行为（run 一次即认为完成）
         task_scheduler::run(&name)?;
         println!("Restarted {name}");
         return Ok(());
+    }
+    run_until_healthy(spec, &name, std::time::Duration::from_secs(40))?;
+    println!("Restarted {name}");
+    Ok(())
+}
+
+/// 终态启动协议：`/run` → curl /health 轮询（per_attempt）→ 未通自动再
+/// `/run`（≤3 次）→ 全败报错。schtasks 的"已在运行"等命令错误一律忽略，
+/// 健康探测是唯一判定。每轮 40s：document-parser 冷启动（MinerU 环境检查）
+/// 可达 2 分钟，3×40s 覆盖；voice-cli 常规 10-20s 出头首轮即过。
+fn run_until_healthy(
+    spec: &ServiceSpec,
+    name: &str,
+    per_attempt: std::time::Duration,
+) -> Result<()> {
+    let Some(port) = spec.listen_port else {
+        task_scheduler::run(name)?;
+        return Ok(());
     };
+    let secs = per_attempt.as_secs();
     for attempt in 1..=3 {
         // "已在运行"等命令错误忽略——以健康探测为准
-        let _ = task_scheduler::run(&name);
-        if crate::cli::common::wait_for_health(port, "/health", 25) {
+        let _ = task_scheduler::run(name);
+        if crate::cli::common::wait_for_health(port, "/health", secs) {
             if attempt > 1 {
                 println!("  (service healthy after {attempt} start attempts)");
             }
-            println!("Restarted {name}");
             return Ok(());
         }
         println!("  note: health not up after attempt {attempt} — retrying /run");
     }
     Err(InstallerError::Other(format!(
-        "task {name} restarted but /health never responded on port {port}"
+        "task {name} started but /health never responded on port {port}"
     )))
 }
 

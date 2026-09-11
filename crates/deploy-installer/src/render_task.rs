@@ -153,3 +153,46 @@ mod tests {
         assert_eq!(xml_escape("&<>\"'"), "&amp;&lt;&gt;&quot;&apos;");
     }
 }
+
+/// 从已持久化的任务 XML 中剥除 `<RestartOnFailure>` 段（纯函数，任意平台可单测）。
+///
+/// 用途：**存量机器的任务定义迁移**——旧版模板（≤0.2.16）带 RestartOnFailure
+/// （1 分钟 × 10 次），它与 restart/install 的手动 `/run` 存在双起互杀（53
+/// 实测：failure-restart 停掉刚拉起的健康实例）。upgrade 流程对旧 XML 做
+/// 文本手术后重注册，免于构造完整 ServiceSpec 重新渲染。
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub fn strip_restart_on_failure(xml: &str) -> std::borrow::Cow<'_, str> {
+    if !xml.contains("<RestartOnFailure>") {
+        return std::borrow::Cow::Borrowed(xml);
+    }
+    let mut out = xml.to_string();
+    // 段内不含嵌套同名标签（模板固定形态），非贪婪匹配到关闭标签
+    while let Some(start) = out.find("<RestartOnFailure>") {
+        let Some(end_rel) = out[start..].find("</RestartOnFailure>") else {
+            break;
+        };
+        let end = start + end_rel + "</RestartOnFailure>".len();
+        out.replace_range(start..end, "");
+    }
+    std::borrow::Cow::Owned(out)
+}
+
+#[cfg(test)]
+mod restart_on_failure_tests {
+    use super::strip_restart_on_failure;
+
+    #[test]
+    fn strips_the_segment_and_keeps_the_rest() {
+        let xml = "<Settings>\n    <Priority>7</Priority>\n    <RestartOnFailure>\n      <Interval>PT1M</Interval>\n      <Count>10</Count>\n    </RestartOnFailure>\n  </Settings>";
+        let out = strip_restart_on_failure(xml);
+        assert!(!out.contains("RestartOnFailure"), "{out}");
+        assert!(!out.contains("PT1M"), "{out}");
+        assert!(out.contains("<Priority>7</Priority>"), "{out}");
+    }
+
+    #[test]
+    fn no_op_when_absent() {
+        let xml = "<Settings><Priority>7</Priority></Settings>";
+        assert_eq!(strip_restart_on_failure(xml), xml);
+    }
+}

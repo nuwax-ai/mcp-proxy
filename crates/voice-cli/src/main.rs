@@ -93,8 +93,9 @@ async fn main() {
                 current_error = err.source();
             }
 
-            // Also log the error
-            error!("Command failed: {}", e);
+            // Also log the error（{:#} 带全链：排障看的是文件日志，顶层一句
+            // 不够——53 排障时 bind 失败只见 "Failed to run server" 无下文）
+            error!("Command failed: {:#}", e);
             std::process::exit(1);
         }
     }
