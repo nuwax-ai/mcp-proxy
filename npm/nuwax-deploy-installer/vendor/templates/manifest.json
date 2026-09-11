@@ -11,7 +11,9 @@
       "windows-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/whisper-ggml-large-v3-{version}.tar.gz"
     },
     "whisperAll": {
-      "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/whisper-ggml-all-{version}.tar.gz"
+      "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/whisper-ggml-all-{version}.tar.gz",
+      "linux-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/whisper-ggml-all-{version}.tar.gz",
+      "windows-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/whisper-ggml-all-{version}.tar.gz"
     },
     "voiceCliCuda": {
       "linux-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/voice-cli-cuda-linux-x64-{version}.tar.gz"
