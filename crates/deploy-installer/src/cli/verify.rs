@@ -9,7 +9,7 @@ use std::process::Command;
 
 use anyhow::{Result, bail};
 
-use crate::cli::common::{CONFIG_FILENAME, read_server_port, strip_yaml_inline_comment};
+use crate::cli::common::{CONFIG_FILENAME, read_server_port};
 
 fn null_sink() -> &'static str {
     if cfg!(windows) { "NUL" } else { "/dev/null" }
@@ -254,9 +254,9 @@ pub fn verify_voice_cli(install_dir: Option<PathBuf>) -> Result<()> {
     }
 
     // 3. whisper 模型在场 → 转写冒烟；缺失 → WARN 跳过。
-    // 模型选择：config 的 whisper.default_model（安装器 patch 为 large-v3）对应的
-    // ggml 文件在场则用之；否则回退任一在场 ggml-*.bin（vulkan/cuda 档机器可能
-    // 只放了 base——default 与实际不符时不误报）
+    // 模型选择：**在场最小档**（tiny→base→…→large-v3）——冒烟只验链路完整，
+    // 与模型质量无关；large-v3 在慢 CPU（如 53 的 Zen2 笔记本 U）推理超 300s，
+    // 选它做冒烟必然超时误报 FAIL（53 实测；default_model 偏好也要让位）
     let models_dir = dir.join("models");
     let present_models: Vec<String> = std::fs::read_dir(&models_dir)
         .map(|entries| {
@@ -271,10 +271,7 @@ pub fn verify_voice_cli(install_dir: Option<PathBuf>) -> Result<()> {
                 .collect()
         })
         .unwrap_or_default();
-    let Some(model) = read_whisper_default_model(&dir.join(CONFIG_FILENAME))
-        .filter(|m| present_models.contains(m))
-        .or_else(|| present_models.first().cloned())
-    else {
+    let Some(model) = smallest_present_model(&present_models) else {
         println!("  transcribe:    WARN (no models/ggml-*.bin — 重跑 install 下载，或手动放置)");
         return finish("voice-cli", failures);
     };
@@ -301,29 +298,16 @@ pub fn verify_voice_cli(install_dir: Option<PathBuf>) -> Result<()> {
     finish("voice-cli", failures)
 }
 
-/// 读 config.yml 的 `whisper.default_model`（安装器 patch 为 large-v3；
-/// 简单行扫描，照 read_server_port 模式）
-fn read_whisper_default_model(config_path: &Path) -> Option<String> {
-    let content = std::fs::read_to_string(config_path).ok()?;
-    let mut in_whisper = false;
-    for line in content.lines() {
-        let t = line.trim();
-        if !line.starts_with(' ') && !line.starts_with('\t') && !t.is_empty() && !t.starts_with('#')
-        {
-            in_whisper = t.starts_with("whisper:");
-            continue;
-        }
-        if in_whisper && let Some(rest) = t.strip_prefix("default_model:") {
-            return Some(
-                strip_yaml_inline_comment(rest.trim())
-                    .trim()
-                    .trim_matches('"')
-                    .trim_matches('\'')
-                    .to_string(),
-            );
-        }
-    }
-    None
+/// whisper 模型档位从小到大（verify 冒烟选最小在场档；未知模型名排最后）
+const MODEL_SIZE_ORDER: [&str; 5] = ["tiny", "base", "small", "medium", "large-v3"];
+
+/// 在场模型中选最小档（冒烟用）；空列表返回 None
+fn smallest_present_model(present: &[String]) -> Option<String> {
+    MODEL_SIZE_ORDER
+        .iter()
+        .find(|m| present.iter().any(|p| p == *m))
+        .map(|m| m.to_string())
+        .or_else(|| present.first().cloned())
 }
 
 fn finish(service: &str, failures: u32) -> Result<()> {
@@ -333,5 +317,38 @@ fn finish(service: &str, failures: u32) -> Result<()> {
     } else {
         println!("\n❌ {service} verify: {failures} check(s) failed (see above)");
         bail!("{service} verify failed");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::smallest_present_model;
+
+    /// 冒烟选最小在场档（53 实测：default=large-v3 在 Zen2 CPU 推理超 300s，
+    /// 选它冒烟必超时误报；tiny 在场时应选 tiny）
+    #[test]
+    fn smoke_picks_smallest_present_model() {
+        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+
+        assert_eq!(
+            smallest_present_model(&s(&["large-v3", "tiny"])),
+            Some("tiny".to_string()),
+            "有 tiny 时选 tiny（不选 default large-v3）"
+        );
+        assert_eq!(
+            smallest_present_model(&s(&["medium", "large-v3"])),
+            Some("medium".to_string())
+        );
+        // 只有大模型（如 93 仅 large-v3）→ 退而求其次
+        assert_eq!(
+            smallest_present_model(&s(&["large-v3"])),
+            Some("large-v3".to_string())
+        );
+        // 未知模型名（手动放置的自定义档）→ 任取其一兜底
+        assert_eq!(
+            smallest_present_model(&s(&["custom-x"])),
+            Some("custom-x".to_string())
+        );
+        assert_eq!(smallest_present_model(&[]), None);
     }
 }
