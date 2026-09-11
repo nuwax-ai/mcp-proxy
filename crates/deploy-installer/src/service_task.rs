@@ -83,7 +83,13 @@ pub fn uninstall_task(spec: &ServiceSpec) -> Result<()> {
     Ok(())
 }
 
-/// 重启：结束运行实例 → 等端口真正释放 → 启动。
+/// 重启：结束运行实例 → 等端口释放 → 启动 → **验证端口真正 LISTENING**。
+///
+/// 双重竞态兜底（53 实测）：`/end` 后 (a) 监听 socket 释放有延迟；
+/// (b) 任务 XML 的 RestartOnFailure 会把强杀视为失败自动重拉，与
+/// `/run` 双起竞争——输掉的实例退出后任务可能停在失败态、无进程存活。
+/// 启动后等端口就绪，未就绪自动再 `/run` 一次（把"二次 restart 即愈"
+/// 自动化为一条命令），仍失败明确报错而非静默假成功。
 pub fn restart_task(spec: &ServiceSpec) -> Result<()> {
     let name = spec.task_name();
     if let Err(e) = task_scheduler::end(&name) {
@@ -91,8 +97,38 @@ pub fn restart_task(spec: &ServiceSpec) -> Result<()> {
     }
     wait_port_released(spec, std::time::Duration::from_secs(10));
     task_scheduler::run(&name)?;
+    if !wait_port_listening(spec, std::time::Duration::from_secs(25)) {
+        println!("  note: port not listening after start — retrying /run once");
+        // 对已 Running 的任务 /run 会报"已在运行"——以端口判定为准，忽略命令错误
+        let _ = task_scheduler::run(&name);
+        if !wait_port_listening(spec, std::time::Duration::from_secs(15)) {
+            return Err(InstallerError::Other(format!(
+                "task {name} restarted but port {:?} never came up",
+                spec.listen_port
+            )));
+        }
+    }
     println!("Restarted {name}");
     Ok(())
+}
+
+/// 等待端口开始监听（启动成功的判定；探测工具不可用时乐观返回 true）
+fn wait_port_listening(spec: &ServiceSpec, timeout: std::time::Duration) -> bool {
+    let Some(port) = spec.listen_port else {
+        return true;
+    };
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match crate::checks::port_occupant(port) {
+            Ok(Some(_)) => return true,
+            Ok(None) => {}
+            Err(_) => return true,
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
 }
 
 /// 等待端口停止监听：`schtasks /end` 返回时进程只是**开始**终止，监听 socket
