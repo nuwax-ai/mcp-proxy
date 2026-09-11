@@ -276,11 +276,20 @@ async fn main() -> Result<()> {
     info!("Application status initialization successful");
 
     // 监听地址（SO_REUSEADDR：接管 TIME_WAIT 端口——重启/升级后健康探测的
-    // curl 连接残留 TIME_WAIT，Windows 默认拒绝 bind（os error 10048））
+    // curl 连接残留 TIME_WAIT，Windows 默认拒绝 bind（os error 10048））。
+    // hostname（如 localhost）与 tokio bind 的字符串解析语义对齐：DNS 解析取
+    // 首个地址，而不是静默退回 0.0.0.0（那会把"仅本机监听"扩大成全网卡）
     let addr = format!("{server_host}:{server_port}");
-    let sock_addr: std::net::SocketAddr = addr
-        .parse()
-        .unwrap_or_else(|_| std::net::SocketAddr::from(([0, 0, 0, 0], server_port)));
+    let sock_addr: std::net::SocketAddr = if let Ok(a) = addr.parse() {
+        a
+    } else {
+        use std::net::ToSocketAddrs;
+        (server_host.as_str(), server_port)
+            .to_socket_addrs()
+            .ok()
+            .and_then(|mut addrs| addrs.find(|a| a.is_ipv4()))
+            .unwrap_or_else(|| std::net::SocketAddr::from(([0, 0, 0, 0], server_port)))
+    };
     let socket = socket2::Socket::new(
         if sock_addr.is_ipv4() {
             socket2::Domain::IPV4

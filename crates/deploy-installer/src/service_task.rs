@@ -95,12 +95,6 @@ pub fn restart_task(spec: &ServiceSpec) -> Result<()> {
         println!("  note: end task: {e}");
     }
     wait_port_released(spec, std::time::Duration::from_secs(45));
-    if spec.listen_port.is_none() {
-        // 无端口信息：退回旧行为（run 一次即认为完成）
-        task_scheduler::run(&name)?;
-        println!("Restarted {name}");
-        return Ok(());
-    }
     run_until_healthy(spec, &name, std::time::Duration::from_secs(40))?;
     println!("Restarted {name}");
     Ok(())
@@ -159,26 +153,64 @@ fn wait_port_released(spec: &ServiceSpec, timeout: std::time::Duration) {
         }
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
-    // 超时：占用者就是该停未停的旧实例，强杀进程树
+    // 超时：占用者预期是本服务该停未停的旧实例——但须先验证进程映像名，
+    // 端口被误配撞上的其它服务（如 dp/vc 配了同端口）占用时，强杀它就是
+    // 谋杀无辜进程；映像不符则不杀，让后续 bind 失败给出正确报错
     if let Ok(Some(pid)) = crate::checks::port_occupant(port) {
-        println!(
-            "  note: port {port} held by pid {pid} after {timeout:?} — killing (graceful shutdown overdue)"
-        );
-        let _ = std::process::Command::new("taskkill")
-            .args(["/PID", &pid, "/T", "/F"])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
-        // 强杀后复验（taskkill 异步生效，给 OS 一点回收时间）
-        for _ in 0..10 {
-            if matches!(crate::checks::port_occupant(port), Ok(None)) {
-                return;
+        let expected = crate::binary_name(&spec.name);
+        #[cfg(windows)]
+        let image = pid_image_name(&pid);
+        #[cfg(not(windows))]
+        let image: Option<String> = None;
+        if image
+            .as_deref()
+            .is_some_and(|n| n.eq_ignore_ascii_case(&expected))
+        {
+            println!(
+                "  note: port {port} held by {expected} pid {pid} after {timeout:?} — killing (graceful shutdown overdue)"
+            );
+            let _ = std::process::Command::new("taskkill")
+                .args(["/PID", &pid, "/T", "/F"])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status();
+            // 强杀后复验（taskkill 异步生效，给 OS 一点回收时间）
+            for _ in 0..10 {
+                if matches!(crate::checks::port_occupant(port), Ok(None)) {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(500));
             }
-            std::thread::sleep(std::time::Duration::from_millis(500));
+        } else {
+            println!(
+                "  note: port {port} held by pid {pid} (image {image:?}, not our {expected}) \
+— leaving it; bind will fail loudly if it persists"
+            );
         }
     } else {
         println!("  note: port {port} still listening after {timeout:?} — starting anyway");
     }
+}
+
+/// 查 PID 的进程映像名（Windows tasklist CSV 首列）；PID 不存在/输出异常返回 None
+#[cfg(windows)]
+fn pid_image_name(pid: &str) -> Option<String> {
+    let out = std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+        .output()
+        .ok()?;
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let line = stdout.lines().next()?.trim();
+    csv_first_field(line).map(str::to_string)
+}
+
+/// tasklist CSV 行的首列（带引号的映像名）；非 CSV 行（如中文系统的
+/// "信息: 没有运行的任务…"）返回 None。纯函数供单测
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn csv_first_field(line: &str) -> Option<&str> {
+    let rest = line.strip_prefix('"')?;
+    let end = rest.find('"')?;
+    Some(&rest[..end])
 }
 
 /// 打印任务状态、上次结果、任务定义体与最新日志 tail。
@@ -226,5 +258,22 @@ pub(crate) fn tail_log_file(name: &str, path: &Path) {
             .collect::<Vec<_>>()
             .join("\n");
         println!("({name})\n{tail}");
+    }
+}
+
+#[cfg(test)]
+mod kill_guard_tests {
+    use super::csv_first_field;
+
+    #[test]
+    fn csv_first_field_parses_image_name() {
+        assert_eq!(
+            csv_first_field("\"voice-cli.exe\",\"14284\",\"Services\",\"0\",\"21,524 K\""),
+            Some("voice-cli.exe")
+        );
+        // 非法输入：无引号前缀（中文系统"没有运行的任务"提示）、空串
+        assert_eq!(csv_first_field("信息: 没有运行的任务匹配指定标准。"), None);
+        assert_eq!(csv_first_field(""), None);
+        assert_eq!(csv_first_field("\\"), None);
     }
 }
