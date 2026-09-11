@@ -200,16 +200,27 @@ async fn run_stream_session(socket: WebSocket, state: AppState) {
     };
 
     // 2.5 握手期预热引擎池：模型懒加载失败（文件缺失/损坏）在 ready 之前暴露，
-    // 客户端立即收到 error 而非 ready 后首帧静默断开（2026-09-10 深测 53 实况）
+    // 客户端立即收到 error 而非 ready 后首帧静默断开（2026-09-10 深测 53 实况）。
+    // 限时 120s：模型冷加载最慢 ~60s（大模型 + 慢盘），2 倍裕量——无超时的
+    // prepare 挂死会让客户端在 ready 前无限等待（静默挂起只是换了个位置）
     {
+        const STT_PREPARE_TIMEOUT: Duration = Duration::from_secs(120);
         let warm = decoder.clone();
-        let prepared = tokio::task::spawn_blocking(move || warm.prepare()).await;
+        let prepared = tokio::time::timeout(
+            STT_PREPARE_TIMEOUT,
+            tokio::task::spawn_blocking(move || warm.prepare()),
+        )
+        .await;
         let failure = match prepared {
-            Ok(Ok(())) => None,
-            Ok(Err(e)) => Some(format!("流式引擎预热失败: {e}")),
-            Err(e) => Some(format!("流式引擎预热任务失败: {e}")),
+            Ok(Ok(Ok(()))) => None,
+            Ok(Ok(Err(e))) => Some(format!("流式引擎预热失败: {e}")),
+            Ok(Err(e)) => Some(format!("流式引擎预热任务失败: {e}")),
+            Err(_) => Some(format!(
+                "流式引擎预热超时（{STT_PREPARE_TIMEOUT:?}）——模型加载挂起，请检查模型文件与磁盘"
+            )),
         };
         if let Some(message) = failure {
+            warn!("stream session: {message}");
             let _ = send_event(&mut sink, StreamEvent::Error { message }).await;
             return;
         }
@@ -323,8 +334,10 @@ async fn send_event(
 /// PCM s16le bytes → f32 samples（归一化到 [-1.0, 1.0]）
 fn pcm_s16le_to_f32(bytes: &[u8]) -> Vec<f32> {
     bytes
-        .chunks_exact(2)
-        .map(|c| i16::from_le_bytes([c[0], c[1]]) as f32 / 32768.0)
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|c| i16::from_le_bytes(*c) as f32 / 32768.0)
         .collect()
 }
 
