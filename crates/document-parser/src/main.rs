@@ -21,6 +21,34 @@ use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 use tracing_subscriber::{EnvFilter, Layer as _};
 
+/// 端口是否已有活跃 listener（Windows netstat 解析；探测不可用返回 false）。
+/// SO_REUSEADDR 前置守卫，见 main 内注释。
+#[cfg(windows)]
+fn port_has_active_listener(port: u16) -> bool {
+    let Ok(out) = std::process::Command::new("netstat")
+        .args(["-ano", "-p", "tcp"])
+        .output()
+    else {
+        return false;
+    };
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let port_str = port.to_string();
+    stdout.lines().any(|line| {
+        let mut cols = line.split_whitespace();
+        if cols.next() != Some("TCP") {
+            return false;
+        }
+        let Some(local) = cols.next() else {
+            return false;
+        };
+        cols.next();
+        let Some(state) = cols.next() else {
+            return false;
+        };
+        state == "LISTENING" && local.rsplit(':').next() == Some(port_str.as_str())
+    })
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     cli::locale::init_locale_from_env();
@@ -299,7 +327,16 @@ async fn main() -> Result<()> {
         socket2::Type::STREAM,
         Some(socket2::Protocol::TCP),
     )?;
-    socket.set_reuse_address(true)?;
+    // Windows 的 SO_REUSEADDR 允许与活跃 listener 双绑（连接随机分配——误配
+    // 端口的服务静默互偷连接；Linux 只复用 TIME_WAIT 无此问题）：有活跃占用
+    // 时不开 REUSEADDR，让 bind 以 10048 明确失败
+    #[cfg(windows)]
+    let may_reuse = !port_has_active_listener(server_port);
+    #[cfg(not(windows))]
+    let may_reuse = true;
+    if may_reuse {
+        socket.set_reuse_address(true)?;
+    }
     socket.bind(&sock_addr.into())?;
     socket.listen(1024)?;
     // tokio 的 from_std 要求 non-blocking：socket2 默认 blocking，不设的话

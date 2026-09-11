@@ -13,6 +13,37 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing::{info, warn};
 
+/// 端口是否已有**活跃** listener（Windows netstat 解析；探测不可用返回 false
+/// ——保持 REUSEADDR 开启，不因探测失败放弃 TIME_WAIT 修复）。用于 SO_REUSEADDR
+/// 的前置守卫：Windows 的 REUSEADDR 允许与活跃 listener 双绑（连接被随机分配），
+/// 误配端口的两个服务会静默互偷连接——有活跃占用时不开 REUSEADDR，让 bind
+/// 以 os error 10048 明确失败。
+#[cfg(windows)]
+fn port_has_active_listener(port: u16) -> bool {
+    let Ok(out) = std::process::Command::new("netstat")
+        .args(["-ano", "-p", "tcp"])
+        .output()
+    else {
+        return false;
+    };
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let port_str = port.to_string();
+    stdout.lines().any(|line| {
+        let mut cols = line.split_whitespace();
+        if cols.next() != Some("TCP") {
+            return false;
+        }
+        let Some(local) = cols.next() else {
+            return false;
+        };
+        cols.next(); // remote
+        let Some(state) = cols.next() else {
+            return false;
+        };
+        state == "LISTENING" && local.rsplit(':').next() == Some(port_str.as_str())
+    })
+}
+
 /// 解析 WS 文本帧是否为控制帧（`{type:"<ty>"}`），避免 contains 误判（如 "nonstop"）。
 /// stt_stream（stop）/ tts_stream（cancel）共用。
 pub fn is_control_frame(text: &str, ty: &str) -> bool {
@@ -139,19 +170,27 @@ pub async fn handle_server_run(config: &Config) -> crate::Result<()> {
     app = app.layer(axum::Extension(app_state.apalis_storage.clone()));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
-    // SO_REUSEADDR：bind 允许接管处于 TIME_WAIT 的端口——重启/升级场景下，
-    // 健康探测的 curl 连接在旧实例死后残留 TIME_WAIT（Windows 默认拒绝 bind
-    // 此类端口，os error 10048；53 实测升级间歇失败的根因）。unix 上同为
-    // 服务端标准实践。注意：bind 失败前不打 "listening" 字样（排障误导）。
+    // SO_REUSEADDR：接管 TIME_WAIT 端口（重启/升级后健康探测的 curl 连接残留
+    // TIME_WAIT，Windows 默认拒绝 bind，os error 10048）。**仅 Windows 上先探测
+    // 活跃 listener**：Windows 的 SO_REUSEADDR 允许与活跃 listener 双绑同一端口
+    //（不报错、连接随机分配——误配端口的两个服务会静默互偷连接；Linux 的
+    // REUSEADDR 只复用 TIME_WAIT、双绑需 REUSEPORT，无此问题）。
+    // 注意：bind 失败前不打 "listening" 字样（排障误导）。
     let socket = socket2::Socket::new(
         socket2::Domain::IPV4,
         socket2::Type::STREAM,
         Some(socket2::Protocol::TCP),
     )
     .map_err(|e| crate::VoiceCliError::Config(format!("Failed to create socket on {addr}: {e}")))?;
-    socket
-        .set_reuse_address(true)
-        .map_err(|e| crate::VoiceCliError::Config(format!("Failed to set SO_REUSEADDR: {e}")))?;
+    #[cfg(windows)]
+    let may_reuse = !port_has_active_listener(config.server.port);
+    #[cfg(not(windows))]
+    let may_reuse = true;
+    if may_reuse {
+        socket.set_reuse_address(true).map_err(|e| {
+            crate::VoiceCliError::Config(format!("Failed to set SO_REUSEADDR: {e}"))
+        })?;
+    }
     socket
         .bind(&addr.into())
         .map_err(|e| {
