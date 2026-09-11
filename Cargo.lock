@@ -1911,8 +1911,6 @@ dependencies = [
  "utoipa-scalar",
  "utoipa-swagger-ui",
  "uuid",
- "winapi",
- "windows 0.62.2",
  "wiremock",
 ]
 

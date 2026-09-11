@@ -37,10 +37,6 @@ serde_yaml = { workspace = true }
 
 dunce = { workspace = true }
 
-# 解析子进程树级击杀（取消/超时 kill 整组：Unix ProcessGroup / Windows JobObject——
-# Child::kill 只杀直接子进程，mineru 的孙进程曾成僵尸泄漏，Win53 实测）
-process-wrap = { version = "9.1", features = ["tokio1", "process-group", "job-object"] }
-
 # OpenAPI文档生成
 utoipa = { workspace = true, features = ["axum_extras", "chrono", "uuid"] }
 utoipa-swagger-ui = { workspace = true, features = ["axum"] }
@@ -104,11 +100,7 @@ pulldown-cmark-to-cmark = "21.1.0"
 # 系统调用（Unix系统）
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
-
-# Windows API
-[target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["fileapi"] }
-windows = { version = "0.62", features = ["Win32_System_Threading"] }
+process-wrap = { version = "9.1", features = ["tokio1", "process-group"] }
 
 [dev-dependencies]
 criterion = { workspace = true }

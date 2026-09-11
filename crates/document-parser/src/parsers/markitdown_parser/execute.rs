@@ -18,14 +18,13 @@ fn err_log_path(output_file: &std::path::Path) -> std::path::PathBuf {
     std::path::PathBuf::from(p)
 }
 use crate::models::DocumentFormat;
-use crate::parsers::mineru_parser::execute::kill_tree;
+use crate::parsers::managed_process::{self, kill_tree};
 use std::path::Path;
+#[cfg(unix)]
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 use tokio::fs;
-use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
-use tokio::sync::mpsc;
 use tokio::time::timeout;
 use tracing::debug;
 
@@ -103,82 +102,26 @@ impl super::MarkItDownParser {
             cmd.arg("--keep-data-uris");
         }
 
-        // Windows 的 tokio 管道是 OVERLAPPED 句柄，跨子进程继承不安全
-        //（mineru 同款问题，详见 mineru execute 注释）——统一文件重定向
+        // stdio 策略（平台雷区详见 managed_process 模块头）：Windows 文件重定向
+        //（OVERLAPPED 管道雷，与 mineru 同款），Unix 管道（实时流监控）
         #[cfg(windows)]
         {
-            let out_log = std::fs::File::create(output_log_path(&output_file))
-                .map_err(|e| AppError::MarkItDown(format!("创建 stdout 日志失败: {e}")))?;
-            let err_log = std::fs::File::create(err_log_path(&output_file))
-                .map_err(|e| AppError::MarkItDown(format!("创建 stderr 日志失败: {e}")))?;
-            cmd.stdout(Stdio::from(out_log))
-                .stderr(Stdio::from(err_log));
+            let out_path = output_log_path(&output_file);
+            let err_path = err_log_path(&output_file);
+            managed_process::redirect_stdio_to_files(&mut cmd, &out_path, &err_path)
+                .map_err(|e| AppError::MarkItDown(format!("创建子进程日志文件失败: {e}")))?;
         }
         #[cfg(unix)]
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
         debug!("Execute MarkItDown command: {:?}", cmd);
 
-        // 进程树级击杀（同 mineru execute：Unix 进程组；Windows 原生 creation_flags，
-        // process-wrap 的 spawn 路径与 mineru 3.4.5 不兼容，详见 mineru execute 注释）
-        #[cfg(unix)]
-        let mut child = {
-            let mut wrapped = process_wrap::tokio::CommandWrap::from(cmd);
-            wrapped.wrap(process_wrap::tokio::ProcessGroup::leader());
-            wrapped.wrap(process_wrap::tokio::KillOnDrop);
-            wrapped
-                .spawn()
-                .map_err(|e| AppError::MarkItDown(format!("启动MarkItDown进程失败: {e}")))?
-        };
-        #[cfg(windows)]
-        let mut child = {
-            use std::os::windows::process::CommandExt;
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-            cmd.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
-            cmd.kill_on_drop(true);
-            cmd.spawn()
-                .map_err(|e| AppError::MarkItDown(format!("启动MarkItDown进程失败: {e}")))?
-        };
+        // 进程树级击杀脚手架（Unix 进程组 / Windows 原生 + 树杀守卫）
+        let mut child = managed_process::spawn_managed(cmd)
+            .map_err(|e| AppError::MarkItDown(format!("启动MarkItDown进程失败: {e}")))?;
 
-        // 输出监控（Windows 文件重定向，无实时流——结束后读文件兜底）
-        #[cfg(unix)]
-        let (tx, mut rx) = mpsc::channel(100);
-        #[cfg(unix)]
-        let (stdout_task, stderr_task);
-        #[cfg(unix)]
-        {
-            let stdout = crate::parsers::mineru_parser::execute::child_stdout(&mut child).unwrap();
-            let stderr = crate::parsers::mineru_parser::execute::child_stderr(&mut child).unwrap();
-
-            let stdout_reader = BufReader::new(stdout);
-            let stderr_reader = BufReader::new(stderr);
-
-            let tx_clone = tx.clone();
-
-            // 监控stdout
-            stdout_task = tokio::spawn(async move {
-                let mut lines = stdout_reader.lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    let _ = tx.send(("stdout".to_string(), line)).await;
-                }
-            });
-
-            // 监控stderr
-            stderr_task = tokio::spawn(async move {
-                let mut lines = stderr_reader.lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    let _ = tx_clone.send(("stderr".to_string(), line)).await;
-                }
-            });
-        }
-        #[cfg(windows)]
-        let mut rx = crate::parsers::mineru_parser::execute::DummyRx;
-        #[cfg(windows)]
-        let (stdout_task, stderr_task) = (
-            crate::parsers::mineru_parser::execute::DummyTask,
-            crate::parsers::mineru_parser::execute::DummyTask,
-        );
+        // 输出监控（Windows 走文件重定向，无实时流——结束后读文件兜底）
+        let mut pump = managed_process::attach_output_pump(&mut child);
 
         // 监控进程和输出
         let timeout_duration = Duration::from_secs(self.config.timeout_seconds);
@@ -198,7 +141,7 @@ impl super::MarkItDownParser {
                     }
 
                     // 处理输出
-                    Some((source, line)) = rx.recv() => {
+                    Some((source, line)) = pump.recv() => {
                         debug!("MarkItDown {}: {}", source, line);
 
                         if source == "stderr" {
@@ -265,8 +208,7 @@ impl super::MarkItDownParser {
         .await;
 
         // 清理任务
-        stdout_task.abort();
-        stderr_task.abort();
+        pump.abort();
 
         let temp_files = match process_result {
             Ok(result) => result?,
