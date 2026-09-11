@@ -26,8 +26,12 @@ use tokio::process::Command;
 pub(crate) type ManagedChild = Box<dyn process_wrap::tokio::ChildWrapper>;
 #[cfg(windows)]
 pub(crate) struct ManagedChild {
-    child: tokio::process::Child,
+    /// 声明在 child **之前**：struct 字段按声明顺序 drop——守卫的
+    /// taskkill /T /F 必须在 mineru.exe 还活着时执行；若 child 在前，
+    /// kill_on_drop 先杀掉直接子进程，taskkill 对已死 PID 找不到进程树，
+    /// 孙进程成孤儿泄漏（53 实机超时测试的实测教训——树深 4 层）
     tree_guard: TreeKillGuard,
+    child: tokio::process::Child,
 }
 
 #[cfg(windows)]
@@ -97,7 +101,8 @@ pub(crate) fn spawn_managed(mut cmd: Command) -> std::io::Result<ManagedChild> {
     cmd.kill_on_drop(true);
     let child = cmd.spawn()?;
     let tree_guard = TreeKillGuard { pid: child.id() };
-    Ok(ManagedChild { child, tree_guard })
+    // 字段顺序即 drop 顺序：tree_guard 在前（见 struct 注释）
+    Ok(ManagedChild { tree_guard, child })
 }
 
 /// Windows stdio 文件重定向（OVERLAPPED 管道雷，见模块头注释）。父目录不存在

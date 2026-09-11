@@ -25,11 +25,7 @@ pub(crate) fn strip_yaml_inline_comment(value: &str) -> &str {
     let bytes = value.as_bytes();
     if bytes.first() == Some(&b'"') || bytes.first() == Some(&b'\'') {
         let quote = bytes[0];
-        if let Some(end) = bytes[1..]
-            .iter()
-            .position(|&b| b == quote)
-            .map(|i| i + 1)
-        {
+        if let Some(end) = bytes[1..].iter().position(|&b| b == quote).map(|i| i + 1) {
             return &value[..end + 1];
         }
         // 无闭合引号：畸形行，退回裸值规则
@@ -364,11 +360,19 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let cfg = dir.path().join("config.yml");
 
-        std::fs::write(&cfg, "server:\n  host: \"0.0.0.0\"\n  port: 8077                       # ← 监听端口\n").unwrap();
+        std::fs::write(
+            &cfg,
+            "server:\n  host: \"0.0.0.0\"\n  port: 8077                       # ← 监听端口\n",
+        )
+        .unwrap();
         assert_eq!(read_server_port(&cfg), Some(8077), "裸值 + 尾注应解析成功");
 
         std::fs::write(&cfg, "server:\n  port: \"8088\"  # quoted\n").unwrap();
-        assert_eq!(read_server_port(&cfg), Some(8088), "引号值 + 尾注应解析成功");
+        assert_eq!(
+            read_server_port(&cfg),
+            Some(8088),
+            "引号值 + 尾注应解析成功"
+        );
 
         std::fs::write(&cfg, "server:\n  port: 8089\n").unwrap();
         assert_eq!(read_server_port(&cfg), Some(8089), "裸值无注释应解析成功");
