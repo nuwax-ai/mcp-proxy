@@ -627,7 +627,13 @@ fn download_prebuilt_whisper(
     let url = if let Some(base) = args.oss_base.as_deref() {
         whisper_download_url_from_base(base, effective)
     } else {
-        optional_whisper_download_url(effective).expect("effective_pack 已确认该包有可用 URL")
+        match optional_whisper_download_url(effective) {
+            Some(url) => url,
+            None => bail!(
+                "prebuilt Whisper models unavailable: no whisper URL for this platform in \
+                 vendor/templates/manifest.json — pass --oss-base or upload the tarball first"
+            ),
+        }
     };
     download_and_extract_tarball(
         &url,

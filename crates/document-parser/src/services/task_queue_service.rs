@@ -261,6 +261,8 @@ impl TaskQueueService {
 
         // 将所有进行中任务统一改为 pending 状态，然后重新入队
         // 这样 worker 真正执行时会重新设置为 processing 状态
+        //（注意：入队只在此处做一次——曾经的第二个"恢复待执行任务"循环对
+        // 同一批 id 再入队一次，重启后每个任务会被两个 worker 并发执行）
         for task_id in all_need_process_tasks.clone() {
             // 强制更新（跳过终态保护——重启恢复需覆盖任何遗留状态）
             if let Err(e) = self
@@ -279,14 +281,6 @@ impl TaskQueueService {
                         task_id
                     );
                 }
-            }
-        }
-        // 恢复所有待执行任务
-        for task_id in all_need_process_tasks.clone() {
-            if let Err(e) = self.enqueue_task(task_id.clone(), 1).await {
-                warn!("Failed to restore pending tasks {}: {}", task_id, e);
-            } else {
-                debug!("Restored pending tasks: {}", task_id);
             }
         }
 
@@ -893,6 +887,44 @@ mod tests {
             matches!(t.status, TaskStatus::Cancelled { .. }),
             "取消状态应保持，实际 {:?}",
             t.status
+        );
+
+        queue_service.shutdown().await.unwrap();
+    }
+
+    /// 重启恢复只入队一次（回归：曾经的第二个"恢复待执行"循环对同一批 id
+    /// 再入队一次——恢复任务会被两个 worker 并发重复执行）
+    #[tokio::test]
+    async fn restored_pending_task_enqueued_once() {
+        let temp_dir = TempDir::new().unwrap();
+        let db = Arc::new(sled::open(temp_dir.path()).unwrap());
+        let task_service = Arc::new(TaskService::new(db).unwrap());
+        // 模拟服务重启时 DB 里遗留的 pending 任务（start 时 restore 会捞它）
+        task_service
+            .create_task(
+                SourceType::Upload,
+                Some("/tmp/x.md".to_string()),
+                Some("x.md".to_string()),
+                None,
+            )
+            .await
+            .unwrap();
+
+        let config = QueueConfig {
+            max_concurrent_tasks: 2, // 双入队时两个 worker 会同时捞起两个队列项
+            task_timeout: Duration::from_secs(5),
+            ..Default::default()
+        };
+        let mut queue_service = TaskQueueService::with_config(task_service.clone(), config);
+        let processor = Arc::new(TestProcessor::new());
+        let processor_handle = Arc::clone(&processor);
+        queue_service.start(processor).await.unwrap();
+
+        sleep(Duration::from_millis(400)).await;
+        assert_eq!(
+            processor_handle.processed_count.load(Ordering::SeqCst),
+            1,
+            "恢复的任务应恰好处理一次（双重入队会跑两次）"
         );
 
         queue_service.shutdown().await.unwrap();

@@ -104,6 +104,7 @@ impl TaskService {
     ) -> Result<(), AppError> {
         debug!("Update basic task information: {}", task_id);
 
+        let _guard = self.write_lock.lock().await;
         let mut task = self
             .get_task(task_id)
             .await?
@@ -217,9 +218,13 @@ impl TaskService {
     }
 
     /// 更新任务进度
+    ///
+    /// 持写锁：解析期进度回调与 cancel_task 并发时，整条覆盖同样会把刚写入的
+    /// Cancelled 回滚（与 touch_task 同类的 RMW 竞态）
     pub async fn update_task_progress(&self, task_id: &str, progress: u32) -> Result<(), AppError> {
         debug!("Update task progress: {} -> {}%", task_id, progress);
 
+        let _guard = self.write_lock.lock().await;
         let mut task = self
             .get_task(task_id)
             .await?
@@ -274,6 +279,7 @@ impl TaskService {
     ) -> Result<(), AppError> {
         info!("Set task parsing engine: {} -> {:?}", task_id, engine);
 
+        let _guard = self.write_lock.lock().await;
         let mut task = self
             .get_task(task_id)
             .await?
@@ -297,6 +303,7 @@ impl TaskService {
             task_id, file_size, mime_type
         );
 
+        let _guard = self.write_lock.lock().await;
         let mut task = self
             .get_task(task_id)
             .await?
@@ -330,6 +337,7 @@ impl TaskService {
             task_id, source_path, source_url, original_filename
         );
 
+        let _guard = self.write_lock.lock().await;
         let mut task = self
             .get_task(task_id)
             .await?
@@ -357,6 +365,7 @@ impl TaskService {
         task_id: &str,
         bucket_dir: Option<String>,
     ) -> Result<(), AppError> {
+        let _guard = self.write_lock.lock().await;
         let mut task = self
             .get_task(task_id)
             .await?
@@ -417,6 +426,7 @@ impl TaskService {
         task_id: &str,
         upload_config: Option<crate::models::UploadEndpoint>,
     ) -> Result<(), AppError> {
+        let _guard = self.write_lock.lock().await;
         let mut task = self
             .get_task(task_id)
             .await?
@@ -546,6 +556,7 @@ impl TaskService {
     pub async fn retry_task(&self, task_id: &str) -> Result<DocumentTask, AppError> {
         info!("Retry task: {}", task_id);
 
+        let _guard = self.write_lock.lock().await;
         let mut task = self
             .get_task(task_id)
             .await?

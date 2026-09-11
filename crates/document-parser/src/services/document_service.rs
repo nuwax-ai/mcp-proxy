@@ -175,6 +175,21 @@ impl DocumentService {
         let _cancel_guard =
             crate::services::parse_cancel::register_guarded(task_id, cancel_token.clone());
 
+        // 注册后复查终态：取消若落在"worker 终态检查之后、令牌注册之前"的窗口，
+        // request_parse_cancel 查不到令牌而返回 false——信号丢失，任务会白跑
+        // 全程（PDF 可达 1 小时）。复查把窗口收窄到本检查与解析启动之间的微秒级
+        if let Ok(Some(task)) = self.task_service.get_task(task_id).await
+            && matches!(
+                task.status,
+                TaskStatus::Cancelled { .. } | TaskStatus::Completed { .. }
+            )
+        {
+            return Err(anyhow::anyhow!(
+                "任务 {task_id} 已处于终态（{:?}），跳过解析",
+                task.status
+            ));
+        }
+
         // 心跳 + 总超时：解析期（尤其 MinerUExecuting 可能数十分钟）此前零任务
         // 写入，updated_at 冻结在阶段入口，运维无从分辨"在算"还是"已死"——
         // 30s touch 一次让 updated_at 持续推进；超时/取消/正常结束都停止心跳
