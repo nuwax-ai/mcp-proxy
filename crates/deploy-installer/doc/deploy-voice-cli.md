@@ -11,8 +11,8 @@ voice-cli 的 STT 在不同平台走不同加速档位，**安装器自动检测
 | 平台 | 档位 | 加速说明 |
 |------|------|---------|
 | macOS（Apple Silicon） | Metal | whisper-metal 编译进 darwin 二进制，开箱即用 |
-| Linux x86_64 + NVIDIA | **CUDA** | 安装器下载 CUDA 预编译 bundle（~235MB，含 GPU 版 onnxruntime）；STT 与 TTS/SenseVoice 都吃 GPU |
-| Linux x86_64 + AMD/Intel GPU | **Vulkan** | 安装器下载 Vulkan 预编译 bundle（~30MB）；**仅 STT-whisper 加速**（TTS/SenseVoice 仍 CPU） |
+| Linux x86_64 + NVIDIA | **CUDA** | 安装器下载 CUDA 预编译 bundle（~270MB，含 GPU 版 onnxruntime）；STT 与 TTS/SenseVoice 都吃 GPU |
+| Linux x86_64 + AMD/Intel GPU | **Vulkan** | 安装器下载 Vulkan 预编译 bundle（~31MB）；**仅 STT-whisper 加速**（TTS/SenseVoice 仍 CPU） |
 | Linux 无 GPU / Windows | CPU | vendor 内置二进制，开箱即用 |
 
 三档自动检测优先级：NVIDIA（nvidia-smi + libcublas）→ Vulkan（GPU 探针）→ CPU。无 GPU 机器会打印提示与修复建议但**不阻塞部署**（装 CPU 版照常可用）。
@@ -20,8 +20,8 @@ voice-cli 的 STT 在不同平台走不同加速档位，**安装器自动检测
 | 项目 | 要求 |
 |------|------|
 | Node.js | 18+（deploy-installer 方式必需） |
-| **ffmpeg** | **必需**（音频元数据/格式处理）：macOS `brew install ffmpeg`；Debian/Ubuntu `sudo apt install -y ffmpeg`；Windows `winget install Gyan.FFmpeg`（doctor 会检出并给对应命令） |
-| 磁盘 | whisper large-v3 模型约 3GB（仅 macOS 自动下载时需要） |
+| **ffmpeg** | STT 音频解码需要。**默认无需手动安装**：安装器自动从自家 OSS 下载静态 ffmpeg 到安装目录（系统 PATH 已有 ffmpeg 时跳过下载，优先用系统的）。仅在内网不可达 OSS 且系统也没有 ffmpeg 时需手动装：macOS `brew install ffmpeg`；Debian/Ubuntu `sudo apt install -y ffmpeg`；Windows `winget install Gyan.FFmpeg`（doctor 双探测 sidecar/PATH 并给出指引） |
+| 磁盘 | whisper large-v3 模型约 3GB（全平台自动下载）+ Linux GPU 档 bundle（CUDA ~270MB / Vulkan ~31MB） |
 | Linux sudoers | 同 document-parser 的五命令 NOPASSWD allowlist（见 [deploy-document-parser.md §3](./deploy-document-parser.md)） |
 
 ## 2. 安装 deploy-installer
@@ -46,7 +46,7 @@ deploy-installer voice-cli install
 
 默认安装目录 `~/voice-cli`、端口 **8077**。各平台差异：
 
-- **macOS**：自动从 OSS 下载 Whisper large-v3 模型（约 2.8GB，写入 `models/ggml-large-v3.bin`）；二进制 Metal 加速开箱即用。
+- **macOS**：自动从 OSS 下载 Whisper large-v3 模型（约 3GB，写入 `models/ggml-large-v3.bin`）；二进制 Metal 加速开箱即用。
 - **Linux**：按 GPU 档位自动选 CUDA / Vulkan / CPU 包（见 §4）；Whisper large-v3 模型自动从 OSS 下载（与 macOS 同源）。
 - **Windows**：CPU 版二进制 + 伴生 DLL，以当前用户计划任务（`com.nuwax.voice-cli`）注册服务。
 
@@ -94,7 +94,9 @@ deploy-installer voice-cli verify
 ```
 
 Whisper 模型默认全平台自动下载（Mac/Linux/Windows 同一 OSS 包，ggml 平台无关）；
-`--skip-models` 跳过后可重跑 install 补齐。
+`--models all` 换全套模型包（tiny/base/small/medium/large-v3，约 5GB），
+`--skip-models` 跳过后可重跑 install 补齐。ffmpeg 与模型独立——`--skip-models`
+不影响 ffmpeg 的自动供给。
 
 Linux GPU 档验证加速是否生效：服务日志（`journalctl -u voice-cli -f`）转写时出现 `ggml_cuda: using CUDA` 或 `ggml_vulkan: Found ... Vulkan devices` 即在走 GPU。
 
@@ -114,7 +116,7 @@ deploy-installer voice-cli upgrade        # Linux 保档升级 + 自动重启；
 | 安装时打印“未检测到 NVIDIA GPU / Vulkan 运行时”后继续装了 CPU 版 | 预检未过 + 未显式强制——属正常回退；要上 GPU 按提示补驱动/工具包后重装，或用 `--use-oss-*` 强制 |
 | CUDA 档服务起不来，日志 `libcublas.so.12 not found` | bundle 不含 CUDA 库，依赖系统 toolkit：装 `cuda-toolkit` 后重装（doctor 的 libcublas 预检可提前发现） |
 | Vulkan 档起不来，`libvulkan.so.1` 缺失 | `sudo apt install -y libvulkan1 mesa-vulkan-drivers` |
-| 转写报音频处理错误 | 系统 ffmpeg 未装（§1 的安装命令；doctor 检查项） |
+| 转写报音频处理错误（ffmpeg 缺失/损坏） | 正常安装会自动供给 ffmpeg 到安装目录（系统 PATH 已有时跳过）；此错误说明自动供给未发生或产物损坏——检查 `~/voice-cli/ffmpeg(.exe)` 是否存在，缺则重跑 install；内网可手动放置（模型源同 ffmpeg 官方静态包） |
 | 转写无模型 / 模型缺失 | 重跑 install 自动从 OSS 补下载；或手工放 `models/ggml-*.bin`（模型源见 [whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp)） |
 | 想换档位 | 直接带目标旗标重跑 install（自动互斥清理），如 CUDA 机器降级：`install --skip-oss-cuda --skip-oss-vulkan` |
 

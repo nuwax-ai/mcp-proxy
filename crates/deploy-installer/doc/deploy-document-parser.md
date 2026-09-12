@@ -58,11 +58,17 @@ Linux 上服务注册/启停/日志需要非交互 sudo，在 sudoers 配置受�
 # 方案 A：阿里云 OSS（云端部署）
 export OSS_ACCESS_KEY_ID=你的Key
 export OSS_ACCESS_KEY_SECRET=你的Secret
+export ALIYUN_OSS_PUBLIC_BUCKET=你的公共bucket     # 与 config.yml 的 storage.oss 对应
+export ALIYUN_OSS_PRIVATE_BUCKET=你的私有bucket
 
 # 方案 B：自建系统上传接口（私有部署，nuwax 风格 REST 契约）
 export DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL=https://your-system.example.com
 export DOCUMENT_PARSER_CUSTOM_UPLOAD_API_KEY=你的APIKey
 ```
+
+> 方案 A 的 bucket 键可省略——省略时须把真实 bucket 写进 `config.yml` 的
+> `storage.oss.public_bucket / private_bucket`；两者都还是模板占位符时 install
+> 会 fail-fast 报错（运行期异步上传才会炸 E010 的问题已前移到安装期）。
 
 未配置任何后端时 install 会明确报错并列出配置方式——不会带着坏配置静默“成功”。
 
@@ -76,7 +82,7 @@ deploy-installer document-parser install
 
 - **macOS**：自动下载预编译 Python 环境（OSS，约 330MB）；下载源不可达时自动回退 uv 现场构建（耗时数分钟）。**不要**装在 Documents / Desktop / iCloud 目录（launchd 服务权限限制）。
 - **Linux**：服务内通过 uv 自动创建 `./venv` 并安装 MinerU/MarkItDown（首次启动后台进行，健康检查最长等 120s，装完前解析任务排队）。
-- **Windows**：以当前用户计划任务（任务名 `com.nuwax.document-parser`，S4U 登录、开机自启、崩溃自动重启）注册服务。
+- **Windows**：以当前用户计划任务（任务名 `com.nuwax.document-parser`，S4U 登录、开机自启）注册服务。
 - **纯内网**（无法访问 OSS 下载源）：用本地 venv 包离线安装
   `deploy-installer document-parser install --venv-file /path/to/venv-macos-arm64-x.y.z.tar.gz`
 
