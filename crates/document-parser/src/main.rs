@@ -21,81 +21,6 @@ use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 use tracing_subscriber::{EnvFilter, Layer as _};
 
-/// 端口活跃 listener 计数（Windows netstat 解析；探测不可用返回 0）。
-/// SO_REUSEADDR 前置守卫 + bind 后独占复查共用。
-#[cfg(windows)]
-fn port_listener_count(port: u16) -> usize {
-    let Ok(out) = std::process::Command::new("netstat")
-        .args(["-ano", "-p", "tcp"])
-        .output()
-    else {
-        return 0;
-    };
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let port_str = port.to_string();
-    stdout
-        .lines()
-        .filter(|line| {
-            let mut cols = line.split_whitespace();
-            if cols.next() != Some("TCP") {
-                return false;
-            }
-            let Some(local) = cols.next() else {
-                return false;
-            };
-            cols.next();
-            let Some(state) = cols.next() else {
-                return false;
-            };
-            state == "LISTENING" && local.rsplit(':').next() == Some(port_str.as_str())
-        })
-        .count()
-}
-
-/// 端口是否被**存活进程** LISTENING（强杀后的尸体 LISTENING 在 netstat 有
-/// 数秒残留——PID 已死，不应据此禁用 REUSEADDR：53 实测强杀→precheck 误判
-/// →bind 10048 连环失败）。netstat 拿 PID 后与 tasklist 存活集求交。
-#[cfg(windows)]
-fn port_live_listener_exists(port: u16) -> bool {
-    let Ok(out) = std::process::Command::new("netstat")
-        .args(["-ano", "-p", "tcp"])
-        .output()
-    else {
-        return false;
-    };
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    let port_str = port.to_string();
-    let mut pids: Vec<String> = Vec::new();
-    for line in stdout.lines() {
-        let mut cols = line.split_whitespace();
-        if cols.next() != Some("TCP") {
-            continue;
-        }
-        let Some(local) = cols.next() else { continue };
-        cols.next();
-        let Some(state) = cols.next() else { continue };
-        let Some(pid) = cols.next() else { continue };
-        if state == "LISTENING" && local.rsplit(':').next() == Some(port_str.as_str()) {
-            pids.push(pid.to_string());
-        }
-    }
-    if pids.is_empty() {
-        return false;
-    }
-    let Ok(out) = std::process::Command::new("tasklist")
-        .args(["/FO", "CSV", "/NH"])
-        .output()
-    else {
-        return true; // 探测不可用：保守认为占用
-    };
-    let tasks = String::from_utf8_lossy(&out.stdout);
-    pids.iter().any(|pid| {
-        tasks
-            .lines()
-            .any(|l| l.split(',').nth(1) == Some(&format!("\"{pid}\"")))
-    })
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     cli::locale::init_locale_from_env();
@@ -374,43 +299,8 @@ async fn main() -> Result<()> {
         socket2::Type::STREAM,
         Some(socket2::Protocol::TCP),
     )?;
-    // Windows 的 SO_REUSEADDR 允许与活跃 listener 双绑（连接随机分配——误配
-    // 端口的服务静默互偷连接；Linux 只复用 TIME_WAIT 无此问题）：有活跃占用
-    // 时不开 REUSEADDR，让 bind 以 10048 明确失败
-    #[cfg(windows)]
-    let may_reuse = {
-        let active = port_live_listener_exists(server_port);
-        info!(
-            "bind precheck: port={} active_listener={} SO_REUSEADDR={}",
-            server_port,
-            active,
-            if active {
-                "disabled (port in active use)"
-            } else {
-                "enabled (TIME_WAIT takeover)"
-            }
-        );
-        !active
-    };
-    #[cfg(not(windows))]
-    let may_reuse = true;
-    if may_reuse {
-        socket.set_reuse_address(true)?;
-    }
+    socket.set_reuse_address(true)?;
     socket.bind(&sock_addr.into())?;
-    // Windows 双绑终检（bind 后、listen 前；同 voice-cli 的语义与理由）
-    #[cfg(windows)]
-    {
-        let others = port_listener_count(server_port);
-        if others > 0 {
-            // 只告警不阻断（同 voice-cli：无法区分无关双绑与本服务旧实例
-            // 优雅关闭残留，阻断会误杀正常 restart）
-            warn!(
-                "port {} still shows {} listener(s) besides us — if these belong to another service, connections may be split between processes",
-                server_port, others
-            );
-        }
-    }
     socket.listen(1024)?;
     // tokio 的 from_std 要求 non-blocking：socket2 默认 blocking，不设的话
     // accept 行为未定义（实测：listener 在听、runtime 活着、accept 永久挂死）
