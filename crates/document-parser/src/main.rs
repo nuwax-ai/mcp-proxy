@@ -331,7 +331,20 @@ async fn main() -> Result<()> {
     // 端口的服务静默互偷连接；Linux 只复用 TIME_WAIT 无此问题）：有活跃占用
     // 时不开 REUSEADDR，让 bind 以 10048 明确失败
     #[cfg(windows)]
-    let may_reuse = !port_has_active_listener(server_port);
+    let may_reuse = {
+        let active = port_has_active_listener(server_port);
+        info!(
+            port = server_port,
+            active_listener = active,
+            "bind precheck: SO_REUSEADDR {}",
+            if active {
+                "disabled (port in active use)"
+            } else {
+                "enabled (TIME_WAIT takeover)"
+            }
+        );
+        !active
+    };
     #[cfg(not(windows))]
     let may_reuse = true;
     if may_reuse {

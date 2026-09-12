@@ -183,7 +183,20 @@ pub async fn handle_server_run(config: &Config) -> crate::Result<()> {
     )
     .map_err(|e| crate::VoiceCliError::Config(format!("Failed to create socket on {addr}: {e}")))?;
     #[cfg(windows)]
-    let may_reuse = !port_has_active_listener(config.server.port);
+    let may_reuse = {
+        let active = port_has_active_listener(config.server.port);
+        info!(
+            port = config.server.port,
+            active_listener = active,
+            "bind precheck: SO_REUSEADDR {}",
+            if active {
+                "disabled (port in active use)"
+            } else {
+                "enabled (TIME_WAIT takeover)"
+            }
+        );
+        !active
+    };
     #[cfg(not(windows))]
     let may_reuse = true;
     if may_reuse {
