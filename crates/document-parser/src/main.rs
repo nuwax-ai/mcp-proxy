@@ -52,6 +52,50 @@ fn port_listener_count(port: u16) -> usize {
         .count()
 }
 
+/// 端口是否被**存活进程** LISTENING（强杀后的尸体 LISTENING 在 netstat 有
+/// 数秒残留——PID 已死，不应据此禁用 REUSEADDR：53 实测强杀→precheck 误判
+/// →bind 10048 连环失败）。netstat 拿 PID 后与 tasklist 存活集求交。
+#[cfg(windows)]
+fn port_live_listener_exists(port: u16) -> bool {
+    let Ok(out) = std::process::Command::new("netstat")
+        .args(["-ano", "-p", "tcp"])
+        .output()
+    else {
+        return false;
+    };
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let port_str = port.to_string();
+    let mut pids: Vec<String> = Vec::new();
+    for line in stdout.lines() {
+        let mut cols = line.split_whitespace();
+        if cols.next() != Some("TCP") {
+            continue;
+        }
+        let Some(local) = cols.next() else { continue };
+        cols.next();
+        let Some(state) = cols.next() else { continue };
+        let Some(pid) = cols.next() else { continue };
+        if state == "LISTENING" && local.rsplit(':').next() == Some(port_str.as_str()) {
+            pids.push(pid.to_string());
+        }
+    }
+    if pids.is_empty() {
+        return false;
+    }
+    let Ok(out) = std::process::Command::new("tasklist")
+        .args(["/FO", "CSV", "/NH"])
+        .output()
+    else {
+        return true; // 探测不可用：保守认为占用
+    };
+    let tasks = String::from_utf8_lossy(&out.stdout);
+    pids.iter().any(|pid| {
+        tasks
+            .lines()
+            .any(|l| l.split(',').nth(1) == Some(&format!("\"{pid}\"")))
+    })
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     cli::locale::init_locale_from_env();
@@ -335,7 +379,7 @@ async fn main() -> Result<()> {
     // 时不开 REUSEADDR，让 bind 以 10048 明确失败
     #[cfg(windows)]
     let may_reuse = {
-        let active = port_listener_count(server_port) > 0;
+        let active = port_live_listener_exists(server_port);
         info!(
             "bind precheck: port={} active_listener={} SO_REUSEADDR={}",
             server_port,
