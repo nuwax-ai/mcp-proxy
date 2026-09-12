@@ -442,7 +442,9 @@ fn launchd_verify_with_kickstart_retry(spec: &ServiceSpec, label: &str) -> Resul
         return Ok(());
     }
     Err(InstallerError::Other(format!(
-        "launchd job {label} did not come up on port {port} (/health never responded)"
+        "launchd job {label} did not come up on port {port} (/health never responded) — \
+         check logs: {}/logs",
+        spec.install_dir.display()
     )))
 }
 
@@ -565,20 +567,15 @@ pub fn start_service(spec: &ServiceSpec) -> Result<()> {
                     plist.display()
                 )));
             }
-            // bootstrap 加载并启动（plist RunAtLoad）；job 已加载时 bootstrap
-            // 报错——kickstart 兜底覆盖该场景
+            // bootstrap 加载并启动（plist RunAtLoad）。失败不立即 kickstart：
+            // 常见失败原因是 job 已加载（服务可能活着、只是启动慢/暂未响应），
+            // 立即 kickstart 会把它误杀重启——交给终态验证判断（30s 健康窗口
+            // 不通才 kickstart 重试）；纯 SSH 无 GUI 域的失败同样由验证兜底报错
             let uid = current_uid();
             let domain = format!("gui/{uid}");
-            let bootstrapped = match std::process::Command::new("launchctl")
+            let _ = std::process::Command::new("launchctl")
                 .args(["bootstrap", &domain, &plist.to_string_lossy()])
-                .output()
-            {
-                Ok(o) => o.status.success(),
-                Err(_) => false,
-            };
-            if !bootstrapped {
-                launchctl_kickstart(&label_s);
-            }
+                .output();
             if let Err(e) = launchd_verify_with_kickstart_retry(spec, &label_s) {
                 // bootstrap 与 kickstart 双失败：常见于纯 SSH 会话无 GUI 域
                 //（plist 已就位，桌面登录后自启——同 install 的降级语义）

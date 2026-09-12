@@ -147,7 +147,9 @@ fn run_until_healthy(
         println!("  note: health not up after attempt {attempt} — retrying /run");
     }
     Err(InstallerError::Other(format!(
-        "task {name} started but /health never responded on port {port}"
+        "task {name} started but /health never responded on port {port} — \
+         check logs: {}/logs",
+        spec.install_dir.display()
     )))
 }
 

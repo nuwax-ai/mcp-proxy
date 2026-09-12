@@ -50,13 +50,15 @@ deploy-installer voice-cli install
 deploy-installer voice-cli install --install-dir ~/apps/voice-cli
 ```
 
-配置、模型、ffmpeg、日志等伴生文件全部落在安装目录内，服务的工作目录也指向它。**非默认目录时，后续 `upgrade` / `verify` / `service` 子命令都要带同样的 `--install-dir`**（`service` 子命令不传时默认按当前目录找）。各平台差异：
+配置、模型、ffmpeg、日志等伴生文件全部落在安装目录内，服务的工作目录也指向它。**非默认目录时，后续 `upgrade` / `verify` / `service` 子命令都要带同样的 `--install-dir`**（不传时与 install 同默认 `~/voice-cli`）。各平台差异：
 
 - **macOS**：自动从 OSS 下载 Whisper large-v3 模型（约 3GB，写入 `models/ggml-large-v3.bin`）；二进制 Metal 加速开箱即用。
 - **Linux**：按 GPU 档位自动选 CUDA / Vulkan / CPU 包（见 §4）；Whisper large-v3 模型自动从 OSS 下载（与 macOS 同源）。
 - **Windows**：CPU 版二进制 + 伴生 DLL，以当前用户计划任务（`com.nuwax.voice-cli`）注册服务。
 
 健康检查通过打印 `✅ voice-cli → http://127.0.0.1:8077`；超时如实报错（GPU 档位装错是常见原因之一，见 §6）。
+
+> **SSH 登录的 Mac 特例**：launchd 需要图形会话。纯 SSH 下安装时 plist 已写入、服务等桌面登录后自启（有意降级，不是失败）；此后 `service start` 也会因无 GUI 域报错并附同样提示。
 
 ## 4. GPU 档位控制（Linux x86_64）
 
@@ -124,7 +126,7 @@ stop / start 是普通用户入口，三平台行为一致、无需记平台原�
 
 ```bash
 deploy-installer voice-cli service stop    # 停止；macOS 上是卸载（bootout）语义，start 会重新加载
-deploy-installer voice-cli service start   # 启动并等待 /health 通过；纯 SSH 无桌面登录的 Mac 见 §5 特例说明
+deploy-installer voice-cli service start   # 启动并等待 /health 通过；纯 SSH 无桌面登录的 Mac 见 §3 特例说明
 ```
 
 两个子命令都**幂等**：已停再 stop、已跑再 start 都打印提示后成功退出。停止会等端口真正释放（Windows 上超时自动强杀残留实例），启动只认健康检查通过（失败如实报错并附日志查看命令）。

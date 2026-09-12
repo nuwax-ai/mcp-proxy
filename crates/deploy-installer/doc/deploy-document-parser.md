@@ -84,7 +84,7 @@ deploy-installer document-parser install
 deploy-installer document-parser install --install-dir ~/apps/document-parser
 ```
 
-venv、配置、任务数据、日志都在安装目录内。**非默认目录时，后续 `upgrade` / `verify` / `service` 子命令都要带同样的 `--install-dir`**（`service` 子命令不传时默认按当前目录找）。各平台差异：
+venv、配置、任务数据、日志都在安装目录内。**非默认目录时，后续 `upgrade` / `verify` / `service` 子命令都要带同样的 `--install-dir`**（不传时与 install 同默认 `~/document-parser`）。各平台差异：
 
 - **macOS**：自动下载预编译 Python 环境（OSS，约 330MB）；下载源不可达时自动回退 uv 现场构建（耗时数分钟）。**不要**装在 Documents / Desktop / iCloud 目录（launchd 服务权限限制）。
 - **Linux**：服务内通过 uv 自动创建 `./venv` 并安装 MinerU/MarkItDown（首次启动后台进行，健康检查最长等 120s，装完前解析任务排队）。
