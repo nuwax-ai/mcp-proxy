@@ -89,8 +89,6 @@ impl MetadataExtractor {
 
     /// 使用 FFmpeg 提取详细元数据
     async fn extract_with_ffmpeg(file_path: &Path) -> Result<AudioVideoMetadata, VoiceCliError> {
-        use ffmpeg_sidecar::command::FfmpegCommand;
-
         debug!("Extract metadata using FFmpeg: {:?}", file_path);
 
         let file_path_buf = file_path.to_path_buf();
@@ -100,21 +98,11 @@ impl MetadataExtractor {
                 let mut metadata = AudioVideoMetadata::default();
                 let file_path_str = file_path_buf.to_string_lossy().to_string();
 
-                // 使用 FfmpegCommand 获取文件信息
-                let mut child = FfmpegCommand::new()
-                    .arg("-i")
-                    .arg(&file_path_str)
-                    .arg("-hide_banner")
-                    .spawn()
-                    .map_err(|e| VoiceCliError::Storage(format!("FFmpeg 执行失败: {}", e)))?;
-
-                // 等待命令完成（在阻塞线程中执行）
-                let _exit_status = child
-                    .wait()
-                    .map_err(|e| VoiceCliError::Storage(format!("FFmpeg 执行失败: {}", e)))?;
-
-                // 使用传统方法获取输出（因为 ffmpeg-sidecar 主要用于处理媒体流，不是元数据提取）
-                let output = std::process::Command::new("ffmpeg")
+                // 路径解析须与解码侧（stt/audio.rs 的 FfmpegCommand）一致：sidecar
+                // 先找 exe 同目录（安装器供给的 ./ffmpeg）、再退回 PATH。std Command
+                // 在 Linux 不搜当前目录，直接写 "ffmpeg" 会让无系统 ffmpeg 的机器
+                // 元数据全归零（e2e duration 断言失败）。
+                let output = std::process::Command::new(ffmpeg_sidecar::paths::ffmpeg_path())
                     .args(["-i", &file_path_str, "-hide_banner", "-f", "null", "-"])
                     .output()
                     .map_err(|e| VoiceCliError::Storage(format!("FFmpeg 执行失败: {}", e)))?;
