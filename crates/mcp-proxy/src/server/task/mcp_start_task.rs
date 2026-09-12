@@ -40,7 +40,7 @@ pub async fn mcp_start_task(
     let mcp_json_config = mcp_config
         .mcp_json_config
         .clone()
-        .expect("mcp_json_config is required");
+        .ok_or_else(|| AppError::mcp_server_error("mcp_json_config is required".to_string()))?;
 
     let mcp_server_config = McpServerConfig::try_from(mcp_json_config)?;
 

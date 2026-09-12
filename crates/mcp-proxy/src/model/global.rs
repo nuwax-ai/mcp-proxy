@@ -603,6 +603,11 @@ impl ProxyHandlerManager {
         // 清理健康状态缓存
         GLOBAL_RESTART_TRACKER.clear_health_status(mcp_id);
 
+        // 服务已彻底销毁：启动锁条目一并回收（DashMap 只增不减，不回收会随
+        // 任意 mcp_id 无限膨胀）；顺带清理过期的重启时间戳
+        GLOBAL_RESTART_TRACKER.cleanup_startup_lock(mcp_id);
+        GLOBAL_RESTART_TRACKER.prune_stale_restarts();
+
         info!(
             "[RAII] MCP service resource cleanup completed: mcp_id={}",
             mcp_id
@@ -954,12 +959,23 @@ impl RestartTracker {
 
     /// 清理服务启动锁
     ///
-    /// 当服务启动完成或失败后，应该清理启动锁以允许后续重试
-    /// 注意：正常情况下锁会随 MutexGuard 自动释放，此方法用于异常清理
-    #[allow(dead_code)]
+    /// 服务已彻底销毁（Error 态/OneShot 完结/进程退出）时调用——锁条目本身
+    /// 永不自动回收（DashMap 只增不减），长期运行 + 任意 mcp_id 会无限膨胀。
+    /// 重启路径（cleanup_resources_for_restart）不调用：重启马上要复用锁。
     pub fn cleanup_startup_lock(&self, mcp_id: &str) {
         self.startup_locks.remove(mcp_id);
         debug!("Cleaned startup lock for service {}", mcp_id);
+    }
+
+    /// 清理过期的重启时间戳（超过冷却窗口的历史条目无保留价值）
+    pub fn prune_stale_restarts(&self) {
+        let cutoff = Instant::now() - Duration::from_secs(60);
+        let before = self.last_restart.len();
+        self.last_restart.retain(|_, t| *t > cutoff);
+        let removed = before - self.last_restart.len();
+        if removed > 0 {
+            debug!("Pruned {removed} stale restart timestamps");
+        }
     }
 }
 

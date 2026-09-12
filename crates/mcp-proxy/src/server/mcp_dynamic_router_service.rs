@@ -201,7 +201,25 @@ impl Service<Request<Body>> for DynamicRouterService {
                                         "[Health Check] mcp_id={} Cache miss, start actual health check...",
                                         router_path.mcp_id
                                     );
-                                    let status = handler.is_mcp_server_ready().await;
+                                    // 限时 10s（对齐定时任务 schedule_check 的探测超时）：
+                                    // 后端 wedged（npx 下载卡死/TCP 半开）时无超时会让
+                                    // 本请求持 startup lock 永久挂起，该 mcp_id 全部
+                                    // 后续请求永远 0003
+                                    let status = match tokio::time::timeout(
+                                        std::time::Duration::from_secs(10),
+                                        handler.is_mcp_server_ready(),
+                                    )
+                                    .await
+                                    {
+                                        Ok(status) => status,
+                                        Err(_) => {
+                                            warn!(
+                                                "[Health Check] mcp_id={} health probe timed out after 10s, treating as unhealthy",
+                                                router_path.mcp_id
+                                            );
+                                            false
+                                        }
+                                    };
                                     GLOBAL_RESTART_TRACKER
                                         .update_health_status(&router_path.mcp_id, status);
                                     debug!(
@@ -273,6 +291,23 @@ impl Service<Request<Body>> for DynamicRouterService {
                                     router_path.mcp_id
                                 );
 
+                                // 重启冷却检查（对齐 no-route 分支）：配置了"启动即崩"
+                                // 的后端 + 客户端自动重试会无限拉起进程
+                                if !GLOBAL_RESTART_TRACKER.can_restart(&router_path.mcp_id) {
+                                    warn!(
+                                        "Service {} skips restart during cooldown period",
+                                        router_path.mcp_id
+                                    );
+                                    span.record("error.restart_in_cooldown", true);
+                                    let message = format!(
+                                        "服务 {} 在重启冷却期内，请稍后再试",
+                                        router_path.mcp_id
+                                    );
+                                    let http_result: HttpResult<String> =
+                                        HttpResult::error("0002", &message, None);
+                                    return Ok(http_result.into_response());
+                                }
+
                                 // 从配置获取 mcp_config 并启动服务
                                 // 优先从请求 header 获取配置
                                 if let Some(mcp_config) =
@@ -289,10 +324,13 @@ impl Service<Request<Body>> for DynamicRouterService {
                                     return start_mcp_and_handle_request(req, mcp_config).await;
                                 }
 
-                                // 从缓存获取配置
+                                // 从缓存获取配置（缺 mcp_json_config 的缓存条目直接按
+                                // 无法重启处理——传下去会让 mcp_start_task 的旧
+                                // expect panic）
                                 if let Some(mcp_config) = proxy_manager
                                     .get_mcp_config_from_cache(&router_path.mcp_id)
                                     .await
+                                    .filter(|cfg| cfg.mcp_json_config.is_some())
                                 {
                                     info!(
                                         "[Restart process] mcp_id={} Restart the service using cache configuration",
@@ -346,6 +384,10 @@ impl Service<Request<Body>> for DynamicRouterService {
                                     "The route exists but the handler does not exist. Enter the restart process: base_path={}",
                                     base_path
                                 );
+                                // 先释放本段持有的启动锁——下方 no-route 启动逻辑会
+                                // 再次 try_acquire 同一 mcp_id 的锁，不 drop 会
+                                // 自己锁自己（该路径恒 0003，服务永远起不来）
+                                drop(_startup_guard);
                             }
                         } else {
                             // 无法解析路由路径，直接使用路由

@@ -325,11 +325,24 @@ fn static_directive(s: &str) -> tracing_subscriber::filter::Directive {
         .unwrap_or_else(|e| panic!("内置 tracing directive 拼写错误（程序 bug）: {s} — {e:?}"))
 }
 
-// 监听多种终止信号
+// 监听多种终止信号（SIGINT + SIGTERM——systemd stop / docker stop / k8s 滚动
+// 更新发 SIGTERM，只监听 ctrl_c 时优雅关闭与资源清理不会执行）
 async fn shutdown_signal() {
-    signal::ctrl_c()
-        .await
-        .expect("Failed to install Ctrl+C handler");
+    #[cfg(unix)]
+    {
+        let mut terminate = signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("Failed to install SIGTERM handler");
+        tokio::select! {
+            _ = signal::ctrl_c() => {},
+            _ = terminate.recv() => {},
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        signal::ctrl_c()
+            .await
+            .expect("Failed to install Ctrl+C handler");
+    }
 }
 
 #[cfg(test)]
