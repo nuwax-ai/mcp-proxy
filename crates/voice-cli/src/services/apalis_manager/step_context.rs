@@ -21,6 +21,36 @@ impl StepContext {
         let status_json = serde_json::to_string(status)
             .map_err(|e| Error::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>))?;
 
+        // 终态守卫：当前已是 Cancelled/Completed 时不被翻写（worker 完成时把
+        // 并发写入的 Cancelled 覆盖为 Completed 是取消 API 的语义破坏——
+        // 客户端"取消成功又复活"；读后写窗口为毫秒级，可接受）
+        {
+            let row = sqlx::query("SELECT status FROM task_info WHERE task_id = ?")
+                .bind(task_id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(
+                    |e| Error::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>),
+                )?;
+            if let Some(existing) = row.as_ref().and_then(|r| {
+                r.try_get::<String, _>("status")
+                    .ok()
+                    .and_then(|s| serde_json::from_str::<TaskStatus>(&s).ok())
+            }) && matches!(
+                existing,
+                TaskStatus::Cancelled { .. } | TaskStatus::Completed { .. }
+            ) && !matches!(
+                status,
+                TaskStatus::Cancelled { .. } | TaskStatus::Completed { .. }
+            ) {
+                warn!(
+                    "save_task_status skipped: task {} terminal {:?} not overwritten by {:?}",
+                    task_id, existing, status
+                );
+                return Ok(());
+            }
+        }
+
         sqlx::query(
             // UPSERT 只更新状态列：INSERT OR REPLACE 是删整行重插，未列出的列
         //（file_path/original_filename/model/...）会被置 NULL——音频文件

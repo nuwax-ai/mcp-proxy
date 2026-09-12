@@ -61,11 +61,23 @@ pub async fn ws_tts_handler(
 async fn run_tts_stream_session(socket: WebSocket, state: AppState) {
     let (mut sink, mut stream) = socket.split();
 
-    // 1. 等 start 帧（10s 超时）
+    // 1. 等 start 帧（10s 超时；非法 JSON 推 error 事件——此前
+    // unwrap_or_default 会静默落空值，客户端无从得知帧写错了）
     let start = match tokio::time::timeout(Duration::from_secs(10), stream.next()).await {
-        Ok(Some(Ok(Message::Text(t)))) => {
-            serde_json::from_str::<TtsStreamStartFrame>(&t).unwrap_or_default()
-        }
+        Ok(Some(Ok(Message::Text(t)))) => match serde_json::from_str::<TtsStreamStartFrame>(&t) {
+            Ok(f) => f,
+            Err(e) => {
+                warn!("tts stream: start 帧解析失败: {e}");
+                let _ = send_event(
+                    &mut sink,
+                    TtsStreamEvent::Error {
+                        message: format!("start 帧解析失败: {e}"),
+                    },
+                )
+                .await;
+                return;
+            }
+        },
         _ => {
             warn!("tts stream: 未收到合法 start 帧");
             return;
@@ -130,7 +142,7 @@ async fn run_tts_stream_session(socket: WebSocket, state: AppState) {
     //    - synth（spawn_blocking）：acquire_instance + 合成 + 推事件
     //    - forward：mpsc rx → WS sink（owns sink），Done/Error 时自然退出
     //    - watcher：读客户端 cancel/close → 置 cancel → callback 中断合成
-    let (event_tx, event_rx) = tokio::sync::mpsc::channel::<TtsStreamEvent>(32);
+    let (event_tx, event_rx) = tokio::sync::mpsc::channel::<TtsStreamEvent>(64);
     let cancel = Arc::new(AtomicBool::new(false));
 
     let model_svc = state.tts_model_service.clone();
@@ -177,8 +189,19 @@ async fn run_tts_stream_session(socket: WebSocket, state: AppState) {
             },
             ..Default::default()
         };
-        // lock 引擎取 &OfflineTts（impl Synthesizer），交给 synthesize_streaming
-        let guard = inst.lock().unwrap_or_else(|p| p.into_inner());
+        // try_lock：引擎被上一个超时会话的孤儿合成任务占用时快速失败，
+        // 不排队挂死（孤儿持锁最多一个 chunk 周期——见 streaming.rs 的
+        // try_send 语义；但排队本身也会耗尽本会话的 synth_timeout 预算）
+        let guard = match inst.try_lock() {
+            Ok(g) => g,
+            Err(std::sync::TryLockError::Poisoned(p)) => p.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                let _ = event_tx.blocking_send(TtsStreamEvent::Error {
+                    message: "TTS 引擎忙（其它会话占用），请稍后重试".to_string(),
+                });
+                return;
+            }
+        };
         // 错误已在内部映射成 TtsStreamEvent::Error 推给 forward；此处忽略返回
         let _ = synthesize_streaming(&*guard, opts, stream_cfg, event_tx, cancel_for_synth);
     });

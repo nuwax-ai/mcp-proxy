@@ -50,8 +50,31 @@ impl LockFreeApalisManager {
                 return Err(VoiceCliError::Storage(format!("提交任务失败: {}", e)));
             }
             Err(_) => {
-                info!("submit_task: task push timeout");
-                return Err(VoiceCliError::Storage("推送任务到队列超时".to_string()));
+                // push 是同步 INSERT，超时（await 侧放弃）时任务可能已入队——
+                // 先落 task_info（Pending）让幽灵任务完成时 UPSERT 能落地更新，
+                // 客户端凭错误信息中的 task_id 也能查询到
+                info!("submit_task: task push timeout (task may still be enqueued)");
+                let pending = TaskStatus::Pending {
+                    queued_at: chrono::Utc::now(),
+                };
+                let _ = self
+                    .save_task_info(SaveTaskInfoParams {
+                        task_id: &task.task_id,
+                        status: &pending,
+                        file_path: Some(&audio_file_path),
+                        original_filename: Some(&original_filename),
+                        model: model.as_deref(),
+                        response_format: response_format.as_deref(),
+                        retry_count: 0,
+                        error_message: Some(
+                            "推送任务到队列超时（任务可能仍在后台执行，请稍后按 task_id 查询）",
+                        ),
+                    })
+                    .await;
+                return Err(VoiceCliError::Storage(format!(
+                    "推送任务到队列超时（任务 {} 可能仍在后台执行，请稍后查询）",
+                    task.task_id
+                )));
             }
         };
 
@@ -150,8 +173,30 @@ impl LockFreeApalisManager {
                 return Err(VoiceCliError::Storage(format!("提交URL任务失败: {}", e)));
             }
             Err(_) => {
-                info!("submit_task_for_url: task push timeout");
-                return Err(VoiceCliError::Storage("推送URL任务到队列超时".to_string()));
+                // 同 submit_task：超时时 INSERT 可能已提交，先落 task_info 供
+                // 幽灵任务完成时更新与客户端查询
+                info!("submit_task_for_url: task push timeout (task may still be enqueued)");
+                let pending = TaskStatus::Pending {
+                    queued_at: chrono::Utc::now(),
+                };
+                let _ = self
+                    .save_task_info(SaveTaskInfoParams {
+                        task_id: &task.task_id,
+                        status: &pending,
+                        file_path: None,
+                        original_filename: Some(&filename),
+                        model: model.as_deref(),
+                        response_format: response_format.as_deref(),
+                        retry_count: 0,
+                        error_message: Some(
+                            "推送URL任务到队列超时（任务可能仍在后台执行，请稍后按 task_id 查询）",
+                        ),
+                    })
+                    .await;
+                return Err(VoiceCliError::Storage(format!(
+                    "推送URL任务到队列超时（任务 {} 可能仍在后台执行，请稍后查询）",
+                    task.task_id
+                )));
             }
         };
 

@@ -293,6 +293,8 @@ impl From<crate::stt::SttError> for VoiceCliError {
             E::Audio(_) => Self::AudioProcessing(e.to_string()),
             // 取消 / 超时
             E::Cancelled | E::Timeout { .. } => Self::TranscriptionTimeout(e.to_string()),
+            // 引擎忙（429 语义：其它会话占住引擎实例，客户端稍后重试）
+            E::EngineBusy(_) => Self::InvalidInput(e.to_string()),
             // 服务端错误（5xx）
             E::InitFailed(_) | E::InferFailed(_) => Self::TranscriptionFailed(e.to_string()),
         }

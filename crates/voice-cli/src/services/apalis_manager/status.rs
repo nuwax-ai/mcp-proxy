@@ -37,6 +37,33 @@ impl LockFreeApalisManager {
         let status_json = serde_json::to_string(status)
             .map_err(|e| VoiceCliError::Storage(format!("序列化任务状态失败: {}", e)))?;
 
+        // 终态守卫（同 StepContext::save_task_status 的语义：Cancelled/
+        // Completed 不被 worker 的 Processing/Failed/Completed 翻写）
+        {
+            let row = sqlx::query("SELECT status FROM task_info WHERE task_id = ?")
+                .bind(task_id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| VoiceCliError::Storage(format!("读取任务状态失败: {}", e)))?;
+            if let Some(existing) = row.as_ref().and_then(|r| {
+                r.try_get::<String, _>("status")
+                    .ok()
+                    .and_then(|s| serde_json::from_str::<TaskStatus>(&s).ok())
+            }) && matches!(
+                existing,
+                TaskStatus::Cancelled { .. } | TaskStatus::Completed { .. }
+            ) && !matches!(
+                status,
+                TaskStatus::Cancelled { .. } | TaskStatus::Completed { .. }
+            ) {
+                warn!(
+                    "save_task_status skipped: task {} terminal {:?} not overwritten by {:?}",
+                    task_id, existing, status
+                );
+                return Ok(());
+            }
+        }
+
         sqlx::query(
             // UPSERT 只更新状态列：INSERT OR REPLACE 是删整行重插，未列出的列
         //（file_path/original_filename/model/...）会被置 NULL——音频文件

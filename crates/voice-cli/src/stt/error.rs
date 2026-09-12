@@ -29,6 +29,9 @@ pub enum SttError {
     #[error("STT 任务超时（{secs}s）")]
     Timeout { secs: u64 },
 
+    #[error("STT 引擎忙: {0}")]
+    EngineBusy(String),
+
     #[error("STT 无效输入: {0}")]
     InvalidInput(String),
 }
