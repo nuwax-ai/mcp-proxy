@@ -44,7 +44,13 @@ Linux x86_64 上 doctor 会额外输出 GPU 预检（nvidia-smi / libcublas / Vu
 deploy-installer voice-cli install
 ```
 
-默认安装目录 `~/voice-cli`、端口 **8077**。各平台差异：
+默认安装目录 `~/voice-cli`、端口 **8077**；装到其它目录加 `--install-dir`：
+
+```bash
+deploy-installer voice-cli install --install-dir ~/apps/voice-cli
+```
+
+配置、模型、ffmpeg、日志等伴生文件全部落在安装目录内，服务的工作目录也指向它。**非默认目录时，后续 `upgrade` / `verify` / `service` 子命令都要带同样的 `--install-dir`**（`service` 子命令不传时默认按当前目录找）。各平台差异：
 
 - **macOS**：自动从 OSS 下载 Whisper large-v3 模型（约 3GB，写入 `models/ggml-large-v3.bin`）；二进制 Metal 加速开箱即用。
 - **Linux**：按 GPU 档位自动选 CUDA / Vulkan / CPU 包（见 §4）；Whisper large-v3 模型自动从 OSS 下载（与 macOS 同源）。
@@ -107,6 +113,7 @@ deploy-installer voice-cli service status
 deploy-installer voice-cli service restart
 deploy-installer voice-cli service uninstall
 deploy-installer voice-cli upgrade        # Linux 保档升级 + 自动重启；mac/Windows 升级 vendor 二进制
+deploy-installer voice-cli upgrade --install-dir ~/apps/voice-cli   # 非默认目录；verify / service 子命令同理
 ```
 
 ### 6.1 常见问题
