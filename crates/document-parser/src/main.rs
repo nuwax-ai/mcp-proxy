@@ -354,22 +354,21 @@ async fn main() -> Result<()> {
         socket.set_reuse_address(true)?;
     }
     socket.bind(&sock_addr.into())?;
+    // Windows 双绑终检（bind 后、listen 前；同 voice-cli 的语义与理由）
+    #[cfg(windows)]
+    {
+        let others = port_listener_count(server_port);
+        if others > 0 {
+            anyhow::bail!(
+                "port {server_port} is also held by {others} listener(s) from another \
+process (SO_REUSEADDR on their side?); refusing to serve on a shared port"
+            );
+        }
+    }
     socket.listen(1024)?;
     // tokio 的 from_std 要求 non-blocking：socket2 默认 blocking，不设的话
     // accept 行为未定义（实测：listener 在听、runtime 活着、accept 永久挂死）
     socket.set_nonblocking(true)?;
-    // Windows 双绑终检（同 voice-cli：对方设了 SO_REUSEADDR 时我方 bind 也能
-    // 成功，listen 后行数 >1 = 共享端口，Fail Fast）
-    #[cfg(windows)]
-    {
-        let count = port_listener_count(server_port);
-        if count > 1 {
-            anyhow::bail!(
-                "port {server_port} is shared by {count} listeners (another process holds it — \
-likely SO_REUSEADDR on their side); refusing to serve on a shared port"
-            );
-        }
-    }
     let listener = TcpListener::from_std(socket.into())?;
 
     // 构建 axum 路由

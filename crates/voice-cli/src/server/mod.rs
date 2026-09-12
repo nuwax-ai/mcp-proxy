@@ -214,6 +214,22 @@ pub async fn handle_server_run(config: &Config) -> crate::Result<()> {
                 "Failed to bind to address {addr}（端口被占用或无权限；若有旧实例正在关闭，稍候重试）: {e}"
             ))
         })?;
+    // Windows 双绑终检（bind 后、listen 前）：python 等程序默认给 listener 设
+    // SO_REUSEADDR，我方即使不设任何选项 bind 也能成功（53 实测）。此刻本
+    // 进程尚未 listen——netstat 里同端口的**任何** LISTENING 都属于其它进程
+    //（含 bind 前守卫漏掉的 REUSEADDR 型占用）。在对外服务开始前 Fail Fast，
+    // 避免终检失败实例的 listener 短暂存活被健康探测误判为服务成功
+    #[cfg(windows)]
+    {
+        let others = port_listener_count(config.server.port);
+        if others > 0 {
+            return Err(crate::VoiceCliError::Config(format!(
+                "port {} is also held by {others} listener(s) from another process \
+(SO_REUSEADDR on their side?); refusing to serve on a shared port",
+                config.server.port
+            )));
+        }
+    }
     socket
         .listen(1024)
         .map_err(|e| crate::VoiceCliError::Config(format!("Failed to listen on {addr}: {e}")))?;
@@ -222,20 +238,6 @@ pub async fn handle_server_run(config: &Config) -> crate::Result<()> {
     socket
         .set_nonblocking(true)
         .map_err(|e| crate::VoiceCliError::Config(format!("Failed to set non-blocking: {e}")))?;
-    // Windows 双绑终检：python 等程序默认给 listener 设 SO_REUSEADDR，我方
-    // 即使不设任何选项 bind 也能成功（53 实测）——bind 前探测挡不住这一类。
-    // listen 后复查同端口 LISTENING 行数，>1 即有其它进程共享，Fail Fast
-    #[cfg(windows)]
-    {
-        let count = port_listener_count(config.server.port);
-        if count > 1 {
-            return Err(crate::VoiceCliError::Config(format!(
-                "port {} is shared by {count} listeners (another process holds it — \
-likely SO_REUSEADDR on their side); refusing to serve on a shared port",
-                config.server.port
-            )));
-        }
-    }
     let listener = tokio::net::TcpListener::from_std(socket.into())
         .map_err(|e| crate::VoiceCliError::Config(format!("Failed to convert listener: {e}")))?;
 
