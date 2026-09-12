@@ -188,12 +188,12 @@ pub async fn handle_server_run(config: &Config) -> crate::Result<()> {
         info!(
             port = config.server.port,
             active_listener = active,
-            "bind precheck: SO_REUSEADDR {}",
-            if active {
+            reuse = if active {
                 "disabled (port in active use)"
             } else {
                 "enabled (TIME_WAIT takeover)"
-            }
+            },
+            "bind precheck: SO_REUSEADDR decision"
         );
         !active
     };

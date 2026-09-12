@@ -336,12 +336,12 @@ async fn main() -> Result<()> {
         info!(
             port = server_port,
             active_listener = active,
-            "bind precheck: SO_REUSEADDR {}",
-            if active {
+            reuse = if active {
                 "disabled (port in active use)"
             } else {
                 "enabled (TIME_WAIT takeover)"
-            }
+            },
+            "bind precheck: SO_REUSEADDR decision"
         );
         !active
     };
