@@ -22,7 +22,7 @@
 
 - **OS**：macOS 12+（M1/M2/M3）/ Linux x86_64+ARM64 / Windows
 - **Rust**：stable toolchain（rustup）
-- **FFmpeg**：系统 PATH（音频转码 16k/mono/s16le）。无 ffmpeg 时启动报错，需手动装：`brew install ffmpeg` / `apt install ffmpeg`
+- **FFmpeg**：系统 PATH 或服务二进制同目录（音频转码 16k/mono/s16le；解析顺序：sidecar 目录优先于 PATH）。手动部署需自装：`brew install ffmpeg` / `apt install ffmpeg`；经 deploy-installer 部署时安装器自动供给静态 ffmpeg 到安装目录，无需手动装
 - **磁盘**：模型 ~550MB 起（STT base 141MB + TTS Kokoro v1_1 408MB；可选 ZipVoice 156MB + vocos 52MB）+ 编译产物 ~1.5GB
 
 ### 平台 GPU 矩阵
@@ -384,7 +384,7 @@ curl -s http://localhost:8080/health | python3 -m json.tool
 | TTS 报 `text contains NUL` 或 panic | 输入文本含控制字符，需预清洗（代码 `sanitize_text` 已处理；自建客户端避免传 NUL） |
 | STT 很慢（30s 音频 >5s） | Metal 未启用：启动日志应有 `use_gpu=true`；mac 检查 `[target.'cfg(target_os="macos")']` 的 `whisper-metal` feature |
 | STT 报 `No such file ggml-base.bin` | 模型未下载，或 `whisper.models_dir` 路径不对 |
-| `ffmpeg not found` | 系统装 ffmpeg：`brew install ffmpeg` / `apt install ffmpeg` |
+| `ffmpeg not found` | 系统装 ffmpeg：`brew install ffmpeg` / `apt install ffmpeg`（deploy-installer 部署的机器重跑 install 可自动补齐 sidecar ffmpeg） |
 | 端口 8080 占用 | `lsof -i :8080` 找进程 kill，或改 `config.yml` 的 `server.port` |
 | WS 客户端连不上 / SOCKS proxy 报错 | python `websockets` 自动探测系统代理，客户端需传 `proxy=None`（见 API.md 客户端） |
 | 模型下载慢/失败 | HF 阻断：STT 用 modelscope.cn，TTS 用 gh-proxy.com（见 §4） |
