@@ -44,8 +44,8 @@ pub use checks::{
 pub use error::{InstallerError, Result};
 pub use exec_argv::{default_exec_argv, program_and_args};
 pub use installer::{
-    InstallOptions, install, path_exists, restart, restart_in_dir, status, status_in_dir,
-    uninstall, uninstall_in_dir, write_user_file,
+    InstallOptions, install, path_exists, restart, restart_in_dir, start, start_in_dir, status,
+    status_in_dir, stop, stop_in_dir, uninstall, uninstall_in_dir, write_user_file,
 };
 pub use platform::{ServiceBackend, current_backend};
 pub use render::{render_unit, sanitize_path, sanitize_unit_value, shell_join, validate_unit_name};

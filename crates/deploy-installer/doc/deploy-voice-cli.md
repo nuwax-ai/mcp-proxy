@@ -110,7 +110,9 @@ Linux GPU 档验证加速是否生效：服务日志（`journalctl -u voice-cli 
 
 ```bash
 deploy-installer voice-cli service status
-deploy-installer voice-cli service restart
+deploy-installer voice-cli service stop       # 停止（幂等：已停视为成功）
+deploy-installer voice-cli service start      # 启动并等健康检查通过（幂等）
+deploy-installer voice-cli service restart    # 三平台通用（内建端口释放等待与健康检查）
 deploy-installer voice-cli service uninstall
 deploy-installer voice-cli upgrade        # Linux 保档升级 + 自动重启；mac/Windows 升级 vendor 二进制
 deploy-installer voice-cli upgrade --install-dir ~/apps/voice-cli   # 非默认目录；verify / service 子命令同理
@@ -118,7 +120,16 @@ deploy-installer voice-cli upgrade --install-dir ~/apps/voice-cli   # 非默认�
 
 ### 6.1 启动 / 停止
 
-`service restart` 三平台通用（内建端口释放等待与健康检查），重启一律优先用它。需要单独停止 / 启动时用各平台原生命令（systemctl 仅 Linux 存在）：
+stop / start 是普通用户入口，三平台行为一致、无需记平台原生命令：
+
+```bash
+deploy-installer voice-cli service stop    # 停止；macOS 上是卸载（bootout）语义，start 会重新加载
+deploy-installer voice-cli service start   # 启动并等待 /health 通过；纯 SSH 无桌面登录的 Mac 见 §5 特例说明
+```
+
+两个子命令都**幂等**：已停再 stop、已跑再 start 都打印提示后成功退出。停止会等端口真正释放（Windows 上超时自动强杀残留实例），启动只认健康检查通过（失败如实报错并附日志查看命令）。
+
+各平台底层等价命令（排障时可单独执行，平时用子命令即可）：
 
 | 平台 | 停止 | 启动 |
 |------|------|------|
@@ -126,8 +137,8 @@ deploy-installer voice-cli upgrade --install-dir ~/apps/voice-cli   # 非默认�
 | macOS | `launchctl bootout gui/$(id -u)/com.nuwax.voice-cli` | `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.nuwax.voice-cli.plist` |
 | Windows | `schtasks /end /tn com.nuwax.voice-cli` | `schtasks /run /tn com.nuwax.voice-cli` |
 
-- Windows：手动 `/end` 后稍等几秒再 `/run`（旧实例端口释放有窗口期，立即重跑易报端口被占）——`service restart` 已内建该等待与重试。
-- macOS：`bootout` 是卸载并停止，之后须 `bootstrap` 重新加载才会启动；`kickstart` 只对已加载的 agent 有效。
+- Windows：手动 `/end` 后稍等几秒再 `/run`（旧实例端口释放有窗口期，立即重跑易报端口被占）——子命令已内建该等待与重试。
+- macOS：`bootout` 是卸载并停止，之后须 `bootstrap` 重新加载才会启动（`service start` 即做此事）。
 
 ### 6.2 常见问题
 

@@ -83,6 +83,16 @@ pub fn restart(name: &str) -> Result<()> {
     restart_in_dir(name, None)
 }
 
+/// Stop a running service (idempotent).
+pub fn stop(name: &str) -> Result<()> {
+    stop_in_dir(name, None)
+}
+
+/// Start a stopped service and verify health (idempotent).
+pub fn start(name: &str) -> Result<()> {
+    start_in_dir(name, None)
+}
+
 /// Restart using `install_dir` for launchd.
 pub fn restart_in_dir(name: &str, install_dir: Option<PathBuf>) -> Result<()> {
     validate_unit_name(name)?;
@@ -90,10 +100,27 @@ pub fn restart_in_dir(name: &str, install_dir: Option<PathBuf>) -> Result<()> {
     service_mgr::restart_service(&spec)
 }
 
+/// Stop a running service (idempotent: already-stopped is success).
+pub fn stop_in_dir(name: &str, install_dir: Option<PathBuf>) -> Result<()> {
+    validate_unit_name(name)?;
+    let spec = spec_for_name(name, install_dir)?;
+    service_mgr::stop_service(&spec)
+}
+
+/// Start a stopped service and verify health (idempotent: already-running is success).
+pub fn start_in_dir(name: &str, install_dir: Option<PathBuf>) -> Result<()> {
+    validate_unit_name(name)?;
+    let spec = spec_for_name(name, install_dir)?;
+    service_mgr::start_service(&spec)
+}
+
 fn spec_for_name(name: &str, install_dir: Option<PathBuf>) -> Result<ServiceSpec> {
     let install_dir = install_dir
         .or_else(|| std::env::var("NUWAX_INSTALL_DIR").ok().map(PathBuf::from))
         .unwrap_or_else(|| PathBuf::from("."));
+    let listen_port = crate::cli::common::read_server_port(
+        &install_dir.join(crate::cli::common::CONFIG_FILENAME),
+    );
     Ok(ServiceSpec {
         name: name.to_string(),
         description: name.to_string(),
@@ -111,7 +138,11 @@ fn spec_for_name(name: &str, install_dir: Option<PathBuf>) -> Result<ServiceSpec
         drop_ins: vec![],
         supplementary_groups: vec![],
         required_paths: vec![],
-        listen_port: None,
+        // 从安装目录 config.yml 解析监听端口——restart/stop/start 的端口释放
+        // 等待与健康验证都依赖它。此前恒 None，CLI 的 restart 一直在静默跳过
+        // macOS 的 kickstart 重试验证与 Windows 的终态协议（只有 install 的
+        // 全量 spec 路径 armed）。config 缺失/不可读 → None 优雅降级（同旧行为）
+        listen_port,
     })
 }
 

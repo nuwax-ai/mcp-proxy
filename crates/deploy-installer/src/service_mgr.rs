@@ -368,40 +368,13 @@ pub fn restart_service(spec: &ServiceSpec) -> Result<()> {
             // bind 失败而死，且随后的健康验证会被垂死旧实例的响应骗过
             //（本地实测：restart 打印 Restarted 但实际新旧交替全死再被兜底）
             if let Some(port) = spec.listen_port {
-                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-                while matches!(crate::checks::port_occupant(port), Ok(Some(_)))
-                    && std::time::Instant::now() < deadline
-                {
-                    std::thread::sleep(std::time::Duration::from_millis(500));
-                }
+                wait_port_released_soft(port, std::time::Duration::from_secs(30));
             }
             mgr.start(ServiceStartCtx {
                 label: label.clone(),
             })
             .map_err(map_io)?;
-            // 终态验证（93 实测三次）：bootstrap 可能静默未生效
-            //（服务不拉起，须手动 kickstart 才活）——只认 curl /health 通；
-            // 未通自动 kickstart 重试一次，仍失败如实报错而非打印假成功
-            if let Some(port) = spec.listen_port
-                && !crate::cli::common::wait_for_health(port, "/health", 30)
-            {
-                println!("  note: health not up after start — kickstart retry");
-                let uid = std::process::Command::new("id")
-                    .arg("-u")
-                    .output()
-                    .ok()
-                    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-                    .unwrap_or_default();
-                let _ = std::process::Command::new("launchctl")
-                    .args(["kickstart", "-k", &format!("gui/{uid}/{label}")])
-                    .status();
-                if !crate::cli::common::wait_for_health(port, "/health", 30) {
-                    return Err(InstallerError::Other(format!(
-                        "launchd job {} restarted but /health never responded on port {port}",
-                        spec.launchd_label()
-                    )));
-                }
-            }
+            launchd_verify_with_kickstart_retry(spec, &label.to_string())?;
             println!("Restarted {}", spec.launchd_label());
         }
         ServiceBackend::Systemd => {
@@ -417,6 +390,209 @@ pub fn restart_service(spec: &ServiceSpec) -> Result<()> {
             println!("Restarted {}", spec.name);
         }
         ServiceBackend::TaskScheduler => service_task::restart_task(spec)?,
+    }
+    Ok(())
+}
+
+/// 轮询等待端口停止监听（Unix 软等待：超时不强杀——进程归 systemd/launchd
+/// 管，Windows 的强杀守卫语义见 service_task::wait_port_released）。
+/// 返回是否已释放。
+fn wait_port_released_soft(port: u16, timeout: std::time::Duration) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if !matches!(crate::checks::port_occupant(port), Ok(Some(_))) {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+}
+
+fn current_uid() -> String {
+    std::process::Command::new("id")
+        .arg("-u")
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default()
+}
+
+fn launchctl_kickstart(label: &str) {
+    let uid = current_uid();
+    let _ = std::process::Command::new("launchctl")
+        .args(["kickstart", "-k", &format!("gui/{uid}/{label}")])
+        .status();
+}
+
+/// 终态验证（93 实测三次）：bootstrap 可能静默未生效（服务不拉起，须手动
+/// kickstart 才活）——只认 curl /health 通；未通自动 kickstart 重试一次，
+/// 仍失败如实报错而非打印假成功。restart 与 start 共用。
+fn launchd_verify_with_kickstart_retry(spec: &ServiceSpec, label: &str) -> Result<()> {
+    let Some(port) = spec.listen_port else {
+        return Ok(());
+    };
+    if crate::cli::common::wait_for_health(port, "/health", 30) {
+        return Ok(());
+    }
+    println!("  note: health not up after start — kickstart retry");
+    launchctl_kickstart(label);
+    if crate::cli::common::wait_for_health(port, "/health", 30) {
+        return Ok(());
+    }
+    Err(InstallerError::Other(format!(
+        "launchd job {label} did not come up on port {port} (/health never responded)"
+    )))
+}
+
+/// Stop a running service（幂等：已停视为成功）。
+pub fn stop_service(spec: &ServiceSpec) -> Result<()> {
+    validate_unit_name(&spec.name)?;
+    let backend = crate::platform::current_backend();
+    let label = service_label(spec, backend)?;
+    let label_s = label.to_string();
+
+    if !crate::checks::unit_is_active(&spec.name, backend) {
+        let shown = match backend {
+            ServiceBackend::Launchd => label_s,
+            _ => spec.name.clone(),
+        };
+        println!("{shown} is not running (already stopped)");
+        return Ok(());
+    }
+
+    match backend {
+        ServiceBackend::Systemd => {
+            if is_root() {
+                let mgr = native_manager(backend)?;
+                mgr.stop(ServiceStopCtx { label }).map_err(map_io)?;
+            } else {
+                systemd::stop(&spec.name)?;
+            }
+            if let Some(port) = spec.listen_port
+                && !wait_port_released_soft(port, std::time::Duration::from_secs(30))
+            {
+                println!(
+                    "  note: port {port} still occupied after stop (graceful shutdown may lag) — \
+                     check journalctl -u {} -n 30 if start later fails on bind",
+                    spec.name
+                );
+            }
+            println!("Stopped {}", spec.name);
+        }
+        ServiceBackend::Launchd => {
+            // 必须 bootout（卸载）而非 launchctl stop：出厂 plist 带
+            // KeepAlive{SuccessfulExit:false}，进程非零退出会被 launchd 立即
+            // 复活，stop 语义不可靠；bootout 的卸载不受 KeepAlive 影响
+            let uid = current_uid();
+            let target = format!("gui/{uid}/{label_s}");
+            match std::process::Command::new("launchctl")
+                .args(["bootout", &target])
+                .output()
+            {
+                Ok(o) if !o.status.success() => {
+                    // 多为 job 未加载（已停）——以端口终态判定为准，不在此报错
+                    println!(
+                        "  note: bootout: {}",
+                        String::from_utf8_lossy(&o.stderr).trim()
+                    );
+                }
+                Err(e) => println!("  note: bootout: {e}"),
+                Ok(_) => {}
+            }
+            if let Some(port) = spec.listen_port
+                && !wait_port_released_soft(port, std::time::Duration::from_secs(30))
+            {
+                println!(
+                    "  note: port {port} still occupied after stop — it may belong to another \
+                     process; check before restarting"
+                );
+            }
+            println!("Stopped {label_s}（已卸载，`service start` 重新加载）");
+        }
+        ServiceBackend::TaskScheduler => {
+            service_task::stop_task(spec)?;
+            println!("Stopped {}", spec.task_name());
+        }
+    }
+    Ok(())
+}
+
+/// Start a stopped service and verify health（幂等：已在跑视为成功）。
+pub fn start_service(spec: &ServiceSpec) -> Result<()> {
+    validate_unit_name(&spec.name)?;
+    let backend = crate::platform::current_backend();
+    let label = service_label(spec, backend)?;
+    let label_s = label.to_string();
+
+    // 健康预检：端口已知且已响应 → 已在跑，幂等成功
+    if let Some(port) = spec.listen_port
+        && crate::cli::common::wait_for_health(port, "/health", 3)
+    {
+        println!("{label_s} is already running (port {port} healthy)");
+        return Ok(());
+    }
+
+    match backend {
+        ServiceBackend::Systemd => {
+            if is_root() {
+                let mgr = native_manager(backend)?;
+                mgr.start(ServiceStartCtx { label }).map_err(map_io)?;
+            } else {
+                systemd::start(&spec.name)?;
+            }
+            match spec.listen_port {
+                Some(port) if !crate::cli::common::wait_for_health(port, "/health", 60) => {
+                    return Err(InstallerError::Other(format!(
+                        "service {} started but /health never responded on port {port} — \
+                         check logs: journalctl -u {} -n 30",
+                        spec.name, spec.name
+                    )));
+                }
+                Some(_) => {}
+                None => println!("  note: config.yml unreadable — skipped health verification"),
+            }
+            println!("Started {}", spec.name);
+        }
+        ServiceBackend::Launchd => {
+            // 未安装的防呆：plist 不存在时 bootstrap/kickstart 双双失败而
+            // listen_port（config 同缺）为 None 的验证会直接放行——假成功
+            let plist = spec.launchd_plist_path();
+            if !plist.exists() {
+                return Err(InstallerError::Other(format!(
+                    "launchd plist not found at {} — service not installed; run install first",
+                    plist.display()
+                )));
+            }
+            // bootstrap 加载并启动（plist RunAtLoad）；job 已加载时 bootstrap
+            // 报错——kickstart 兜底覆盖该场景
+            let uid = current_uid();
+            let domain = format!("gui/{uid}");
+            let bootstrapped = match std::process::Command::new("launchctl")
+                .args(["bootstrap", &domain, &plist.to_string_lossy()])
+                .output()
+            {
+                Ok(o) => o.status.success(),
+                Err(_) => false,
+            };
+            if !bootstrapped {
+                launchctl_kickstart(&label_s);
+            }
+            if let Err(e) = launchd_verify_with_kickstart_retry(spec, &label_s) {
+                // bootstrap 与 kickstart 双失败：常见于纯 SSH 会话无 GUI 域
+                //（plist 已就位，桌面登录后自启——同 install 的降级语义）
+                return Err(InstallerError::Other(format!(
+                    "{e}; if this is an SSH session without desktop login, \
+                     the agent starts at next GUI login"
+                )));
+            }
+            println!("Started {label_s}");
+        }
+        ServiceBackend::TaskScheduler => {
+            service_task::start_task(spec)?;
+            println!("Started {}", spec.task_name());
+        }
     }
     Ok(())
 }

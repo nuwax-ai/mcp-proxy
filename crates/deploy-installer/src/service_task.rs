@@ -6,7 +6,7 @@
 use crate::error::{InstallerError, Result};
 use crate::render_task::render_task_xml;
 use crate::spec::ServiceSpec;
-use crate::task_scheduler;
+use crate::task_scheduler::{self, TaskState};
 use std::fs;
 use std::path::Path;
 
@@ -90,14 +90,35 @@ pub fn uninstall_task(spec: &ServiceSpec) -> Result<()> {
 /// netstat 的 LISTENING 也不等于服务可用。只认 `curl /health` 真正响应，
 /// 未通自动再 `/run`，全败明确报错。
 pub fn restart_task(spec: &ServiceSpec) -> Result<()> {
+    stop_task(spec)?;
+    start_task(spec)?;
+    println!("Restarted {}", spec.task_name());
+    Ok(())
+}
+
+/// 停止：/end（软幂等，未在跑静默成功）→ 等任务退出 Running 态 →
+/// 等端口释放（超时按映像名守卫强杀兜底）。供 restart 与 service stop 复用。
+pub fn stop_task(spec: &ServiceSpec) -> Result<()> {
     let name = spec.task_name();
     if let Err(e) = task_scheduler::end(&name) {
         println!("  note: end task: {e}");
     }
+    // /end 触发 CTRL 优雅关闭，任务态瞬间仍可能 Running——先等它退出再等端口
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    while task_scheduler::task_state(&name) == TaskState::Running
+        && std::time::Instant::now() < deadline
+    {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     wait_port_released(spec, std::time::Duration::from_secs(45));
-    run_until_healthy(spec, &name, std::time::Duration::from_secs(40))?;
-    println!("Restarted {name}");
     Ok(())
+}
+
+/// 启动：终态启动协议（/run → curl /health 轮询 → 未通重试 ≤3 次）。
+/// 已在跑时健康探测首轮即过，幂等。供 restart 与 service start 复用。
+pub fn start_task(spec: &ServiceSpec) -> Result<()> {
+    let name = spec.task_name();
+    run_until_healthy(spec, &name, std::time::Duration::from_secs(40))
 }
 
 /// 终态启动协议：`/run` → curl /health 轮询（per_attempt）→ 未通自动再

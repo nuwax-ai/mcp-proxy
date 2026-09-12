@@ -172,6 +172,10 @@ pub enum ServiceAction {
     Uninstall(ServiceDirArgs),
     Status(ServiceDirArgs),
     Restart(ServiceDirArgs),
+    /// Stop the service (idempotent: already-stopped is success)
+    Stop(ServiceDirArgs),
+    /// Start the service and verify health (idempotent: already-running is success)
+    Start(ServiceDirArgs),
 }
 
 #[derive(clap::Args, Clone)]
@@ -304,5 +308,26 @@ mod tests {
             !help.contains("__probe-vulkan"),
             "探针不应出现在 help: {help}"
         );
+    }
+
+    /// stop/start 两个新子命令在两个服务树下都可解析并接受 --install-dir
+    #[test]
+    fn service_stop_start_parse_with_install_dir() {
+        for service in ["document-parser", "voice-cli"] {
+            for action in ["stop", "start"] {
+                let parsed = Cli::try_parse_from([
+                    "deploy-installer",
+                    service,
+                    "service",
+                    action,
+                    "--install-dir",
+                    "/srv/x",
+                ]);
+                assert!(parsed.is_ok(), "{service} service {action} 应可解析");
+            }
+        }
+        // 默认 install_dir 是 "."，不传也应通过
+        let parsed = Cli::try_parse_from(["deploy-installer", "voice-cli", "service", "stop"]);
+        assert!(parsed.is_ok(), "service stop 不带参数应可解析");
     }
 }

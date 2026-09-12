@@ -53,7 +53,6 @@ pub fn disable(name: &str) -> Result<()> {
     Ok(())
 }
 
-#[allow(dead_code)]
 pub fn start(name: &str) -> Result<()> {
     let out = run_sudo(&["systemctl", "start", name])?;
     ensure_success(&format!("sudo systemctl start {name}"), &out)

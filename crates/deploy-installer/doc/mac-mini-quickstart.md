@@ -115,6 +115,12 @@ deploy-installer document-parser install
 deploy-installer voice-cli service status
 deploy-installer document-parser service status
 
+# 停止 / 启动（幂等：已停再 stop、已跑再 start 都直接成功）
+deploy-installer voice-cli service stop
+deploy-installer voice-cli service start
+deploy-installer document-parser service stop
+deploy-installer document-parser service start
+
 # 重启
 deploy-installer voice-cli service restart
 deploy-installer document-parser service restart

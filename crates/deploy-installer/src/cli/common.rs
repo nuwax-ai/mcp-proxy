@@ -2,8 +2,8 @@
 
 use crate::{
     bundled_binary_path, default_document_parser_install_dir, default_voice_cli_install_dir,
-    group_for_user, make_executable, resolve_service_user, restart_in_dir, status_in_dir,
-    uninstall_in_dir,
+    group_for_user, make_executable, resolve_service_user, restart_in_dir, start_in_dir,
+    status_in_dir, stop_in_dir, uninstall_in_dir,
 };
 use anyhow::{Context, Result, bail};
 use std::fs;
@@ -354,6 +354,14 @@ pub fn dispatch_service_action(
         ServiceAction::Restart(args) => {
             let dir = resolve_service_install_dir(service_name, &args.install_dir);
             restart_in_dir(service_name, Some(dir)).context("restart failed")
+        }
+        ServiceAction::Stop(args) => {
+            let dir = resolve_service_install_dir(service_name, &args.install_dir);
+            stop_in_dir(service_name, Some(dir)).context("stop failed")
+        }
+        ServiceAction::Start(args) => {
+            let dir = resolve_service_install_dir(service_name, &args.install_dir);
+            start_in_dir(service_name, Some(dir)).context("start failed")
         }
     }
 }
