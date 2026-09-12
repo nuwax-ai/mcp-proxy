@@ -348,14 +348,22 @@ pub async fn upload_document(
         return ApiResponse::from_app_error::<UploadResponse>(e).into_response();
     }
 
-    // 8.1 保存 bucket_dir 到任务（如果提供）
+    // 8.1 保存 bucket_dir 到任务（如果提供）。保存失败直接中止：bucket_dir
+    // 决定产物落点，静默回退默认目录会产生与请求不符的产物位置（与 8.2
+    // 的 Fail Fast 语义对齐）
     if let Some(ref dir) = params.bucket_dir
         && let Err(e) = state
             .task_service
             .set_task_bucket_dir(&task_id, Some(dir.clone()))
             .await
     {
-        warn!("Failed to save bucket_dir: {}", e);
+        let _ =
+            abort_task_and_cleanup(&state, &task_id, None, format!("保存 bucket_dir 失败: {e}"))
+                .await;
+        return ApiResponse::internal_error::<DocumentParseResponse>(&format!(
+            "保存 bucket_dir 失败: {e}"
+        ))
+        .into_response();
     }
 
     // 8.2 保存自定义上传端点到任务（入队前；worker 只读任务，必须先落盘）。
@@ -749,14 +757,20 @@ pub async fn download_document_from_url(
         }
     };
 
-    // 如果提供了 bucket_dir，保存到任务
+    // 如果提供了 bucket_dir，保存到任务（保存失败中止——同 upload 侧语义）
     if let Some(ref dir) = request.bucket_dir
         && let Err(e) = state
             .task_service
             .set_task_bucket_dir(&task.id, Some(dir.clone()))
             .await
     {
-        warn!("Failed to save bucket_dir: {}", e);
+        let _ =
+            abort_task_and_cleanup(&state, &task.id, None, format!("保存 bucket_dir 失败: {e}"))
+                .await;
+        return ApiResponse::internal_error::<DocumentParseResponse>(&format!(
+            "保存 bucket_dir 失败: {e}"
+        ))
+        .into_response();
     }
 
     // 保存自定义上传端点到任务（入队前；保存失败直接中止，避免 worker 静默回退 OSS）

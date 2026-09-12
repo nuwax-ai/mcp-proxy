@@ -192,14 +192,15 @@ pub async fn create_task(
         return ApiResponse::from_app_error::<TaskOperationResponse>(e).into_response();
     }
 
-    // 创建任务
+    // 创建任务（format 透传——校验过的格式此前被丢弃传 None，引擎判定退回
+    // 自动检测）
     match state
         .task_service
         .create_task(
             request.source_type,
             request.source_path,
             None, // 通过API创建任务时暂时不设置原始文件名
-            None,
+            Some(request.format),
         )
         .await
     {

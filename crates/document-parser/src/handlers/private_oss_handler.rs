@@ -119,22 +119,28 @@ pub async fn upload_file_to_oss(
     let mut original_filename: Option<String> = None;
     let mut temp_files = Vec::new();
 
-    // 处理multipart数据
-    while let Some(field) = multipart.next_field().await.unwrap_or(None) {
+    // 处理multipart数据（读取错误如实报错——body 超限/网络中断被 unwrap_or
+    // 吞掉会误报"未提供文件"，甚至以截断数据继续走 OSS 上传）
+    loop {
+        let field = match multipart.next_field().await {
+            Ok(f) => match f {
+                Some(f) => f,
+                None => break,
+            },
+            Err(e) => {
+                error!("Failed to parse multipart data: {}", e);
+                return ApiResponse::validation_error::<FileUploadResponse>(&format!(
+                    "解析multipart数据失败: {e}"
+                ))
+                .into_response();
+            }
+        };
         let field_name = field.name().unwrap_or("").to_string();
 
         if field_name == "file" {
+            let mut field = field;
             let filename = field.file_name().map(|s| s.to_string());
             original_filename = filename.clone();
-
-            let data = match field.bytes().await {
-                Ok(data) => data,
-                Err(e) => {
-                    error!("Failed to read file data: {}", e);
-                    return ApiResponse::validation_error::<FileUploadResponse>("文件数据读取失败")
-                        .into_response();
-                }
-            };
 
             // 创建临时文件
             let temp_file = match tempfile::NamedTempFile::new() {
@@ -146,10 +152,55 @@ pub async fn upload_file_to_oss(
                 }
             };
 
-            if let Err(e) = tokio::fs::write(temp_file.path(), &data).await {
-                error!("Failed to write to temporary file: {}", e);
-                return ApiResponse::internal_error::<FileUploadResponse>("文件写入失败")
-                    .into_response();
+            // 流式写临时文件（chunk 循环 + 累计大小检查）——field.bytes() 全量
+            // 读入内存的上限是全局 body limit（默认 500MB），10 并发即可打爆
+            // 内存；此处逐块落盘，内存占用恒为单块大小
+            let max_size =
+                crate::config::get_file_size_limit(&crate::config::FileSizePurpose::Upload).bytes()
+                    as usize;
+            let mut total = 0usize;
+            let mut file = match tokio::fs::File::create(temp_file.path()).await {
+                Ok(f) => f,
+                Err(e) => {
+                    error!("Failed to create temporary file: {}", e);
+                    return ApiResponse::internal_error::<FileUploadResponse>("临时文件创建失败")
+                        .into_response();
+                }
+            };
+            use tokio::io::AsyncWriteExt;
+            let mut read_err: Option<String> = None;
+            loop {
+                match field.chunk().await {
+                    Ok(Some(chunk)) => {
+                        total += chunk.len();
+                        if total > max_size {
+                            error!("Uploaded file too large: {total} > {max_size} bytes");
+                            return ApiResponse::validation_error::<FileUploadResponse>(&format!(
+                                "文件过大: {total} > {max_size} 字节"
+                            ))
+                            .into_response();
+                        }
+                        if let Err(e) = file.write_all(chunk.as_ref()).await {
+                            error!("Failed to write to temporary file: {}", e);
+                            return ApiResponse::internal_error::<FileUploadResponse>(
+                                "文件写入失败",
+                            )
+                            .into_response();
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(e) => {
+                        read_err = Some(e.to_string());
+                        break;
+                    }
+                }
+            }
+            if let Some(e) = read_err {
+                error!("Failed to read file data: {}", e);
+                return ApiResponse::validation_error::<FileUploadResponse>(&format!(
+                    "文件数据读取失败: {e}"
+                ))
+                .into_response();
             }
 
             file_path = Some(temp_file.path().to_string_lossy().to_string());

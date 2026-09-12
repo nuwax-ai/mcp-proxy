@@ -236,8 +236,11 @@ async fn process_markdown_content(
 
 /// 处理Markdown multipart上传
 async fn process_markdown_multipart(multipart: &mut Multipart) -> Result<String, AppError> {
-    let max_markdown_size =
-        get_file_size_limit(&FileSizePurpose::ContentValidation).bytes() as usize;
+    // Markdown 文本内容上限 10MB（validate_markdown_content 的后置检查前移到
+    // 读入循环内早退——get_file_size_limit(ContentValidation) 与全局 body limit
+    // 同源（默认 500MB），此前 500MB 全量读入 + from_utf8 复制 ≈ 1GB/请求）
+    const MAX_MARKDOWN_SIZE: usize = 10 * 1024 * 1024;
+    let max_markdown_size = MAX_MARKDOWN_SIZE;
     let mut content: Option<String> = None;
     let mut total_size = 0usize;
     let mut field_count = 0;
@@ -593,46 +596,57 @@ async fn download_from_oss(
             }
         };
 
-    // 通过HTTP请求下载文件内容
-    let client = reqwest::Client::new();
-    match client.get(&download_url).send().await {
-        Ok(response) => {
-            if response.status().is_success() {
-                match response.bytes().await {
-                    Ok(content) => {
-                        info!(
-                            "Successfully downloaded Markdown content from OSS: task_id={}, size={} bytes",
-                            task.id,
-                            content.len()
-                        );
-
-                        let range_header = headers_in
-                            .get(header::RANGE)
-                            .and_then(|v| v.to_str().ok())
-                            .map(|s| s.to_string());
-
-                        build_range_response(&task.id, content.to_vec(), range_header)
-                    }
-                    Err(e) => {
-                        error!(
-                            "Failed to read response content: task_id={}, error={}",
-                            task.id, e
-                        );
-                        ApiResponse::internal_error::<String>("读取文件内容失败").into_response()
-                    }
-                }
-            } else {
-                error!(
-                    "Download request failed: task_id={}, status={}",
-                    task.id,
-                    response.status()
-                );
-                ApiResponse::internal_error::<String>("下载文件失败").into_response()
-            }
+    // 通过HTTP请求下载文件内容（复用共享连接池 + 整体 180s 预算——对齐同文件
+    // 自定义后端路径的 CUSTOM_DOWNLOAD_TOTAL_TIMEOUT 模式；Client::new() 无
+    // 超时且每请求新建连接池，OSS 网关半开时 handler 永久挂起）
+    let client = state.document_service.http_client().clone();
+    let max_download = get_file_size_limit(&FileSizePurpose::ContentValidation).bytes() as usize;
+    let download = tokio::time::timeout(Duration::from_secs(180), async {
+        let response = client
+            .get(&download_url)
+            .send()
+            .await
+            .map_err(|e| format!("网络请求失败: {e}"))?;
+        if !response.status().is_success() {
+            return Err(format!("OSS 下载失败: HTTP {}", response.status()));
         }
-        Err(e) => {
-            error!("HTTP request failed: task_id={}, error={}", task.id, e);
-            ApiResponse::internal_error::<String>("网络请求失败").into_response()
+        if let Some(len) = response.content_length()
+            && len as usize > max_download
+        {
+            return Err(format!("内容过大: {len} > {max_download} 字节"));
+        }
+        let content = response
+            .bytes()
+            .await
+            .map_err(|e| format!("读取内容失败: {e}"))?;
+        if content.len() > max_download {
+            return Err(format!("内容过大: {} > {max_download} 字节", content.len()));
+        }
+        Ok(content)
+    })
+    .await;
+    match download {
+        Ok(Ok(content)) => {
+            info!(
+                "Successfully downloaded Markdown content from OSS: task_id={}, size={} bytes",
+                task.id,
+                content.len()
+            );
+
+            let range_header = headers_in
+                .get(header::RANGE)
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string());
+
+            build_range_response(&task.id, content.to_vec(), range_header)
+        }
+        Ok(Err(e)) => {
+            error!("Download failed: task_id={}, error={}", task.id, e);
+            ApiResponse::internal_error::<String>(&format!("下载文件失败: {e}")).into_response()
+        }
+        Err(_) => {
+            error!("Download timed out (180s): task_id={}", task.id);
+            ApiResponse::internal_error::<String>("下载文件超时").into_response()
         }
     }
 }

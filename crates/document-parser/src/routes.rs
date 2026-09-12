@@ -147,6 +147,11 @@ fn oss_routes() -> Router<AppState> {
             "/download-sign-url",
             get(private_oss_handler::get_download_sign_url),
         )
-        // 删除OSS文件
-        .route("/delete", get(private_oss_handler::delete_file_from_oss))
+        // 删除OSS文件（GET 保留兼容已标 deprecated；POST 为推荐动词——GET
+        // 破坏性操作 + permissive CORS 下任意网页可用 <img src> 跨站触发删除）
+        .route(
+            "/delete",
+            get(private_oss_handler::delete_file_from_oss)
+                .post(private_oss_handler::delete_file_from_oss),
+        )
 }
