@@ -79,7 +79,7 @@ curl http://localhost:8077/health
 # 引擎与模型清单
 curl http://localhost:8077/models
 
-# STT 冒烟（需已放好 whisper 模型 + 系统 ffmpeg）
+# STT 冒烟（需已放好 whisper 模型；ffmpeg 由安装器自动供给，无需手动准备）
 curl -X POST http://localhost:8077/transcribe -F "file=@test.wav"
 
 # TTS 音色清单 / 合成（详见 Swagger UI）
@@ -118,6 +118,7 @@ deploy-installer voice-cli upgrade        # Linux 保档升级 + 自动重启；
 | Vulkan 档起不来，`libvulkan.so.1` 缺失 | `sudo apt install -y libvulkan1 mesa-vulkan-drivers` |
 | 转写报音频处理错误（ffmpeg 缺失/损坏） | 正常安装会自动供给 ffmpeg 到安装目录（系统 PATH 已有时跳过）；此错误说明自动供给未发生或产物损坏——检查 `~/voice-cli/ffmpeg(.exe)` 是否存在，缺则重跑 install；内网可手动放置（模型源同 ffmpeg 官方静态包） |
 | 转写无模型 / 模型缺失 | 重跑 install 自动从 OSS 补下载；或手工放 `models/ggml-*.bin`（模型源见 [whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp)） |
+| 偶发返回"解码/合成引擎忙"（HTTP 4xx） | 正常并发保护：该引擎实例正被其它会话占用（流式解码不可中断，占用通常数十秒内结束）——客户端稍后重试即可；频繁出现可在 `config.yml` 调大 `whisper.engine.pool_size` / `tts.engine.pool_size` 增加并行实例 |
 | 想换档位 | 直接带目标旗标重跑 install（自动互斥清理），如 CUDA 机器降级：`install --skip-oss-cuda --skip-oss-vulkan` |
 
 ## 7. 配置
