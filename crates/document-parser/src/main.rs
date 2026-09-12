@@ -21,32 +21,35 @@ use tracing_subscriber::layer::SubscriberExt as _;
 use tracing_subscriber::util::SubscriberInitExt as _;
 use tracing_subscriber::{EnvFilter, Layer as _};
 
-/// 端口是否已有活跃 listener（Windows netstat 解析；探测不可用返回 false）。
-/// SO_REUSEADDR 前置守卫，见 main 内注释。
+/// 端口活跃 listener 计数（Windows netstat 解析；探测不可用返回 0）。
+/// SO_REUSEADDR 前置守卫 + bind 后独占复查共用。
 #[cfg(windows)]
-fn port_has_active_listener(port: u16) -> bool {
+fn port_listener_count(port: u16) -> usize {
     let Ok(out) = std::process::Command::new("netstat")
         .args(["-ano", "-p", "tcp"])
         .output()
     else {
-        return false;
+        return 0;
     };
     let stdout = String::from_utf8_lossy(&out.stdout);
     let port_str = port.to_string();
-    stdout.lines().any(|line| {
-        let mut cols = line.split_whitespace();
-        if cols.next() != Some("TCP") {
-            return false;
-        }
-        let Some(local) = cols.next() else {
-            return false;
-        };
-        cols.next();
-        let Some(state) = cols.next() else {
-            return false;
-        };
-        state == "LISTENING" && local.rsplit(':').next() == Some(port_str.as_str())
-    })
+    stdout
+        .lines()
+        .filter(|line| {
+            let mut cols = line.split_whitespace();
+            if cols.next() != Some("TCP") {
+                return false;
+            }
+            let Some(local) = cols.next() else {
+                return false;
+            };
+            cols.next();
+            let Some(state) = cols.next() else {
+                return false;
+            };
+            state == "LISTENING" && local.rsplit(':').next() == Some(port_str.as_str())
+        })
+        .count()
 }
 
 #[tokio::main]
@@ -332,7 +335,7 @@ async fn main() -> Result<()> {
     // 时不开 REUSEADDR，让 bind 以 10048 明确失败
     #[cfg(windows)]
     let may_reuse = {
-        let active = port_has_active_listener(server_port);
+        let active = port_listener_count(server_port) > 0;
         info!(
             "bind precheck: port={} active_listener={} SO_REUSEADDR={}",
             server_port,
@@ -355,6 +358,18 @@ async fn main() -> Result<()> {
     // tokio 的 from_std 要求 non-blocking：socket2 默认 blocking，不设的话
     // accept 行为未定义（实测：listener 在听、runtime 活着、accept 永久挂死）
     socket.set_nonblocking(true)?;
+    // Windows 双绑终检（同 voice-cli：对方设了 SO_REUSEADDR 时我方 bind 也能
+    // 成功，listen 后行数 >1 = 共享端口，Fail Fast）
+    #[cfg(windows)]
+    {
+        let count = port_listener_count(server_port);
+        if count > 1 {
+            anyhow::bail!(
+                "port {server_port} is shared by {count} listeners (another process holds it — \
+likely SO_REUSEADDR on their side); refusing to serve on a shared port"
+            );
+        }
+    }
     let listener = TcpListener::from_std(socket.into())?;
 
     // 构建 axum 路由

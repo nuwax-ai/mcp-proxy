@@ -19,29 +19,32 @@ use tracing::{info, warn};
 /// 误配端口的两个服务会静默互偷连接——有活跃占用时不开 REUSEADDR，让 bind
 /// 以 os error 10048 明确失败。
 #[cfg(windows)]
-fn port_has_active_listener(port: u16) -> bool {
+fn port_listener_count(port: u16) -> usize {
     let Ok(out) = std::process::Command::new("netstat")
         .args(["-ano", "-p", "tcp"])
         .output()
     else {
-        return false;
+        return 0;
     };
     let stdout = String::from_utf8_lossy(&out.stdout);
     let port_str = port.to_string();
-    stdout.lines().any(|line| {
-        let mut cols = line.split_whitespace();
-        if cols.next() != Some("TCP") {
-            return false;
-        }
-        let Some(local) = cols.next() else {
-            return false;
-        };
-        cols.next(); // remote
-        let Some(state) = cols.next() else {
-            return false;
-        };
-        state == "LISTENING" && local.rsplit(':').next() == Some(port_str.as_str())
-    })
+    stdout
+        .lines()
+        .filter(|line| {
+            let mut cols = line.split_whitespace();
+            if cols.next() != Some("TCP") {
+                return false;
+            }
+            let Some(local) = cols.next() else {
+                return false;
+            };
+            cols.next(); // remote
+            let Some(state) = cols.next() else {
+                return false;
+            };
+            state == "LISTENING" && local.rsplit(':').next() == Some(port_str.as_str())
+        })
+        .count()
 }
 
 /// 解析 WS 文本帧是否为控制帧（`{type:"<ty>"}`），避免 contains 误判（如 "nonstop"）。
@@ -184,7 +187,7 @@ pub async fn handle_server_run(config: &Config) -> crate::Result<()> {
     .map_err(|e| crate::VoiceCliError::Config(format!("Failed to create socket on {addr}: {e}")))?;
     #[cfg(windows)]
     let may_reuse = {
-        let active = port_has_active_listener(config.server.port);
+        let active = port_listener_count(config.server.port) > 0;
         info!(
             port = config.server.port,
             active_listener = active,
@@ -219,6 +222,20 @@ pub async fn handle_server_run(config: &Config) -> crate::Result<()> {
     socket
         .set_nonblocking(true)
         .map_err(|e| crate::VoiceCliError::Config(format!("Failed to set non-blocking: {e}")))?;
+    // Windows 双绑终检：python 等程序默认给 listener 设 SO_REUSEADDR，我方
+    // 即使不设任何选项 bind 也能成功（53 实测）——bind 前探测挡不住这一类。
+    // listen 后复查同端口 LISTENING 行数，>1 即有其它进程共享，Fail Fast
+    #[cfg(windows)]
+    {
+        let count = port_listener_count(config.server.port);
+        if count > 1 {
+            return Err(crate::VoiceCliError::Config(format!(
+                "port {} is shared by {count} listeners (another process holds it — \
+likely SO_REUSEADDR on their side); refusing to serve on a shared port",
+                config.server.port
+            )));
+        }
+    }
     let listener = tokio::net::TcpListener::from_std(socket.into())
         .map_err(|e| crate::VoiceCliError::Config(format!("Failed to convert listener: {e}")))?;
 
