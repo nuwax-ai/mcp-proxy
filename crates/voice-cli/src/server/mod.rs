@@ -223,11 +223,13 @@ pub async fn handle_server_run(config: &Config) -> crate::Result<()> {
     {
         let others = port_listener_count(config.server.port);
         if others > 0 {
-            return Err(crate::VoiceCliError::Config(format!(
-                "port {} is also held by {others} listener(s) from another process \
-(SO_REUSEADDR on their side?); refusing to serve on a shared port",
-                config.server.port
-            )));
+            // 只告警不阻断：LISTENING 无法区分"无关进程双绑"（对方设了
+            // SO_REUSEADDR，罕见误配）与"本服务旧实例优雅关闭中的残留"
+            //（常见）——阻断会把正常 restart 误杀（53 实测 upgrade 假失败）
+            warn!(
+                "port {} still shows {} listener(s) besides us — if these belong to another service, connections may be split between processes",
+                config.server.port, others
+            );
         }
     }
     socket

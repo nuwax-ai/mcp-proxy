@@ -359,9 +359,11 @@ async fn main() -> Result<()> {
     {
         let others = port_listener_count(server_port);
         if others > 0 {
-            anyhow::bail!(
-                "port {server_port} is also held by {others} listener(s) from another \
-process (SO_REUSEADDR on their side?); refusing to serve on a shared port"
+            // 只告警不阻断（同 voice-cli：无法区分无关双绑与本服务旧实例
+            // 优雅关闭残留，阻断会误杀正常 restart）
+            warn!(
+                "port {} still shows {} listener(s) besides us — if these belong to another service, connections may be split between processes",
+                server_port, others
             );
         }
     }
