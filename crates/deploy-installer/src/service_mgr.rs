@@ -364,11 +364,22 @@ pub fn restart_service(spec: &ServiceSpec) -> Result<()> {
             let _ = mgr.stop(ServiceStopCtx {
                 label: label.clone(),
             });
+            // stop 后等旧实例真正退出（端口释放）——否则 bootstrap 的新实例
+            // bind 失败而死，且随后的健康验证会被垂死旧实例的响应骗过
+            //（本地实测：restart 打印 Restarted 但实际新旧交替全死再被兜底）
+            if let Some(port) = spec.listen_port {
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+                while matches!(crate::checks::port_occupant(port), Ok(Some(_)))
+                    && std::time::Instant::now() < deadline
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                }
+            }
             mgr.start(ServiceStartCtx {
                 label: label.clone(),
             })
             .map_err(map_io)?;
-            // 终态验证（93 实测三次）：bootout 后立即 bootstrap 可能静默未生效
+            // 终态验证（93 实测三次）：bootstrap 可能静默未生效
             //（服务不拉起，须手动 kickstart 才活）——只认 curl /health 通；
             // 未通自动 kickstart 重试一次，仍失败如实报错而非打印假成功
             if let Some(port) = spec.listen_port

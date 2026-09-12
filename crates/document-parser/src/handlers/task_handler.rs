@@ -581,7 +581,15 @@ pub async fn batch_operation_tasks(
                 .await
                 .map(|_| ()),
             BatchOperation::Delete => state.task_service.delete_task(task_id).await.map(|_| ()),
-            BatchOperation::Retry => state.task_service.retry_task(task_id).await.map(|_| ()),
+            // 同单任务 retry：重置状态后必须重新入队（否则挂 Pending 无人处理）
+            BatchOperation::Retry => match state.task_service.retry_task(task_id).await {
+                Ok(task) => state
+                    .task_queue
+                    .enqueue_task(task.id.clone(), 1)
+                    .await
+                    .map(|_| ()),
+                Err(e) => Err(e),
+            },
         };
 
         match result {
@@ -684,9 +692,15 @@ pub async fn retry_task(
         }
     }
 
-    // 执行重试操作
+    // 执行重试操作（retry_task 只重置状态——必须重新入队，否则任务挂
+    // Pending 永远无人处理，直到下次服务重启才被 restore 捞起）
     match state.task_service.retry_task(&task_id).await {
         Ok(task) => {
+            if let Err(e) = state.task_queue.enqueue_task(task.id.clone(), 1).await {
+                error!("Task re-enqueue failed after retry {}: {}", task_id, e);
+            } else {
+                info!("Task re-enqueued after retry: {}", task_id);
+            }
             info!("Task retry successful: {}", task_id);
             let complete = task.status.is_terminal();
             let response = TaskOperationResponse {

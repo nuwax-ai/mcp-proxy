@@ -699,7 +699,9 @@ pub async fn download_document_from_url(
 ) -> impl axum::response::IntoResponse {
     info!("URL document download request starts: {:?}", request);
 
-    // 验证URL格式（但不改变编码状态）
+    // 验证URL格式（弱校验——本产品主场景是内网私有部署，用户用内网 IP/本地
+    // 地址拉文件是合法流量，不做 SSRF 拦截；task_handler 的 Url 任务用强校验
+    // validate_url 是历史行为，如需统一放开另行决策）
     if let Err(e) = RequestValidator::validate_url_format(&request.url) {
         error!("URL verification failed: {}", e);
         return ApiResponse::from_app_error::<DocumentParseResponse>(e).into_response();

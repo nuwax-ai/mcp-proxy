@@ -323,7 +323,9 @@ async fn process_markdown_multipart(multipart: &mut Multipart) -> Result<String,
                 info!(
                     "File content preview (first 200 characters): {}",
                     if content_str.len() > 200 {
-                        format!("{}...", &content_str[..200])
+                        // 按字符截断（字节切片落在多字节字符中间会 panic，
+                        // 中文 Markdown 3 字节/字符必中）
+                        format!("{}...", content_str.chars().take(200).collect::<String>())
                     } else {
                         content_str.clone()
                     }

@@ -228,13 +228,16 @@ impl Service<Request<Body>> for DynamicRouterService {
                                     .get_mcp_service_status(&router_path.mcp_id)
                                     .map(|s| s.mcp_type.clone());
 
-                                // 清理资源
+                                // 清理资源（保留配置缓存——随后要从缓存取配置重启；
+                                // cleanup_resources 会删缓存致重启必败，定时任务路径
+                                // 用的就是 for_restart 版）
                                 warn!(
                                     "[Health check] mcp_id={} The backend service is unhealthy, clean up resources.",
                                     router_path.mcp_id
                                 );
-                                if let Err(e) =
-                                    proxy_manager.cleanup_resources(&router_path.mcp_id).await
+                                if let Err(e) = proxy_manager
+                                    .cleanup_resources_for_restart(&router_path.mcp_id)
+                                    .await
                                 {
                                     error!(
                                         "[Clean up resources] mcp_id={} Failed to clean up resources: error={}",

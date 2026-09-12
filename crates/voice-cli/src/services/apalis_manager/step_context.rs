@@ -22,7 +22,10 @@ impl StepContext {
             .map_err(|e| Error::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>))?;
 
         sqlx::query(
-            "INSERT OR REPLACE INTO task_info (task_id, status, file_path, retry_count, error_message, created_at, updated_at) VALUES (?, ?, NULL, 0, NULL, ?, ?)"
+            // UPSERT 只更新状态列：INSERT OR REPLACE 是删整行重插，未列出的列
+        //（file_path/original_filename/model/...）会被置 NULL——音频文件
+        // 永不清理（cleanup 拿 NULL 只删行）+ 重试 API 恒失败（retry 读 NULL）
+        "INSERT INTO task_info (task_id, status, file_path, retry_count, error_message, created_at, updated_at) VALUES (?, ?, NULL, 0, NULL, ?, ?) ON CONFLICT(task_id) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at"
         )
         .bind(task_id)
         .bind(status_json)

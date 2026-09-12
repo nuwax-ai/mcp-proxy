@@ -1241,7 +1241,7 @@ mod custom_upload_entry_tests {
         let response = server
             .post("/api/v1/documents/uploadFromUrl")
             .json(&json!({
-                "url": "http://127.0.0.1:1/test.pdf",
+                "url": "http://files.example.com/test.pdf",
                 "upload_api_key": "ak-xxx"
             }))
             .await;
@@ -1264,7 +1264,7 @@ mod custom_upload_entry_tests {
         let response = server
             .post("/api/v1/documents/uploadFromUrl")
             .json(&json!({
-                "url": "http://127.0.0.1:1/test.pdf",
+                "url": "http://files.example.com/test.pdf",
                 "upload_base_url": "https://agent.example.com",
                 "upload_path": "no-leading-slash"
             }))
@@ -1282,7 +1282,7 @@ mod custom_upload_entry_tests {
 
         let response = server
             .post("/api/v1/documents/uploadFromUrl")
-            .json(&json!({ "url": "http://127.0.0.1:1/test.pdf" }))
+            .json(&json!({ "url": "http://files.example.com/test.pdf" }))
             .await;
 
         assert_eq!(response.status_code(), axum::http::StatusCode::ACCEPTED);
@@ -1307,7 +1307,7 @@ mod custom_upload_entry_tests {
         let response = server
             .post("/api/v1/documents/uploadFromUrl")
             .json(&json!({
-                "url": "http://127.0.0.1:1/test.pdf",
+                "url": "http://files.example.com/test.pdf",
                 "upload_base_url": "https://agent.example.com",
                 "upload_api_key": "ak-xxx",
                 "upload_type": "tmp"
@@ -1341,7 +1341,7 @@ mod custom_upload_entry_tests {
         let response = server
             .post("/api/v1/documents/uploadFromUrl")
             .json(&json!({
-                "url": "http://127.0.0.1:1/test.pdf",
+                "url": "http://files.example.com/test.pdf",
                 "upload_base_url": "https://agent.example.com",
                 "upload_api_key": "ak-xxx"
             }))

@@ -398,6 +398,17 @@ impl TaskService {
             }
         };
 
+        // 终态保护：任务在"创建到入队"窗口内被用户取消（Cancelled）后，
+        // 上传失败的 abort 不应把取消事实翻写为 Failed——与 update_task_status/
+        // set_task_error 的单向状态机一致
+        if is_terminal(&task.status) {
+            warn!(
+                "abort_task skipped: task {} already terminal {:?}",
+                task_id, task.status
+            );
+            return Ok(());
+        }
+
         // 与 set_error 的双出口语义对齐：顶层 error_message 供任务列表接口
         // 直接读取（task_handler 取 task.error_message），缺失会显示 null
         task.error_message = Some(message.clone());
