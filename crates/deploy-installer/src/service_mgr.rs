@@ -364,7 +364,33 @@ pub fn restart_service(spec: &ServiceSpec) -> Result<()> {
             let _ = mgr.stop(ServiceStopCtx {
                 label: label.clone(),
             });
-            mgr.start(ServiceStartCtx { label }).map_err(map_io)?;
+            mgr.start(ServiceStartCtx {
+                label: label.clone(),
+            })
+            .map_err(map_io)?;
+            // 终态验证（93 实测三次）：bootout 后立即 bootstrap 可能静默未生效
+            //（服务不拉起，须手动 kickstart 才活）——只认 curl /health 通；
+            // 未通自动 kickstart 重试一次，仍失败如实报错而非打印假成功
+            if let Some(port) = spec.listen_port
+                && !crate::cli::common::wait_for_health(port, "/health", 30)
+            {
+                println!("  note: health not up after start — kickstart retry");
+                let uid = std::process::Command::new("id")
+                    .arg("-u")
+                    .output()
+                    .ok()
+                    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                    .unwrap_or_default();
+                let _ = std::process::Command::new("launchctl")
+                    .args(["kickstart", "-k", &format!("gui/{uid}/{label}")])
+                    .status();
+                if !crate::cli::common::wait_for_health(port, "/health", 30) {
+                    return Err(InstallerError::Other(format!(
+                        "launchd job {} restarted but /health never responded on port {port}",
+                        spec.launchd_label()
+                    )));
+                }
+            }
             println!("Restarted {}", spec.launchd_label());
         }
         ServiceBackend::Systemd => {
