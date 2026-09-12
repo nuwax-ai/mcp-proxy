@@ -10,7 +10,7 @@
 |------|-------|-------|---------|
 | 操作系统 | Ubuntu 22.04+（glibc ≥ 2.35）等 | 14.0+（MinerU 要求） | Windows 10 / 11 |
 | 硬件 | 8GB+ RAM，磁盘 5GB+ | 同左（Apple Silicon 原生） | 同左 |
-| 系统库 | 无桌面服务器需预装 X11/GL 基础库（见 §7.1） | 无需 | 无需 |
+| 系统库 | 无桌面服务器需预装 X11/GL 基础库（见 §7.2） | 无需 | 无需 |
 | Node.js | 18+（deploy-installer 方式必需） | 同左 | 同左 |
 | GPU（可选） | NVIDIA CUDA 加速 PDF 解析（见 §6） | 不适用（CPU） | 不适用（CPU） |
 
@@ -129,7 +129,20 @@ deploy-installer document-parser upgrade        # 换新二进制并自动重启
 deploy-installer document-parser upgrade --install-dir ~/apps/document-parser   # 非默认目录；verify / service 子命令同理
 ```
 
-### 7.1 常见问题
+### 7.1 启动 / 停止
+
+`service restart` 三平台通用（内建端口释放等待与健康检查），重启一律优先用它。需要单独停止 / 启动时用各平台原生命令（systemctl 仅 Linux 存在）：
+
+| 平台 | 停止 | 启动 |
+|------|------|------|
+| Linux | `sudo systemctl stop document-parser` | `sudo systemctl start document-parser` |
+| macOS | `launchctl bootout gui/$(id -u)/com.nuwax.document-parser` | `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.nuwax.document-parser.plist` |
+| Windows | `schtasks /end /tn com.nuwax.document-parser` | `schtasks /run /tn com.nuwax.document-parser` |
+
+- Windows：手动 `/end` 后稍等几秒再 `/run`（旧实例端口释放有窗口期，立即重跑易报端口被占）——`service restart` 已内建该等待与重试。
+- macOS：`bootout` 是卸载并停止，之后须 `bootstrap` 重新加载才会启动；`kickstart` 只对已加载的 agent 有效。
+
+### 7.2 常见问题
 
 | 现象 | 原因与处理 |
 |------|-----------|

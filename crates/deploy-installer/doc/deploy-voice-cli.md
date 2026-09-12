@@ -116,7 +116,20 @@ deploy-installer voice-cli upgrade        # Linux 保档升级 + 自动重启；
 deploy-installer voice-cli upgrade --install-dir ~/apps/voice-cli   # 非默认目录；verify / service 子命令同理
 ```
 
-### 6.1 常见问题
+### 6.1 启动 / 停止
+
+`service restart` 三平台通用（内建端口释放等待与健康检查），重启一律优先用它。需要单独停止 / 启动时用各平台原生命令（systemctl 仅 Linux 存在）：
+
+| 平台 | 停止 | 启动 |
+|------|------|------|
+| Linux | `sudo systemctl stop voice-cli` | `sudo systemctl start voice-cli` |
+| macOS | `launchctl bootout gui/$(id -u)/com.nuwax.voice-cli` | `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.nuwax.voice-cli.plist` |
+| Windows | `schtasks /end /tn com.nuwax.voice-cli` | `schtasks /run /tn com.nuwax.voice-cli` |
+
+- Windows：手动 `/end` 后稍等几秒再 `/run`（旧实例端口释放有窗口期，立即重跑易报端口被占）——`service restart` 已内建该等待与重试。
+- macOS：`bootout` 是卸载并停止，之后须 `bootstrap` 重新加载才会启动；`kickstart` 只对已加载的 agent 有效。
+
+### 6.2 常见问题
 
 | 现象 | 原因与处理 |
 |------|-----------|
