@@ -334,14 +334,14 @@ async fn main() -> Result<()> {
     let may_reuse = {
         let active = port_has_active_listener(server_port);
         info!(
-            port = server_port,
-            active_listener = active,
-            reuse = if active {
+            "bind precheck: port={} active_listener={} SO_REUSEADDR={}",
+            server_port,
+            active,
+            if active {
                 "disabled (port in active use)"
             } else {
                 "enabled (TIME_WAIT takeover)"
-            },
-            "bind precheck: SO_REUSEADDR decision"
+            }
         );
         !active
     };
