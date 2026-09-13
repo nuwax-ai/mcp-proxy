@@ -33,6 +33,12 @@ npm install -g nuwax-deploy-installer
 > ```
 >
 > npmmirror 同步有 10–60 分钟延迟，刚发布的 beta 可能未同步，急用可临时直连 npmjs。
+>
+> ⚠️ **镜像的 latest 元数据也可能滞后数天**（实测曾把 `npm install -g nuwax-deploy-installer` 装到数周前的旧 stable）——装完务必 `deploy-installer --version` 核对；版本旧就显式带版本号安装，或直连官方源：
+>
+> ```bash
+> sudo npm install -g nuwax-deploy-installer@0.2.26 --registry https://registry.npmjs.org
+> ```
 
 装完自检环境（平台、二进制完整性、磁盘、系统库、上传后端配置）：
 
