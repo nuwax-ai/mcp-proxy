@@ -301,10 +301,10 @@ ldd target/release/voice-cli | grep vulkan                      # 应有 libvulk
 打包/上传/校验：
 
 ```bash
-bash scripts/ci/pack-voice-cli-vulkan-linux-x64.sh 0.2.13
-# 上传: oss://nuwa-packages/uploads/voice-cli/v0.2.13/voice-cli-vulkan-linux-x64-0.2.13.tar.gz
+bash scripts/ci/pack-voice-cli-vulkan-linux-x64.sh 0.2.26
+# 上传: oss://nuwa-packages/uploads/voice-cli/v0.2.26/voice-cli-vulkan-linux-x64-0.2.26.tar.gz
 bash scripts/ci/verify-oss-voice-cli-vulkan-url.sh \
-  https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v0.2.13/voice-cli-vulkan-linux-x64-0.2.13.tar.gz
+  https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v0.2.26/voice-cli-vulkan-linux-x64-0.2.26.tar.gz
 ```
 
 ---
@@ -327,7 +327,13 @@ bash scripts/ci/verify-oss-voice-cli-vulkan-url.sh \
 - [ ] 发布分支已 push
 - [ ] `manifest.json` 中 **`assetVersion`** 与 OSS 上实际文件名一致
 - [ ] 若只发 CLI 小改、OSS 未变：**不要**误改 `assetVersion`
+- [ ] **GPU bundle 与 npm 发版线对齐**：CUDA/Vulkan bundle 是独立手工构建（不走 CI 的
+      版本注入）——发版含 voice-cli 代码变更时须确认 OSS 上的 bundle 也用同级代码
+      重建过（bundle 内 `--version` 或装后 `/health` 的 version 应与发版线一致）；
+      0.2.25 时代曾断代两周（bundle 停在旧代码，GPU 档用户缺修复且版本显示误导）
 - [ ] venv + whisper-large-v3（及 Linux CUDA 若相关）已上传并 `verify-oss-*` 通过
+- [ ] assetVersion 升版后，whisper / cuda / venv 等旧资产已在 OSS **服务端复制**
+      （`copy_object`）到新版本命名（`{version}` 占位替换后 URL 不断链）
 - [ ] GitHub `NPM_TOKEN` 已配置
 - [ ] Mac Mini：`doctor` + `voice-cli install` +（可选）`document-parser install` 测通
 - [ ] Mac Mini 验证使用 **≥ 当前 beta** 且安装账号已 **桌面登录**

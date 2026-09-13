@@ -10,10 +10,11 @@
 # ① 一次性准备
 xcode-select --install 2>/dev/null || true
 eval "$(/opt/homebrew/bin/brew shellenv)"
-# ffmpeg 是 voice-cli 转录（STT）的音频解码依赖——缺失时转录任务报
-# "ffmpeg 启动失败"；仅用 document-parser 可不装
-brew install node curl ffmpeg
-# 国内可选：npm config set registry https://registry.npmmirror.com
+# ffmpeg 无需手动安装：voice-cli 安装器会自动从 OSS 供给到安装目录
+#（系统 PATH 已有 ffmpeg 时优先用系统的）；brew 装一份亦可
+brew install node curl
+# 国内可选：npm config set registry https://registry.npmmirror.com（latest 元数据可能滞后数天，
+# 装完 deploy-installer --version 核对，旧了显式带版本号或直连官方源）
 
 npm install -g nuwax-deploy-installer
 deploy-installer doctor
@@ -235,9 +236,11 @@ rm -rf ~/voice-cli ~/document-parser   # 可选：删除数据与模型
 | 服务 | OSS 包 | 大小 | 下载时要密钥？ |
 |------|--------|------|----------------|
 | voice-cli | `whisper-ggml-large-v3-{assetVersion}.tar.gz` | ~3GB | 否（公开 URL） |
-| document-parser | `venv-macos-arm64-{assetVersion}.tar.gz` | ~300MB | 否 |
+| voice-cli | `ffmpeg-static-darwin-arm64.tar.gz`（系统已有 ffmpeg 时跳过） | ~22MB | 否 |
+| document-parser | `venv-macos-arm64-{assetVersion}.tar.gz` | ~330MB | 否 |
+| document-parser | MinerU 模型缓存（无版本号 URL） | ~1GB | 否 |
 
-`{assetVersion}` 来自 npm 包内 `manifest.json`（当前为 **`0.2.1`**），与 `deploy-installer --version` 的 beta 号可以不同——beta 包会复用同一份 OSS 资源。
+`{assetVersion}` 来自 npm 包内 `manifest.json` 的 `assetVersion` 字段（随发版演进，与 `deploy-installer --version` 的版本可以不同——npm 包会复用同一份 OSS 资源）。
 
 业务上传解析结果需在 `~/document-parser/.document-parser.env` 配置上传后端（**OSS_ACCESS_KEY_ID / SECRET 或 DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL / API_KEY 二选一**）。
 
@@ -264,6 +267,6 @@ pkill -f "document-parser.*server" 2>/dev/null || true
 
 回到机器桌面、用**安装账号**登录后，再执行各服务的 `install` 注册自启。
 
-### Linux / CUDA
+### Linux / Windows
 
-见 [MAINTAINER.md](./MAINTAINER.md) 第二节，或 `crates/voice-cli/deploy/README.md`。
+普通用户见 [deploy-voice-cli.md](./deploy-voice-cli.md)（§1 GPU 档位总览 / §4 档位控制）与 [deploy-document-parser.md](./deploy-document-parser.md)；维护者打包上传见 [MAINTAINER.md](./MAINTAINER.md)。
