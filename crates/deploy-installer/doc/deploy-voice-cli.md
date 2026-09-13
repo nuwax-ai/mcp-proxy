@@ -11,7 +11,7 @@ voice-cli 的 STT 在不同平台走不同加速档位，**安装器自动检测
 | 平台 | 档位 | 加速说明 |
 |------|------|---------|
 | macOS（Apple Silicon） | Metal | whisper-metal 编译进 darwin 二进制，开箱即用 |
-| Linux x86_64 + NVIDIA | **CUDA** | 安装器下载 CUDA 预编译 bundle（~270MB，含 GPU 版 onnxruntime）；STT 与 TTS/SenseVoice 都吃 GPU |
+| Linux x86_64 + NVIDIA | **CUDA** | 安装器下载 CUDA 预编译 bundle（~370MB，含 GPU 版 onnxruntime providers；覆盖 GTX 10 系 → RTX 40 系）；STT-whisper 与 SenseVoice（如启用）吃 GPU，TTS 恒为 CPU |
 | Linux x86_64 + AMD/Intel GPU | **Vulkan** | 安装器下载 Vulkan 预编译 bundle（~31MB）；**仅 STT-whisper 加速**（TTS/SenseVoice 仍 CPU） |
 | Linux 无 GPU / Windows | CPU | vendor 内置二进制，开箱即用 |
 
@@ -21,7 +21,7 @@ voice-cli 的 STT 在不同平台走不同加速档位，**安装器自动检测
 |------|------|
 | Node.js | 18+（deploy-installer 方式必需） |
 | **ffmpeg** | STT 音频解码需要。**默认无需手动安装**：安装器自动从自家 OSS 下载静态 ffmpeg 到安装目录（系统 PATH 已有 ffmpeg 时跳过下载，优先用系统的）。仅在内网不可达 OSS 且系统也没有 ffmpeg 时需手动装：macOS `brew install ffmpeg`；Debian/Ubuntu `sudo apt install -y ffmpeg`；Windows `winget install Gyan.FFmpeg`（doctor 双探测 sidecar/PATH 并给出指引） |
-| 磁盘 | whisper large-v3 模型约 3GB（全平台自动下载）+ Linux GPU 档 bundle（CUDA ~270MB / Vulkan ~31MB） |
+| 磁盘 | whisper large-v3 模型约 3GB（全平台自动下载）+ Linux GPU 档 bundle（CUDA ~370MB / Vulkan ~31MB） |
 | Linux sudoers | 同 document-parser 的五命令 NOPASSWD allowlist（见 [deploy-document-parser.md §3](./deploy-document-parser.md)） |
 
 ## 2. 安装 deploy-installer

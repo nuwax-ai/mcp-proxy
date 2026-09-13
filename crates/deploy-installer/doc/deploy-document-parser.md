@@ -12,7 +12,7 @@
 | 硬件 | 8GB+ RAM，磁盘 5GB+ | 同左（Apple Silicon 原生） | 同左 |
 | 系统库 | 无桌面服务器需预装 X11/GL 基础库（见 §7.2） | 无需 | 无需 |
 | Node.js | 18+（deploy-installer 方式必需） | 同左 | 同左 |
-| GPU（可选） | NVIDIA CUDA 加速 PDF 解析（见 §6） | 不适用（CPU） | 不适用（CPU） |
+| GPU（可选） | NVIDIA CUDA 加速 PDF 解析（见 §7.2） | 不适用（CPU） | 不适用（CPU） |
 
 ## 2. 安装 deploy-installer
 

@@ -222,16 +222,39 @@ bash scripts/ci/verify-oss-whisper-url.sh \
 
 | manifest 键 | OSS 文件 | 说明 |
 |-------------|----------|------|
-| `voiceCliCuda.linux-x64` | `v{version}/voice-cli-cuda-linux-x64-{version}.tar.gz` | binary + 4× `.so`，~360MB |
+| `voiceCliCuda.linux-x64` | `v{version}/voice-cli-cuda-linux-x64-{version}.tar.gz` | binary（whisper ggml-cuda 静态链入）+ libsherpa CPU `.so` ×2 + onnxruntime GPU providers `.so` ×2，~370MB |
+
+**构建配方**（编译机 192.168.32.226：GTX 1080 Ti + CUDA 12.6 toolkit + driver 580——有真卡可本机实测 GPU 推理；编译期无需 N 卡可用任意带 nvcc 的 Linux x86_64）：
 
 ```bash
-bash scripts/ci/pack-voice-cli-cuda-linux-x64.sh 0.2.13
-# 上传: oss://nuwa-packages/uploads/voice-cli/v0.2.13/voice-cli-cuda-linux-x64-0.2.13.tar.gz
-bash scripts/ci/verify-oss-voice-cli-cuda-url.sh \
-  https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v0.2.13/voice-cli-cuda-linux-x64-0.2.13.tar.gz
+# 一次性依赖：CUDA toolkit（/usr/local/cuda，apt nvidia-cuda-toolkit 或官方 runfile）
+# 注意 cuDNN 非必需：whisper-cuda 只用 cublas；sensevoice 的 GPU providers 仅运行时需要
+#（编译期 ort load-dynamic 不链 cudnn）
+export PATH="$HOME/.cargo/bin:/usr/local/cuda/bin:$PATH" CUDA_PATH=/usr/local/cuda
+# 架构 61=1080Ti/75=20系/80=A6000/86=30系/89=4090（4090 实测须真机；sm_89 与 61 同链路）
+RUSTFLAGS="-C link-arg=-Wl,-rpath,\$ORIGIN" \
+  GGML_NATIVE=OFF \
+  CMAKE_CUDA_ARCHITECTURES="61;75;80;86;89" \
+  cargo build --release -p voice-cli --features cuda,sensevoice-cuda
+# 验证（必做）
+readelf -d target/release/voice-cli | grep RUNPATH   # 应含 $ORIGIN
+# GPU 实测（编译机有卡时）：临时目录放 binary+so+config（独立端口）→ server run →
+# transcribe → 日志应出现 ggml_cuda_init: found 1 CUDA devices
+# providers_cuda/shared 两枚 .so 来自 ort-cuda feature 的构建产物
 ```
 
-Linux 用户安装（Whisper 模型需自备；manifest 暂未配 Linux whisper URL）：
+打包/上传/校验（staging 目录需收齐 voice-cli + 4×`.so`）：
+
+```bash
+# staging: dist/voice-cli/v{V}/linux-x64-cuda/{voice-cli,libsherpa-onnx-c-api.so,
+#          libonnxruntime.so,libonnxruntime_providers_cuda.so,libonnxruntime_providers_shared.so}
+bash scripts/ci/pack-voice-cli-cuda-linux-x64.sh 0.2.26
+# 上传: oss://nuwa-packages/uploads/voice-cli/v0.2.26/voice-cli-cuda-linux-x64-0.2.26.tar.gz
+bash scripts/ci/verify-oss-voice-cli-cuda-url.sh \
+  https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v0.2.26/voice-cli-cuda-linux-x64-0.2.26.tar.gz
+```
+
+Linux 用户安装（whisper 模型三平台同 URL 自动下载，见 manifest `whisperLargeV3` / `whisperAll` 键）：
 
 ```bash
 deploy-installer voice-cli install --install-dir ~/voice-cli
