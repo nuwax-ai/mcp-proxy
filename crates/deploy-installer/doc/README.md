@@ -12,6 +12,7 @@
 | **npm 一键路线**——部署 voice-cli | [deploy-voice-cli.md](./deploy-voice-cli.md) |
 | **源码编译路线**——自定义 feature / 内网 / 参与开发 | [source-deploy.md](./source-deploy.md) |
 | Mac Mini 日常部署 / 运维 | [mac-mini-quickstart.md](./mac-mini-quickstart.md) |
+| 运维知识——NVIDIA 驱动自动升级导致 CUDA 不可用（原理/恢复/预防） | [nvidia-driver-upgrade.md](./nvidia-driver-upgrade.md) |
 | 维护者——发布 npm、打包上传 OSS、CUDA/Vulkan 构建 | [MAINTAINER.md](./MAINTAINER.md) |
 
 ## 平台支持（当前）
