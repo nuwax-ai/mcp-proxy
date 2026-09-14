@@ -1,6 +1,6 @@
 # voice-cli 部署指南
 
-语音转文字（STT）+ 文字转语音（TTS）服务。通过统一安装器 **deploy-installer**（npm 包 `nuwax-deploy-installer`）一条命令完成安装：下载程序和模型 → 写好配置 → 注册成开机自启服务 → 等服务就绪，全程自动。
+语音转文字（STT）+ 文字转语音（TTS）服务。通过统一安装器 **deploy-installer**（npm 包 `@nuwax-ai/deploy-installer`）一条命令完成安装：下载程序和模型 → 写好配置 → 注册成开机自启服务 → 等服务就绪，全程自动。
 
 > document-parser（文档解析）的部署见姊妹篇 [deploy-document-parser.md](./deploy-document-parser.md)。
 
@@ -27,7 +27,7 @@ voice-cli 的转写功能在不同机器上用不同的方式加速，**安装�
 ## 2. 安装 deploy-installer
 
 ```bash
-npm install -g nuwax-deploy-installer
+npm install -g @nuwax-ai/deploy-installer
 ```
 
 国内网络先配 npm 镜像（注意：加 sudo 安装时要把镜像地址直接写在命令里），具体见 [document-parser 部署指南 §2](./deploy-document-parser.md)。装完自检：

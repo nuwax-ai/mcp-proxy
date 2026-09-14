@@ -103,7 +103,7 @@ pub fn deploy_root() -> PathBuf {
         let mut dir = exe.parent().map(PathBuf::from);
         for _ in 0..12 {
             let Some(d) = dir.clone() else { break };
-            let candidate = d.join("npm/nuwax-deploy-installer/vendor");
+            let candidate = d.join("npm/deploy-installer/vendor");
             if candidate.is_dir() {
                 return candidate;
             }
@@ -328,7 +328,7 @@ mod tests {
     /// 提升 assetVersion 时无需同步改测试）。
     fn manifest_asset_version() -> String {
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../npm/nuwax-deploy-installer/vendor/templates/manifest.json");
+            .join("../../npm/deploy-installer/vendor/templates/manifest.json");
         let content = std::fs::read_to_string(path).unwrap();
         let v: serde_json::Value = serde_json::from_str(&content).unwrap();
         v["assetVersion"].as_str().unwrap().to_string()
@@ -362,7 +362,7 @@ mod tests {
     fn asset_version_from_manifest_overrides_newer_package_version() {
         let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../npm/nuwax-deploy-installer/vendor");
+            .join("../../npm/deploy-installer/vendor");
         let expected = manifest_asset_version();
         // SAFETY: test-only env mutation; no concurrent env access in unit tests.
         unsafe {
@@ -393,7 +393,7 @@ mod tests {
     fn optional_venv_url_from_manifest() {
         let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../npm/nuwax-deploy-installer/vendor");
+            .join("../../npm/deploy-installer/vendor");
         let expected = manifest_asset_version();
         // SAFETY: test-only env mutation; no concurrent env access in unit tests.
         unsafe {
@@ -422,7 +422,7 @@ mod tests {
     fn optional_whisper_large_v3_url_from_manifest() {
         let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../npm/nuwax-deploy-installer/vendor");
+            .join("../../npm/deploy-installer/vendor");
         let expected = manifest_asset_version();
         // SAFETY: test-only env mutation; no concurrent env access in unit tests.
         unsafe {
@@ -443,7 +443,7 @@ mod tests {
     fn optional_mineru_models_url_from_manifest() {
         let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../npm/nuwax-deploy-installer/vendor");
+            .join("../../npm/deploy-installer/vendor");
         // SAFETY: test-only env mutation; no concurrent env access in unit tests.
         unsafe {
             std::env::set_var("NUWAX_DEPLOY_ROOT", root.display().to_string());
@@ -463,7 +463,7 @@ mod tests {
     fn optional_voice_cli_cuda_url_from_manifest() {
         let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../npm/nuwax-deploy-installer/vendor");
+            .join("../../npm/deploy-installer/vendor");
         let expected = manifest_asset_version();
         // SAFETY: test-only env mutation; no concurrent env access in unit tests.
         unsafe {
@@ -505,7 +505,7 @@ mod tests {
     fn optional_voice_cli_vulkan_url_from_manifest() {
         let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../npm/nuwax-deploy-installer/vendor");
+            .join("../../npm/deploy-installer/vendor");
         let expected = manifest_asset_version();
         // SAFETY: test-only env mutation; no concurrent env access in unit tests.
         unsafe {

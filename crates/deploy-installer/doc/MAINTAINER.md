@@ -2,7 +2,7 @@
 
 发布 npm、打包 OSS、Linux CUDA 部署。Mac 日常用户请看 [mac-mini-quickstart.md](./mac-mini-quickstart.md)。
 
-**当前 npm**（发版后）：`@latest` → `0.2.3`，`@beta` 为预发布线（`npm view nuwax-deploy-installer dist-tags` 可查最新）。
+**当前 npm**（发版后）：`@latest` → `0.2.3`，`@beta` 为预发布线（`npm view @nuwax-ai/deploy-installer dist-tags` 可查最新）。
 
 ---
 
@@ -10,12 +10,12 @@
 
 | 项目 | 值 |
 |------|-----|
-| npm 包名 | `nuwax-deploy-installer` |
+| npm 包名 | `@nuwax-ai/deploy-installer` |
 | CLI | `deploy-installer` |
 | Rust crate | `deploy-installer` |
 
 ```
-npm/nuwax-deploy-installer/
+npm/deploy-installer/
 ├── bin/deploy-installer.js      # Node 垫片 → vendor/<platform>/deploy-installer
 └── vendor/
     ├── darwin-arm64/            # Mac 三件套 + voice-cli dylib（@loader_path/@rpath）
@@ -81,7 +81,7 @@ OSS 大文件 URL 模板在 `vendor/templates/manifest.json`（当前 `assetVers
   否则 `{version}` 替换后 URL 指向不存在的对象（0.2.9 发布时已把 whisper-large-v3/CUDA 从 0.2.1 复制过来）。
 - venv 重打包：`scripts/ci/pack-document-parser-venv-macos-arm64.sh <版本>`（relocatable + python3.12 +
   mineru 固定版），上传后跑 `scripts/ci/verify-oss-venv-url.sh <url>` 验证。
-- `assemble-nuwax-deploy-installer.sh` 只更新 `version`；**不会覆盖**已有 `assetVersion`（缺失时才用 `VERSION` 去掉 prerelease 自动填）。
+- `assemble-deploy-installer.sh` 只更新 `version`；**不会覆盖**已有 `assetVersion`（缺失时才用 `VERSION` 去掉 prerelease 自动填）。
 
 代码侧：`deploy_asset_version()` 优先读 `assetVersion`，无则回退到 npm 版本去掉 `-beta` 后缀。
 
@@ -102,8 +102,8 @@ Linux 切片 glibc 下限 = ubuntu-22.04 的 2.35；用户侧缺库时 doctor/se
 
 | 阶段 | Git tag 示例 | npm version | dist-tag | 用户安装 |
 |------|--------------|-------------|----------|----------|
-| Beta | `deploy-v0.2.3-beta.3` | `0.2.3-beta.3` | `@beta` | `npm i -g nuwax-deploy-installer@beta` |
-| 正式 | `deploy-v0.2.3` | `0.2.3` | `@latest` | `npm i -g nuwax-deploy-installer` |
+| Beta | `deploy-v0.2.3-beta.3` | `0.2.3-beta.3` | `@beta` | `npm i -g @nuwax-ai/deploy-installer@beta` |
+| 正式 | `deploy-v0.2.3` | `0.2.3` | `@latest` | `npm i -g @nuwax-ai/deploy-installer` |
 
 **Tag 规则**：
 
@@ -115,7 +115,7 @@ Linux 切片 glibc 下限 = ubuntu-22.04 的 2.35；用户侧缺库时 doctor/se
 
 ```bash
 git status && git push origin HEAD
-git tag -a deploy-v0.2.3-beta.4 -m "nuwax-deploy-installer 0.2.3-beta.4"
+git tag -a deploy-v0.2.3-beta.4 -m "@nuwax-ai/deploy-installer 0.2.3-beta.4"
 git push origin deploy-v0.2.3-beta.4
 ```
 
@@ -124,7 +124,7 @@ CI 自动：更新 workspace 版本 → 双平台构建（各 job 内原生 smok
 ### Mac Mini 验证清单
 
 ```bash
-npm install -g nuwax-deploy-installer@beta
+npm install -g @nuwax-ai/deploy-installer@beta
 deploy-installer --version    # 期望 0.2.3-beta.N
 deploy-installer doctor       # 安装账号须已桌面登录（gui/<uid>）
 
@@ -146,7 +146,7 @@ curl -fsS http://127.0.0.1:8087/health
 beta 在 Mac Mini 全流程测通后：
 
 ```bash
-git tag -a deploy-v0.2.3 -m "nuwax-deploy-installer 0.2.3"
+git tag -a deploy-v0.2.3 -m "@nuwax-ai/deploy-installer 0.2.3"
 git push origin deploy-v0.2.3
 ```
 
@@ -164,14 +164,14 @@ channel 与 version 形状不匹配时 CI 会直接失败。
 ### 本地组装（不经 CI）
 
 ```bash
-bash scripts/ci/assemble-nuwax-deploy-installer.sh 0.2.3-beta.4 aarch64-apple-darwin
-bash scripts/ci/smoke-nuwax-deploy-installer.sh /tmp/doc-parser-smoke
-bash scripts/ci/publish-nuwax-deploy-installer.sh 0.2.3-beta.4          # assemble + smoke + npm pack
-# 发布：NPM_TOKEN=*** bash scripts/ci/publish-nuwax-deploy-installer.sh 0.2.3-beta.4 --publish
+bash scripts/ci/assemble-deploy-installer.sh 0.2.3-beta.4 aarch64-apple-darwin
+bash scripts/ci/smoke-deploy-installer.sh /tmp/doc-parser-smoke
+bash scripts/ci/publish-deploy-installer.sh 0.2.3-beta.4          # assemble + smoke + npm pack
+# 发布：NPM_TOKEN=*** bash scripts/ci/publish-deploy-installer.sh 0.2.3-beta.4 --publish
 ```
 
 ```bash
-npm view nuwax-deploy-installer dist-tags
+npm view @nuwax-ai/deploy-installer dist-tags
 ```
 
 ---

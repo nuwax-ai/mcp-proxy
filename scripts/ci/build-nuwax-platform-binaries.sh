@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Build one platform slice of nuwax-deploy-installer vendor binaries.
+# Build one platform slice of @nuwax-ai/deploy-installer vendor binaries.
 #
 # Usage: build-nuwax-platform-binaries.sh <rust-target> <vendor-key>
 #   e.g. build-nuwax-platform-binaries.sh x86_64-unknown-linux-gnu linux-x64
 #
-# Only the binary/so slice goes here (into npm/nuwax-deploy-installer/vendor/<key>/);
+# Only the binary/so slice goes here (into npm/deploy-installer/vendor/<key>/);
 # templates + manifest/package.json stamping live in stamp-nuwax-manifest.sh.
 # Voice-cli companion libs must sit next to the binary (mac @loader_path/@rpath,
 # linux RPATH=$ORIGIN) — same directory layout on both platforms.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-PKG="$ROOT/npm/nuwax-deploy-installer"
+PKG="$ROOT/npm/deploy-installer"
 TARGET="${1:?usage: build-nuwax-platform-binaries.sh <rust-target> <vendor-key>}"
 VENDOR_KEY="${2:?usage: build-nuwax-platform-binaries.sh <rust-target> <vendor-key>}"
 

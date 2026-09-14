@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stamp npm/nuwax-deploy-installer with release version + copy templates.
+# Stamp npm/deploy-installer with release version + copy templates.
 #
 # Usage: stamp-nuwax-manifest.sh <version>
 #
@@ -8,7 +8,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-PKG="$ROOT/npm/nuwax-deploy-installer"
+PKG="$ROOT/npm/deploy-installer"
 VERSION="${1:?usage: stamp-nuwax-manifest.sh <version>}"
 
 echo "==> Copying templates"

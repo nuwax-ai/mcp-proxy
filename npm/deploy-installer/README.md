@@ -1,11 +1,11 @@
-# nuwax-deploy-installer
+# @nuwax-ai/deploy-installer
 
 Unified deployment CLI for nuwax services. **Binaries are bundled inside this npm package** (no GitHub Release download).
 
 ## Quick start (Mac Apple Silicon)
 
 ```bash
-npm install -g nuwax-deploy-installer
+npm install -g @nuwax-ai/deploy-installer
 deploy-installer doctor
 deploy-installer voice-cli install
 deploy-installer document-parser install   # 需 OSS_ACCESS_KEY_ID / SECRET

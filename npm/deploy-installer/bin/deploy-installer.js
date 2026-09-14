@@ -28,7 +28,7 @@ function main() {
   const key = platformKey();
   if (!key) {
     console.error(
-      `nuwax-deploy-installer: unsupported platform ${process.platform}-${process.arch}`
+      `@nuwax-ai/deploy-installer: unsupported platform ${process.platform}-${process.arch}`
     );
     process.exit(1);
   }
@@ -40,7 +40,7 @@ function main() {
 
   if (!fs.existsSync(binary)) {
     console.error(
-      `nuwax-deploy-installer: missing binary for ${key} at ${binary}\n` +
+      `@nuwax-ai/deploy-installer: missing binary for ${key} at ${binary}\n` +
         'Reinstall the package or use a build that includes your platform.'
     );
     process.exit(1);

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Assemble npm/nuwax-deploy-installer with release binaries and templates.
+# Assemble npm/deploy-installer with release binaries and templates.
 #
-# Usage: assemble-nuwax-deploy-installer.sh [version] [target]
-#   e.g. assemble-nuwax-deploy-installer.sh 0.2.8-beta.3 x86_64-unknown-linux-gnu
+# Usage: assemble-deploy-installer.sh [version] [target]
+#   e.g. assemble-deploy-installer.sh 0.2.8-beta.3 x86_64-unknown-linux-gnu
 #
 # Thin orchestrator: platform binaries via build-nuwax-platform-binaries.sh,
 # templates + version stamping via stamp-nuwax-manifest.sh. Local single-platform
@@ -11,7 +11,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-PKG="$ROOT/npm/nuwax-deploy-installer"
+PKG="$ROOT/npm/deploy-installer"
 VERSION="${1:-$(PKG_JSON="$PKG/package.json" node -p "require(process.env.PKG_JSON).version")}"
 TARGET="${2:-aarch64-apple-darwin}"
 

@@ -25,10 +25,10 @@
 
 ### 方式一：deploy-installer（推荐，全平台）
 
-统一部署 CLI（npm 包 `nuwax-deploy-installer`，二进制内置在包内），复制二进制 → 准备 Python 环境 → 写配置 → 注册系统服务 → 等待健康检查，一条命令完成：
+统一部署 CLI（npm 包 `@nuwax-ai/deploy-installer`，二进制内置在包内），复制二进制 → 准备 Python 环境 → 写配置 → 注册系统服务 → 等待健康检查，一条命令完成：
 
 ```bash
-npm install -g nuwax-deploy-installer     # 需要 Node.js 18+
+npm install -g @nuwax-ai/deploy-installer     # 需要 Node.js 18+
 deploy-installer document-parser install
 ```
 

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Smoke test nuwax-deploy-installer without uv-init (CI / local).
+# Smoke test @nuwax-ai/deploy-installer without uv-init (CI / local).
 # Platform-aware: picks the matching vendor/<key> slice for the current OS/arch.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-PKG="$ROOT/npm/nuwax-deploy-installer"
+PKG="$ROOT/npm/deploy-installer"
 INSTALL="${1:-/tmp/doc-parser-smoke}"
 
 export NUWAX_DEPLOY_ROOT="$PKG/vendor"
@@ -29,7 +29,7 @@ BIN="$PKG/vendor/$VENDOR_KEY/deploy-installer$BIN_SUFFIX"
 TEMPLATES="$PKG/vendor/templates/document-parser"
 
 if [[ ! -x "$BIN" ]]; then
-  echo "missing $BIN — run assemble-nuwax-deploy-installer.sh first" >&2
+  echo "missing $BIN — run assemble-deploy-installer.sh first" >&2
   exit 1
 fi
 

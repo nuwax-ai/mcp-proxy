@@ -57,7 +57,7 @@ done
 # 默认版本取 manifest assetVersion（**不是** package.json——仓库内 package.json
 # 的 version 在发版 stamp 前是旧值，如 0.2.1；安装器按 assetVersion 拼 OSS 文件名，
 # 打错版本号的包上传后 404、auto 档全体静默回退 CPU）
-MANIFEST_JSON="$ROOT/npm/nuwax-deploy-installer/vendor/templates/manifest.json"
+MANIFEST_JSON="$ROOT/npm/deploy-installer/vendor/templates/manifest.json"
 ASSET_VERSION="$(MANIFEST_JSON="$MANIFEST_JSON" node -e \
   "console.log(JSON.parse(require('fs').readFileSync(process.env.MANIFEST_JSON,'utf8')).assetVersion || '')")"
 VERSION="${POSITIONAL[0]:-$ASSET_VERSION}"

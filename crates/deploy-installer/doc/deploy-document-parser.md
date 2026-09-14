@@ -1,6 +1,6 @@
 # document-parser 部署指南
 
-文档解析服务：把 PDF / Word / Excel / PowerPoint / Markdown 等文件解析成结构化的 Markdown。通过统一安装器 **deploy-installer**（npm 包 `nuwax-deploy-installer`）一条命令完成安装：下载程序、准备 Python 环境、写好配置 → 注册成开机自启服务 → 等服务就绪，全程自动。
+文档解析服务：把 PDF / Word / Excel / PowerPoint / Markdown 等文件解析成结构化的 Markdown。通过统一安装器 **deploy-installer**（npm 包 `@nuwax-ai/deploy-installer`）一条命令完成安装：下载程序、准备 Python 环境、写好配置 → 注册成开机自启服务 → 等服务就绪，全程自动。
 
 > voice-cli（语音转写/TTS）的部署见姊妹篇 [deploy-voice-cli.md](./deploy-voice-cli.md)。
 
@@ -17,7 +17,7 @@
 ## 2. 安装 deploy-installer
 
 ```bash
-npm install -g nuwax-deploy-installer
+npm install -g @nuwax-ai/deploy-installer
 ```
 
 > 🇨🇳 国内网络建议先配 npm 镜像（安装包约 80MB，直连官方源很慢，npmmirror 实测快 40 倍以上）：
@@ -29,7 +29,7 @@ npm install -g nuwax-deploy-installer
 > 注意：全局安装需要 sudo，而 **sudo 不会读取上面的镜像配置**——要让镜像对 sudo 安装生效，需要把镜像地址直接写在命令后面：
 >
 > ```bash
-> sudo npm install -g nuwax-deploy-installer --registry https://registry.npmmirror.com
+> sudo npm install -g @nuwax-ai/deploy-installer --registry https://registry.npmmirror.com
 > ```
 >
 > npmmirror 镜像同步有 10–60 分钟延迟，刚发布的新版可能还搜不到，急用可临时直连官方源。
@@ -37,7 +37,7 @@ npm install -g nuwax-deploy-installer
 > ⚠️ **镜像上的"最新版"可能滞后好几天**（实测遇到过装出几周前旧版的情况）——装完务必用 `deploy-installer --version` 核对；发现是旧版就带上具体版本号重装，或直连官方源：
 >
 > ```bash
-> sudo npm install -g nuwax-deploy-installer@0.2.27 --registry https://registry.npmjs.org
+> sudo npm install -g @nuwax-ai/deploy-installer@0.2.27 --registry https://registry.npmjs.org
 > ```
 
 装完跑一下自检（会检查系统、磁盘、依赖库、上传配置是否就绪）：

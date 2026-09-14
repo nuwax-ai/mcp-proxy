@@ -11,7 +11,7 @@
 | `scripts/setup-venv.sh` | 初始化 Python venv（mineru[core]==3.4.4 + markitdown） |
 | `PITFALLS.md` | 踩坑笔记（**必看**） |
 
-> 已废弃：`scripts/install.sh`、外置 `document-parser.service.example` —— 请用 `document-parser service install`（Linux）或 **`nuwax-deploy-installer`**（Mac 推荐，见 `crates/deploy-installer/doc/mac-mini-quickstart.md`）。
+> 已废弃：`scripts/install.sh`、外置 `document-parser.service.example` —— 请用 `document-parser service install`（Linux）或 **`@nuwax-ai/deploy-installer`**（Mac 推荐，见 `crates/deploy-installer/doc/mac-mini-quickstart.md`）。
 
 ## 快速部署（Linux）
 
@@ -89,7 +89,7 @@ cargo run -p document-parser -- service install --dry-run --install-dir .
 ## Mac Mini 小白部署（推荐）
 
 ```bash
-npm install -g nuwax-deploy-installer
+npm install -g @nuwax-ai/deploy-installer
 deploy-installer document-parser install --install-dir ~/document-parser
 ```
 

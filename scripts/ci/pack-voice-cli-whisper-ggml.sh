@@ -18,7 +18,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-PKG_JSON="$ROOT/npm/nuwax-deploy-installer/package.json"
+PKG_JSON="$ROOT/npm/deploy-installer/package.json"
 MODELSCOPE_BASE="https://modelscope.cn/models/cjc1887415157/whisper.cpp/resolve/master"
 
 DRY_RUN=0

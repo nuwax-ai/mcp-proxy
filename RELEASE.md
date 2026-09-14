@@ -2,7 +2,7 @@
 
 本文档说明如何使用 cargo-dist 进行多平台发布。
 
-> **两条发布路线**：本仓库的 tag 分两族——`v*` 走本文档的 cargo-dist（GitHub Releases 二进制）；`deploy-v*` 走 npm 包 `nuwax-deploy-installer`（三平台部署器，release workflow 会跳过）。后者见 [crates/deploy-installer/doc/MAINTAINER.md](crates/deploy-installer/doc/MAINTAINER.md)。
+> **两条发布路线**：本仓库的 tag 分两族——`v*` 走本文档的 cargo-dist（GitHub Releases 二进制）；`deploy-v*` 走 npm 包 `@nuwax-ai/deploy-installer`（三平台部署器，release workflow 会跳过）。后者见 [crates/deploy-installer/doc/MAINTAINER.md](crates/deploy-installer/doc/MAINTAINER.md)。
 
 ## 📦 支持的项目
 

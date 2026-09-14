@@ -17,7 +17,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-PKG_JSON="$ROOT/npm/nuwax-deploy-installer/package.json"
+PKG_JSON="$ROOT/npm/deploy-installer/package.json"
 
 DRY_RUN=0
 SKIP_VERIFY=0
@@ -202,4 +202,4 @@ echo "  1. Upload: $OUTPUT_PATH"
 echo "     → oss://nuwa-packages/uploads/document-parser/${ARCHIVE_NAME}"
 echo "  2. Verify: bash scripts/ci/verify-oss-venv-url.sh \\"
 echo "       https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/document-parser/${ARCHIVE_NAME}"
-echo "  3. Publish npm: bash scripts/ci/publish-nuwax-deploy-installer.sh ${VERSION}"
+echo "  3. Publish npm: bash scripts/ci/publish-deploy-installer.sh ${VERSION}"

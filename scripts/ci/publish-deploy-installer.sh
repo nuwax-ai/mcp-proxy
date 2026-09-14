@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Assemble + smoke test + npm pack/publish for nuwax-deploy-installer.
+# Assemble + smoke test + npm pack/publish for @nuwax-ai/deploy-installer.
 #
 # Usage:
-#   bash scripts/ci/publish-nuwax-deploy-installer.sh [VERSION] [--publish]
+#   bash scripts/ci/publish-deploy-installer.sh [VERSION] [--publish]
 #
 # Channel is derived from VERSION:
 #   0.2.1-beta.1  →  npm --tag beta
@@ -14,7 +14,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-PKG_JSON="$ROOT/npm/nuwax-deploy-installer/package.json"
+PKG_JSON="$ROOT/npm/deploy-installer/package.json"
 DO_PUBLISH=0
 POSITIONAL=()
 
@@ -48,19 +48,19 @@ log() {
   printf '==> %s\n' "$*"
 }
 
-log "publish prep for nuwax-deploy-installer@${VERSION} (channel=${CHANNEL})"
+log "publish prep for @nuwax-ai/deploy-installer@${VERSION} (channel=${CHANNEL})"
 
-bash "$ROOT/scripts/ci/assemble-nuwax-deploy-installer.sh" "$VERSION" "$TARGET"
-bash "$ROOT/scripts/ci/smoke-nuwax-deploy-installer.sh" "/tmp/doc-parser-smoke-${VERSION}"
+bash "$ROOT/scripts/ci/assemble-deploy-installer.sh" "$VERSION" "$TARGET"
+bash "$ROOT/scripts/ci/smoke-deploy-installer.sh" "/tmp/doc-parser-smoke-${VERSION}"
 
-PKG_DIR="$ROOT/npm/nuwax-deploy-installer"
+PKG_DIR="$ROOT/npm/deploy-installer"
 
 (
   cd "$PKG_DIR"
   npm pack
 )
 
-TGZ="$PKG_DIR/nuwax-deploy-installer-${VERSION}.tgz"
+TGZ="$PKG_DIR/nuwax-ai-deploy-installer-${VERSION}.tgz"
 log "packed → $TGZ"
 log "manifest venv URL (assetVersion):"
 node -e "const m=require('$PKG_DIR/vendor/templates/manifest.json'); const v=m.assetVersion||'${VERSION%%-*}'; console.log(m.optionalAssets.venv['darwin-arm64'].replaceAll('{version}',v));"
@@ -74,11 +74,14 @@ if [[ "$DO_PUBLISH" -eq 1 ]]; then
     cd "$PKG_DIR"
     npm publish --access public --tag "$CHANNEL"
     if [[ "$CHANNEL" == "latest" ]]; then
-      npm dist-tag add "nuwax-deploy-installer@${VERSION}" latest
+      npm dist-tag add "@nuwax-ai/deploy-installer@${VERSION}" latest
     fi
-    npm dist-tag ls nuwax-deploy-installer || true
+    npm dist-tag ls @nuwax-ai/deploy-installer || true
+    # 旧包名（≤0.2.27）标弃用指向新 scope 包——幂等，重复执行无害
+    npm deprecate "nuwax-deploy-installer@*" \
+      "Renamed to @nuwax-ai/deploy-installer. Migrate: npm uninstall -g nuwax-deploy-installer && npm install -g @nuwax-ai/deploy-installer" || true
   )
-  log "published nuwax-deploy-installer@${VERSION} → @${CHANNEL}"
+  log "published @nuwax-ai/deploy-installer@${VERSION} → @${CHANNEL}"
 else
   echo
   echo "Local install test:"
@@ -86,13 +89,13 @@ else
   echo "  deploy-installer doctor"
   echo
   echo "Publish to npm (channel=${CHANNEL}):"
-  echo "  NPM_TOKEN=*** bash scripts/ci/publish-nuwax-deploy-installer.sh ${VERSION} --publish"
+  echo "  NPM_TOKEN=*** bash scripts/ci/publish-deploy-installer.sh ${VERSION} --publish"
   echo
   echo "Preferred: tag CI release"
   if [[ "$CHANNEL" == "beta" ]]; then
-    echo "  git tag -a deploy-v${VERSION} -m \"nuwax-deploy-installer ${VERSION}\" && git push origin deploy-v${VERSION}"
+    echo "  git tag -a deploy-v${VERSION} -m \"@nuwax-ai/deploy-installer ${VERSION}\" && git push origin deploy-v${VERSION}"
   else
     echo "  # after @beta is verified:"
-    echo "  git tag -a deploy-v${VERSION} -m \"nuwax-deploy-installer ${VERSION}\" && git push origin deploy-v${VERSION}"
+    echo "  git tag -a deploy-v${VERSION} -m \"@nuwax-ai/deploy-installer ${VERSION}\" && git push origin deploy-v${VERSION}"
   fi
 fi

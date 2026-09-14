@@ -2,7 +2,7 @@
 
 适用于 **Apple Silicon（arm64）Mac Mini**。安装 CLI 后默认目录为 `~/voice-cli` 与 `~/document-parser`，一般**不必写 `--install-dir`**。
 
-> 稳定版：**`npm install -g nuwax-deploy-installer`**（`@latest`）；尝鲜用 `@beta`。
+> 稳定版：**`npm install -g @nuwax-ai/deploy-installer`**（`@latest`）；尝鲜用 `@beta`。
 
 ## 最快路径（复制粘贴）
 
@@ -16,7 +16,7 @@ brew install node curl
 # 国内可选：npm config set registry https://registry.npmmirror.com（latest 元数据可能滞后数天，
 # 装完 deploy-installer --version 核对，旧了显式带版本号或直连官方源）
 
-npm install -g nuwax-deploy-installer
+npm install -g @nuwax-ai/deploy-installer
 deploy-installer doctor
 
 # ② voice-cli（约 3GB 模型，已存在则跳过；无需 OSS 密钥）
@@ -52,7 +52,7 @@ curl -fsS http://127.0.0.1:8087/health
 ### 1. 安装 CLI
 
 ```bash
-npm install -g nuwax-deploy-installer
+npm install -g @nuwax-ai/deploy-installer
 deploy-installer doctor
 deploy-installer --version
 ```
@@ -127,7 +127,7 @@ deploy-installer voice-cli service restart
 deploy-installer document-parser service restart
 
 # 升级（先升级 npm 包，再 upgrade 安装目录里的二进制）
-npm install -g nuwax-deploy-installer
+npm install -g @nuwax-ai/deploy-installer
 deploy-installer voice-cli upgrade
 deploy-installer document-parser upgrade
 deploy-installer voice-cli service restart
@@ -164,7 +164,7 @@ deploy-installer document-parser install --no-prebuilt-venv
 第一期仅支持 **Apple Silicon**。确认 `uname -m` 为 `arm64`，并重装 npm 包：
 
 ```bash
-npm install -g nuwax-deploy-installer
+npm install -g @nuwax-ai/deploy-installer
 ```
 
 ### LaunchAgent 未启动 / `service install` 失败

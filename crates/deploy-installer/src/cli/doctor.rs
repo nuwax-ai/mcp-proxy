@@ -175,7 +175,7 @@ fn check_bundled_binary(service: &str) -> Result<()> {
         Ok(())
     } else {
         println!(
-            "  bundle {service}: FAIL — missing {} (reinstall nuwax-deploy-installer@beta)",
+            "  bundle {service}: FAIL — missing {} (reinstall @nuwax-ai/deploy-installer@beta)",
             path.display()
         );
         Err(anyhow::anyhow!("missing bundled binary for {service}"))

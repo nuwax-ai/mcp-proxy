@@ -40,7 +40,7 @@ fn probe_linux() -> ! {
         // libvulkan.so.1 不可加载（发行版 loader 未安装）
         std::process::exit(EXIT_NO_LOADER);
     };
-    let app_info = vk::ApplicationInfo::default().application_name(c"nuwax-deploy-installer");
+    let app_info = vk::ApplicationInfo::default().application_name(c"@nuwax-ai/deploy-installer");
     let create_info = vk::InstanceCreateInfo::default().application_info(&app_info);
     // SAFETY: 零扩展 instance 创建；失败（无可用 ICD 等）→ 仅软件/无驱动语义
     let Ok(instance) = (unsafe { entry.create_instance(&create_info, None) }) else {
