@@ -2,7 +2,9 @@
 
 发布 npm、打包 OSS、Linux CUDA 部署。Mac 日常用户请看 [mac-mini-quickstart.md](./mac-mini-quickstart.md)。
 
-**当前 npm**（发版后）：`@latest` → `0.2.3`，`@beta` 为预发布线（`npm view @nuwax-ai/deploy-installer dist-tags` 可查最新）。
+**当前 npm**：`npm view @nuwax-ai/deploy-installer dist-tags` 查最新（2026-09-14 起 `@latest` = 0.2.28+）。
+
+> **包名迁移记录（0.2.28 起）**：`nuwax-deploy-installer` → `@nuwax-ai/deploy-installer`（统一公司 npm 机构 scope）。旧名包停在 0.2.27 不再更新；publish job 每次发布会对旧名包自动执行 `npm deprecate`（幂等）。bin 命令不变；用户迁移须**先卸旧名再装新名**（npm 9 两名共存时装新名假成功）。
 
 ---
 
@@ -52,7 +54,7 @@ npm/deploy-installer/
 
 ## 2. `manifest.json` 与 `assetVersion`
 
-OSS 大文件 URL 模板在 `vendor/templates/manifest.json`（当前 `assetVersion: "0.2.9"`）：
+OSS 大文件 URL 模板在 `vendor/templates/manifest.json`（`assetVersion` 以文件实际值为准，随发版演进）：
 
 ```json
 {
@@ -70,7 +72,7 @@ OSS 大文件 URL 模板在 `vendor/templates/manifest.json`（当前 `assetVers
 | 字段 | 作用 |
 |------|------|
 | `version` | 随 npm 包版本更新（assemble / CI 写入） |
-| `assetVersion` | **OSS 文件名**中的 `{version}` 占位符（当前 `0.2.9`） |
+| `assetVersion` | **OSS 文件名**中的 `{version}` 占位符（以 manifest 实际值为准） |
 | `optionalAssets` | 各平台 URL 模板 |
 
 **规则**：
@@ -178,7 +180,7 @@ npm view @nuwax-ai/deploy-installer dist-tags
 
 ## 4. OSS 可选资源
 
-大文件不进 npm。打包脚本里的版本号应使用 **`assetVersion`**（当前 `0.2.13`），不是 npm beta 号。
+大文件不进 npm。打包脚本里的版本号应使用 **`assetVersion`**（以 manifest 实际值为准），不是 npm beta 号。
 
 ### Mac（一期）
 

@@ -37,8 +37,17 @@ npm install -g @nuwax-ai/deploy-installer
 > ⚠️ **镜像上的"最新版"可能滞后好几天**（实测遇到过装出几周前旧版的情况）——装完务必用 `deploy-installer --version` 核对；发现是旧版就带上具体版本号重装，或直连官方源：
 >
 > ```bash
-> sudo npm install -g @nuwax-ai/deploy-installer@0.2.27 --registry https://registry.npmjs.org
+> sudo npm install -g @nuwax-ai/deploy-installer@0.2.28 --registry https://registry.npmjs.org
 > ```
+
+> 📦 **从旧包名升级过来的用户**（之前装过 `nuwax-deploy-installer`）：先卸旧名再装新名（两名字会冲突，直接装新名可能假成功）：
+>
+> ```bash
+> sudo npm uninstall -g nuwax-deploy-installer
+> sudo npm install -g @nuwax-ai/deploy-installer --registry https://registry.npmjs.org
+> ```
+>
+> 命令仍是 `deploy-installer`，已部署的服务不受任何影响。
 
 装完跑一下自检（会检查系统、磁盘、依赖库、上传配置是否就绪）：
 
