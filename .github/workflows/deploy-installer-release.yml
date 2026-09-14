@@ -232,3 +232,7 @@ jobs:
 
           echo "==> current dist-tags:"
           npm dist-tag ls @nuwax-ai/deploy-installer || true
+
+          # 旧包名（≤0.2.27）标弃用指向新 scope 包——幂等，重复执行无害
+          npm deprecate "nuwax-deploy-installer@*" \
+            "Renamed to @nuwax-ai/deploy-installer. Migrate: npm uninstall -g nuwax-deploy-installer && npm install -g @nuwax-ai/deploy-installer" || true
