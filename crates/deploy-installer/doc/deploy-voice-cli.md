@@ -1,28 +1,28 @@
 # voice-cli 部署指南
 
-语音转写（STT）+ 语音合成（TTS）服务：Whisper / SenseVoice 引擎转写，sherpa-onnx（Kokoro / ZipVoice）合成。通过统一部署 CLI **deploy-installer**（npm 包 `nuwax-deploy-installer`）一键安装：复制二进制与伴生库 → 下载 Whisper 模型（全平台）→ 写配置 → 注册系统服务 → 等待健康检查通过。
+语音转文字（STT）+ 文字转语音（TTS）服务。通过统一安装器 **deploy-installer**（npm 包 `nuwax-deploy-installer`）一条命令完成安装：下载程序和模型 → 写好配置 → 注册成开机自启服务 → 等服务就绪，全程自动。
 
 > document-parser（文档解析）的部署见姊妹篇 [deploy-document-parser.md](./deploy-document-parser.md)。
 
-## 1. 平台与 GPU 档位总览
+## 1. 平台与加速方式总览
 
-voice-cli 的 STT 在不同平台走不同加速档位，**安装器自动检测、无需手工选择**：
+voice-cli 的转写功能在不同机器上用不同的方式加速，**安装器自动检测、无需手工选择**：
 
-| 平台 | 档位 | 加速说明 |
-|------|------|---------|
-| macOS（Apple Silicon） | Metal | whisper-metal 编译进 darwin 二进制，开箱即用 |
-| Linux x86_64 + NVIDIA | **CUDA** | 安装器下载 CUDA 预编译 bundle（~370MB，含 GPU 版 onnxruntime providers；覆盖 GTX 10 系 → RTX 40 系）；STT-whisper 与 SenseVoice（如启用）吃 GPU，TTS 恒为 CPU |
-| Linux x86_64 + AMD/Intel GPU | **Vulkan** | 安装器下载 Vulkan 预编译 bundle（~31MB）；**仅 STT-whisper 加速**（TTS/SenseVoice 仍 CPU） |
-| Linux 无 GPU / Windows | CPU | vendor 内置二进制，开箱即用 |
+| 平台 | 加速方式 | 说明 |
+|------|---------|------|
+| macOS（Apple 芯片） | Metal | GPU 加速已编译进 Mac 版程序，装好即用 |
+| Linux + NVIDIA 显卡 | **CUDA** | 安装器自动下载 GPU 加速包（约 370MB，覆盖 GTX 10 系至 RTX 40 系）；语音转写用 GPU 加速，语音合成始终用 CPU |
+| Linux + AMD/Intel 显卡 | **Vulkan** | 安装器自动下载 GPU 加速包（约 31MB）；只有语音转写（Whisper）用 GPU，合成等仍用 CPU |
+| 无显卡 / Windows | CPU | 安装包自带程序，装好即用 |
 
-三档自动检测优先级：NVIDIA（nvidia-smi + libcublas）→ Vulkan（GPU 探针）→ CPU。无 GPU 机器会打印提示与修复建议但**不阻塞部署**（装 CPU 版照常可用）。
+以上**自动检测、无需选择**：按 NVIDIA 显卡 → AMD/Intel 显卡 → 无显卡（CPU）的顺序判断。没有独显的机器会装 CPU 版并给出提示，**不影响正常使用**。
 
 | 项目 | 要求 |
 |------|------|
-| Node.js | 18+（deploy-installer 方式必需） |
-| **ffmpeg** | STT 音频解码需要。**默认无需手动安装**：安装器自动从自家 OSS 下载静态 ffmpeg 到安装目录（系统 PATH 已有 ffmpeg 时跳过下载，优先用系统的）。仅在内网不可达 OSS 且系统也没有 ffmpeg 时需手动装：macOS `brew install ffmpeg`；Debian/Ubuntu `sudo apt install -y ffmpeg`；Windows `winget install Gyan.FFmpeg`（doctor 双探测 sidecar/PATH 并给出指引） |
-| 磁盘 | whisper large-v3 模型约 3GB（全平台自动下载）+ Linux GPU 档 bundle（CUDA ~370MB / Vulkan ~31MB） |
-| Linux sudoers | 同 document-parser 的五命令 NOPASSWD allowlist（见 [deploy-document-parser.md §3](./deploy-document-parser.md)） |
+| Node.js | 18 或更新版本（必需，用于运行安装器） |
+| **ffmpeg** | 转写时要解码音频。**默认无需手动安装**：安装器会自动下载一份 ffmpeg 到安装目录（系统里已装过就优先用系统的）。只有内网机器且系统也没有时才需手动装：macOS `brew install ffmpeg`；Debian/Ubuntu `sudo apt install -y ffmpeg`；Windows `winget install Gyan.FFmpeg`（doctor 命令会自动检查并给出提示） |
+| 磁盘 | Whisper large-v3 模型约 3GB（自动下载）+ Linux 显卡加速包（NVIDIA 约 370MB / AMD·Intel 约 31MB） |
+| Linux sudo 权限 | 按 [document-parser 部署指南 §3](./deploy-document-parser.md) 配置一次免密 sudo（有现成命令，复制即可） |
 
 ## 2. 安装 deploy-installer
 
@@ -30,13 +30,13 @@ voice-cli 的 STT 在不同平台走不同加速档位，**安装器自动检测
 npm install -g nuwax-deploy-installer
 ```
 
-国内网络镜像建议与 sudo 内联传参等注意事项同 [document-parser 部署指南 §2](./deploy-document-parser.md)（完全一致）。装完自检：
+国内网络先配 npm 镜像（注意：加 sudo 安装时要把镜像地址直接写在命令里），具体见 [document-parser 部署指南 §2](./deploy-document-parser.md)。装完自检：
 
 ```bash
 deploy-installer doctor
 ```
 
-Linux x86_64 上 doctor 会额外输出 GPU 预检（nvidia-smi / libcublas / Vulkan loader+GPU 探针）与 `voice-cli tier (auto)` 档位汇总，部署前即可确认机器会走哪档。
+Linux 上 doctor 还会检查显卡，并显示一行 `voice-cli tier (auto)`，提前告诉你这台机器会走哪种加速。
 
 ## 3. 一键部署
 
@@ -50,88 +50,89 @@ deploy-installer voice-cli install
 deploy-installer voice-cli install --install-dir ~/apps/voice-cli
 ```
 
-配置、模型、ffmpeg、日志等伴生文件全部落在安装目录内，服务的工作目录也指向它。**非默认目录时，后续 `upgrade` / `verify` / `service` 子命令都要带同样的 `--install-dir`**（不传时与 install 同默认 `~/voice-cli`）。各平台差异：
+配置、模型、ffmpeg、日志等所有文件都放在安装目录里。**非默认目录时，后续的 `upgrade` / `verify` / `service` 命令都要带同样的 `--install-dir`**（不带就默认找 `~/voice-cli`）。各平台差异：
 
-- **macOS**：自动从 OSS 下载 Whisper large-v3 模型（约 3GB，写入 `models/ggml-large-v3.bin`）；二进制 Metal 加速开箱即用。
-- **Linux**：按 GPU 档位自动选 CUDA / Vulkan / CPU 包（见 §4）；Whisper large-v3 模型自动从 OSS 下载（与 macOS 同源）。
-- **Windows**：CPU 版二进制 + 伴生 DLL，以当前用户计划任务（`com.nuwax.voice-cli`）注册服务。
+- **macOS**：自动下载 Whisper large-v3 模型（约 3GB）；GPU 加速（Metal）装好即用。
+- **Linux**：根据显卡自动选加速包（见 §4）；Whisper large-v3 模型自动下载。
+- **Windows**：CPU 版程序，注册成计划任务实现开机自启。
 
-健康检查通过打印 `✅ voice-cli → http://127.0.0.1:8077`；超时如实报错（GPU 档位装错是常见原因之一，见 §6）。
+安装成功会打印 `✅ voice-cli → http://127.0.0.1:8077`；如果超时，会如实报错并告诉你怎么查日志（显卡加速包装错是常见原因之一，见 §6.2）。
 
-> **SSH 登录的 Mac 特例**：launchd 需要图形会话。纯 SSH 下安装时 plist 已写入、服务等桌面登录后自启（有意降级，不是失败）；此后 `service start` 也会因无 GUI 域报错并附同样提示。
+> **只用 SSH 远程连接 Mac 的情况**：Mac 的开机自启要求你本人在这台 Mac 上登录过桌面。远程安装会正常完成（配置都已写好），但要等你坐到这台 Mac 前登录一次桌面，服务才会启动——这是正常行为，不是安装失败；之后在纯 SSH 下执行 `service start` 也会报同样的提示。
 
-## 4. GPU 档位控制（Linux x86_64）
+## 4. 显卡加速控制（Linux）
 
-自动检测之外可显式控制档位：
+自动检测不准时可以手动指定：
 
 ```bash
-deploy-installer voice-cli install --use-oss-cuda      # 强制 CUDA 档（跳过预检，环境不对自负）
-deploy-installer voice-cli install --use-oss-vulkan    # 强制 Vulkan 档
-deploy-installer voice-cli install --skip-oss-cuda --skip-oss-vulkan   # 双 skip = 强制 CPU
+deploy-installer voice-cli install --use-oss-cuda      # 强制用 NVIDIA 显卡（跳过检测；环境不匹配时后果自负）
+deploy-installer voice-cli install --use-oss-vulkan    # 强制用 AMD/Intel 显卡
+deploy-installer voice-cli install --skip-oss-cuda --skip-oss-vulkan   # 两个 skip 一起用 = 强制 CPU
 ```
 
 行为约定：
 
-- **`--skip-oss-cuda` 单用不再是"强制 CPU"**（历史语义已变）——只跳过 CUDA 档，仍可自动选 Vulkan；强制 CPU 用双 skip。
-- 同档 use+skip 组合（如 `--use-oss-cuda --skip-oss-cuda`）会被直接拒绝。
-- **档位切换自动互斥清理**：CUDA ↔ Vulkan ↔ CPU 互切时安装器清理另一档的残留文件（marker / CUDA 专属 .so），双 skip 强制降级也是持久的——下次自动升级不会悄悄跳回 GPU 档。
-- **升级保档**：已装 CUDA/Vulkan 档的机器 `upgrade` 保持原档位（驱动临时不可用也不会被 CPU 版覆盖）；`upgrade` 完成后自动重启在跑的服务。
-- Vulkan 档依赖系统 `libvulkan.so.1` 与 GPU 驱动（AMD/Intel：`sudo apt install -y libvulkan1 mesa-vulkan-drivers`）；探针发现坏驱动时按"无 Vulkan"降级，不会卡住安装。
+- 单独用 `--skip-oss-cuda` 只是"不用 NVIDIA"，机器还可能自动选 AMD/Intel；**两个 skip 一起用**才是"强制 CPU"。
+- `--use-oss-cuda` 和 `--skip-oss-cuda` 同时给会直接报错（自相矛盾）。
+- **换加速方式会自动清理**：从一种换成另一种时，安装器会自动删掉旧方式的残留文件；强制降级到 CPU 也是持久的——之后的升级不会悄悄跳回显卡版。
+- **升级保持原方式**：已经用 NVIDIA/AMD·Intel 加速的机器，`upgrade` 后还是原方式（即使显卡驱动临时坏了也不会被 CPU 版覆盖）；升级完会自动重启在跑的服务。
+- AMD/Intel 方式需要系统装有 `libvulkan.so.1` 和显卡驱动（Ubuntu：`sudo apt install -y libvulkan1 mesa-vulkan-drivers`）；驱动有问题时自动降级为 CPU，不会卡住安装。
 
 ## 5. 验证
 
 ```bash
-# 健康检查（含 models_loaded 状态）
+# 健康检查（能看到已加载的模型）
 curl http://localhost:8077/health
 
 # 引擎与模型清单
 curl http://localhost:8077/models
 
-# STT 冒烟（需已放好 whisper 模型；ffmpeg 由安装器自动供给，无需手动准备）
+# 快速试一次语音转写（模型和 ffmpeg 都已自动就位，无需手动准备）
 curl -X POST http://localhost:8077/transcribe -F "file=@test.wav"
 
-# TTS 音色清单 / 合成（详见 Swagger UI）
+# 语音合成（TTS）音色清单，详见接口文档
 curl http://localhost:8077/api/v1/tts/voices
 open http://localhost:8077/api/docs
 
-# Scalar 风格接口文档（与 Swagger UI 并存；UI JS 由浏览器从公网 CDN 加载）
+# 另一种风格的接口文档（与上面并存；页面组件由浏览器从公网加载，纯内网打不开）
 open http://localhost:8077/api/docs/scalar
 
-# 一键自验（health/文档/转写冒烟——模型在场时）
+# 一键自验（健康 + 接口文档 + 转写试跑）
 deploy-installer voice-cli verify
 ```
 
-Whisper 模型默认全平台自动下载（Mac/Linux/Windows 同一 OSS 包，ggml 平台无关）；
-`--models all` 换全套模型包（tiny/base/small/medium/large-v3，约 5GB），
-`--skip-models` 跳过后可重跑 install 补齐。ffmpeg 与模型独立——`--skip-models`
-不影响 ffmpeg 的自动供给。
+Whisper 模型默认自动下载（约 3GB，Mac/Linux/Windows 通用）；
+想一次装全五档模型（tiny/base/small/medium/large-v3，约 5GB）加 `--models all`；
+装的时候跳过了模型（`--skip-models`）之后重跑一次 install 就会补上。
+模型和 ffmpeg 互不影响——跳过模型不影响 ffmpeg 的自动下载。
 
-Linux GPU 档验证加速是否生效：服务日志（`journalctl -u voice-cli -f`）转写时出现 `ggml_cuda: using CUDA` 或 `ggml_vulkan: Found ... Vulkan devices` 即在走 GPU。
+想确认 GPU 加速真的生效了：转写时看服务日志（`journalctl -u voice-cli -f`），
+出现 `ggml_cuda: using CUDA` 或 `ggml_vulkan: Found ... Vulkan devices` 字样就说明在用显卡。
 
 ## 6. 服务管理与升级
 
 ```bash
 deploy-installer voice-cli service status
-deploy-installer voice-cli service stop       # 停止（幂等：已停视为成功）
-deploy-installer voice-cli service start      # 启动并等健康检查通过（幂等）
-deploy-installer voice-cli service restart    # 三平台通用（内建端口释放等待与健康检查）
-deploy-installer voice-cli service uninstall
-deploy-installer voice-cli upgrade        # Linux 保档升级 + 自动重启；mac/Windows 升级 vendor 二进制
-deploy-installer voice-cli upgrade --install-dir ~/apps/voice-cli   # 非默认目录；verify / service 子命令同理
+deploy-installer voice-cli service stop       # 停止（重复执行也安全）
+deploy-installer voice-cli service start      # 启动（会等服务真正就绪才返回）
+deploy-installer voice-cli service restart    # 重启（Mac/Linux/Windows 通用）
+deploy-installer voice-cli service uninstall  # 卸载
+deploy-installer voice-cli upgrade            # 升级到新版（自动重启在跑的服务；Linux 保持原加速方式）
+deploy-installer voice-cli upgrade --install-dir ~/apps/voice-cli   # 装在非默认目录时要带；verify / service 命令同理
 ```
 
 ### 6.1 启动 / 停止
 
-stop / start 是普通用户入口，三平台行为一致、无需记平台原生命令：
+stop / start 在三个平台用法完全一样，不用记各系统自己的命令：
 
 ```bash
-deploy-installer voice-cli service stop    # 停止；macOS 上是卸载（bootout）语义，start 会重新加载
-deploy-installer voice-cli service start   # 启动并等待 /health 通过；纯 SSH 无桌面登录的 Mac 见 §3 特例说明
+deploy-installer voice-cli service stop    # 停止（Mac 上会把开机自启也一并注销，start 会自动恢复）
+deploy-installer voice-cli service start   # 启动并等待服务就绪；纯 SSH 连 Mac 的限制见 §3 说明
 ```
 
-两个子命令都**幂等**：已停再 stop、已跑再 start 都打印提示后成功退出。停止会等端口真正释放（Windows 上超时自动强杀残留实例），启动只认健康检查通过（失败如实报错并附日志查看命令）。
+两个命令**重复执行也安全**：已停止的服务再 stop、已运行的服务再 start，都只是提示一下并正常结束。停止时会等端口真正释放完（Windows 上超时会自动结束残留进程）；启动时只认健康检查真正通过（起不来会明确报错，并告诉你怎么查日志）。
 
-各平台底层等价命令（排障时可单独执行，平时用子命令即可）：
+各平台等价的系统原生命令（**仅供排障时使用**，平时用上面的命令即可）：
 
 | 平台 | 停止 | 启动 |
 |------|------|------|
@@ -139,20 +140,20 @@ deploy-installer voice-cli service start   # 启动并等待 /health 通过；�
 | macOS | `launchctl bootout gui/$(id -u)/com.nuwax.voice-cli` | `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.nuwax.voice-cli.plist` |
 | Windows | `schtasks /end /tn com.nuwax.voice-cli` | `schtasks /run /tn com.nuwax.voice-cli` |
 
-- Windows：手动 `/end` 后稍等几秒再 `/run`（旧实例端口释放有窗口期，立即重跑易报端口被占）——子命令已内建该等待与重试。
-- macOS：`bootout` 是卸载并停止，之后须 `bootstrap` 重新加载才会启动（`service start` 即做此事）。
+- Windows：手动 `/end` 之后要等几秒再 `/run`（旧进程释放端口需要一点时间，立刻重跑容易报端口被占）——上面的子命令已自动处理这个等待。
+- macOS：表里的"停止"会把开机自启一起注销，之后必须用表里的"启动"重新注册——这正是推荐用子命令的原因，这些细节它都会自动处理。
 
 ### 6.2 常见问题
 
 | 现象 | 原因与处理 |
 |------|-----------|
-| 安装时打印“未检测到 NVIDIA GPU / Vulkan 运行时”后继续装了 CPU 版 | 预检未过 + 未显式强制——属正常回退；要上 GPU 按提示补驱动/工具包后重装，或用 `--use-oss-*` 强制 |
-| CUDA 档服务起不来，日志 `libcublas.so.12 not found` | bundle 不含 CUDA 库，依赖系统 toolkit：装 `cuda-toolkit` 后重装（doctor 的 libcublas 预检可提前发现） |
-| Vulkan 档起不来，`libvulkan.so.1` 缺失 | `sudo apt install -y libvulkan1 mesa-vulkan-drivers` |
-| 转写报音频处理错误（ffmpeg 缺失/损坏） | 正常安装会自动供给 ffmpeg 到安装目录（系统 PATH 已有时跳过）；此错误说明自动供给未发生或产物损坏——检查 `~/voice-cli/ffmpeg(.exe)` 是否存在，缺则重跑 install；内网可手动放置（模型源同 ffmpeg 官方静态包） |
-| 转写无模型 / 模型缺失 | 重跑 install 自动从 OSS 补下载；或手工放 `models/ggml-*.bin`（模型源见 [whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp)） |
-| 偶发返回"解码/合成引擎忙"（HTTP 4xx） | 正常并发保护：该引擎实例正被其它会话占用（流式解码不可中断，占用通常数十秒内结束）——客户端稍后重试即可；频繁出现可在 `config.yml` 调大 `whisper.engine.pool_size` / `tts.engine.pool_size` 增加并行实例 |
-| 想换档位 | 直接带目标旗标重跑 install（自动互斥清理），如 CUDA 机器降级：`install --skip-oss-cuda --skip-oss-vulkan` |
+| 安装时提示"未检测到 NVIDIA GPU / Vulkan 运行时"后装了 CPU 版 | 机器没检测到可用的显卡环境，自动退回 CPU 版——**不影响使用**；想用显卡加速就按提示装好驱动后重新 install |
+| NVIDIA 加速装了但服务起不来，日志报 `libcublas.so.12 not found` | 加速包不含 NVIDIA 系统库，需要先装 CUDA toolkit 再重装（doctor 命令能提前发现这个问题） |
+| AMD/Intel 加速起不来，提示 `libvulkan.so.1` 缺失 | `sudo apt install -y libvulkan1 mesa-vulkan-drivers` 后重装 |
+| 转写报音频处理错误（ffmpeg 缺失或损坏） | 说明 ffmpeg 没装上或坏了——看看 `~/voice-cli/ffmpeg(.exe)` 在不在，不在就重新跑一次 install；内网环境也可以自己放一个（用 ffmpeg 官方静态包） |
+| 转写报无模型 / 模型缺失 | 重新跑一次 install 会自动补下载；也可以自己下载模型放进 `models/` 目录（模型源见 [whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp)） |
+| 偶尔返回"解码/合成引擎忙"（HTTP 4xx） | 正常的并发保护：这个引擎实例正被别的请求占用（长音频的解码不能中断，通常几十秒内结束）——客户端稍等重试即可；出现频繁可在 `config.yml` 里调大 `whisper.engine.pool_size` / `tts.engine.pool_size`（增加并行实例数） |
+| 想换一种加速方式 | 直接带对应参数重跑 install（旧方式的文件会自动清理），例如降到 CPU：`install --skip-oss-cuda --skip-oss-vulkan` |
 
 ## 7. 配置
 
