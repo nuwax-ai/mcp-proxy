@@ -40,15 +40,6 @@ npm install -g @nuwax-ai/deploy-installer
 > sudo npm install -g @nuwax-ai/deploy-installer@0.2.28 --registry https://registry.npmjs.org
 > ```
 
-> 📦 **从旧包名升级过来的用户**（之前装过 `nuwax-deploy-installer`）：先卸旧名再装新名（两名字会冲突，直接装新名可能假成功）：
->
-> ```bash
-> sudo npm uninstall -g nuwax-deploy-installer
-> sudo npm install -g @nuwax-ai/deploy-installer --registry https://registry.npmjs.org
-> ```
->
-> 命令仍是 `deploy-installer`，已部署的服务不受任何影响。
-
 装完跑一下自检（会检查系统、磁盘、依赖库、上传配置是否就绪）：
 
 ```bash

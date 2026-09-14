@@ -3,7 +3,6 @@
 适用于 **Apple Silicon（arm64）Mac Mini**。安装 CLI 后默认目录为 `~/voice-cli` 与 `~/document-parser`，一般**不必写 `--install-dir`**。
 
 > 稳定版：**`npm install -g @nuwax-ai/deploy-installer`**（`@latest`）；尝鲜用 `@beta`。
-> 旧包名 `nuwax-deploy-installer`（≤0.2.27）已更名——先 `npm uninstall -g nuwax-deploy-installer` 再装新名（两个名字会冲突）。
 
 ## 最快路径（复制粘贴）
 

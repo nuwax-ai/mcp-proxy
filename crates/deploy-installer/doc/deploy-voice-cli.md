@@ -30,13 +30,6 @@ voice-cli 的转写功能在不同机器上用不同的方式加速，**安装�
 npm install -g @nuwax-ai/deploy-installer
 ```
 
-从旧包名 `nuwax-deploy-installer` 升级过来的用户（先卸旧再装新，两个名字会冲突）：
-
-```bash
-sudo npm uninstall -g nuwax-deploy-installer
-sudo npm install -g @nuwax-ai/deploy-installer --registry https://registry.npmjs.org
-```
-
 国内网络先配 npm 镜像（注意：加 sudo 安装时要把镜像地址直接写在命令里），具体见 [document-parser 部署指南 §2](./deploy-document-parser.md)。装完自检：
 
 ```bash
