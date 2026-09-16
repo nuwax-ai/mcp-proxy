@@ -12,7 +12,7 @@ document-parser 的自定义上传后端（`storage.custom_upload` 配置段 + �
 ## 1. 文件上传接口
 
 ```
-POST {base_url}/api/v1/file/upload?type=tmp|store
+POST {base_url}/api/v1/file/upload?type=tmp|store&targetType=document-parser
 Headers:
   Authorization: Bearer ak-xxxxxx
 Content-Type: multipart/form-data
@@ -22,6 +22,7 @@ Content-Type: multipart/form-data
 | 参数 | 位置 | 必填 | 说明 |
 |------|------|------|------|
 | `type` | Query | 否 | 存储类型：`tmp` 临时文件；`store` 永久存储（document-parser 默认用 store） |
+| `targetType` | Query | 否 | 来源标记，document-parser 固定传 `document-parser`；服务端存入文件记录（文件列表可据此区分系统解析产物与用户手动上传）。不传时服务端记为 `Default` |
 | `file` | Form | 是 | 文件二进制 |
 
 ### 响应
@@ -56,7 +57,7 @@ Content-Type: multipart/form-data
 ### curl 示例
 
 ```bash
-curl -X POST "https://testagent.example.com/api/v1/file/upload?type=store" \
+curl -X POST "https://testagent.example.com/api/v1/file/upload?type=store&targetType=document-parser" \
   -H "Authorization: Bearer ak-xxxxxx" \
   -F "file=@/path/to/document.pdf"
 ```
@@ -114,6 +115,7 @@ curl -O "$SIGNED_URL"
 | `{base_url}` + 上传 path | 请求参数 `upload_base_url` / `upload_path`（path 默认 `/api/v1/file/upload`）；或全局 `storage.custom_upload.base_url` / `.path` |
 | Bearer API Key | 请求参数 `upload_api_key`；或全局 `storage.custom_upload.api_key`；环境变量 `DOCUMENT_PARSER_CUSTOM_UPLOAD_API_KEY` |
 | `type=tmp|store` | 请求参数 `upload_type`（默认 `store`） |
+| `targetType=document-parser` | 客户端固定携带的来源标记（api_file_client `endpoint_url()` 拼装，无需配置） |
 | 上传返回的 `data.url` | 存入任务 `oss_data.markdown_url`（markdown）/ 替换进 markdown 图片路径（图片） |
 | 上传返回的 `data.key` | 存入任务 `oss_data.markdown_object_key`（溯源用） |
 | AK 签名换取 | 已集成：`GET /tasks/{id}/markdown/download`（服务端代理）优先换签后下载，换签失败回退裸 GET（公开存储）；`GET /tasks/{id}/markdown/url?temp=true` 走换签返回临时签名 URL（`temporary:true`），`temp=false` 透传存储的原 URL |

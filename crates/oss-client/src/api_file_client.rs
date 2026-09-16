@@ -3,7 +3,8 @@
 //! 面向私有化部署场景：解析产物（图片、Markdown）不上传阿里云 OSS，
 //! 而是调用用户自建系统的文件上传接口。v1 钉死 nuwax 开放平台契约：
 //!
-//! - `POST {base_url}{path}?type=tmp|store`（tmp=临时文件，store=永久存储）
+//! - `POST {base_url}{path}?type=tmp|store&targetType=document-parser`
+//!   （tmp=临时文件，store=永久存储；targetType 为来源标记，见 `endpoint_url`）
 //! - 请求头 `Authorization: Bearer ak-xxx`
 //! - multipart/form-data，`file` 字段
 //! - 响应 `{code:"0000", displayCode, message, success, tid,
@@ -100,9 +101,14 @@ impl ApiUploadConfig {
     }
 
     /// 完整上传端点 URL（含 `?type=` 查询参数）
+    ///
+    /// `targetType` 为来源标记：平台侧（agent-platform FileApiController）将其
+    /// 存入文件记录（FileRecordDomain.targetType），用于区分"document-parser
+    /// 上传的产物文件"与用户手动上传等其它来源；缺省时平台记为 "Default"。
     pub fn endpoint_url(&self) -> String {
+        const TARGET_TYPE: &str = "document-parser";
         format!(
-            "{}{}?type={}",
+            "{}{}?type={}&targetType={TARGET_TYPE}",
             self.base_url.trim_end_matches('/'),
             self.path,
             self.upload_type.as_query_value()
@@ -538,6 +544,7 @@ mod tests {
         Mock::given(method("POST"))
             .and(path("/api/v1/file/upload"))
             .and(query_param("type", "store"))
+            .and(query_param("targetType", "document-parser"))
             .and(header("Authorization", "Bearer ak-test-key"))
             .respond_with(ResponseTemplate::new(200).set_body_json(ok_response()))
             .expect(1)
@@ -715,17 +722,17 @@ mod tests {
 
     #[test]
     fn test_endpoint_url() {
-        // 尾部 / 规整
+        // 尾部 / 规整；targetType 为固定来源标记（平台侧落库区分上传来源）
         let cfg = test_config("https://x.com/".to_string(), CustomUploadType::Store);
         assert_eq!(
             cfg.endpoint_url(),
-            "https://x.com/api/v1/file/upload?type=store"
+            "https://x.com/api/v1/file/upload?type=store&targetType=document-parser"
         );
 
         let cfg = test_config("https://x.com".to_string(), CustomUploadType::Tmp);
         assert_eq!(
             cfg.endpoint_url(),
-            "https://x.com/api/v1/file/upload?type=tmp"
+            "https://x.com/api/v1/file/upload?type=tmp&targetType=document-parser"
         );
 
         // 允许 base_url 带前缀路径（反代场景）
@@ -735,7 +742,7 @@ mod tests {
         );
         assert_eq!(
             cfg.endpoint_url(),
-            "https://gw.example.com/nuwax/api/v1/file/upload?type=store"
+            "https://gw.example.com/nuwax/api/v1/file/upload?type=store&targetType=document-parser"
         );
     }
 
