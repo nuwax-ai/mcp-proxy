@@ -34,10 +34,10 @@ npm install -g @nuwax-ai/deploy-installer
 >
 > npmmirror 镜像同步有 10–60 分钟延迟，刚发布的新版可能还搜不到，急用可临时直连官方源。
 >
-> ⚠️ **镜像上的"最新版"可能滞后好几天**（实测遇到过装出几周前旧版的情况）——装完务必用 `deploy-installer --version` 核对；发现是旧版就带上具体版本号重装，或直连官方源：
+> ⚠️ **镜像上的"最新版"可能滞后好几天**（实测遇到过装出几周前旧版的情况）——装完务必用 `deploy-installer --version` 核对；发现是旧版就直连官方源重装最新版（命令直连官方源，`@latest` 即真实最新；想装指定版本就把 `@latest` 换成具体版本号）：
 >
 > ```bash
-> sudo npm install -g @nuwax-ai/deploy-installer@0.2.30 --registry https://registry.npmjs.org
+> sudo npm install -g @nuwax-ai/deploy-installer@latest --registry https://registry.npmjs.org
 > ```
 
 装完跑一下自检（会检查系统、磁盘、依赖库、上传配置是否就绪）：
