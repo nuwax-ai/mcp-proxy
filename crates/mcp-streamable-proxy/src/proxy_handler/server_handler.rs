@@ -1,7 +1,7 @@
 use super::*;
 
 impl ServerHandler for ProxyHandler {
-    fn get_info(&self) -> ServerInfo {
+    fn get_info(&self) -> ServerConfig {
         self.discovery.info()
     }
 

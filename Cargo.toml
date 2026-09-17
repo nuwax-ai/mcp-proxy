@@ -54,9 +54,10 @@ run_code_rmcp = { version = "0.2.8", path = "crates/run-code-rmcp" }
 voice-toolkit = { path = "crates/voice-toolkit", features = ["audio"] }
 # FFmpeg wrapper：统一到 2.5（voice-cli 原 2.2 + voice crates 2.5 → 合并）
 ffmpeg-sidecar = "2.5"
-# STT 引擎（替代 vendor 的 rs-voice-toolkit-stt）：transcribe-rs 0.3.11 依赖 ort=2.0.0-rc.12，
-# 与 fastembed 的 ort 版本完全一致，共存无冲突。GPU feature（whisper-metal/cuda/vulkan）
-# 由 voice-cli 按平台 [target.'cfg'] 选用，不在此处统一开。
+# STT 引擎（替代 vendor 的 rs-voice-toolkit-stt）：0.3.11（最新）精确钉 ort =2.0.0-rc.12——
+# 这个钉同时决定了全 workspace 的 ort 上限，也是 fastembed 被钉 =5.17.3 的原因（见下方
+# fastembed 条目注释）。GPU feature（whisper-metal/cuda/vulkan）由 voice-cli 按平台
+# [target.'cfg'] 选用，不在此处统一开。
 transcribe-rs = "0.3.11"
 # TTS/STT 引擎：sherpa-onnx 官方 crate，自带 onnxruntime C 库（与 fastembed/transcribe-rs
 # 的 ort 隔离，三套引擎同属 ONNX 生态）。-sys 编译期从 github releases 下载预编译库
@@ -64,11 +65,15 @@ transcribe-rs = "0.3.11"
 # default-features=false：由各 crate 按平台选 static/shared（见 voice-cli Cargo.toml）。
 #   关键：macOS **static** 变体编译时禁用 CoreML（session.cc #else → CPU 回退）；
 #   macOS **shared** 变体启用 CoreML EP → STT sherpa 三引擎可走 Mac GPU/ANE。
-# ⚠️ 钉 1.13.3（**不**用 1.13.4）：1.13.4 bundle 的 onnxruntime 1.27.0 在本机 macOS 启动即被
-#   SIGKILL（--help 都 exit 137，main 前死；非内存/非 codesign/非下载损坏，重新下载复现）。
-#   1.13.3 的 onnxruntime 1.24.4 正常。`version="1.13.3"` 仍允许 1.13.4，靠 Cargo.lock 钉；
-#   若 `cargo update` 升到 1.13.4 会复发，需 `cargo update -p sherpa-onnx --precise 1.13.3` 回退。
-sherpa-onnx = { version = "1.13.3", default-features = false }
+# ⚠️ onnxruntime 版本史（macOS 启动即 SIGKILL 风险）：1.13.3→1.24.4 正常；
+#   1.13.4→1.27.0 在本机 macOS 启动即被 SIGKILL（--help 都 exit 137，main 前死；
+#   非内存/非 codesign/非下载损坏，重新下载复现）；1.13.8→1.28.2 已实测正常
+#   （2026-09-17 Mac Studio：--help 冒烟 exit 0 + TTS Kokoro 模型加载 + STT FireRedASR2
+#   CoreML 转写 jfk.wav 全通过）。
+#   因此精确钉 =1.13.8（`cargo update` 不会动它）：坏版本能静默通过 cargo build，
+#   升级必须显式改本行，且改完重跑三层冒烟：binary --help → server health
+#   （models_loaded）→ /transcribe?engine=fireredasr2 转写一条。
+sherpa-onnx = { version = "=1.13.8", default-features = false }
 # 繁→简中文转换（STT 后处理）：纯 Rust 核心，字典编译期内嵌，zstd 复用现有依赖树
 ferrous-opencc = "0.4"
 
@@ -89,7 +94,7 @@ opentelemetry_sdk = "0.32"
 opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic"] }
 tonic = "0.14"
 hostname = "0.4"
-uuid = { version = "1.24", features = ["v4", "v7"] }
+uuid = { version = "1.26", features = ["v4", "v7"] }
 rand = "0.10"
 log = "0.4"
 anyhow = "1.0"
@@ -132,7 +137,7 @@ once_cell = "1.21"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "=0.9.33"
-serde_with = "3.22"
+serde_with = "3.23"
 # reqwest：非 STT crate（mcp-proxy/oss-client/document-parser/mcp-streamable-proxy）用 workspace 0.13。
 # voice-cli / mcp-sse-proxy 各自 0.12 inline（见各 Cargo.toml：rmcp trait 对齐 + 避免 0.13 的 aws-lc-rs
 # 令 STT 重二进制启动被 macOS jetsam SIGKILL）。0.13 default features 即 rustls（无 native TLS）。
@@ -181,11 +186,15 @@ ash = "0.38"
 # 国际化支持
 rust-i18n = "4.2"
 
-# Embedding library (fastembed-server 专用)
-# 版本须与上游 fastembed-rs 同步；features 由各 crate 按需添加
-fastembed = "5.17.3"
+# Embedding library (fastembed-server 专用)；features 由各 crate 按需添加
+# ⚠️ 钉 =5.17.3：5.17.4 起上游把 ort 精确钉到 =2.0.0-rc.13，与 transcribe-rs 0.3.11 钉的
+#   ort =2.0.0-rc.12 冲突（ort 的 rc 预发布同属 2.0.0 槽位，全 workspace 只能统一一个版本，
+#   `cargo update` 会报 failed to select a version for `ort`）。
+#   transcribe-rs 0.3.11 已是最新（2026-04 后未发版），只能按它锁 ort；
+#   待其升级 ort 后解钉：本行与下方 ort 一起升。
+fastembed = "=5.17.3"
 # ort 直接依赖：拿 ort::ep::{CoreML,CUDA,DirectML} 配 GPU execution provider
-# 版本须与 fastembed-rs 锁的 ort 一致（=2.0.0-rc.12）
+# 版本须与 fastembed-rs 锁的 ort 一致（=2.0.0-rc.12，与 transcribe-rs 的钉一致）
 ort = "=2.0.0-rc.12"
 
 # Archive extraction（document-parser / fastembed-server 共用）

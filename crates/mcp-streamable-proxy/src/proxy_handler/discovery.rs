@@ -2,7 +2,7 @@ use super::*;
 
 #[derive(Clone, Debug)]
 struct DiscoveryState {
-    info: Arc<ServerInfo>,
+    info: Arc<ServerConfig>,
     tools: Option<Arc<ListToolsResult>>,
 }
 
@@ -12,7 +12,7 @@ pub(super) struct DiscoveryCache {
 }
 
 impl DiscoveryCache {
-    pub fn new(info: ServerInfo, tools: Option<ListToolsResult>) -> Self {
+    pub fn new(info: ServerConfig, tools: Option<ListToolsResult>) -> Self {
         Self {
             state: Arc::new(arc_swap::ArcSwap::from_pointee(DiscoveryState {
                 info: Arc::new(info),
@@ -21,7 +21,7 @@ impl DiscoveryCache {
         }
     }
 
-    pub fn info(&self) -> ServerInfo {
+    pub fn info(&self) -> ServerConfig {
         (*self.state.load().info).clone()
     }
 
@@ -45,7 +45,7 @@ impl DiscoveryCache {
         });
     }
 
-    pub fn update(&self, info: ServerInfo, tools: Option<ListToolsResult>) {
+    pub fn update(&self, info: ServerConfig, tools: Option<ListToolsResult>) {
         let info = Arc::new(info);
         let tools = tools.map(Arc::new);
         self.state.rcu(|current| DiscoveryState {
@@ -62,11 +62,11 @@ mod tests {
     #[test]
     fn clones_observe_atomic_discovery_updates() {
         let cache = DiscoveryCache::new(
-            ServerInfo::new(rmcp::model::ServerCapabilities::default()),
+            ServerConfig::new(rmcp::model::ServerCapabilities::default()),
             Some(ListToolsResult::default()),
         );
         let clone = cache.clone();
-        let replacement = ServerInfo::new(rmcp::model::ServerCapabilities::default())
+        let replacement = ServerConfig::new(rmcp::model::ServerCapabilities::default())
             .with_server_info(Implementation::new("replacement", "1"));
 
         cache.update(replacement, None);

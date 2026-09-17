@@ -13,7 +13,7 @@ use futures::future::join_all;
 use rmcp::{
     ClientHandler, RoleClient, RoleServer,
     model::{
-        ClientCapabilities, ClientInfo, Implementation, ProgressNotificationParam, ProgressToken,
+        ClientCapabilities, ClientConfig, Implementation, ProgressNotificationParam, ProgressToken,
         ResourceUpdatedNotificationParam, ServerNotification, TaskStatus, TaskStatusNotification,
         TaskStatusNotificationParams,
     },
@@ -308,13 +308,13 @@ impl Drop for ProgressRouteGuard {
 /// Client-side handler used when the proxy connects to a backend MCP server.
 #[derive(Clone, Debug)]
 pub struct BackendNotificationBridge {
-    info: ClientInfo,
+    info: ClientConfig,
     target: NotifyTarget,
 }
 
 impl BackendNotificationBridge {
     /// Create a bridge with the given client info and notify target.
-    pub fn new(info: ClientInfo, target: NotifyTarget) -> Self {
+    pub fn new(info: ClientConfig, target: NotifyTarget) -> Self {
         Self { info, target }
     }
 
@@ -348,10 +348,10 @@ impl BackendNotificationBridge {
     }
 }
 
-/// Default [`ClientInfo`] for proxy→backend handshake (enables task notifications).
-pub fn default_backend_client_info() -> ClientInfo {
+/// Default [`ClientConfig`] for proxy→backend handshake (enables task notifications).
+pub fn default_backend_client_info() -> ClientConfig {
     let capabilities = ClientCapabilities::builder().enable_tasks().build();
-    ClientInfo::new(
+    ClientConfig::new(
         capabilities,
         Implementation::new("mcp-streamable-proxy-client", env!("CARGO_PKG_VERSION")),
     )
@@ -377,7 +377,7 @@ where
 }
 
 impl ClientHandler for BackendNotificationBridge {
-    fn get_info(&self) -> ClientInfo {
+    fn get_info(&self) -> ClientConfig {
         self.info.clone()
     }
 

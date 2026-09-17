@@ -78,9 +78,11 @@ rustls = { version = "0.23", default-features = false, features = ["ring"] }
 moka = { workspace = true, features = ["future"] }
 
 # 进程组管理（跨平台子进程清理）
+# ⚠️ 版本须与 rmcp 锁的 process-wrap 一致（vendor run-code-rmcp 的 rmcp 0.17 起 = ^10.0）：
+#   两 crate 直接交换 CommandWrap 类型，大版本不同会报 `From<CommandWrap>` 不满足。
 # 添加 process-group 特性用于 Unix 平台的进程组管理
 # 添加 job-object 特性用于 Windows 平台的进程树管理
-process-wrap = { version = "9.1", features = ["tokio1", "process-group", "job-object"] }
+process-wrap = { version = "10.0", features = ["tokio1", "process-group", "job-object"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = ["Win32_System_Threading"] }

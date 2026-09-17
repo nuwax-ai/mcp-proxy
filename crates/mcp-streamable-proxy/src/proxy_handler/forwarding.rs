@@ -20,7 +20,7 @@ impl ProxyHandler {
         self.discovery.update_tools(tools);
     }
 
-    pub(super) fn update_discovery(&self, info: ServerInfo, tools: Option<ListToolsResult>) {
+    pub(super) fn update_discovery(&self, info: ServerConfig, tools: Option<ListToolsResult>) {
         self.discovery.update(info, tools);
     }
 
