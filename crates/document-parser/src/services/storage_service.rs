@@ -17,7 +17,10 @@ mod cache;
 mod maintenance;
 
 /// 存储键前缀
-const TASK_PREFIX: &str = "task:";
+/// TASK_PREFIX 是任务键空间的单一事实源：TaskService（运行时 CRUD）与
+/// StorageService（维护扫描）共用同一 "tasks" tree，两侧必须一致——历史
+/// 上两侧不一致曾导致自动清理/备份扫描空转（见 task_service 迁移注释）
+pub(crate) const TASK_PREFIX: &str = "task:";
 const INDEX_PREFIX: &str = "index:";
 const CACHE_PREFIX: &str = "cache:";
 const METADATA_PREFIX: &str = "meta:";

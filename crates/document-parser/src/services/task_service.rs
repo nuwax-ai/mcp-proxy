@@ -3,10 +3,17 @@ use crate::models::{
     CreateTaskParams, DocumentFormat, DocumentTask, ParserEngine, ProcessingStage, SourceType,
     TaskError, TaskStatus,
 };
+use crate::services::storage_service::TASK_PREFIX;
 use sled::Db;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 use uuid::{NoContext, Timestamp, Uuid};
+
+/// 任务在 "tasks" tree 中的键（与 StorageService 维护扫描共用同一前缀，
+/// 见 storage_service::TASK_PREFIX 注释）
+fn task_key(id: &str) -> String {
+    format!("{TASK_PREFIX}{id}")
+}
 
 /// 任务服务
 pub struct TaskService {
@@ -24,10 +31,48 @@ impl TaskService {
             .open_tree("tasks")
             .map_err(|e| AppError::Database(format!("打开任务树失败: {e}")))?;
 
+        Self::migrate_legacy_bare_keys(&tasks_tree)?;
+
         Ok(Self {
             tasks_tree,
             write_lock: tokio::sync::Mutex::new(()),
         })
+    }
+
+    /// 一次性迁移：历史版本以**裸 id** 为 key 写任务，而后台清理/备份/统计
+    /// 按 "task:" 前缀扫描（storage_service::TASK_PREFIX），裸 id 键对它们
+    /// 不可见——自动清理长期空转、sled 无限增长。此处把存量裸 id 任务统一
+    /// 迁移到前缀键空间；只迁移能反序列化为 DocumentTask 的条目，迁移后
+    /// 幂等（前缀键不再匹配裸键过滤条件）。
+    fn migrate_legacy_bare_keys(tasks_tree: &sled::Tree) -> Result<(), AppError> {
+        let legacy: Vec<(sled::IVec, sled::IVec)> = tasks_tree
+            .iter()
+            .filter_map(|r| r.ok())
+            .filter(|(k, _)| !k.starts_with(TASK_PREFIX.as_bytes()))
+            .collect();
+
+        if legacy.is_empty() {
+            return Ok(());
+        }
+
+        let mut migrated = 0usize;
+        for (old_key, value) in legacy {
+            // 仅迁移能解析为 DocumentTask 的条目，避免误吞同 tree 内其他来源的键
+            if serde_json::from_slice::<DocumentTask>(&value).is_ok() {
+                let id = String::from_utf8_lossy(&old_key).to_string();
+                tasks_tree
+                    .insert(task_key(&id).as_bytes(), value.as_ref())
+                    .map_err(|e| AppError::Database(format!("任务键迁移写入失败: {e}")))?;
+                let _ = tasks_tree.remove(&old_key);
+                migrated += 1;
+            }
+        }
+
+        if migrated > 0 {
+            let _ = tasks_tree.flush();
+            info!("已迁移 {migrated} 条历史任务到前缀键空间（task:）");
+        }
+        Ok(())
     }
 
     /// 创建新任务
@@ -66,7 +111,7 @@ impl TaskService {
     pub async fn get_task(&self, task_id: &str) -> Result<Option<DocumentTask>, AppError> {
         debug!("Query task: {}", task_id);
 
-        match self.tasks_tree.get(task_id) {
+        match self.tasks_tree.get(task_key(task_id).as_bytes()) {
             Ok(Some(data)) => {
                 let task: DocumentTask = serde_json::from_slice(&data)
                     .map_err(|e| AppError::Database(format!("反序列化任务失败: {e}")))?;
@@ -83,7 +128,7 @@ impl TaskService {
             .map_err(|e| AppError::Database(format!("序列化任务失败: {e}")))?;
 
         self.tasks_tree
-            .insert(&task.id, data)
+            .insert(task_key(&task.id).as_bytes(), data)
             .map_err(|e| AppError::Database(format!("保存任务失败: {e}")))?;
 
         self.tasks_tree
@@ -455,7 +500,7 @@ impl TaskService {
         let mut tasks = Vec::new();
         let mut count = 0;
 
-        for result in self.tasks_tree.iter() {
+        for result in self.tasks_tree.scan_prefix(TASK_PREFIX.as_bytes()) {
             if let Some(max_count) = limit
                 && count >= max_count
             {
@@ -545,7 +590,7 @@ impl TaskService {
         // 获取任务信息以便清理相关文件
         let task = self.get_task(task_id).await?;
 
-        match self.tasks_tree.remove(task_id) {
+        match self.tasks_tree.remove(task_key(task_id).as_bytes()) {
             Ok(Some(_)) => {
                 self.tasks_tree
                     .flush()
@@ -586,7 +631,7 @@ impl TaskService {
         let mut cleaned_count = 0;
         let mut to_remove = Vec::new();
 
-        for result in self.tasks_tree.iter() {
+        for result in self.tasks_tree.scan_prefix(TASK_PREFIX.as_bytes()) {
             match result {
                 Ok((key, data)) => {
                     match serde_json::from_slice::<DocumentTask>(&data) {
@@ -682,7 +727,7 @@ impl TaskService {
     pub async fn get_task_stats(&self) -> Result<TaskStats, AppError> {
         let mut stats = TaskStats::default();
 
-        for result in self.tasks_tree.iter() {
+        for result in self.tasks_tree.scan_prefix(TASK_PREFIX.as_bytes()) {
             match result {
                 Ok((_, data)) => {
                     match serde_json::from_slice::<DocumentTask>(&data) {

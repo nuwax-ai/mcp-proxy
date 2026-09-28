@@ -389,13 +389,14 @@ impl MarkItDownParser {
             )
             .await;
 
-        if let Err(e) = &conversion_result {
-            //发生异常了，清理工作目录
-            self.cleanup_work_dir(&work_dir).await;
-            return Err(e.clone());
-        }
-
-        let (markdown_content, _temp_files) = conversion_result.unwrap();
+        let (markdown_content, _temp_files) = match conversion_result {
+            Ok(result) => result,
+            Err(e) => {
+                //发生异常了，清理工作目录
+                self.cleanup_work_dir(&work_dir).await;
+                return Err(e);
+            }
+        };
 
         if cancellation_token.is_cancelled().await {
             // 解析已取消，清理工作目录
