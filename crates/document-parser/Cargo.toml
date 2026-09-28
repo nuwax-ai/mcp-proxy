@@ -95,7 +95,7 @@ scopeguard = { workspace = true }
 async-recursion = "1.1"
 num_cpus = "1.17"
 rand = { workspace = true }
-pulldown-cmark-to-cmark = "21.1.0"
+pulldown-cmark-to-cmark = "22.0.3"
 
 
 # 系统调用（Unix系统）
