@@ -92,7 +92,7 @@ name = "mcp-proxy"
 path = "src/main.rs"
 
 [dev-dependencies]
-criterion = "0.6"
+criterion = { workspace = true }
 env_logger = "0.11"
 futures-util = "0.3.34"
 tokio = { workspace = true, features = ["test-util"] }

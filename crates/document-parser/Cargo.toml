@@ -89,7 +89,7 @@ dashmap.workspace = true
 moka = { workspace = true, features = ["future"] }
 regex = "1.13.1"
 tempfile = "3.27.0"
-sha2 = "0.10"
+sha2 = { workspace = true }
 hex = { workspace = true }
 scopeguard = { workspace = true }
 async-recursion = "1.1"
@@ -110,14 +110,14 @@ tokio-test = "0.4"
 quickcheck = "1.1"
 quickcheck_macros = "1.2"
 proptest = "1.11"
-axum-test = "17.3"
-mockall = "0.13"
+axum-test = "21.1"
+mockall = "0.15"
 wiremock = "0.6"
-rstest = "0.26"
-test-case = "3.3"
-serial_test = "3.5"
+rstest = "0.27"
+test-case = "3.4"
+serial_test = "4.0"
 insta = "1.48"
-fake = { version = "4.4", features = ["derive", "chrono", "uuid"] }
+fake = { version = "5.1", features = ["derive", "chrono", "uuid"] }
 bytes = "1.12"
 
 [[bench]]

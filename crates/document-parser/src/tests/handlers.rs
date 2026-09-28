@@ -1236,7 +1236,7 @@ mod custom_upload_entry_tests {
     async fn test_upload_from_url_fails_fast_without_base_url() {
         safe_init_global_config();
         let state = create_test_app_state().await;
-        let server = TestServer::new(create_routes(state.clone())).unwrap();
+        let server = TestServer::new(create_routes(state.clone()));
 
         let response = server
             .post("/api/v1/documents/uploadFromUrl")
@@ -1259,7 +1259,7 @@ mod custom_upload_entry_tests {
     async fn test_upload_from_url_rejects_invalid_path() {
         safe_init_global_config();
         let state = create_test_app_state().await;
-        let server = TestServer::new(create_routes(state.clone())).unwrap();
+        let server = TestServer::new(create_routes(state.clone()));
 
         let response = server
             .post("/api/v1/documents/uploadFromUrl")
@@ -1278,7 +1278,7 @@ mod custom_upload_entry_tests {
     async fn test_upload_from_url_without_upload_params_keeps_oss_behavior() {
         safe_init_global_config();
         let state = create_test_app_state().await;
-        let server = TestServer::new(create_routes(state.clone())).unwrap();
+        let server = TestServer::new(create_routes(state.clone()));
 
         let response = server
             .post("/api/v1/documents/uploadFromUrl")
@@ -1302,7 +1302,7 @@ mod custom_upload_entry_tests {
     async fn test_upload_from_url_persists_upload_endpoint() {
         safe_init_global_config();
         let state = create_test_app_state().await;
-        let server = TestServer::new(create_routes(state.clone())).unwrap();
+        let server = TestServer::new(create_routes(state.clone()));
 
         let response = server
             .post("/api/v1/documents/uploadFromUrl")
@@ -1335,7 +1335,7 @@ mod custom_upload_entry_tests {
     async fn test_custom_task_expires_hours_validation_consistent() {
         safe_init_global_config();
         let state = create_test_app_state().await;
-        let server = TestServer::new(create_routes(state.clone())).unwrap();
+        let server = TestServer::new(create_routes(state.clone()));
 
         // 先构造一个带 custom upload_config 的任务（通过 uploadFromUrl 落盘）
         let response = server
