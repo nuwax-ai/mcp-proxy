@@ -3,7 +3,7 @@ use rmcp::{
     ErrorData as McpError, ServerHandler,
     handler::server::wrapper::Parameters,
     model::{CallToolResult, ContentBlock, ServerCapabilities, ServerConfig},
-    tool, tool_router,
+    tool, tool_handler, tool_router,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -150,6 +150,7 @@ impl CodeRunnerService {
     }
 }
 
+#[tool_handler]
 impl ServerHandler for CodeRunnerService {
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
