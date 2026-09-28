@@ -57,7 +57,9 @@ fi
 # voice-cli companion shared libs: must sit next to the binary on all platforms
 # （Windows DLL 同目录解析是默认行为；DLL 清单以构建产物为准，glob 拷贝）
 if [[ "$VENDOR_KEY" == darwin-* ]]; then
-  COMPANION_LIBS=(libsherpa-onnx-c-api.dylib libonnxruntime.1.24.4.dylib libonnxruntime.dylib)
+  # libonnxruntime 用未版本号名：sherpa 1.13.8 起预编译包只带未版本名
+  # （1.13.3 时代的 libonnxruntime.1.24.4.dylib 已不存在）
+  COMPANION_LIBS=(libsherpa-onnx-c-api.dylib libonnxruntime.dylib)
 elif [[ "$VENDOR_KEY" == windows-* ]]; then
   COMPANION_LIBS=()
   for dll in "$REL"/*.dll; do

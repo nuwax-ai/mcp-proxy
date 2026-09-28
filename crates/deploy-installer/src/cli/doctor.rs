@@ -13,9 +13,12 @@ use crate::{
 /// Minimum free disk for voice-cli model + venv (~5GB).
 const MIN_FREE_BYTES: u64 = 5 * 1024 * 1024 * 1024;
 
+/// macOS 必需伴生库。`libonnxruntime.dylib` 用**未版本号**名：sherpa-onnx
+/// 各版本的预编译包里它始终存在，而带版本号的名字随 onnxruntime 演进
+/// （1.13.3→libonnxruntime.1.24.4.dylib，1.13.8→仅未版本名）——硬编码
+/// 版本号会在 sherpa 升级后让 doctor 误报 bundle 缺失
 #[cfg(target_os = "macos")]
-const VOICE_CLI_REQUIRED_LIBS: &[&str] =
-    &["libsherpa-onnx-c-api.dylib", "libonnxruntime.1.24.4.dylib"];
+const VOICE_CLI_REQUIRED_LIBS: &[&str] = &["libsherpa-onnx-c-api.dylib", "libonnxruntime.dylib"];
 
 pub fn run() -> Result<()> {
     println!("==> deploy-installer doctor");

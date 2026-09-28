@@ -14,12 +14,13 @@ pub const WHISPER_MODEL_FILE: &str = "ggml-large-v3.bin";
 pub const WHISPER_ALL_MODEL_NAMES: &[&str] = &["tiny", "base", "small", "medium", "large-v3"];
 /// Model names inside `whisper-ggml-all-{version}.tar.gz`.
 /// macOS shared-mode libs that must sit next to `voice-cli` (`@loader_path` / `@rpath`).
+/// 与 doctor.rs 同理：`libonnxruntime.dylib` 用未版本号名（sherpa 各版本
+/// 预编译包均存在；带版本号的名字随 onnxruntime 演进会漂移）
 #[cfg(target_os = "macos")]
-const VOICE_CLI_REQUIRED_LIBS: &[&str] =
-    &["libsherpa-onnx-c-api.dylib", "libonnxruntime.1.24.4.dylib"];
+const VOICE_CLI_REQUIRED_LIBS: &[&str] = &["libsherpa-onnx-c-api.dylib", "libonnxruntime.dylib"];
 
 #[cfg(target_os = "macos")]
-const VOICE_CLI_OPTIONAL_LIBS: &[&str] = &["libonnxruntime.dylib"];
+const VOICE_CLI_OPTIONAL_LIBS: &[&str] = &[];
 
 #[cfg(target_os = "windows")]
 const VOICE_CLI_REQUIRED_LIBS: &[&str] = &["sherpa-onnx-c-api.dll", "onnxruntime.dll"];

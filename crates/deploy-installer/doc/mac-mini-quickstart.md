@@ -217,7 +217,7 @@ tail -f ~/voice-cli/logs/launchd.stderr.log
 ~/voice-cli/voice-cli --version   # 应在安装目录执行
 ```
 
-确认 dylib 与 binary 同目录：`libsherpa-onnx-c-api.dylib`、`libonnxruntime.1.24.4.dylib`。
+确认 dylib 与 binary 同目录：`libsherpa-onnx-c-api.dylib`、`libonnxruntime.dylib`。
 
 ### 卸载
 
