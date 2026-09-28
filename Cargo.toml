@@ -169,8 +169,12 @@ async-trait = "0.1.92"
 # Task queue and persistence for async processing
 apalis = { version = "0.7", features = ["tracing", "limit"] }
 apalis-sql = { version = "0.7", features = ["sqlite"] }
-# sqlx 0.8（**不**升 0.9）：0.8→0.9 是 breaking（Pool<Sqlite> API 变），需改 voice-cli 代码，
-# 留作单独迁移。0.9 的特性名也改了（runtime-tokio-rustls 拆成 runtime-tokio + tls-*）。
+# sqlx 0.8（**不**升 0.9，双重阻塞，2026-09-28 复核）：
+# ① 生态阻塞：apalis-sql 0.7 全系钉 sqlx ^0.8.1，上游没有支持 0.9 的稳定版；
+#   apalis 1.0.0-rc 线已重构（sqlx 依赖移除，SQLite 存储拆成独立 apalis-sqlite crate），
+#   等其转正后随 apalis 1.0 一起迁移。
+# ② API breaking：0.8→0.9 是 Pool<Sqlite> API 变，需改 voice-cli 代码；
+#   特性名也改了（runtime-tokio-rustls 拆成 runtime-tokio + tls-*）。
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
 sled = "0.34"
 
