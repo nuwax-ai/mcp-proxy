@@ -428,14 +428,16 @@ impl ApiFileClient {
             .send()
             .await
             .map_err(|e| {
-                OssError::network(format!("自定义上传后端下载失败 ({effective_url}): {e}"))
+                // 错误文本只放原始 file_url——effective_url 含 AK 换签后的签名
+                // 参数（时效内可复用），不能进日志/错误链
+                OssError::network(format!("自定义上传后端下载失败 ({file_url}): {e}"))
             })?;
 
         if !response.status().is_success() {
             return Err(OssError::network(format!(
                 "自定义上传后端下载返回 HTTP {}: {}",
                 response.status(),
-                effective_url
+                file_url
             )));
         }
 
@@ -449,7 +451,7 @@ impl ApiFileClient {
         if content_type.contains("application/json") || content_type.contains("text/html") {
             return Err(OssError::network(format!(
                 "自定义上传后端返回的是 {content_type} 而非文件内容（多为错误信封或登录页），\
-                 拒绝作为文件返回: {effective_url}"
+                 拒绝作为文件返回: {file_url}"
             )));
         }
 
@@ -458,7 +460,7 @@ impl ApiFileClient {
             && len > max_bytes
         {
             return Err(OssError::network(format!(
-                "自定义上传后端响应体过大: {len} > {max_bytes} bytes: {effective_url}"
+                "自定义上传后端响应体过大: {len} > {max_bytes} bytes: {file_url}"
             )));
         }
 
@@ -472,7 +474,7 @@ impl ApiFileClient {
         {
             if body.len() as u64 + chunk.len() as u64 > max_bytes {
                 return Err(OssError::network(format!(
-                    "自定义上传后端响应体超过大小上限 {max_bytes} bytes: {effective_url}"
+                    "自定义上传后端响应体超过大小上限 {max_bytes} bytes: {file_url}"
                 )));
             }
             body.extend_from_slice(&chunk);
