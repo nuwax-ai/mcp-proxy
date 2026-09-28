@@ -234,16 +234,26 @@ fn warmup_model(state: Arc<AppState>, config: &AppConfig) -> Result<()> {
 
 /// 优雅关闭信号
 async fn shutdown_signal() {
+    // 信号处理器安装失败不应 panic 关闭任务：记录后保持 pending，
+    // 让另一路信号兜底（与 voice-cli shutdown 同范式）
     let ctrl_c = async {
-        signal::ctrl_c().await.expect("无法安装 Ctrl+C 信号处理器");
+        if let Err(e) = signal::ctrl_c().await {
+            tracing::error!("Ctrl+C 处理器异常: {e}，优雅关闭退化为仅依赖 SIGTERM");
+            std::future::pending::<()>().await;
+        }
     };
 
     #[cfg(unix)]
     let terminate = async {
-        signal::unix::signal(signal::unix::SignalKind::terminate())
-            .expect("无法安装 SIGTERM 信号处理器")
-            .recv()
-            .await;
+        match signal::unix::signal(signal::unix::SignalKind::terminate()) {
+            Ok(mut sig) => {
+                sig.recv().await;
+            }
+            Err(e) => {
+                tracing::error!("SIGTERM 处理器安装失败: {e}，优雅关闭退化为仅依赖 Ctrl+C");
+                std::future::pending::<()>().await;
+            }
+        }
     };
 
     #[cfg(not(unix))]
