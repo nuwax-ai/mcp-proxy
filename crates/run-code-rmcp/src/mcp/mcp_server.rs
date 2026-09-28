@@ -24,6 +24,45 @@ pub struct CodeRunRequest {
 #[derive(Debug, Clone, Default)]
 pub struct CodeRunnerService;
 
+impl CodeRunnerService {
+    /// 三种语言工具共用的执行与结果包装逻辑
+    async fn execute_tool(
+        &self,
+        language: LanguageScript,
+        request: CodeRunRequest,
+    ) -> Result<CallToolResult, McpError> {
+        match CodeExecutor::execute_with_params_compat(&request.code, language, request.params)
+            .await
+        {
+            Ok(result) => {
+                let payload = if result.success {
+                    json!({
+                        "result": result.result,
+                        "logs": result.logs,
+                        "success": true
+                    })
+                } else {
+                    json!({
+                        "success": false,
+                        "error": result.error,
+                        "logs": result.logs
+                    })
+                };
+                let content = ContentBlock::json(payload)?;
+                Ok(CallToolResult::success(vec![content]))
+            }
+            Err(err) => {
+                let content = ContentBlock::json(json!({
+                    "success": false,
+                    "error": err.to_string(),
+                    "logs": []
+                }))?;
+                Ok(CallToolResult::success(vec![content]))
+            }
+        }
+    }
+}
+
 #[tool_router]
 impl CodeRunnerService {
     #[tool(description = "执行JavaScript代码并返回结果")]
@@ -31,40 +70,7 @@ impl CodeRunnerService {
         &self,
         request: Parameters<CodeRunRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let request = request.0;
-        match CodeExecutor::execute_with_params_compat(
-            &request.code,
-            LanguageScript::Js,
-            request.params,
-        )
-        .await
-        {
-            Ok(result) => {
-                if result.success {
-                    let content = ContentBlock::json(json!({
-                        "result": result.result,
-                        "logs": result.logs,
-                        "success": true
-                    }))?;
-                    Ok(CallToolResult::success(vec![content]))
-                } else {
-                    let content = ContentBlock::json(json!({
-                        "success": false,
-                        "error": result.error,
-                        "logs": result.logs
-                    }))?;
-                    Ok(CallToolResult::success(vec![content]))
-                }
-            }
-            Err(err) => {
-                let content = ContentBlock::json(json!({
-                    "success": false,
-                    "error": err.to_string(),
-                    "logs": []
-                }))?;
-                Ok(CallToolResult::success(vec![content]))
-            }
-        }
+        self.execute_tool(LanguageScript::Js, request.0).await
     }
 
     #[tool(description = "执行TypeScript代码并返回结果")]
@@ -72,81 +78,15 @@ impl CodeRunnerService {
         &self,
         request: Parameters<CodeRunRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let request = request.0;
-        match CodeExecutor::execute_with_params_compat(
-            &request.code,
-            LanguageScript::Ts,
-            request.params,
-        )
-        .await
-        {
-            Ok(result) => {
-                if result.success {
-                    let content = ContentBlock::json(json!({
-                        "result": result.result,
-                        "logs": result.logs,
-                        "success": true
-                    }))?;
-                    Ok(CallToolResult::success(vec![content]))
-                } else {
-                    let content = ContentBlock::json(json!({
-                        "success": false,
-                        "error": result.error,
-                        "logs": result.logs
-                    }))?;
-                    Ok(CallToolResult::success(vec![content]))
-                }
-            }
-            Err(err) => {
-                let content = ContentBlock::json(json!({
-                    "success": false,
-                    "error": err.to_string(),
-                    "logs": []
-                }))?;
-                Ok(CallToolResult::success(vec![content]))
-            }
-        }
+        self.execute_tool(LanguageScript::Ts, request.0).await
     }
 
-    #[rmcp::tool(description = "执行Python代码并返回结果")]
+    #[tool(description = "执行Python代码并返回结果")]
     async fn run_python(
         &self,
         request: Parameters<CodeRunRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let request = request.0;
-        match CodeExecutor::execute_with_params_compat(
-            &request.code,
-            LanguageScript::Python,
-            request.params,
-        )
-        .await
-        {
-            Ok(result) => {
-                if result.success {
-                    let content = ContentBlock::json(json!({
-                        "result": result.result,
-                        "logs": result.logs,
-                        "success": true
-                    }))?;
-                    Ok(CallToolResult::success(vec![content]))
-                } else {
-                    let content = ContentBlock::json(json!({
-                        "success": false,
-                        "error": result.error,
-                        "logs": result.logs
-                    }))?;
-                    Ok(CallToolResult::success(vec![content]))
-                }
-            }
-            Err(err) => {
-                let content = ContentBlock::json(json!({
-                    "success": false,
-                    "error": err.to_string(),
-                    "logs": []
-                }))?;
-                Ok(CallToolResult::success(vec![content]))
-            }
-        }
+        self.execute_tool(LanguageScript::Python, request.0).await
     }
 }
 
