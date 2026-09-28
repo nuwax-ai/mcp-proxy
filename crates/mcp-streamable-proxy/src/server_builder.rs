@@ -192,7 +192,10 @@ impl StreamServerBuilder {
                     ProxyHandler::new_per_session(connector, mcp_id.clone(), tool_filter);
                 (router, ct, management)
             }
-            (BackendConfig::Stdio { .. }, BackendIsolation::PerSession) => unreachable!(),
+            // 前置校验（build 早期 bail）保证不可达；防御漂移后 panic
+            (BackendConfig::Stdio { .. }, BackendIsolation::PerSession) => {
+                bail!("stdio 后端不支持 PerSession 隔离（应在前置校验中被拒绝）");
+            }
         };
 
         info!(

@@ -32,7 +32,11 @@ pub(crate) async fn mcp_json_config_extract(
                         .decode(encoded)
                         .ok()
                         .and_then(|bytes| String::from_utf8(bytes).ok());
-                    debug!("Parsed MCP configuration, x-mcp-json={:?}", &decoded);
+                    // 只记长度：解码后的配置含 auth_token 等敏感字段，不能整段落日志
+                    debug!(
+                        "Parsed x-mcp-json, decoded_len={}",
+                        decoded.as_deref().map_or(0, str::len)
+                    );
 
                     decoded
                 });

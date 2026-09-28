@@ -604,13 +604,14 @@ async fn handle_request_with_router(
         );
     }
 
-    // 记录 x-mcp-json 头信息（如果存在）
+    // 记录 x-mcp-json 头信息（如果存在）——只记长度：
+    // base64 可被轻易解码，配置中含 auth_token 等敏感字段
     if let Some(mcp_json) = req.headers().get("x-mcp-json")
         && let Ok(mcp_json_str) = mcp_json.to_str()
     {
         debug!(
-            "[handle_request_with_router] MCP-JSON Header: {}",
-            mcp_json_str
+            "[handle_request_with_router] MCP-JSON Header present, len={}",
+            mcp_json_str.len()
         );
     }
 

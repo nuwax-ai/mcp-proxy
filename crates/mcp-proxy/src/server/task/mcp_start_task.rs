@@ -139,7 +139,12 @@ pub async fn integrate_server_with_axum(
         McpProtocol::Sse => {
             let sse_path = match &mcp_router_path.mcp_protocol_path {
                 McpProtocolPath::SsePath(sse_path) => sse_path,
-                _ => unreachable!(),
+                // 外层协议匹配保证不可达；防御协议/路径解析漂移后 panic 整个启动任务
+                other => {
+                    return Err(anyhow::anyhow!(
+                        "协议路径不匹配：SSE 协议期望 SsePath，实际 {other:?}"
+                    ));
+                }
             };
 
             // Build backend config for SSE

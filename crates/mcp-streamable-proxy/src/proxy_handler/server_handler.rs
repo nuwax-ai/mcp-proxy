@@ -100,7 +100,7 @@ impl ServerHandler for ProxyHandler {
     #[tracing::instrument(skip(self, request, context), fields(
         mcp_id = %self.mcp_id,
         tool_name = %request.name,
-        tool_arguments = ?request.arguments,
+        // 不记 tool_arguments：工具参数常含用户数据/凭据，不能进默认 INFO 级 span
     ))]
     async fn call_tool(
         &self,
