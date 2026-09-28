@@ -13,7 +13,9 @@ use crate::server::task::integrate_server_with_axum;
 use serde_json::json;
 
 // 修改 add_route_handler 函数，使用新的集成方法
-#[instrument]
+// skip(params)：mcp_json_config 对 URL 型配置内含 auth_token/env 等敏感字段，
+// 不能整段进默认 INFO 级 span（需要排查时再显式 debug 输出脱敏摘要）
+#[instrument(skip(params))]
 // #[axum::debug_handler]
 #[utoipa::path(
     post,
