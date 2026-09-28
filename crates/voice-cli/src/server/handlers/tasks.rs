@@ -188,10 +188,10 @@ pub async fn retry_task_handler(
 }
 
 /// 删除任务
-/// DELETE /tasks/:task_id/delete
+/// DELETE /api/v1/tasks/{task_id}
 #[utoipa::path(
     delete,
-    path = "/api/v1/tasks/{task_id}/delete",
+    path = "/api/v1/tasks/{task_id}",
     tag = "任务管理", 
     summary = "删除任务",
     description = "彻底删除任务数据，包括状态和结果",
