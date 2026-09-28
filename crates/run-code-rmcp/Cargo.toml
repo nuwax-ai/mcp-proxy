@@ -48,6 +48,10 @@ blake3 = "1.8"
 pin-project = "1.1"
 schemars = "1.2"
 
+# Unix 进程组终止（超时杀整组，覆盖 uv 拉起的 Python 孙进程）
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [[bin]]
 name = "script_runner"
 path = "src/script_runner.rs"
