@@ -11,7 +11,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 /// 解析 WS 文本帧是否为控制帧（`{type:"<ty>"}`），避免 contains 误判（如 "nonstop"）。
 /// stt_stream（stop）/ tts_stream（cancel）共用。
@@ -23,17 +23,25 @@ pub fn is_control_frame(text: &str, ty: &str) -> bool {
 }
 
 async fn shutdown_signal_with_broadcast(shutdown_tx: broadcast::Sender<()>) {
+    // 信号处理器安装失败不应 panic 整个 shutdown 任务：记录后保持 pending，
+    // 让另一个信号（或进程被杀）兜底，优雅关闭逻辑仍可被触发
     let ctrl_c = async {
-        tokio::signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
+        if let Err(e) = tokio::signal::ctrl_c().await {
+            error!("Ctrl+C 处理器异常: {e}，优雅关闭退化为仅依赖 SIGTERM");
+            std::future::pending::<()>().await;
+        }
     };
     #[cfg(unix)]
     let terminate = async {
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("failed to install signal handler")
-            .recv()
-            .await;
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut sig) => {
+                sig.recv().await;
+            }
+            Err(e) => {
+                error!("SIGTERM 处理器安装失败: {e}，优雅关闭退化为仅依赖 Ctrl+C");
+                std::future::pending::<()>().await;
+            }
+        }
     };
     #[cfg(not(unix))]
     let terminate = std::future::pending::<()>();

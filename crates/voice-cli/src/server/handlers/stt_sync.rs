@@ -162,8 +162,12 @@ pub async fn transcribe_handler(
                         max_new_tokens: sh.qwen3asr.max_new_tokens,
                     },
                 ),
-                // Whisper / SenseVoice 由前置独立臂处理，逻辑不可达
-                _ => unreachable!("sherpa 分派臂已覆盖全部 sherpa backend"),
+                // Whisper / SenseVoice 由前置独立臂处理；防御未来新增 backend 漏改此处
+                _ => {
+                    return Err(VoiceCliError::TranscriptionFailed(format!(
+                        "backend {backend:?} 不在 sherpa 分派范围内"
+                    )));
+                }
             };
             let model_id = model_dir.display().to_string();
             let load_params = crate::stt::SherpaAsrLoadParams {
