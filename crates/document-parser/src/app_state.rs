@@ -218,7 +218,11 @@ impl AppState {
         let mut to_remove = Vec::new();
         let mut expired_tasks = Vec::new();
 
-        for result in tasks_tree.iter() {
+        // 与 TaskService/StorageService 同一 "task:" 前缀键空间（见
+        // storage_service::TASK_PREFIX），避免扫到同 tree 内非任务键
+        for result in
+            tasks_tree.scan_prefix(crate::services::storage_service::TASK_PREFIX.as_bytes())
+        {
             match result {
                 Ok((key, value)) => {
                     if let Ok(task_data) =
