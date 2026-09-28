@@ -33,8 +33,8 @@ utoipa = { workspace = true }
 
 # crate 专属依赖（workspace 未集中管理）
 env_logger = "0.11"
-# rmcp 仅在 mcp feature 下启用；workspace 内 mcp-sse-proxy(0.10)/mcp-streamable-proxy(0.12) 各自管理 rmcp 版本，互不影响
-rmcp = { version = "0.17", features = [
+# rmcp 仅在 mcp feature 下启用；workspace 内 mcp-sse-proxy(0.10)/mcp-streamable-proxy(3.5) 各自管理 rmcp 版本，互不影响
+rmcp = { version = "3.5", features = [
     "server",
     "client",
     "transport-io",

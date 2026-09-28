@@ -2,9 +2,7 @@ use anyhow::Result;
 use rmcp::{
     ErrorData as McpError, ServerHandler,
     handler::server::wrapper::Parameters,
-    model::{
-        CallToolResult, Content, Implementation, ProtocolVersion, ServerCapabilities, ServerInfo,
-    },
+    model::{CallToolResult, ContentBlock, ServerCapabilities, ServerConfig},
     tool, tool_router,
 };
 use serde::Deserialize;
@@ -43,14 +41,14 @@ impl CodeRunnerService {
         {
             Ok(result) => {
                 if result.success {
-                    let content = Content::json(json!({
+                    let content = ContentBlock::json(json!({
                         "result": result.result,
                         "logs": result.logs,
                         "success": true
                     }))?;
                     Ok(CallToolResult::success(vec![content]))
                 } else {
-                    let content = Content::json(json!({
+                    let content = ContentBlock::json(json!({
                         "success": false,
                         "error": result.error,
                         "logs": result.logs
@@ -59,7 +57,7 @@ impl CodeRunnerService {
                 }
             }
             Err(err) => {
-                let content = Content::json(json!({
+                let content = ContentBlock::json(json!({
                     "success": false,
                     "error": err.to_string(),
                     "logs": []
@@ -84,14 +82,14 @@ impl CodeRunnerService {
         {
             Ok(result) => {
                 if result.success {
-                    let content = Content::json(json!({
+                    let content = ContentBlock::json(json!({
                         "result": result.result,
                         "logs": result.logs,
                         "success": true
                     }))?;
                     Ok(CallToolResult::success(vec![content]))
                 } else {
-                    let content = Content::json(json!({
+                    let content = ContentBlock::json(json!({
                         "success": false,
                         "error": result.error,
                         "logs": result.logs
@@ -100,7 +98,7 @@ impl CodeRunnerService {
                 }
             }
             Err(err) => {
-                let content = Content::json(json!({
+                let content = ContentBlock::json(json!({
                     "success": false,
                     "error": err.to_string(),
                     "logs": []
@@ -125,14 +123,14 @@ impl CodeRunnerService {
         {
             Ok(result) => {
                 if result.success {
-                    let content = Content::json(json!({
+                    let content = ContentBlock::json(json!({
                         "result": result.result,
                         "logs": result.logs,
                         "success": true
                     }))?;
                     Ok(CallToolResult::success(vec![content]))
                 } else {
-                    let content = Content::json(json!({
+                    let content = ContentBlock::json(json!({
                         "success": false,
                         "error": result.error,
                         "logs": result.logs
@@ -141,7 +139,7 @@ impl CodeRunnerService {
                 }
             }
             Err(err) => {
-                let content = Content::json(json!({
+                let content = ContentBlock::json(json!({
                     "success": false,
                     "error": err.to_string(),
                     "logs": []
@@ -153,12 +151,8 @@ impl CodeRunnerService {
 }
 
 impl ServerHandler for CodeRunnerService {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            protocol_version: ProtocolVersion::V_2024_11_05,
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
-            server_info: Implementation::from_build_env(),
-            instructions: Some("一个支持执行JavaScript、TypeScript和Python代码的服务".to_string()),
-        }
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
+            .with_instructions("一个支持执行JavaScript、TypeScript和Python代码的服务")
     }
 }

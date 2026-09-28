@@ -77,7 +77,7 @@ sherpa-onnx = { version = "=1.13.8", default-features = false }
 # 繁→简中文转换（STT 后处理）：纯 Rust 核心，字典编译期内嵌，zstd 复用现有依赖树
 ferrous-opencc = "0.4"
 
-# Note: rmcp 依赖由各子项目独立管理（mcp-sse-proxy 用 0.10，mcp-streamable-proxy 用 3.1.1）
+# Note: rmcp 依赖由各子项目独立管理（mcp-sse-proxy 用 0.10，mcp-streamable-proxy 用 3.5，run-code-rmcp 的 mcp feature 用 3.5）
 tokio = { version = "1.53", features = ["macros", "net", "rt", "rt-multi-thread"] }
 socket2 = "0.6"
 tokio-util = "0.7.19"
@@ -86,12 +86,12 @@ tokio-util = "0.7.19"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
-tracing-opentelemetry = "0.33"
-opentelemetry = { version = "0.32", features = ["trace"] }
+tracing-opentelemetry = "0.34"
+opentelemetry = { version = "0.33", features = ["trace"] }
 opentelemetry-jaeger = { version = "0.22", features = ["rt-tokio"] }
-opentelemetry-semantic-conventions = { version = "0.32", features = ["semconv_experimental"] }
-opentelemetry_sdk = "0.32"
-opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic"] }
+opentelemetry-semantic-conventions = { version = "0.33", features = ["semconv_experimental"] }
+opentelemetry_sdk = "0.33"
+opentelemetry-otlp = { version = "0.33", features = ["grpc-tonic"] }
 tonic = "0.14"
 hostname = "0.4"
 uuid = { version = "1.26", features = ["v4", "v7"] }
@@ -120,16 +120,16 @@ tower-http = { version = "0.7", features = [
     "catch-panic",
 ] }
 axum-extra = { version = "0.12", features = ["typed-header"] }
-utoipa = { version = "5.5", features = ["axum_extras", "chrono", "uuid"] }
-utoipa-swagger-ui = { version = "9", features = ["axum"] }
-utoipa-scalar = { version = "0.3", features = ["axum"] }
+utoipa = { version = "6", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { version = "10", features = ["axum"] }
+utoipa-scalar = { version = "0.4", features = ["axum"] }
 dashmap = "6.2"
 arc-swap = "1.9"
 # Windows canonicalize 返回 \\?\ 扩展长度路径，子进程（mineru 等 Python CLI）不认——
 # dunce 返回普通绝对路径（Unix 行为等同 std）
 dunce = "1"
 # WebSocket 客户端（test-e2e 用；axum "ws" feature 已把 tungstenite 0.29 拉进 lock，零新增编译）
-tokio-tungstenite = "0.29"
+tokio-tungstenite = "0.30"
 futures-util = "0.3"
 moka = { version = "0.12", features = ["future"] }
 criterion = "0.8"
@@ -153,7 +153,7 @@ base64 = "0.23"
 tempfile = "3.27"
 service-manager = "0.11"
 dotenvy = "0.15"
-dirs = "6.0"
+dirs = "7.0"
 scopeguard = "1.2"
 
 # voice-cli 专用（迁入 workspace 统一版本；除 reqwest 外 voice-cli 不再 inline 版本）
