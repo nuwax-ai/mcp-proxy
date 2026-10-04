@@ -82,6 +82,14 @@ cargo run -p deploy-installer -- voice-cli setup            # install + service 
 cargo run -p deploy-installer -- document-parser setup
 ```
 
+**Desktop Client** (`ai-toolbox`, separate workspace — excluded from the root workspace;
+own Cargo.lock; depends on crates.io `gpui-kit`):
+```bash
+cd clients/desktop && cargo run        # GUI client managing voice-cli/document-parser as child processes
+```
+During development, point asset provisioning at a local deploy-installer checkout with
+`NUWAX_DEPLOY_ROOT=<repo>/npm/deploy-installer` (see clients/desktop/README.md).
+
 ## Architecture Overview
 
 Rust workspace (13 crates, ~110k lines) that has grown from an MCP proxy into a

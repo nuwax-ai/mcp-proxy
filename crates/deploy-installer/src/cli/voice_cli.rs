@@ -565,7 +565,9 @@ fn upgrade_voice_cli(install_dir: &Path, oss_base: Option<&str>) -> Result<()> {
     }
 }
 
-fn setup(
+/// 铺文件到 install_dir（二进制/模板/models+logs 目录/模型/ffmpeg），不做任何服务注册。
+/// 库调用方（ai-toolbox 桌面客户端进程托管）复用；CLI 的 install/setup 子命令共用。
+pub fn setup(
     args: &VoiceCliSetupArgs,
     quiet: bool,
     installing: bool,

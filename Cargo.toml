@@ -29,6 +29,8 @@ default-members = [
     "crates/oss-client",
     "crates/run-code-rmcp",
 ]
+# 桌面客户端（gpui 依赖树千级 crate）独立 workspace——锁文件/CI/Docker 构建链完全隔离
+exclude = ["clients/desktop"]
 resolver = "2"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

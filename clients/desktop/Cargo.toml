@@ -1,0 +1,54 @@
+# ai-toolbox 独立 workspace——与主仓 Cargo.lock 完全隔离（根 Cargo.toml 已 exclude 本目录）。
+# 依赖 crates.io 发布版 gpui-kit；与本地 gpui-kit 源码联调时加：
+#   [patch.crates-io]
+#   gpui-kit = { path = "/Users/soddy/Documents/git-workspace/gpui-kit/crates/kit" }
+[workspace]
+
+[package]
+name = "ai-toolbox"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+gpui-kit = "0.7"
+# gpui 生态 HTTP 客户端（与 gpui-kit 同 GPUI 快照族）；仅用于 cx.set_http_client 注册，
+# 让 Markdown 远程图片经 GPUI 图像管线自动加载。
+reqwest_client = { package = "gpui-pre-reqwest-client", version = "=0.3.7" }
+# 客户端自身 API 调用与资产下载：blocking 形态（内部自带运行时，无 tokio 依赖），
+# 在 smol::unblock 后台线程里跑；multipart 上传原生支持。
+reqwest = { version = "0.12", default-features = false, features = [
+    "blocking",
+    "multipart",
+    "rustls-tls",
+    "json",
+] }
+anyhow = "1"
+smol = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# dp 运行时配置仅改 server.port：以 setup 落好的 config.yml 为底做 Value 级改写。
+# 钉 =0.9.33 与主仓一致（该系列语义与维护状态在根 Cargo.toml 有备案）。
+serde_yaml = "=0.9.33"
+dirs = "6"
+# 单实例锁：OS 文件锁随进程退出/崩溃自动释放，无陈旧锁文件问题
+fd-lock = "4"
+
+# 复用安装器的铺文件管线（setup pub 化：二进制/模板/venv/ffmpeg）与资产 URL 族
+deploy-installer = { path = "../../crates/deploy-installer" }
+
+[target.'cfg(unix)'.dependencies]
+# 仅两处 FFI：进程组信号（kill）——直接用 libc，不手搓 extern
+libc = "0.2"
+
+# 对齐 gpui-kit 的 dev 档优化：这些 crate 不提 opt-level 的话 debug 运行明显卡顿
+[profile.dev.package]
+gpui-pre = { opt-level = 3 }
+gpui-pre-platform = { opt-level = 3 }
+gpui-pre-macros = { opt-level = 3 }
+gpui-pre-reqwest-client = { opt-level = 3 }
+gpui-pre-sum-tree = { opt-level = 3 }
+taffy = { opt-level = 3 }
+rustybuzz = { opt-level = 3 }
+ttf-parser = { opt-level = 3 }
+resvg = { opt-level = 3 }
