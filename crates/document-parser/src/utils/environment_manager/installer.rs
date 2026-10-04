@@ -223,6 +223,35 @@ impl EnvironmentManager {
                 .arg("--trusted-host")
                 .arg("mirrors.aliyun.com");
         }
+
+        // macOS 防御性钉版本：onnxruntime 1.29.0 在 arm64 有退出阶段 native 析构崩溃
+        // （server 子进程 Finished 后 abort → 成功任务被报失败 → parse 500）。
+        // 预编译 venv 打包脚本已钉（scripts/ci/pack-document-parser-venv-macos-arm64.sh）；
+        // 这里覆盖走 uv-init 现场建 venv 的回退路径。Linux 未见此问题，不扰动。
+        #[cfg(target_os = "macos")]
+        {
+            let mut pin_cmd = Self::uv_command().await;
+            pin_cmd
+                .arg("pip")
+                .arg("install")
+                .arg("--python")
+                .arg(&python_path)
+                .arg("onnxruntime==1.24.4");
+            if is_china {
+                pin_cmd
+                    .arg("-i")
+                    .arg("https://mirrors.aliyun.com/pypi/simple/")
+                    .arg("--trusted-host")
+                    .arg("mirrors.aliyun.com");
+            }
+            let pin = pin_cmd.output();
+            match timeout(Duration::from_secs(300), pin).await {
+                Ok(Ok(out)) if out.status.success() => {
+                    info!("pinned onnxruntime==1.24.4 (macOS exit-abort workaround)");
+                }
+                _ => warn!("onnxruntime pin failed (non-fatal; 1.29 exit-abort may surface)"),
+            }
+        }
         //install_cmd 命令打印
         info!("mineru installation command={:?}", &install_cmd);
 

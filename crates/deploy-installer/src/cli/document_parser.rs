@@ -62,7 +62,10 @@ fn venv_present(install_dir: &Path) -> bool {
     venv_python_path(install_dir).exists()
 }
 
-fn setup(args: &SetupArgs, quiet: bool, installing: bool) -> Result<PathBuf> {
+/// 铺文件到 install_dir（二进制/模板/syslibs/venv/mineru 模型），不做任何服务注册、
+/// 无上传凭证门槛（凭证门只存在于 install_full 的 CLI 预检）。
+/// 库调用方（ai-toolbox 桌面客户端进程托管）复用；CLI 的 install/setup 子命令共用。
+pub fn setup(args: &SetupArgs, quiet: bool, installing: bool) -> Result<PathBuf> {
     let install_dir = resolve_install_dir(args);
     fs::create_dir_all(&install_dir)
         .with_context(|| format!("create install dir {}", install_dir.display()))?;
@@ -109,8 +112,6 @@ fn setup(args: &SetupArgs, quiet: bool, installing: bool) -> Result<PathBuf> {
     // 缺模型时首跑 PDF 解析会从 ModelScope 下载——部分网络下死循环到
     // 3600s 超时（Win53 实测）。默认安装期从自家 OSS 供给（~1GB，幂等跳过）。
     ensure_mineru_models(args, quiet);
-
-    patch_config_for_macos(&install_dir.join(CONFIG_FILENAME))?;
 
     if !quiet {
         println!("\n✅ setup complete: {}", install_dir.display());
@@ -376,7 +377,6 @@ fn copy_templates(install_dir: &Path, quiet: bool) -> Result<()> {
         } else if dst_name == CONFIG_FILENAME && !dst.exists() {
             let content = include_str!("../../../document-parser/deploy/config/config.example.yml");
             fs::write(&dst, content)?;
-            patch_config_for_macos(&dst)?;
             if !quiet {
                 println!("  template: {} (embedded fallback)", dst_name);
             }
@@ -585,19 +585,6 @@ fn download_prebuilt_venv(args: &SetupArgs, install_dir: &Path, quiet: bool) -> 
         bail!("prebuilt venv requires --oss-base or a venv URL in vendor/templates/manifest.json");
     };
     download_and_extract_tarball(&url, install_dir, "venv-prebuilt.tar.gz", quiet, "venv")
-}
-
-fn patch_config_for_macos(config_path: &Path) -> Result<()> {
-    if !cfg!(target_os = "macos") || !config_path.exists() {
-        return Ok(());
-    }
-    let content = fs::read_to_string(config_path)?;
-    if content.contains("device: \"mps\"") || content.contains("device: 'mps'") {
-        return Ok(());
-    }
-    let patched = content.replace("device: \"cpu\"", "device: \"mps\"");
-    fs::write(config_path, patched)?;
-    Ok(())
 }
 
 /// MinerU pipeline 模型缓存目录特征（PDF-Extract-Kit-1.0 的 snapshot 根）——

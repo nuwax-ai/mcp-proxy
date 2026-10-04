@@ -5,7 +5,7 @@
 
 use super::common::copy_file_atomic;
 use crate::{WhisperModelsPack, make_executable};
-use anyhow::{Result, bail};
+use anyhow::{Context as _, Result, bail};
 use std::fs;
 use std::path::Path;
 
@@ -13,14 +13,8 @@ pub const WHISPER_DEFAULT_MODEL: &str = "large-v3";
 pub const WHISPER_MODEL_FILE: &str = "ggml-large-v3.bin";
 pub const WHISPER_ALL_MODEL_NAMES: &[&str] = &["tiny", "base", "small", "medium", "large-v3"];
 /// Model names inside `whisper-ggml-all-{version}.tar.gz`.
-/// macOS shared-mode libs that must sit next to `voice-cli` (`@loader_path` / `@rpath`).
-/// 与 doctor.rs 同理：`libonnxruntime.dylib` 用未版本号名（sherpa 各版本
-/// 预编译包均存在；带版本号的名字随 onnxruntime 演进会漂移）
-#[cfg(target_os = "macos")]
-const VOICE_CLI_REQUIRED_LIBS: &[&str] = &["libsherpa-onnx-c-api.dylib", "libonnxruntime.dylib"];
-
-#[cfg(target_os = "macos")]
-const VOICE_CLI_OPTIONAL_LIBS: &[&str] = &[];
+/// macOS 不用枚举清单：`copy_voice_cli_companion_libs` 通配拷贝 vendor 目录的
+/// 全部 lib*.dylib（二进制按带版本号名引用 onnxruntime，名字随版本漂移）。
 
 #[cfg(target_os = "windows")]
 const VOICE_CLI_REQUIRED_LIBS: &[&str] = &["sherpa-onnx-c-api.dll", "onnxruntime.dll"];
@@ -205,32 +199,69 @@ pub fn ensure_whisper_large_v3_model(install_dir: &Path) -> Result<()> {
 
 /// Copy sherpa/onnxruntime shared libs that must live beside `voice-cli`.
 fn copy_voice_cli_companion_libs(src_dir: &Path, install_dir: &Path, quiet: bool) -> Result<()> {
-    for name in VOICE_CLI_REQUIRED_LIBS {
-        let src = src_dir.join(name);
-        let dst = install_dir.join(name);
-        if src.exists() {
-            copy_file_atomic(&src, &dst)?;
+    #[cfg(target_os = "macos")]
+    {
+        // macOS：二进制按链接期的带版本号名引用 onnxruntime（如
+        // libonnxruntime.1.24.4.dylib，随 onnxruntime 演进漂移），vendor 打包
+        // 同时携带带/不带版本号两个名字——通配拷贝全部 lib*.dylib，不枚举具体名
+        //（0.2.30 实测：只拷清单里的未版本号名，dyld 找版本号名失败，起进程即死）。
+        let mut copied = false;
+        let entries = std::fs::read_dir(src_dir)
+            .with_context(|| format!("read vendor dir {}", src_dir.display()))?;
+        for entry in entries {
+            let path = entry?.path();
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            if !name.starts_with("lib") || !name.ends_with(".dylib") {
+                continue;
+            }
+            let dst = install_dir.join(name);
+            copy_file_atomic(&path, &dst)?;
             make_executable(&dst)?;
+            copied = true;
             if !quiet {
                 println!("  copied companion lib {name}");
             }
-        } else if !dst.exists() {
+        }
+        if !copied {
             bail!(
-                "required companion lib missing: {} (and not already in {}) — \
-                 re-run assemble / copy libsherpa-onnx-c-api + libonnxruntime next to voice-cli",
-                src.display(),
-                install_dir.display()
+                "no companion lib*.dylib found in {} — re-run assemble / copy \
+                 libsherpa-onnx-c-api + libonnxruntime next to voice-cli",
+                src_dir.display()
             );
         }
     }
-    for name in VOICE_CLI_OPTIONAL_LIBS {
-        let src = src_dir.join(name);
-        let dst = install_dir.join(name);
-        if src.exists() {
-            copy_file_atomic(&src, &dst)?;
-            make_executable(&dst)?;
-            if !quiet {
-                println!("  copied companion lib {name}");
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        for name in VOICE_CLI_REQUIRED_LIBS {
+            let src = src_dir.join(name);
+            let dst = install_dir.join(name);
+            if src.exists() {
+                copy_file_atomic(&src, &dst)?;
+                make_executable(&dst)?;
+                if !quiet {
+                    println!("  copied companion lib {name}");
+                }
+            } else if !dst.exists() {
+                bail!(
+                    "required companion lib missing: {} (and not already in {}) — \
+                     re-run assemble / copy libsherpa-onnx-c-api + libonnxruntime next to voice-cli",
+                    src.display(),
+                    install_dir.display()
+                );
+            }
+        }
+        for name in VOICE_CLI_OPTIONAL_LIBS {
+            let src = src_dir.join(name);
+            let dst = install_dir.join(name);
+            if src.exists() {
+                copy_file_atomic(&src, &dst)?;
+                make_executable(&dst)?;
+                if !quiet {
+                    println!("  copied companion lib {name}");
+                }
             }
         }
     }
