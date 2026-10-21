@@ -11,7 +11,7 @@
 # - export 阶段带出伴生 CPU .so 两枚（bundle 打包脚本 pack-voice-cli-vulkan 的输入）
 #
 # 用法（Mac Docker Desktop，amd64 走 Rosetta）：
-#   bash docker/fetch-sherpa.sh amd64   # 已含 static；shared-lib 变体见 README
+#   bash docker/fetch-sherpa.sh amd64   # 默认即 shared 变体（下方 SHERPA_ONNX_ARCHIVE_DIR 所需）
 #   docker buildx build --platform linux/amd64 --target export \
 #     --output type=local,dest=./dist/voice-cli-vulkan \
 #     -f docker/Dockerfile.voice-cli-vulkan .
@@ -43,8 +43,8 @@ COPY . .
 # 宿主侧配套：cp .cargo/config.toml docker/cargo-config-linux-rpath.toml
 COPY docker/cargo-config-linux-rpath.toml .cargo/config.toml
 
-# sherpa-onnx 预编译 C 库缓存（shared-lib 变体，fetch 脚本不含——手动下载：
-#   ghproxy 下载 sherpa-onnx-v1.13.3-linux-x64-shared-lib.tar.bz2 到本目录）
+# sherpa-onnx 预编译 C 库缓存（fetch-sherpa.sh 默认 shared 变体即为本文件所需；
+#   版本自动读根 Cargo.lock 的 sherpa-onnx-sys，升级 lock 无需改脚本）
 ENV SHERPA_ONNX_ARCHIVE_DIR=/app/docker/sherpa-cache
 
 # ggml 默认 GGML_NATIVE=ON 把**构建容器 CPU**（Docker/Rosetta 下检测）的指令集

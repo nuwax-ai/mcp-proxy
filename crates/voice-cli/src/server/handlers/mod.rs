@@ -17,7 +17,7 @@ use crate::services::{
     TranscriptionTask, TtsApalisManager,
 };
 use crate::tts::{AudioFormat, TtsModelService, TtsOptions, resolve_reference};
-use apalis_sql::sqlite::SqliteStorage;
+use apalis_sqlite::SqliteStorage;
 use axum::extract::{Json, Multipart, Path as AxumPath, State};
 use axum::response::IntoResponse;
 use chrono::Utc;

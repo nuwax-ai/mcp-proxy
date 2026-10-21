@@ -14,7 +14,7 @@ use crate::utils::{get_file_extension, is_supported_media_format};
 use apalis::layers::WorkerBuilderExt;
 use apalis::layers::retry::RetryPolicy;
 use apalis::prelude::*;
-use apalis_sql::sqlite::SqliteStorage;
+use apalis_sqlite::SqliteStorage;
 use chrono::{DateTime, Utc};
 use futures::StreamExt;
 use reqwest;

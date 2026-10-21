@@ -101,7 +101,7 @@ impl LockFreeApalisManager {
             .await
             .map_err(|e| VoiceCliError::Storage(format!("设置 Apalis 存储失败: {}", e)))?;
 
-        let storage = SqliteStorage::new(pool.clone());
+        let storage = SqliteStorage::new(&pool);
 
         let manager = Self {
             pool,
@@ -185,16 +185,19 @@ impl LockFreeApalisManager {
             "Creating Apalis worker...max_concurrent_tasks={},retry_attempts={}",
             self.config.max_concurrent_tasks, self.config.retry_attempts
         );
-        let worker = WorkerBuilder::new("transcription-pipeline")
-            .data(step_context)
-            .enable_tracing()
-            .concurrency(self.config.max_concurrent_tasks)
-            .retry(RetryPolicy::retries(self.config.retry_attempts))
-            .backend(storage.clone())
-            .build_fn(transcription_pipeline_worker);
-
-        // 启动监控器 - 使用更简单的方法
-        let monitor = Monitor::new().register(worker);
+        // apalis 1.0：register 接收 worker 工厂闭包（每次（重）启动调用一次），
+        // backend/data 均需 Clone，配置值先拷出避免借用 self
+        let max_concurrency = self.config.max_concurrent_tasks;
+        let retry_attempts = self.config.retry_attempts;
+        let monitor = Monitor::new().register(move |_restarts| {
+            WorkerBuilder::new("transcription-pipeline")
+                .backend(storage.clone())
+                .retry(RetryPolicy::retries(retry_attempts))
+                .enable_tracing()
+                .concurrency(max_concurrency)
+                .data(step_context.clone())
+                .build(transcription_pipeline_worker)
+        });
 
         info!("Starting the Apalis monitor...");
 

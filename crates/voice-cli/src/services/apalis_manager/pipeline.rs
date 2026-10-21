@@ -6,7 +6,7 @@ use super::*;
 async fn audio_preprocessing_step(
     task: TranscriptionTask,
     ctx: Data<StepContext>,
-) -> Result<AudioProcessedTask, Error> {
+) -> Result<AudioProcessedTask, BoxDynError> {
     info!("Step 1 - Audio Preprocessing: {}", task.task_id);
 
     // 更新状态为处理中
@@ -32,8 +32,9 @@ async fn audio_preprocessing_step(
                 download_audio_from_url(&url, &task.task_id, &ctx.audio_file_manager.storage_dir)
                     .await
                     .map_err(|e| {
-                        Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
-                            format!("下载URL音频文件失败: {}", e),
+                        Box::new(AbortError::new(std::io::Error::other(format!(
+                            "下载URL音频文件失败: {}",
+                            e
                         ))))
                     })?;
 
@@ -41,8 +42,9 @@ async fn audio_preprocessing_step(
             let final_audio_path = detect_and_rename_audio_file(&downloaded_path, &task.task_id)
                 .await
                 .map_err(|e| {
-                    Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
-                        format!("检测音频文件格式失败: {}", e),
+                    Box::new(AbortError::new(std::io::Error::other(format!(
+                        "检测音频文件格式失败: {}",
+                        e
                     ))))
                 })?;
 
@@ -50,16 +52,18 @@ async fn audio_preprocessing_step(
             update_task_file_path_in_db(&task.task_id, &final_audio_path, &ctx)
                 .await
                 .map_err(|e| {
-                    Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
-                        format!("更新数据库文件路径失败: {}", e),
+                    Box::new(AbortError::new(std::io::Error::other(format!(
+                        "更新数据库文件路径失败: {}",
+                        e
                     ))))
                 })?;
 
             final_audio_path
         } else {
-            return Err(Error::Abort(std::sync::Arc::new(Box::new(
-                std::io::Error::other(format!("URL任务缺少URL地址: {}", task.task_id)),
-            ))));
+            return Err(Box::new(AbortError::new(std::io::Error::other(format!(
+                "URL任务缺少URL地址: {}",
+                task.task_id
+            )))));
         }
     } else {
         // 文件上传任务：直接使用现有文件路径
@@ -70,8 +74,9 @@ async fn audio_preprocessing_step(
 
         // 读取并验证音频文件
         let _audio_data = tokio::fs::read(&task.audio_file_path).await.map_err(|e| {
-            Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
-                format!("读取音频文件失败: {}", e),
+            Box::new(AbortError::new(std::io::Error::other(format!(
+                "读取音频文件失败: {}",
+                e
             ))))
         })?;
 
@@ -79,8 +84,9 @@ async fn audio_preprocessing_step(
         update_task_file_path_in_db(&task.task_id, &task.audio_file_path, &ctx)
             .await
             .map_err(|e| {
-                Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
-                    format!("更新数据库文件路径失败: {}", e),
+                Box::new(AbortError::new(std::io::Error::other(format!(
+                    "更新数据库文件路径失败: {}",
+                    e
                 ))))
             })?;
 
@@ -107,7 +113,7 @@ async fn audio_preprocessing_step(
 async fn transcription_step(
     task: AudioProcessedTask,
     ctx: Data<StepContext>,
-) -> Result<TranscriptionCompletedTask, Error> {
+) -> Result<TranscriptionCompletedTask, BoxDynError> {
     info!("Step 2 - Whisper Transcription: {}", task.task_id);
 
     // 更新状态为转录中
@@ -172,19 +178,19 @@ async fn transcription_step(
             ctx.model_service
                 .ensure_model(&model)
                 .await
-                .map_err(|e| -> Error {
-                    Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
-                        format!("模型准备失败: {e}"),
+                .map_err(|e| -> BoxDynError {
+                    Box::new(AbortError::new(std::io::Error::other(format!(
+                        "模型准备失败: {e}"
                     ))))
                 })?;
-            let model_path = ctx
-                .model_service
-                .get_model_path(&model)
-                .map_err(|e| -> Error {
-                    Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
-                        format!("获取模型路径失败: {e}"),
-                    ))))
-                })?;
+            let model_path =
+                ctx.model_service
+                    .get_model_path(&model)
+                    .map_err(|e| -> BoxDynError {
+                        Box::new(AbortError::new(std::io::Error::other(format!(
+                            "获取模型路径失败: {e}"
+                        ))))
+                    })?;
             crate::stt::SttInvocation::TranscribeRs {
                 model_id: model,
                 spec: crate::stt::SttEngineSpec::Whisper { model_path },
@@ -198,9 +204,9 @@ async fn transcription_step(
                 let sv_cfg = &cfg.whisper.engine.sensevoice;
                 let model_dir = crate::stt::sensevoice::resolve_model_dir(&models_dir, sv_cfg);
                 let quantization = crate::stt::sensevoice::parse_quantization(&sv_cfg.quantization)
-                    .map_err(|e| -> Error {
-                        Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
-                            format!("SenseVoice 量化解析失败: {e}"),
+                    .map_err(|e| -> BoxDynError {
+                        Box::new(AbortError::new(std::io::Error::other(format!(
+                            "SenseVoice 量化解析失败: {e}"
                         ))))
                     })?;
                 let model_id = model_dir.display().to_string();
@@ -214,10 +220,8 @@ async fn transcription_step(
             }
             #[cfg(not(feature = "sensevoice"))]
             {
-                return Err(Error::Abort(std::sync::Arc::new(Box::new(
-                    std::io::Error::other(
-                        "backend=sensevoice 但未启用 sensevoice feature（请 --features sensevoice 编译）",
-                    ),
+                return Err(Box::new(AbortError::new(std::io::Error::other(
+                    "backend=sensevoice 但未启用 sensevoice feature（请 --features sensevoice 编译）",
                 ))));
             }
         }
@@ -266,11 +270,9 @@ async fn transcription_step(
                 ),
                 // Whisper / SenseVoice 由前置独立臂处理；防御未来新增 backend 漏改此处
                 _ => {
-                    return Err(Error::Abort(std::sync::Arc::new(Box::new(
-                        std::io::Error::other(format!(
-                            "backend {backend:?} 不在 sherpa 分派范围内"
-                        )),
-                    ))));
+                    return Err(Box::new(AbortError::new(std::io::Error::other(format!(
+                        "backend {backend:?} 不在 sherpa 分派范围内"
+                    )))));
                 }
             };
             let model_id = model_dir.display().to_string();
@@ -340,14 +342,14 @@ async fn transcription_step(
     )
     .await
     .map_err(|e| {
-        Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
+        Box::new(AbortError::new(std::io::Error::other(
             format!("转录任务 join 失败: {e}"),
-        ))))
+        )))
     })?
     .map_err(|e| {
-        Error::Abort(std::sync::Arc::new(Box::new(std::io::Error::other(
+        Box::new(AbortError::new(std::io::Error::other(
             format!("转录失败: {}", e),
-        ))))
+        )))
     })?;
 
     // 设置元数据和时长
@@ -376,7 +378,7 @@ async fn transcription_step(
 async fn result_formatting_step(
     task: TranscriptionCompletedTask,
     ctx: Data<StepContext>,
-) -> Result<(), Error> {
+) -> Result<(), BoxDynError> {
     info!("Step 3 - Result Formatting and Storage: {}", task.task_id);
 
     // 保存结果到SQLite存储（包含元数据）
@@ -422,7 +424,7 @@ async fn result_formatting_step(
 pub async fn transcription_pipeline_worker(
     task: TranscriptionTask,
     ctx: Data<StepContext>,
-) -> Result<(), Error> {
+) -> Result<(), BoxDynError> {
     info!(
         "Start processing the transcription pipeline: {}",
         task.task_id

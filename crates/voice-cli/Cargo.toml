@@ -99,7 +99,7 @@ socket2 = { workspace = true }
 # Task queue and persistence for async processing
 # workspace apalis 已含 tracing/limit；voice-cli 再加 timeout/catch-panic/retry/filter
 apalis = { workspace = true, features = ["timeout", "catch-panic", "retry", "filter"] }
-apalis-sql = { workspace = true }
+apalis-sqlite = { workspace = true }
 sqlx = { workspace = true }
 
 

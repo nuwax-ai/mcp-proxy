@@ -27,8 +27,9 @@ export PATH=/usr/local/cuda-12.6/bin:$PATH CUDA_HOME=/usr/local/cuda-12.6
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
   RUSTUP_DIST_SERVER=https://rsproxy.cn sh -s -- -y --profile minimal
 
-# 4. 预缓存 sherpa-onnx C 库（github 阻断时 build.rs 联网下载会卡死）
-bash docker/fetch-sherpa.sh amd64          # → ~/.cache/sherpa-onnx-prebuilt/（自动探活镜像）
+# 4. 预缓存 sherpa-onnx C 库（github 阻断时 build.rs 联网下载会卡死；
+#    默认 shared 变体、版本自动读根 Cargo.lock 的 sherpa-onnx-sys）
+OUT_DIR=$HOME/.cache/sherpa-onnx-prebuilt bash docker/fetch-sherpa.sh amd64   # 自动探活镜像
 
 # 5. 编译
 export SHERPA_ONNX_ARCHIVE_DIR=$HOME/.cache/sherpa-onnx-prebuilt

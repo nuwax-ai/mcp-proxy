@@ -17,9 +17,8 @@ impl StepContext {
         &self,
         task_id: &str,
         status: &TaskStatus,
-    ) -> Result<(), Error> {
-        let status_json = serde_json::to_string(status)
-            .map_err(|e| Error::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>))?;
+    ) -> Result<(), BoxDynError> {
+        let status_json = serde_json::to_string(status).map_err(|e| Box::new(e) as BoxDynError)?;
 
         // 终态守卫：当前已是 Cancelled/Completed 时不被翻写（worker 完成时把
         // 并发写入的 Cancelled 覆盖为 Completed 是取消 API 的语义破坏——
@@ -29,9 +28,7 @@ impl StepContext {
                 .bind(task_id)
                 .fetch_optional(&self.pool)
                 .await
-                .map_err(
-                    |e| Error::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>),
-                )?;
+                .map_err(|e| Box::new(e) as BoxDynError)?;
             if let Some(existing) = row.as_ref().and_then(|r| {
                 r.try_get::<String, _>("status")
                     .ok()
@@ -63,7 +60,7 @@ impl StepContext {
         .bind(Utc::now().timestamp())
         .execute(&self.pool)
         .await
-        .map_err(|e| Error::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>))?;
+        .map_err(|e| Box::new(e) as BoxDynError)?;
 
         Ok(())
     }
@@ -74,17 +71,12 @@ impl StepContext {
         task_id: &str,
         result: &TranscriptionResponse,
         metadata: &Option<crate::models::request::AudioVideoMetadata>,
-    ) -> Result<(), Error> {
-        let result_json = serde_json::to_string(result)
-            .map_err(|e| Error::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>))?;
+    ) -> Result<(), BoxDynError> {
+        let result_json = serde_json::to_string(result).map_err(|e| Box::new(e) as BoxDynError)?;
 
         let metadata_json = metadata
             .as_ref()
-            .map(|m| {
-                serde_json::to_string(m).map_err(|e| {
-                    Error::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
-                })
-            })
+            .map(|m| serde_json::to_string(m).map_err(|e| Box::new(e) as BoxDynError))
             .transpose()?;
 
         sqlx::query(
@@ -96,7 +88,7 @@ impl StepContext {
         .bind(Utc::now().timestamp())
         .execute(&self.pool)
         .await
-        .map_err(|e| Error::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>))?;
+        .map_err(|e| Box::new(e) as BoxDynError)?;
 
         Ok(())
     }
