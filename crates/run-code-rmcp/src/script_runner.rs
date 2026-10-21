@@ -128,16 +128,16 @@ mod tests {
         let js_code =
             "function handler(input) { return {success: true, message: 'JavaScript测试成功'}; }";
         let result = client
-            .call_tool(CallToolRequestParams {
-                meta: None,
-                name: "run_javascript".into(),
-                arguments: serde_json::json!({
-                    "code": js_code,
-                })
-                .as_object()
-                .cloned(),
-                task: None,
-            })
+            .call_tool(
+                CallToolRequestParams::new("run_javascript").with_arguments(
+                    serde_json::json!({
+                        "code": js_code,
+                    })
+                    .as_object()
+                    .cloned()
+                    .unwrap(),
+                ),
+            )
             .await?;
 
         // 验证JavaScript结果，这里只简单验证调用成功
@@ -147,16 +147,16 @@ mod tests {
         let py_code =
             "def handler(input):\n    return {'success': True, 'message': 'Python测试成功'}";
         let result = client
-            .call_tool(CallToolRequestParams {
-                meta: None,
-                name: "run_python".into(),
-                arguments: serde_json::json!({
-                    "code": py_code,
-                })
-                .as_object()
-                .cloned(),
-                task: None,
-            })
+            .call_tool(
+                CallToolRequestParams::new("run_python").with_arguments(
+                    serde_json::json!({
+                        "code": py_code,
+                    })
+                    .as_object()
+                    .cloned()
+                    .unwrap(),
+                ),
+            )
             .await?;
 
         // 验证Python结果，这里只简单验证调用成功
