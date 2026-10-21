@@ -593,10 +593,10 @@ pub fn ensure_whisper_compatible<P: AsRef<Path>>(
     let filter = "aformat=sample_fmts=s16:channel_layouts=mono:sample_rates=16000";
 
     let status = FfmpegCommand::new()
-        .input(in_path.to_string_lossy())
+        .input(in_path)
         .args(["-filter:a", filter])
         .overwrite()
-        .output(out_path.to_string_lossy())
+        .output(&out_path)
         .spawn()?
         .wait()?;
 

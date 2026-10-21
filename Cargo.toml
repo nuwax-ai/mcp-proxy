@@ -55,7 +55,7 @@ run_code_rmcp = { version = "0.2.9", path = "crates/run-code-rmcp" }
 # voice-toolkit 已 vendor 到本地（crates/voice-toolkit 等 4 个 crate），不再从 crates.io 拉取
 voice-toolkit = { path = "crates/voice-toolkit", features = ["audio"] }
 # FFmpeg wrapper：统一到 2.5（voice-cli 原 2.2 + voice crates 2.5 → 合并）
-ffmpeg-sidecar = "2.5"
+ffmpeg-sidecar = "2.7"
 # STT 引擎（替代 vendor 的 rs-voice-toolkit-stt）：0.3.11（最新）精确钉 ort =2.0.0-rc.12——
 # 这个钉同时决定了全 workspace 的 ort 上限，也是 fastembed 被钉 =5.17.3 的原因（见下方
 # fastembed 条目注释）。GPU feature（whisper-metal/cuda/vulkan）由 voice-cli 按平台
@@ -80,9 +80,9 @@ sherpa-onnx = { version = "=1.13.8", default-features = false }
 ferrous-opencc = "0.4"
 
 # Note: rmcp 依赖由各子项目独立管理（mcp-sse-proxy 用 0.10，mcp-streamable-proxy 用 3.6，run-code-rmcp 的 mcp feature 用 3.6）
-tokio = { version = "1.53", features = ["macros", "net", "rt", "rt-multi-thread"] }
+tokio = { version = "1.54", features = ["macros", "net", "rt", "rt-multi-thread"] }
 socket2 = "0.6"
-tokio-util = "0.7.19"
+tokio-util = "0.7.20"
 
 # Logging and tracing
 tracing = "0.1"
@@ -96,7 +96,7 @@ opentelemetry_sdk = "0.33"
 opentelemetry-otlp = { version = "0.33", features = ["grpc-tonic"] }
 tonic = "0.14"
 hostname = "0.4"
-uuid = { version = "1.26", features = ["v4", "v7"] }
+uuid = { version = "1.28", features = ["v4", "v7"] }
 rand = "0.10"
 log = "0.4"
 anyhow = "1.0"
@@ -126,7 +126,7 @@ utoipa = { version = "6", features = ["axum_extras", "chrono", "uuid"] }
 utoipa-swagger-ui = { version = "10", features = ["axum"] }
 utoipa-scalar = { version = "0.4", features = ["axum"] }
 dashmap = "6.2"
-arc-swap = "1.9"
+arc-swap = "1.9.3"
 # Windows canonicalize 返回 \\?\ 扩展长度路径，子进程（mineru 等 Python CLI）不认——
 # dunce 返回普通绝对路径（Unix 行为等同 std）
 dunce = "1"
