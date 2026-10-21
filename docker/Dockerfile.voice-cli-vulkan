@@ -29,7 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 直连 static.rust-lang.org 慢/不稳）
 ENV RUSTUP_DIST_SERVER=https://rsproxy.cn \
     RUSTUP_UPDATE_ROOT=https://rsproxy.cn/rustup
-RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.93.0 --profile minimal
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.99.0 --profile minimal
 ENV PATH=/root/.cargo/bin:$PATH
 
 # crates.io 依赖解析走 ustc sparse 镜像（只影响下载源，不影响产物）
