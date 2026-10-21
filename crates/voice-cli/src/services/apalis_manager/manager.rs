@@ -101,6 +101,12 @@ impl LockFreeApalisManager {
             .await
             .map_err(|e| VoiceCliError::Storage(format!("设置 Apalis 存储失败: {}", e)))?;
 
+        // 清除上一实例非干净退出遗留的 stale worker 注册（否则新 worker 注册触发
+        // WORKER_ALREADY_EXISTS → worker 起不来、任务卡 Pending）。必须在注册 worker 前。
+        crate::services::apalis_worker_cleanup::purge_stale_apalis_workers(&pool)
+            .await
+            .map_err(|e| VoiceCliError::Storage(format!("清理 stale worker 失败: {e}")))?;
+
         let storage = SqliteStorage::new(&pool);
 
         let manager = Self {

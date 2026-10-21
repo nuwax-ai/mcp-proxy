@@ -113,6 +113,10 @@ impl TtsApalisManager {
         SqliteStorage::setup(&pool)
             .await
             .map_err(|e| VoiceCliError::Storage(format!("设置 apalis storage 失败: {e}")))?;
+        // 同 STT：清除上一实例遗留的 stale worker 注册，避免 WORKER_ALREADY_EXISTS。
+        crate::services::apalis_worker_cleanup::purge_stale_apalis_workers(&pool)
+            .await
+            .map_err(|e| VoiceCliError::Storage(format!("清理 stale worker 失败: {e}")))?;
         let storage = SqliteStorage::new(&pool);
 
         let manager = Self {

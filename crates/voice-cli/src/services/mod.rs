@@ -1,4 +1,5 @@
 pub mod apalis_manager;
+pub mod apalis_worker_cleanup;
 pub mod audio_file_manager;
 pub mod audio_format_detector;
 pub mod metadata_extractor;
