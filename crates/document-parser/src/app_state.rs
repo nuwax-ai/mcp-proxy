@@ -22,6 +22,8 @@ pub struct AppState {
     pub private_oss_client: Option<Arc<dyn OssClientTrait + Send + Sync>>,
     pub storage_service: Arc<StorageService>,
     pub task_queue: Arc<TaskQueueService>,
+    /// 同步解析接口（/parse-sync）并发限流信号量，MinerU 为重资源
+    pub sync_parse_semaphore: Arc<tokio::sync::Semaphore>,
 }
 
 impl AppState {
@@ -108,7 +110,7 @@ impl AppState {
             task_service.clone(),
             oss_client.clone(),
             document_service_config,
-        ));
+        )?);
 
         // 初始化任务队列（使用配置中的并发和队列大小）
         let mut task_queue = TaskQueueService::with_config(
@@ -138,6 +140,11 @@ impl AppState {
             .map_err(|e| crate::error::AppError::Internal(format!("启动任务队列失败: {e}")))?;
         let task_queue = Arc::new(task_queue);
 
+        // 同步解析接口限流信号量（并发上限来自配置）
+        let sync_parse_semaphore = Arc::new(tokio::sync::Semaphore::new(
+            config.document_parser.sync_parse_max_concurrent,
+        ));
+
         Ok(Self {
             config: Arc::new(config),
             db: db_arc,
@@ -147,6 +154,7 @@ impl AppState {
             private_oss_client,
             storage_service,
             task_queue,
+            sync_parse_semaphore,
         })
     }
 
@@ -210,7 +218,11 @@ impl AppState {
         let mut to_remove = Vec::new();
         let mut expired_tasks = Vec::new();
 
-        for result in tasks_tree.iter() {
+        // 与 TaskService/StorageService 同一 "task:" 前缀键空间（见
+        // storage_service::TASK_PREFIX），避免扫到同 tree 内非任务键
+        for result in
+            tasks_tree.scan_prefix(crate::services::storage_service::TASK_PREFIX.as_bytes())
+        {
             match result {
                 Ok((key, value)) => {
                     if let Ok(task_data) =

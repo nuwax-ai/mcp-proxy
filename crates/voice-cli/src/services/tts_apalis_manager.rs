@@ -17,7 +17,7 @@ use std::time::Duration;
 use apalis::layers::WorkerBuilderExt;
 use apalis::layers::retry::RetryPolicy;
 use apalis::prelude::*;
-use apalis_sql::sqlite::SqliteStorage;
+use apalis_sqlite::SqliteStorage;
 use chrono::Utc;
 use sqlx::Row;
 use sqlx::sqlite::SqlitePoolOptions;
@@ -41,9 +41,12 @@ pub struct TtsStepContext {
 
 impl TtsStepContext {
     /// 保存任务状态（INSERT OR REPLACE，状态以 JSON 存）。
-    async fn save_task_status(&self, task_id: &str, status: &TtsTaskStatus) -> Result<(), Error> {
-        let status_json = serde_json::to_string(status)
-            .map_err(|e| Error::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>))?;
+    async fn save_task_status(
+        &self,
+        task_id: &str,
+        status: &TtsTaskStatus,
+    ) -> Result<(), BoxDynError> {
+        let status_json = serde_json::to_string(status).map_err(|e| Box::new(e) as BoxDynError)?;
         let now = Utc::now().timestamp();
         sqlx::query(
             "INSERT OR REPLACE INTO tts_task_info (task_id, status, created_at, updated_at) \
@@ -55,7 +58,7 @@ impl TtsStepContext {
         .bind(now)
         .execute(&self.pool)
         .await
-        .map_err(|e| Error::from(Box::new(e) as Box<dyn std::error::Error + Send + Sync>))?;
+        .map_err(|e| Box::new(e) as BoxDynError)?;
         Ok(())
     }
 }
@@ -110,7 +113,11 @@ impl TtsApalisManager {
         SqliteStorage::setup(&pool)
             .await
             .map_err(|e| VoiceCliError::Storage(format!("设置 apalis storage 失败: {e}")))?;
-        let storage = SqliteStorage::new(pool.clone());
+        // 同 STT：清除上一实例遗留的 stale worker 注册，避免 WORKER_ALREADY_EXISTS。
+        crate::services::apalis_worker_cleanup::purge_stale_apalis_workers(&pool)
+            .await
+            .map_err(|e| VoiceCliError::Storage(format!("清理 stale worker 失败: {e}")))?;
+        let storage = SqliteStorage::new(&pool);
 
         let manager = Self {
             pool,
@@ -158,15 +165,18 @@ impl TtsApalisManager {
             retry = self.config.retry_attempts,
             "Creating TTS apalis worker"
         );
-        let worker = WorkerBuilder::new("tts-pipeline")
-            .data(ctx)
-            .enable_tracing()
-            .concurrency(self.config.max_concurrent_tasks)
-            .retry(RetryPolicy::retries(self.config.retry_attempts))
-            .backend(storage.clone())
-            .build_fn(tts_pipeline_worker);
-
-        let monitor = Monitor::new().register(worker);
+        // apalis 1.0：register 接收 worker 工厂闭包，backend/data 均需 Clone
+        let max_concurrency = self.config.max_concurrent_tasks;
+        let retry_attempts = self.config.retry_attempts;
+        let monitor = Monitor::new().register(move |_restarts| {
+            WorkerBuilder::new("tts-pipeline")
+                .backend(storage.clone())
+                .retry(RetryPolicy::retries(retry_attempts))
+                .enable_tracing()
+                .concurrency(max_concurrency)
+                .data(ctx.clone())
+                .build(tts_pipeline_worker)
+        });
         let handle = tokio::spawn(async move {
             info!("TTS apalis monitor running");
             if let Err(e) = monitor.run().await {
@@ -448,7 +458,10 @@ impl TtsApalisManager {
 }
 
 /// TTS pipeline worker：合成 → 落盘 → 更新状态。
-pub async fn tts_pipeline_worker(task: TtsTask, ctx: Data<TtsStepContext>) -> Result<(), Error> {
+pub async fn tts_pipeline_worker(
+    task: TtsTask,
+    ctx: Data<TtsStepContext>,
+) -> Result<(), BoxDynError> {
     info!(task_id = %task.task_id, "TTS pipeline start");
 
     // 状态 → Processing
@@ -523,10 +536,7 @@ pub async fn tts_pipeline_worker(task: TtsTask, ctx: Data<TtsStepContext>) -> Re
                 failed_at: Utc::now(),
             };
             let _ = ctx.save_task_status(&task.task_id, &failed).await;
-            return Err(Error::from(
-                Box::new(std::io::Error::other("TTS synth failed"))
-                    as Box<dyn std::error::Error + Send + Sync>,
-            ));
+            return Err(Box::new(std::io::Error::other("TTS synth failed")) as BoxDynError);
         }
         Err(join_e) => {
             warn!(task_id = %task.task_id, %join_e, "TTS spawn_blocking join failed");
@@ -538,10 +548,7 @@ pub async fn tts_pipeline_worker(task: TtsTask, ctx: Data<TtsStepContext>) -> Re
                 failed_at: Utc::now(),
             };
             let _ = ctx.save_task_status(&task.task_id, &failed).await;
-            return Err(Error::from(
-                Box::new(std::io::Error::other("TTS join failed"))
-                    as Box<dyn std::error::Error + Send + Sync>,
-            ));
+            return Err(Box::new(std::io::Error::other("TTS join failed")) as BoxDynError);
         }
     };
 
@@ -559,9 +566,7 @@ pub async fn tts_pipeline_worker(task: TtsTask, ctx: Data<TtsStepContext>) -> Re
             failed_at: Utc::now(),
         };
         let _ = ctx.save_task_status(&task.task_id, &failed).await;
-        return Err(Error::from(
-            Box::new(std::io::Error::other(msg)) as Box<dyn std::error::Error + Send + Sync>
-        ));
+        return Err(Box::new(std::io::Error::other(msg)) as BoxDynError);
     }
     let out_path = out_dir.join(format!("tts_{}.{ext}", task.task_id));
     if let Err(e) = tokio::fs::write(&out_path, &bytes).await {
@@ -575,9 +580,7 @@ pub async fn tts_pipeline_worker(task: TtsTask, ctx: Data<TtsStepContext>) -> Re
             failed_at: Utc::now(),
         };
         let _ = ctx.save_task_status(&task.task_id, &failed).await;
-        return Err(Error::from(
-            Box::new(std::io::Error::other(msg)) as Box<dyn std::error::Error + Send + Sync>
-        ));
+        return Err(Box::new(std::io::Error::other(msg)) as BoxDynError);
     }
 
     let processing_time = chrono::Duration::milliseconds(started.elapsed().as_millis() as i64);

@@ -1,4 +1,3 @@
-pub mod app_state;
 pub mod handlers;
 pub mod http_tracing;
 pub mod middleware;
@@ -12,7 +11,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 /// 解析 WS 文本帧是否为控制帧（`{type:"<ty>"}`），避免 contains 误判（如 "nonstop"）。
 /// stt_stream（stop）/ tts_stream（cancel）共用。
@@ -24,17 +23,25 @@ pub fn is_control_frame(text: &str, ty: &str) -> bool {
 }
 
 async fn shutdown_signal_with_broadcast(shutdown_tx: broadcast::Sender<()>) {
+    // 信号处理器安装失败不应 panic 整个 shutdown 任务：记录后保持 pending，
+    // 让另一个信号（或进程被杀）兜底，优雅关闭逻辑仍可被触发
     let ctrl_c = async {
-        tokio::signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
+        if let Err(e) = tokio::signal::ctrl_c().await {
+            error!("Ctrl+C 处理器异常: {e}，优雅关闭退化为仅依赖 SIGTERM");
+            std::future::pending::<()>().await;
+        }
     };
     #[cfg(unix)]
     let terminate = async {
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("failed to install signal handler")
-            .recv()
-            .await;
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut sig) => {
+                sig.recv().await;
+            }
+            Err(e) => {
+                error!("SIGTERM 处理器安装失败: {e}，优雅关闭退化为仅依赖 Ctrl+C");
+                std::future::pending::<()>().await;
+            }
+        }
     };
     #[cfg(not(unix))]
     let terminate = std::future::pending::<()>();
@@ -140,11 +147,39 @@ pub async fn handle_server_run(config: &Config) -> crate::Result<()> {
     app = app.layer(axum::Extension(app_state.apalis_storage.clone()));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.server.port));
-    info!("Server listening on {}", addr);
-
-    let listener = tokio::net::TcpListener::bind(&addr)
-        .await
-        .map_err(|e| crate::VoiceCliError::Config(format!("Failed to bind to address: {}", e)))?;
+    // SO_REUSEADDR：接管 TIME_WAIT 端口（重启/升级后健康探测的 curl 连接残留
+    // TIME_WAIT，Windows 默认拒绝 bind，os error 10048——53 实测升级间歇失败
+    // 的根因）。注意（已知取舍）：Windows 的 REUSEADDR 在极少数误配场景（另一
+    // 服务同端口且对方也开了 REUSEADDR）允许双绑——概率低且 Linux 无此问题，
+    // 不为此引入 bind 前后探测（实测会与 TaskScheduler 的实例管理形成反馈，
+    // 造成比问题本身更重的回归）；避免同机同端口误配即可。
+    // bind 失败前不打 "listening" 字样（排障误导）。
+    let socket = socket2::Socket::new(
+        socket2::Domain::IPV4,
+        socket2::Type::STREAM,
+        Some(socket2::Protocol::TCP),
+    )
+    .map_err(|e| crate::VoiceCliError::Config(format!("Failed to create socket on {addr}: {e}")))?;
+    socket
+        .set_reuse_address(true)
+        .map_err(|e| crate::VoiceCliError::Config(format!("Failed to set SO_REUSEADDR: {e}")))?;
+    socket
+        .bind(&addr.into())
+        .map_err(|e| {
+            crate::VoiceCliError::Config(format!(
+                "Failed to bind to address {addr}（端口被占用或无权限；若有旧实例正在关闭，稍候重试）: {e}"
+            ))
+        })?;
+    socket
+        .listen(1024)
+        .map_err(|e| crate::VoiceCliError::Config(format!("Failed to listen on {addr}: {e}")))?;
+    // tokio 的 from_std 要求 non-blocking：socket2 默认 blocking，不设的话
+    // accept 行为未定义（实测：listener 在听、runtime 活着、accept 永久挂死）
+    socket
+        .set_nonblocking(true)
+        .map_err(|e| crate::VoiceCliError::Config(format!("Failed to set non-blocking: {e}")))?;
+    let listener = tokio::net::TcpListener::from_std(socket.into())
+        .map_err(|e| crate::VoiceCliError::Config(format!("Failed to convert listener: {e}")))?;
 
     info!(
         "TCP listener created successfully: {:?}",

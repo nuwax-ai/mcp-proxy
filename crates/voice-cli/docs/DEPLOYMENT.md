@@ -22,7 +22,7 @@
 
 - **OS**：macOS 12+（M1/M2/M3）/ Linux x86_64+ARM64 / Windows
 - **Rust**：stable toolchain（rustup）
-- **FFmpeg**：系统 PATH（音频转码 16k/mono/s16le）。无 ffmpeg 时启动报错，需手动装：`brew install ffmpeg` / `apt install ffmpeg`
+- **FFmpeg**：系统 PATH 或服务二进制同目录（音频转码 16k/mono/s16le；解析顺序：sidecar 目录优先于 PATH）。手动部署需自装：`brew install ffmpeg` / `apt install ffmpeg`；经 deploy-installer 部署时安装器自动供给静态 ffmpeg 到安装目录，无需手动装
 - **磁盘**：模型 ~550MB 起（STT base 141MB + TTS Kokoro v1_1 408MB；可选 ZipVoice 156MB + vocos 52MB）+ 编译产物 ~1.5GB
 
 ### 平台 GPU 矩阵
@@ -80,6 +80,23 @@ cargo build -p voice-cli --features vulkan --release
 
 whisper.cpp 的 **ggml Vulkan backend** 跨厂商支持 AMD/Intel/NVIDIA，无需 CUDA。
 whisper.cpp 1.8.3 在 AMD/Intel 核显上实测有显著加速（参考 [Phoronix](https://www.phoronix.com/news/Whisper-cpp-1.8.3-12x-Perf)）。
+
+**方式一：deploy-installer 预编译 Vulkan bundle（推荐，Linux x86_64）**
+
+```bash
+# 运行时依赖只需 loader + GPU 驱动（无需 SDK/glslc——那是源码编译才要的）
+sudo apt install -y libvulkan1 mesa-vulkan-drivers
+
+deploy-installer voice-cli install --install-dir ~/voice-cli
+```
+
+安装器三档自动检测：NVIDIA+CUDA → CUDA bundle；无 NVIDIA 但探针枚举到硬件
+Vulkan GPU → Vulkan bundle（`voice-cli-vulkan-linux-x64-{version}.tar.gz`，含
+`.voice-cli-vulkan` 档位 marker）；无 GPU → 提示后装 CPU 版（不阻塞）。显式
+`--use-oss-vulkan` 强制 Vulkan 档；`--skip-oss-cuda --skip-oss-vulkan` 强制 CPU。
+检测用 GPU 探针在崩溃隔离的子进程里跑（ash 标准 API，坏驱动不影响安装器）。
+
+**方式二：源码自编（其他架构 / 定制）**
 
 **1）装 Vulkan 驱动 + 编译依赖**
 
@@ -367,7 +384,7 @@ curl -s http://localhost:8080/health | python3 -m json.tool
 | TTS 报 `text contains NUL` 或 panic | 输入文本含控制字符，需预清洗（代码 `sanitize_text` 已处理；自建客户端避免传 NUL） |
 | STT 很慢（30s 音频 >5s） | Metal 未启用：启动日志应有 `use_gpu=true`；mac 检查 `[target.'cfg(target_os="macos")']` 的 `whisper-metal` feature |
 | STT 报 `No such file ggml-base.bin` | 模型未下载，或 `whisper.models_dir` 路径不对 |
-| `ffmpeg not found` | 系统装 ffmpeg：`brew install ffmpeg` / `apt install ffmpeg` |
+| `ffmpeg not found` | 系统装 ffmpeg：`brew install ffmpeg` / `apt install ffmpeg`（deploy-installer 部署的机器重跑 install 可自动补齐 sidecar ffmpeg） |
 | 端口 8080 占用 | `lsof -i :8080` 找进程 kill，或改 `config.yml` 的 `server.port` |
 | WS 客户端连不上 / SOCKS proxy 报错 | python `websockets` 自动探测系统代理，客户端需传 `proxy=None`（见 API.md 客户端） |
 | 模型下载慢/失败 | HF 阻断：STT 用 modelscope.cn，TTS 用 gh-proxy.com（见 §4） |

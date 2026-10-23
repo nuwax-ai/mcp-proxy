@@ -468,7 +468,7 @@ impl OssService {
 
         match self
             .client
-            .put_object_from_file(object_key, temp_file.path().to_str().unwrap(), builder)
+            .put_object_from_file(object_key, &temp_file.path().to_string_lossy(), builder)
             .await
         {
             Ok(_) => Ok(format!("{}/{}", self.base_url, object_key)),
@@ -586,13 +586,8 @@ impl OssService {
 
             match result {
                 Ok(url) => {
-                    let metadata = std::fs::metadata(&local_path).unwrap_or_else(|_| {
-                        std::fs::metadata("/dev/null").unwrap_or_else(|_| {
-                            // 创建一个默认的元数据结构
-                            std::fs::metadata(std::env::current_dir().unwrap()).unwrap()
-                        })
-                    });
-                    let size = metadata.len();
+                    // 统计用途：取不到元数据按 0 计（不为统计字段 panic）
+                    let size = std::fs::metadata(&local_path).map(|m| m.len()).unwrap_or(0);
                     let content_type = self
                         .detect_mime_type(&local_path)
                         .unwrap_or_else(|_| "application/octet-stream".to_string());

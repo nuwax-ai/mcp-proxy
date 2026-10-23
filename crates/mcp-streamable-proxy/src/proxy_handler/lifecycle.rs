@@ -6,18 +6,21 @@ impl ProxyHandler {
         self.upstream_peers.clone()
     }
 
-    /// 创建一个默认的 ServerInfo（用于断开状态）
-    fn default_server_info(mcp_id: &str) -> ServerInfo {
+    /// 创建一个默认的 ServerConfig（用于断开状态）
+    fn default_server_info(mcp_id: &str) -> ServerConfig {
         warn!(
-            "[ProxyHandler] Create default ServerInfo - MCP ID: {}",
+            "[ProxyHandler] Create default ServerConfig - MCP ID: {}",
             mcp_id
         );
-        ServerInfo::new(rmcp::model::ServerCapabilities::default())
+        ServerConfig::new(rmcp::model::ServerCapabilities::default())
             .with_server_info(Implementation::new("MCP Proxy", "0.1.0"))
     }
 
-    /// 从 RunningService 提取 ServerInfo
-    pub(super) fn extract_server_info(client: &BackendRunningService, mcp_id: &str) -> ServerInfo {
+    /// 从 RunningService 提取 ServerConfig
+    pub(super) fn extract_server_info(
+        client: &BackendRunningService,
+        mcp_id: &str,
+    ) -> ServerConfig {
         client
             .peer_info()
             .map(|peer_info| super::peer_info_to_server_info((*peer_info).clone()))
@@ -29,7 +32,7 @@ impl ProxyHandler {
     pub fn new_disconnected(
         mcp_id: String,
         tool_filter: ToolFilter,
-        default_info: ServerInfo,
+        default_info: ServerConfig,
     ) -> Self {
         info!(
             "[ProxyHandler] Create a disconnected handler - MCP ID: {}",
@@ -58,7 +61,7 @@ impl ProxyHandler {
     pub fn new_disconnected_with_fallback(
         mcp_id: String,
         tool_filter: ToolFilter,
-        default_info: ServerInfo,
+        default_info: ServerConfig,
         fallback_tools: Option<ListToolsResult>,
     ) -> Self {
         Self {
@@ -124,7 +127,7 @@ impl ProxyHandler {
     ) -> Self {
         use std::ops::Deref;
 
-        // 提取 ServerInfo 与共享 upstream peer registry
+        // 提取 ServerConfig 与共享 upstream peer registry
         let cached_info = Self::extract_server_info(&client, &mcp_id);
         let upstream_peers = client
             .service()
@@ -291,9 +294,9 @@ impl ProxyHandler {
         &self.mcp_id
     }
 
-    /// 获取后端 ServerInfo 的 JSON 表示
+    /// 获取后端 ServerConfig 的 JSON 表示
     ///
-    /// 用于跨 rmcp 版本桥接：将 rmcp 1.4.0 的 ServerInfo 序列化为 JSON，
+    /// 用于跨 rmcp 版本桥接：将 rmcp 1.4.0 的 ServerConfig 序列化为 JSON，
     /// 供 rmcp 0.10 侧反序列化使用。
     pub fn get_server_info_json(&self) -> serde_json::Value {
         match serde_json::to_value(self.discovery.info()) {

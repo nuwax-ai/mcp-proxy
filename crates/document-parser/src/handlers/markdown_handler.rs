@@ -236,8 +236,11 @@ async fn process_markdown_content(
 
 /// 处理Markdown multipart上传
 async fn process_markdown_multipart(multipart: &mut Multipart) -> Result<String, AppError> {
-    let max_markdown_size =
-        get_file_size_limit(&FileSizePurpose::ContentValidation).bytes() as usize;
+    // Markdown 文本内容上限 10MB（validate_markdown_content 的后置检查前移到
+    // 读入循环内早退——get_file_size_limit(ContentValidation) 与全局 body limit
+    // 同源（默认 500MB），此前 500MB 全量读入 + from_utf8 复制 ≈ 1GB/请求）
+    const MAX_MARKDOWN_SIZE: usize = 10 * 1024 * 1024;
+    let max_markdown_size = MAX_MARKDOWN_SIZE;
     let mut content: Option<String> = None;
     let mut total_size = 0usize;
     let mut field_count = 0;
@@ -323,7 +326,9 @@ async fn process_markdown_multipart(multipart: &mut Multipart) -> Result<String,
                 info!(
                     "File content preview (first 200 characters): {}",
                     if content_str.len() > 200 {
-                        format!("{}...", &content_str[..200])
+                        // 按字符截断（字节切片落在多字节字符中间会 panic，
+                        // 中文 Markdown 3 字节/字符必中）
+                        format!("{}...", content_str.chars().take(200).collect::<String>())
                     } else {
                         content_str.clone()
                     }
@@ -451,6 +456,35 @@ pub async fn download_markdown(
     let markdown_source = determine_markdown_source(&task, &params);
 
     match markdown_source {
+        MarkdownSource::Oss(oss_url)
+            if task
+                .oss_data
+                .as_ref()
+                .is_some_and(|oss| oss.is_custom_storage()) =>
+        {
+            // 自定义上传后端：AK 换签 + 直接 GET 代理内容，不进 OSS 重签与 key 解析
+            match task.upload_config.clone() {
+                Some(endpoint) => {
+                    download_from_remote_url(
+                        &state,
+                        &task_id,
+                        &endpoint,
+                        &oss_url,
+                        streaming_config.max_file_size,
+                        &headers_in,
+                    )
+                    .await
+                }
+                None => {
+                    // storage_type=custom 但任务缺 upload_config（理论不可达）：数据不完整
+                    error!(
+                        "Custom storage task missing upload_config: task_id={}",
+                        task_id
+                    );
+                    ApiResponse::internal_error::<String>("任务上传配置缺失").into_response()
+                }
+            }
+        }
         MarkdownSource::Oss(oss_url) => {
             download_from_oss(&state, &task, &oss_url, &headers_in, &streaming_config).await
         }
@@ -562,48 +596,156 @@ async fn download_from_oss(
             }
         };
 
-    // 通过HTTP请求下载文件内容
-    let client = reqwest::Client::new();
-    match client.get(&download_url).send().await {
-        Ok(response) => {
-            if response.status().is_success() {
-                match response.bytes().await {
-                    Ok(content) => {
-                        info!(
-                            "Successfully downloaded Markdown content from OSS: task_id={}, size={} bytes",
-                            task.id,
-                            content.len()
-                        );
-
-                        let range_header = headers_in
-                            .get(header::RANGE)
-                            .and_then(|v| v.to_str().ok())
-                            .map(|s| s.to_string());
-
-                        build_range_response(&task.id, content.to_vec(), range_header)
-                    }
-                    Err(e) => {
-                        error!(
-                            "Failed to read response content: task_id={}, error={}",
-                            task.id, e
-                        );
-                        ApiResponse::internal_error::<String>("读取文件内容失败").into_response()
-                    }
-                }
-            } else {
-                error!(
-                    "Download request failed: task_id={}, status={}",
-                    task.id,
-                    response.status()
-                );
-                ApiResponse::internal_error::<String>("下载文件失败").into_response()
-            }
+    // 通过HTTP请求下载文件内容（复用共享连接池 + 整体 180s 预算——对齐同文件
+    // 自定义后端路径的 CUSTOM_DOWNLOAD_TOTAL_TIMEOUT 模式；Client::new() 无
+    // 超时且每请求新建连接池，OSS 网关半开时 handler 永久挂起）
+    let client = state.document_service.http_client().clone();
+    let max_download = get_file_size_limit(&FileSizePurpose::ContentValidation).bytes() as usize;
+    let download = tokio::time::timeout(Duration::from_secs(180), async {
+        let response = client
+            .get(&download_url)
+            .send()
+            .await
+            .map_err(|e| format!("网络请求失败: {e}"))?;
+        if !response.status().is_success() {
+            return Err(format!("OSS 下载失败: HTTP {}", response.status()));
         }
-        Err(e) => {
-            error!("HTTP request failed: task_id={}, error={}", task.id, e);
-            ApiResponse::internal_error::<String>("网络请求失败").into_response()
+        if let Some(len) = response.content_length()
+            && len as usize > max_download
+        {
+            return Err(format!("内容过大: {len} > {max_download} 字节"));
+        }
+        let content = response
+            .bytes()
+            .await
+            .map_err(|e| format!("读取内容失败: {e}"))?;
+        if content.len() > max_download {
+            return Err(format!("内容过大: {} > {max_download} 字节", content.len()));
+        }
+        Ok(content)
+    })
+    .await;
+    match download {
+        Ok(Ok(content)) => {
+            info!(
+                "Successfully downloaded Markdown content from OSS: task_id={}, size={} bytes",
+                task.id,
+                content.len()
+            );
+
+            let range_header = headers_in
+                .get(header::RANGE)
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string());
+
+            build_range_response(&task.id, content.to_vec(), range_header)
+        }
+        Ok(Err(e)) => {
+            error!("Download failed: task_id={}, error={}", task.id, e);
+            ApiResponse::internal_error::<String>(&format!("下载文件失败: {e}")).into_response()
+        }
+        Err(_) => {
+            error!("Download timed out (180s): task_id={}", task.id);
+            ApiResponse::internal_error::<String>("下载文件超时").into_response()
         }
     }
+}
+
+/// 自定义后端下载主体总预算：换签(15s) + 回退 GET(60s) + 余量
+/// （内嵌图片换签有独立预算并在 DocumentService::sign_embedded_urls 内部降级）
+const CUSTOM_DOWNLOAD_TOTAL_TIMEOUT: Duration = Duration::from_secs(180);
+
+/// 从自定义上传后端下载 Markdown
+///
+/// 完整下载协议（AK 换签 → 回退裸 GET → 双防御 → 大小限制）封装在
+/// [`oss_client::ApiFileClient::download_file`]；客户端复用 DocumentService
+/// 的共享连接池。整体超时上界约束换签 + 下载 + 图片换签的总时长。
+/// 下载成功且内容为换签后产物时，把 Markdown 内嵌的后端图片 URL 批量换签
+/// 重写，使消费方拿到的图片链接可直接访问（私有存储部署）。
+async fn download_from_remote_url(
+    state: &AppState,
+    task_id: &str,
+    endpoint: &crate::models::UploadEndpoint,
+    url: &str,
+    max_file_size: u64,
+    headers_in: &HeaderMap,
+) -> Response {
+    info!(
+        "Download Markdown from custom backend: task_id={}, url={}",
+        task_id, url
+    );
+
+    // 复用 DocumentService 的共享连接池（避免每请求新建 Client/TLS 握手）
+    let api_client = match oss_client::ApiFileClient::with_client(
+        endpoint.to_api_config(),
+        state.document_service.http_client().clone(),
+    ) {
+        Ok(client) => client,
+        Err(e) => {
+            error!(
+                "Failed to create custom backend client: task_id={}, error={}",
+                task_id, e
+            );
+            return ApiResponse::internal_error::<String>("创建自定义上传后端客户端失败")
+                .into_response();
+        }
+    };
+
+    // 下载主体预算（换签 + 回退 GET）：防慢后端拖垮 handler；
+    // 内嵌图片换签有独立的 IMAGE_SIGN_BUDGET（见下，超时降级）
+    let download_result = tokio::time::timeout(
+        CUSTOM_DOWNLOAD_TOTAL_TIMEOUT,
+        api_client.download_file(url, max_file_size),
+    )
+    .await;
+
+    let raw_content = match download_result {
+        Ok(Ok(bytes)) => bytes,
+        Ok(Err(e)) => {
+            error!(
+                "Download from custom backend failed: task_id={}, url={}, error={}",
+                task_id, url, e
+            );
+            return ApiResponse::internal_error::<String>(&format!(
+                "下载文件失败（自定义上传后端）: {e}"
+            ))
+            .into_response();
+        }
+        Err(_) => {
+            error!(
+                "Download from custom backend timed out ({}s): task_id={}, url={}",
+                CUSTOM_DOWNLOAD_TOTAL_TIMEOUT.as_secs(),
+                task_id,
+                url
+            );
+            return ApiResponse::internal_error::<String>(&format!(
+                "下载文件超时（自定义上传后端整体超过 {}s）",
+                CUSTOM_DOWNLOAD_TOTAL_TIMEOUT.as_secs()
+            ))
+            .into_response();
+        }
+    };
+
+    // 图片 URL 换签重写（CommonMark 语义，跳过代码块）：后端图片 URL 换成
+    // 签名 URL。尽力而为的增强——方法内部有 IMAGE_SIGN_BUDGET 预算，
+    // 超预算降级返回未换签内容（warn 日志），不让下载主体挂起或失败
+    let content = state
+        .document_service
+        .sign_embedded_urls(raw_content, &api_client, &endpoint.base_url)
+        .await;
+
+    info!(
+        "Successfully downloaded Markdown content from custom backend: task_id={}, size={} bytes",
+        task_id,
+        content.len()
+    );
+
+    let range_header = headers_in
+        .get(header::RANGE)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    build_range_response(task_id, content, range_header)
 }
 
 /// 从结构化文档生成Markdown
@@ -741,15 +883,83 @@ pub async fn get_markdown_url(
         }
     };
 
-    let generate_temp = params.temp.unwrap_or(false);
-    let expires_in_hours = params.expires_hours.unwrap_or(24); // 默认24小时过期
-
-    // 验证过期时间
-    if expires_in_hours == 0 || expires_in_hours > 168 {
-        // 最长7天
+    // 过期时间校验（对 OSS 与 custom 后端统一执行；默认 24h，上限 168h）
+    let expires_hours = params.expires_hours.unwrap_or(24);
+    if expires_hours == 0 || expires_hours > 168 {
         return ApiResponse::validation_error::<MarkdownUrlResponse>("过期时间必须在1-168小时之间")
             .into_response();
     }
+
+    // 自定义上传后端：OSS 重签不适用，走 AK 换签或直接透传
+    if oss_data.is_custom_storage() {
+        // 响应构造收敛（temp=true 换签路径与透传路径仅 url/temporary 两字段不同）
+        let build_response = |url: String, temporary: bool| {
+            ApiResponse::success_with_status(
+                MarkdownUrlResponse {
+                    url,
+                    task_id: task_id.clone(),
+                    temporary,
+                    expires_in_hours: None, // 签名时效由后端自管，不给虚假的过期语义
+                    file_size: None,
+                    content_type: "text/markdown; charset=utf-8".to_string(),
+                    oss_file_name: oss_data.markdown_object_key.clone(),
+                    oss_bucket: Some(oss_data.bucket.clone()),
+                },
+                StatusCode::OK,
+            )
+            .into_response()
+        };
+
+        // temp=true：用 API Key 换取带签名的临时公开 URL（无需登录态可访问）
+        if params.temp.unwrap_or(false)
+            && let Some(endpoint) = task.upload_config.as_ref()
+        {
+            // 复用 DocumentService 共享连接池
+            let client = oss_client::ApiFileClient::with_client(
+                endpoint.to_api_config(),
+                state.document_service.http_client().clone(),
+            );
+            return match client {
+                Ok(client) => match client.exchange_signed_url(&oss_data.markdown_url).await {
+                    Ok(signed_url) => {
+                        info!(
+                            "Temporary signed URL generated for custom backend: task_id={}",
+                            task_id
+                        );
+                        build_response(signed_url, true)
+                    }
+                    Err(e) => {
+                        // 与 download 接口的回退策略一致：换签失败不 500，
+                        // 降级返回存储的原 URL（公开存储仍可用，私有存储对系统内消费方可用）
+                        warn!(
+                            "AK signed-URL exchange failed, falling back to stored url: task_id={}, error={}",
+                            task_id, e
+                        );
+                        build_response(oss_data.markdown_url.clone(), false)
+                    }
+                },
+                Err(e) => {
+                    error!(
+                        "Failed to create custom backend client: task_id={}, error={}",
+                        task_id, e
+                    );
+                    build_response(oss_data.markdown_url.clone(), false)
+                }
+            };
+        }
+
+        // temp=false（或任务缺 upload_config 的兜底）：直接返回存储的 markdown_url
+        //（upload_type=store 为永久地址；tmp 的时效由后端自管）
+        info!(
+            "Task uses custom upload backend, returning stored markdown_url directly: task_id={}",
+            task_id
+        );
+        return build_response(oss_data.markdown_url.clone(), false);
+    }
+
+    let generate_temp = params.temp.unwrap_or(false);
+    // 校验已在前置块统一完成（expires_hours），此处直接消费
+    let expires_in_hours = expires_hours;
 
     if generate_temp {
         // 生成临时预签名URL

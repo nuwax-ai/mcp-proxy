@@ -1,11 +1,12 @@
 use axum::response::{IntoResponse, Response};
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use super::{McpProtocol, McpType};
 
 //check mcp服务状态的请求参数
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone, ToSchema)]
 pub struct CheckMcpStatusRequestParams {
     //mcp的id,必须有
     #[serde(rename = "mcpId")]
@@ -29,7 +30,7 @@ fn default_mcp_type() -> McpType {
 }
 
 //check mcp服务状态的响应参数
-#[derive(Deserialize, Debug, Serialize)]
+#[derive(Deserialize, Debug, Serialize, ToSchema)]
 pub struct CheckMcpStatusResponseParams {
     //是否就绪, READY 状态,表示 true
     pub ready: bool,
@@ -57,7 +58,7 @@ impl CheckMcpStatusResponseParams {
 }
 
 //check mcp服务状态的响应 status 枚举: READY,PENDING,ERROR
-#[derive(Deserialize, Debug, Serialize, Clone)]
+#[derive(Deserialize, Debug, Serialize, Clone, ToSchema)]
 pub enum McpStatusResponseEnum {
     //就绪
     Ready,

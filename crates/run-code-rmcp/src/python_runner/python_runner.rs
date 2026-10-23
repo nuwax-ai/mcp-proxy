@@ -1,12 +1,14 @@
 //通过 uv 命令,来运行 python脚本
 use crate::{
     cache::CodeFileCache,
-    model::{CodeExecutor, CodeScriptExecutionResult, CommandExecutor, LanguageScript, RunCode},
+    model::{
+        CodeExecutor, CodeScriptExecutionResult, LanguageScript, ParamsTempFile, RunCode,
+        run_command_with_timeout,
+    },
     python_runner::parse_import,
 };
 use anyhow::{Context, Result};
 use log::{debug, error, info, warn};
-use tokio::fs;
 use tokio::process::Command;
 
 #[derive(Default)]
@@ -106,25 +108,14 @@ impl RunCode for PythonRunner {
             .arg(&temp_path)
             .kill_on_drop(true);
 
-        // 处理参数：统一使用临时文件传递
-        let temp_input_path = if let Some(params) = params {
-            let params_json = serde_json::to_string(&params)?;
-
-            // 创建临时文件写入参数
-            let temp_dir = tempfile::TempDir::new()?;
-            let temp_file_path = temp_dir.path().join("input_params.json");
-
-            // 写入参数到临时文件
-            std::fs::write(&temp_file_path, params_json.as_bytes())?;
-
-            // 保持TempDir存在（这样文件就不会被删除）
-            std::mem::forget(temp_dir);
-
-            // 设置环境变量指向临时文件
-            execute_command.env("INPUT_JSON_FILE", &temp_file_path);
-            debug!("使用临时文件传递参数，文件路径: {:?}", temp_file_path);
-
-            Some(temp_file_path)
+        // 处理参数：统一使用临时文件传递；守卫存续到函数结束，
+        // 成功/失败/超时任何退出路径都由 Drop 自动清理（旧的 forget+手动删除
+        // 模式会在错误路径泄漏含参数 JSON 的临时目录）
+        let _params_guard = if let Some(params) = params.as_ref() {
+            let temp = ParamsTempFile::create(params)?;
+            execute_command.env("INPUT_JSON_FILE", &temp.path);
+            debug!("使用临时文件传递参数，文件路径: {:?}", temp.path);
+            Some(temp)
         } else {
             // 没有参数时设置空对象
             execute_command.env("INPUT_JSON", "{}");
@@ -133,23 +124,11 @@ impl RunCode for PythonRunner {
 
         info!("执行命令: {:?}", execute_command);
 
-        //限制command 的执行超时时间
-        let executor = match timeout_seconds {
-            Some(timeout) => CommandExecutor::with_timeout(execute_command.output(), timeout),
-            None => CommandExecutor::default(execute_command.output()),
-        };
-
-        let executor_result = executor.await;
-        let output = match executor_result {
-            Ok(cmd_result) => match cmd_result {
-                Ok(output) => output,
-                Err(e) => {
-                    error!("Python命令执行失败: {e:?}");
-                    return Err(e.into());
-                }
-            },
+        // 进程组执行 + 超时组杀（覆盖 uv 拉起的 Python 孙进程）
+        let output = match run_command_with_timeout(execute_command, timeout_seconds).await {
+            Ok(output) => output,
             Err(e) => {
-                error!("Python任务执行异常: {e:?}");
+                error!("Python命令执行失败: {e:?}");
                 return Err(e.into());
             }
         };
@@ -158,17 +137,6 @@ impl RunCode for PythonRunner {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
         debug!("Python stdout: {stdout}");
         debug!("Python stderr: {stderr}");
-
-        // 执行完成后删除临时文件和目录
-        if let Some(temp_file_path) = temp_input_path {
-            // 删除文件
-            let _ = fs::remove_file(&temp_file_path).await;
-            // 尝试删除父目录（如果为空）
-            if let Some(parent) = temp_file_path.parent() {
-                let _ = fs::remove_dir(parent).await;
-            }
-            debug!("已删除临时文件: {:?}", temp_file_path);
-        }
 
         // 解析输出
         CodeExecutor::parse_execution_output(&output.stdout, &output.stderr).await

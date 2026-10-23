@@ -10,6 +10,7 @@ logs
 .claude
 /tmp
 packages
+.zcode
 
 
 crates/document-parser/data/*
@@ -57,8 +58,10 @@ crates/mcp-proxy/docs/
 
 # CI-assembled npm vendor binaries / local npm pack artifacts
 # (templates under vendor/templates/ stay in git; CI overwrites binaries on release)
-npm/nuwax-deploy-installer/vendor/darwin-arm64/
-npm/nuwax-deploy-installer/*.tgz
+npm/deploy-installer/vendor/darwin-arm64/
+npm/deploy-installer/vendor/linux-x64/
+npm/deploy-installer/vendor/windows-x64/
+npm/deploy-installer/*.tgz
 
 # Local install / smoke-test trees (never commit)
 local-smoke/

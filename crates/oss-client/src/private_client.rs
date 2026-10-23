@@ -136,7 +136,8 @@ impl OssClientTrait for PrivateOssClient {
             builder = builder.with_content_type("application/octet-stream");
         }
 
-        let temp_path_string = temp_file.path().to_str().unwrap().to_string();
+        // to_string_lossy：非 UTF-8 路径降级替换而非 panic（生产禁 unwrap 红线）
+        let temp_path_string = temp_file.path().to_string_lossy().into_owned();
         match self
             .client
             .put_object_from_file(&prefixed_key, &temp_path_string, builder)

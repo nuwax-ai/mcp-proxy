@@ -58,9 +58,17 @@ impl ServiceSpec {
         PathBuf::from(format!("/etc/systemd/system/{}.service.d", self.name))
     }
 
+    /// 任务计划程序任务名 / launchd label，如 `com.nuwax.document-parser`。
+    ///
+    /// 两个后端共用同一命名形状；字符集已被 [`crate::validate_unit_name`]
+    /// 限制在 `[A-Za-z0-9._-]`，在 schtasks `/tn` 与 PowerShell 单引号内安全。
+    pub fn task_name(&self) -> String {
+        format!("com.nuwax.{}", self.name)
+    }
+
     /// launchd label, e.g. `com.nuwax.document-parser`.
     pub fn launchd_label(&self) -> String {
-        format!("com.nuwax.{}", self.name)
+        self.task_name()
     }
 
     /// User LaunchAgent plist path on macOS.
@@ -69,5 +77,15 @@ impl ServiceSpec {
         PathBuf::from(home)
             .join("Library/LaunchAgents")
             .join(format!("{}.plist", self.launchd_label()))
+    }
+
+    /// 任务定义 XML 的持久化路径（install_dir 下）。
+    ///
+    /// 与 launchd plist 落在 install_dir 的模式一致：dry-run 有路径可打印、
+    /// status 可回读任务体、uninstall 有文件可清理（注册的任务与文件可能
+    /// 单边存在，两边都查）。
+    pub fn task_xml_path(&self) -> PathBuf {
+        self.install_dir
+            .join(format!("{}.task.xml", self.task_name()))
     }
 }

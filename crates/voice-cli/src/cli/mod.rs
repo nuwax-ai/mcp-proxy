@@ -10,7 +10,9 @@ use clap::{Parser, Subcommand};
 #[derive(Parser)]
 #[command(name = "voice-cli")]
 #[command(about = "Speech-to-text HTTP service with CLI interface")]
-#[command(version = "0.1.0")]
+// 与 /health 的 version 字段同源（CARGO_PKG_VERSION）——此前硬编码 "0.1.0"，
+// GPU bundle 构建与 npm 发版线排障时 --version 误导现场
+#[command(version = env!("CARGO_PKG_VERSION"))]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,

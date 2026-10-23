@@ -2,7 +2,7 @@
 
 适用于 **Apple Silicon（arm64）Mac Mini**。安装 CLI 后默认目录为 `~/voice-cli` 与 `~/document-parser`，一般**不必写 `--install-dir`**。
 
-> 稳定版：**`npm install -g nuwax-deploy-installer`**（`@latest`）；尝鲜用 `@beta`。
+> 稳定版：**`npm install -g @nuwax-ai/deploy-installer`**（`@latest`）；尝鲜用 `@beta`。
 
 ## 最快路径（复制粘贴）
 
@@ -10,10 +10,13 @@
 # ① 一次性准备
 xcode-select --install 2>/dev/null || true
 eval "$(/opt/homebrew/bin/brew shellenv)"
+# ffmpeg 无需手动安装：voice-cli 安装器会自动从 OSS 供给到安装目录
+#（系统 PATH 已有 ffmpeg 时优先用系统的）；brew 装一份亦可
 brew install node curl
-# 国内可选：npm config set registry https://registry.npmmirror.com
+# 国内可选：npm config set registry https://registry.npmmirror.com（latest 元数据可能滞后数天，
+# 装完 deploy-installer --version 核对，旧了显式带版本号或直连官方源）
 
-npm install -g nuwax-deploy-installer
+npm install -g @nuwax-ai/deploy-installer
 deploy-installer doctor
 
 # ② voice-cli（约 3GB 模型，已存在则跳过；无需 OSS 密钥）
@@ -49,7 +52,7 @@ curl -fsS http://127.0.0.1:8087/health
 ### 1. 安装 CLI
 
 ```bash
-npm install -g nuwax-deploy-installer
+npm install -g @nuwax-ai/deploy-installer
 deploy-installer doctor
 deploy-installer --version
 ```
@@ -89,6 +92,23 @@ deploy-installer document-parser install
 
 ---
 
+### 3b. 私有部署变体：自定义上传后端（不用 OSS）
+
+解析产物上传到自建系统（nuwax 风格 REST，契约见 `crates/document-parser/CUSTOM_UPLOAD_API.md`）时，用以下环境变量**替代** OSS 密钥：
+
+```bash
+export DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL=https://your-system.example.com
+export DOCUMENT_PARSER_CUSTOM_UPLOAD_API_KEY=你的APIKey
+deploy-installer document-parser install
+```
+
+`install` 会把这些变量写入 `~/document-parser/.document-parser.env`（与 OSS 密钥二选一，install 检查通过后同样注册服务）。
+
+> 注意：macOS 上 venv 仍默认从**公开 OSS 下载源**下载（与上方"上传凭证"无关）。
+> 纯内网无法访问该下载源时，配合 `--venv-file` 离线安装：
+> `deploy-installer document-parser install --venv-file /path/to/venv-macos-arm64-x.y.z.tar.gz`（见 INSTALL.md）。
+
+
 ## 常用运维
 
 ```bash
@@ -96,12 +116,18 @@ deploy-installer document-parser install
 deploy-installer voice-cli service status
 deploy-installer document-parser service status
 
+# 停止 / 启动（幂等：已停再 stop、已跑再 start 都直接成功）
+deploy-installer voice-cli service stop
+deploy-installer voice-cli service start
+deploy-installer document-parser service stop
+deploy-installer document-parser service start
+
 # 重启
 deploy-installer voice-cli service restart
 deploy-installer document-parser service restart
 
 # 升级（先升级 npm 包，再 upgrade 安装目录里的二进制）
-npm install -g nuwax-deploy-installer
+npm install -g @nuwax-ai/deploy-installer
 deploy-installer voice-cli upgrade
 deploy-installer document-parser upgrade
 deploy-installer voice-cli service restart
@@ -138,7 +164,7 @@ deploy-installer document-parser install --no-prebuilt-venv
 第一期仅支持 **Apple Silicon**。确认 `uname -m` 为 `arm64`，并重装 npm 包：
 
 ```bash
-npm install -g nuwax-deploy-installer
+npm install -g @nuwax-ai/deploy-installer
 ```
 
 ### LaunchAgent 未启动 / `service install` 失败
@@ -191,7 +217,7 @@ tail -f ~/voice-cli/logs/launchd.stderr.log
 ~/voice-cli/voice-cli --version   # 应在安装目录执行
 ```
 
-确认 dylib 与 binary 同目录：`libsherpa-onnx-c-api.dylib`、`libonnxruntime.1.24.4.dylib`。
+确认 dylib 与 binary 同目录：`libsherpa-onnx-c-api.dylib`、`libonnxruntime.dylib`。
 
 ### 卸载
 
@@ -210,11 +236,13 @@ rm -rf ~/voice-cli ~/document-parser   # 可选：删除数据与模型
 | 服务 | OSS 包 | 大小 | 下载时要密钥？ |
 |------|--------|------|----------------|
 | voice-cli | `whisper-ggml-large-v3-{assetVersion}.tar.gz` | ~3GB | 否（公开 URL） |
-| document-parser | `venv-macos-arm64-{assetVersion}.tar.gz` | ~300MB | 否 |
+| voice-cli | `ffmpeg-static-darwin-arm64.tar.gz`（系统已有 ffmpeg 时跳过） | ~22MB | 否 |
+| document-parser | `venv-macos-arm64-{assetVersion}.tar.gz` | ~330MB | 否 |
+| document-parser | MinerU 模型缓存（无版本号 URL） | ~1GB | 否 |
 
-`{assetVersion}` 来自 npm 包内 `manifest.json`（当前为 **`0.2.1`**），与 `deploy-installer --version` 的 beta 号可以不同——beta 包会复用同一份 OSS 资源。
+`{assetVersion}` 来自 npm 包内 `manifest.json` 的 `assetVersion` 字段（随发版演进，与 `deploy-installer --version` 的版本可以不同——npm 包会复用同一份 OSS 资源）。
 
-业务上传解析结果仍需在 `~/document-parser/.document-parser.env` 配置 **OSS_ACCESS_KEY_ID / SECRET**。
+业务上传解析结果需在 `~/document-parser/.document-parser.env` 配置上传后端（**OSS_ACCESS_KEY_ID / SECRET 或 DOCUMENT_PARSER_CUSTOM_UPLOAD_BASE_URL / API_KEY 二选一**）。
 
 维护者打包上传见 [MAINTAINER.md](./MAINTAINER.md)。
 
@@ -239,6 +267,6 @@ pkill -f "document-parser.*server" 2>/dev/null || true
 
 回到机器桌面、用**安装账号**登录后，再执行各服务的 `install` 注册自启。
 
-### Linux / CUDA
+### Linux / Windows
 
-见 [MAINTAINER.md](./MAINTAINER.md) 第二节，或 `crates/voice-cli/deploy/README.md`。
+普通用户见 [deploy-voice-cli.md](./deploy-voice-cli.md)（§1 GPU 档位总览 / §4 档位控制）与 [deploy-document-parser.md](./deploy-document-parser.md)；维护者打包上传见 [MAINTAINER.md](./MAINTAINER.md)。

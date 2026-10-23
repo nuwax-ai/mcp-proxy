@@ -92,7 +92,7 @@ fn test_zimage_config_type_parsed_as_stream() {
 
             // 5. URL 正确解析
             assert_eq!(
-                url_config.get_url(),
+                url_config.get_url().unwrap(),
                 "https://dashscope.aliyuncs.com/api/v1/mcps/zimage/mcp"
             );
 
@@ -129,7 +129,7 @@ async fn test_zimage_protocol_detection() {
 
     let (url, headers) = match config {
         McpServerConfig::Url(url_config) => {
-            let url = url_config.get_url().to_string();
+            let url = url_config.get_url().unwrap().to_string();
             let headers = url_config.headers.clone().unwrap_or_default();
             (url, headers)
         }
@@ -191,7 +191,7 @@ fn test_howtocook_config_type_parsed_as_sse() {
 
             // 5. URL 正确解析（使用 url 字段而非 baseUrl）
             assert_eq!(
-                url_config.get_url(),
+                url_config.get_url().unwrap(),
                 "https://testagent.xspaceagi.com/api/mcp/sse?ak=ak-27b83516dfd4417a82f764fe3e859a6e"
             );
 
@@ -216,7 +216,7 @@ async fn test_howtocook_sse_protocol_detection() {
     let config = params.try_get_first_mcp_server().unwrap();
 
     let url = match config {
-        McpServerConfig::Url(url_config) => url_config.get_url().to_string(),
+        McpServerConfig::Url(url_config) => url_config.get_url().unwrap().to_string(),
         _ => panic!("Expected URL config"),
     };
 

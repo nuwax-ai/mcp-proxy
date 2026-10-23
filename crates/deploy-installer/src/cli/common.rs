@@ -1,9 +1,9 @@
 //! Shared helpers for `document-parser` / `voice-cli` CLI modules.
 
 use crate::{
-    DropIn, WhisperModelsPack, bundled_binary_path, default_document_parser_install_dir,
-    default_voice_cli_install_dir, group_for_user, make_executable, resolve_service_user,
-    restart_in_dir, status_in_dir, uninstall_in_dir,
+    bundled_binary_path, default_document_parser_install_dir, default_voice_cli_install_dir,
+    group_for_user, make_executable, resolve_service_user, restart_in_dir, start_in_dir,
+    status_in_dir, stop_in_dir, uninstall_in_dir,
 };
 use anyhow::{Context, Result, bail};
 use std::fs;
@@ -13,104 +13,27 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use super::{ServiceAction, ServiceDirArgs};
+use crate::cli::assets::maybe_copy_companion_libs;
 
 pub const CONFIG_FILENAME: &str = "config.yml";
-pub const WHISPER_DEFAULT_MODEL: &str = "large-v3";
-pub const WHISPER_MODEL_FILE: &str = "ggml-large-v3.bin";
 
-/// Model names inside `whisper-ggml-all-{version}.tar.gz`.
-pub const WHISPER_ALL_MODEL_NAMES: &[&str] = &["tiny", "base", "small", "medium", "large-v3"];
-
-/// macOS shared-mode libs that must sit next to `voice-cli` (`@loader_path` / `@rpath`).
-#[cfg(target_os = "macos")]
-const VOICE_CLI_REQUIRED_LIBS: &[&str] =
-    &["libsherpa-onnx-c-api.dylib", "libonnxruntime.1.24.4.dylib"];
-
-#[cfg(target_os = "macos")]
-const VOICE_CLI_OPTIONAL_LIBS: &[&str] = &["libonnxruntime.dylib"];
-
-#[cfg(not(target_os = "macos"))]
-const VOICE_CLI_REQUIRED_LIBS: &[&str] = &[];
-
-#[cfg(not(target_os = "macos"))]
-const VOICE_CLI_OPTIONAL_LIBS: &[&str] = &[];
-
-/// Linux CUDA OSS bundle: binary + sherpa/onnx shared libs (flat extract into install_dir).
-#[cfg(target_os = "linux")]
-pub const VOICE_CLI_CUDA_BUNDLE_FILES: &[&str] = &[
-    "voice-cli",
-    "libsherpa-onnx-c-api.so",
-    "libonnxruntime.so",
-    "libonnxruntime_providers_cuda.so",
-    "libonnxruntime_providers_shared.so",
-];
-
-#[cfg(not(target_os = "linux"))]
-pub const VOICE_CLI_CUDA_BUNDLE_FILES: &[&str] = &[];
-
-/// Return true when a voice-cli CUDA OSS bundle is fully present in `install_dir`.
-pub fn voice_cli_cuda_bundle_present(install_dir: &Path) -> bool {
-    !VOICE_CLI_CUDA_BUNDLE_FILES.is_empty()
-        && VOICE_CLI_CUDA_BUNDLE_FILES.iter().all(|name| {
-            let path = install_dir.join(name);
-            path.exists() && fs::metadata(&path).map(|m| m.len() > 0).unwrap_or(false)
-        })
-}
-
-/// systemd drop-in for CUDA/cuDNN `LD_LIBRARY_PATH` (install_dir first for bundled .so).
-pub fn build_cuda_sherpa_drop_in(
-    install_dir: &Path,
-    cuda_lib_dir: Option<&Path>,
-    cudnn_lib_dir: Option<&Path>,
-) -> Option<DropIn> {
-    if cuda_lib_dir.is_none() && cudnn_lib_dir.is_none() {
-        return None;
-    }
-    let mut parts: Vec<String> = vec![install_dir.display().to_string()];
-    if let Some(p) = cudnn_lib_dir {
-        parts.push(p.display().to_string());
-    }
-    if let Some(p) = cuda_lib_dir {
-        parts.push(p.display().to_string());
-    }
-    let ld = parts.join(":");
-    Some(DropIn {
-        name: "cuda-sherpa".into(),
-        content: format!("[Service]\nEnvironment=LD_LIBRARY_PATH={ld}\n"),
-    })
-}
-
-/// Default NVIDIA CUDA toolkit lib dir when present on the host.
-pub fn default_cuda_lib_dir() -> Option<PathBuf> {
-    for candidate in ["/usr/local/cuda/lib64", "/usr/local/cuda/lib"] {
-        let p = PathBuf::from(candidate);
-        if p.is_dir() {
-            return Some(p);
+/// 剥离 YAML 值的行内注释：引号值取到闭合引号为止（保留引号让调用方统一剥壳），
+/// 裸值在首个 `#` 处截断（`#` 前至少一个空白才是注释，`a#b` 这种伪注释不截）。
+/// 出厂模板的 port/bucket/default_model 行都带 `# ← 说明` 尾注——朴素解析
+/// 不剥注释会读出脏值或直接解析失败
+pub(crate) fn strip_yaml_inline_comment(value: &str) -> &str {
+    let bytes = value.as_bytes();
+    if bytes.first() == Some(&b'"') || bytes.first() == Some(&b'\'') {
+        let quote = bytes[0];
+        if let Some(end) = bytes[1..].iter().position(|&b| b == quote).map(|i| i + 1) {
+            return &value[..end + 1];
         }
+        // 无闭合引号：畸形行，退回裸值规则
     }
-    None
-}
-
-/// Best-effort cuDNN lib discovery (explicit env, then document-parser venv).
-pub fn detect_cudnn_lib_dir() -> Option<PathBuf> {
-    if let Ok(dir) = std::env::var("CUDNN_LIB_DIR") {
-        let p = PathBuf::from(dir);
-        if p.is_dir() {
-            return Some(p);
-        }
+    match value.find(" #") {
+        Some(idx) => value[..idx].trim_end(),
+        None => value,
     }
-    if let Ok(home) = std::env::var("HOME") {
-        let venv_lib = PathBuf::from(home).join("document-parser/venv/lib");
-        if let Ok(entries) = fs::read_dir(&venv_lib) {
-            for entry in entries.flatten() {
-                let cudnn = entry.path().join("site-packages/nvidia/cudnn/lib");
-                if cudnn.is_dir() {
-                    return Some(cudnn);
-                }
-            }
-        }
-    }
-    None
 }
 
 /// Read first non-comment `port:` value from a YAML-ish config file.
@@ -122,14 +45,22 @@ pub fn read_server_port(config_path: &Path) -> Option<u16> {
             continue;
         }
         if let Some(rest) = t.strip_prefix("port:") {
-            return rest.trim().parse().ok();
+            return strip_yaml_inline_comment(rest.trim())
+                .trim()
+                .trim_matches('"')
+                .trim_matches('\'')
+                .parse()
+                .ok();
         }
     }
     None
 }
 
 pub fn canonicalize_install_dir(path: &Path) -> PathBuf {
-    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+    // dunce：Windows 的 std canonicalize 返回 \\?\ 扩展长度路径——进了任务计划
+    // XML 的 WorkingDirectory/Command 后 schtasks 无法正确处理（实测 53 服务
+    // 行为异常）。dunce 在 Windows 返回普通绝对路径，Unix 行为等同 std。
+    dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 pub fn resolve_user_group(user: Option<String>) -> Result<(String, String)> {
@@ -151,187 +82,29 @@ pub fn resolve_service_install_dir(service: &str, install_dir: &Path) -> PathBuf
     }
 }
 
-/// Download a tarball with curl and extract into `install_dir`.
-pub fn download_and_extract_tarball(
-    url: &str,
-    install_dir: &Path,
-    archive_basename: &str,
-    quiet: bool,
-    label: &str,
-) -> Result<()> {
-    let archive = install_dir.join(archive_basename);
-    if !quiet {
-        println!("  {label}: downloading {url}");
-    }
-    let mut curl = Command::new("curl");
-    curl.args(["-fL"]);
-    if quiet {
-        curl.args(["-s", "-S"]);
-    } else {
-        curl.arg("-#");
-    }
-    let status = curl
-        .args([url, "-o", &archive.display().to_string()])
-        .status()
-        .with_context(|| format!("curl download {label}"))?;
-    if !status.success() {
-        bail!("failed to download {label} from {url}");
-    }
-    let status = Command::new("tar")
-        .args([
-            "-xzf",
-            &archive.display().to_string(),
-            "-C",
-            &install_dir.display().to_string(),
-        ])
-        .status()
-        .with_context(|| format!("extract {label}"))?;
-    if !status.success() {
-        bail!("failed to extract {label} archive");
-    }
-    let _ = fs::remove_file(&archive);
-    Ok(())
-}
-
-/// Set `whisper.default_model` in a YAML config (line-based, whisper section only).
-pub fn patch_whisper_default_model(config_path: &Path, model: &str) -> Result<()> {
-    if !config_path.exists() {
-        return Ok(());
-    }
-    let content = fs::read_to_string(config_path)?;
-    let mut out = String::new();
-    let mut in_whisper = false;
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if !trimmed.starts_with('#') && trimmed.ends_with(':') && !trimmed.contains(' ') {
-            in_whisper = trimmed == "whisper:";
-        }
-        if in_whisper && trimmed.starts_with("default_model:") {
-            let indent = line.len().saturating_sub(line.trim_start().len());
-            out.push_str(&format!(
-                "{:indent$}default_model: \"{model}\"\n",
-                "",
-                indent = indent
-            ));
-        } else {
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
-    fs::write(config_path, out)?;
-    Ok(())
-}
-
-/// Minimum bytes for a plausible `ggml-large-v3.bin` (reject tiny smoke-test stubs).
-const WHISPER_LARGE_V3_MIN_BYTES: u64 = 500_000_000;
-
-/// Return true when `models/ggml-large-v3.bin` looks like a real model.
-pub fn whisper_large_v3_present(install_dir: &Path) -> bool {
-    whisper_model_present(install_dir, "large-v3")
-}
-
-fn whisper_model_present(install_dir: &Path, name: &str) -> bool {
-    let model = install_dir.join("models").join(format!("ggml-{name}.bin"));
-    let Ok(meta) = fs::metadata(&model) else {
-        return false;
-    };
-    if name == "large-v3" {
-        meta.len() >= WHISPER_LARGE_V3_MIN_BYTES
-    } else {
-        meta.len() > 0
-    }
-}
-
-/// Return true when the requested OSS Whisper pack is already on disk.
-pub fn whisper_pack_satisfied(install_dir: &Path, pack: WhisperModelsPack) -> bool {
-    match pack {
-        WhisperModelsPack::LargeV3 => whisper_large_v3_present(install_dir),
-        WhisperModelsPack::All => WHISPER_ALL_MODEL_NAMES
-            .iter()
-            .all(|name| whisper_model_present(install_dir, name)),
-    }
-}
-
-/// Apply `OSS_ACCESS_KEY_ID` / `OSS_ACCESS_KEY_SECRET` from the environment into `.env`.
-/// Returns true when both keys are now configured (file or env).
-pub fn apply_oss_keys_from_env(env_path: &Path) -> Result<bool> {
-    let id = std::env::var("OSS_ACCESS_KEY_ID")
-        .ok()
-        .filter(|s| !s.trim().is_empty());
-    let secret = std::env::var("OSS_ACCESS_KEY_SECRET")
-        .ok()
-        .filter(|s| !s.trim().is_empty());
-
-    let (Some(id), Some(secret)) = (id, secret) else {
-        return Ok(oss_keys_configured(env_path));
-    };
-
-    let mut lines: Vec<String> = if env_path.exists() {
-        fs::read_to_string(env_path)?
-            .lines()
-            .map(String::from)
-            .collect()
-    } else {
-        Vec::new()
-    };
-
-    upsert_env_line(&mut lines, "OSS_ACCESS_KEY_ID", &id);
-    upsert_env_line(&mut lines, "OSS_ACCESS_KEY_SECRET", &secret);
-
-    let body = format!("{}\n", lines.join("\n"));
-    crate::write_user_file(env_path, &body, Some(0o600))?;
-    Ok(oss_keys_configured(env_path))
-}
-
-fn upsert_env_line(lines: &mut Vec<String>, key: &str, value: &str) {
-    let prefix = format!("{key}=");
-    if let Some(line) = lines.iter_mut().find(|l| {
-        let t = l.trim();
-        !t.starts_with('#') && t.starts_with(&prefix)
-    }) {
-        *line = format!("{key}={value}");
-    } else {
-        lines.push(format!("{key}={value}"));
-    }
-}
-
-/// Whether `.document-parser.env` has non-empty OSS keys.
-pub fn oss_keys_configured(env_path: &Path) -> bool {
-    let Ok(content) = fs::read_to_string(env_path) else {
-        return false;
-    };
-    let mut id_ok = false;
-    let mut secret_ok = false;
-    for line in content.lines() {
-        let t = line.trim();
-        if t.starts_with('#') || t.is_empty() {
-            continue;
-        }
-        if let Some((k, v)) = t.split_once('=') {
-            let v = v.trim().trim_matches('"').trim_matches('\'');
-            if k.trim() == "OSS_ACCESS_KEY_ID" && !v.is_empty() {
-                id_ok = true;
-            }
-            if k.trim() == "OSS_ACCESS_KEY_SECRET" && !v.is_empty() {
-                secret_ok = true;
-            }
-        }
-    }
-    id_ok && secret_ok
-}
-
-/// Default `/health` wait after install (voice-cli starts in seconds).
+/// voice-cli 启动秒级就绪；document-parser 首启含 MinerU 环境检查，放宽。
 const VOICE_CLI_HEALTH_WAIT_SECS: u64 = 45;
-/// document-parser runs MinerU env checks on first boot; allow longer.
 const DOCUMENT_PARSER_HEALTH_WAIT_SECS: u64 = 120;
+/// upgrade 自动重启后的健康等待（尽力而为，非致命——重启成功即契约达成）
+const UPGRADE_HEALTH_WAIT_SECS: u64 = 45;
 
 /// Poll `http://127.0.0.1:{port}{path}` until curl succeeds or timeout.
+///
+/// 每次探测带 `-m 3` 硬超时——垂死实例的半开连接（accept 队列已关）会让
+/// 无超时的 curl 无限挂起（53 实测：终态协议整体卡死 30 分钟+）。
 pub fn wait_for_health(port: u16, path: &str, timeout_secs: u64) -> bool {
     let url = format!("http://127.0.0.1:{port}{path}");
     let deadline = Instant::now() + Duration::from_secs(timeout_secs);
     while Instant::now() < deadline {
         if Command::new("curl")
-            .args(["-fsS", "-o", "/dev/null", &url])
+            .args([
+                "-fsS",
+                "-m",
+                "3",
+                "-o",
+                if cfg!(windows) { "NUL" } else { "/dev/null" },
+                &url,
+            ])
             .status()
             .map(|s| s.success())
             .unwrap_or(false)
@@ -344,120 +117,56 @@ pub fn wait_for_health(port: u16, path: &str, timeout_secs: u64) -> bool {
 }
 
 /// Print a short success banner after `install` completes.
-pub fn print_install_success(service: &str, install_dir: &Path, port: u16) {
+///
+/// 健康等待超时 = 安装失败（Fail Fast）：服务注册成功但起不来时，不能打印 ✅
+/// 让用户误以为部署完成（131 无 GPU 机器装 CUDA voice-cli 崩溃循环的实测教训）。
+/// 排障指引按当前服务后端给出。
+pub fn print_install_success(service: &str, install_dir: &Path, port: u16) -> Result<()> {
     let timeout_secs = match service {
         "document-parser" => DOCUMENT_PARSER_HEALTH_WAIT_SECS,
         _ => VOICE_CLI_HEALTH_WAIT_SECS,
     };
     print!("\n   Checking /health (up to {timeout_secs}s)");
     let healthy = wait_for_health(port, "/health", timeout_secs);
-    if healthy {
-        println!(" … OK");
-    } else {
-        println!(" … still starting (retry: curl -fsS http://127.0.0.1:{port}/health)");
+    if !healthy {
+        println!(" … TIMEOUT");
+        println!("\n⚠️  {service} 已安装但服务未就绪（{timeout_secs}s 内 /health 未响应）");
+        println!("   排查：");
+        if cfg!(target_os = "windows") {
+            println!("     deploy-installer {service} service status   # 任务状态与 last result");
+            println!("     任务计划程序 taskschd.msc → com.nuwax.{service} → 历史");
+        } else if cfg!(target_os = "macos") {
+            println!(
+                "     tail -30 ~/logs/launchd.*.log 或 {}/logs/ 下最新日志",
+                install_dir.display()
+            );
+            println!("     deploy-installer {service} service status");
+        } else {
+            println!("     journalctl -u {service} -n 30 --no-pager   # 崩溃原因");
+            println!("     deploy-installer {service} service status");
+        }
+        bail!("{service} installed but health check timed out on port {port}");
     }
+    println!(" … OK");
 
     println!("\n✅ {service} → http://127.0.0.1:{port}");
     println!("   API docs: http://127.0.0.1:{port}/api/docs");
     println!("   Dir: {}", install_dir.display());
     println!("   Ops: deploy-installer {service} service status");
-}
-
-/// Ensure required Whisper model files exist after an OSS extract.
-pub fn ensure_whisper_pack_models(install_dir: &Path, pack: WhisperModelsPack) -> Result<()> {
-    if whisper_pack_satisfied(install_dir, pack) {
-        return Ok(());
-    }
-    match pack {
-        WhisperModelsPack::LargeV3 => ensure_whisper_large_v3_model(install_dir),
-        WhisperModelsPack::All => {
-            let missing: Vec<String> = WHISPER_ALL_MODEL_NAMES
-                .iter()
-                .filter(|name| !whisper_model_present(install_dir, name))
-                .map(|name| format!("ggml-{name}.bin"))
-                .collect();
-            bail!(
-                "missing whisper models: {} — upload whisper-ggml-all-{{version}}.tar.gz to OSS \
-                 or use --oss-base",
-                missing.join(", ")
-            );
-        }
-    }
-}
-
-/// Ensure `models/ggml-large-v3.bin` exists after a Whisper OSS extract.
-pub fn ensure_whisper_large_v3_model(install_dir: &Path) -> Result<()> {
-    if whisper_large_v3_present(install_dir) {
-        return Ok(());
-    }
-    let model = install_dir.join("models").join(WHISPER_MODEL_FILE);
-    bail!(
-        "missing or too small {} — upload whisper-ggml-large-v3-{{version}}.tar.gz to OSS \
-         or use --oss-base",
-        model.display()
-    );
-}
-
-/// Copy sherpa/onnxruntime shared libs that must live beside `voice-cli`.
-fn copy_voice_cli_companion_libs(src_dir: &Path, install_dir: &Path, quiet: bool) -> Result<()> {
-    for name in VOICE_CLI_REQUIRED_LIBS {
-        let src = src_dir.join(name);
-        let dst = install_dir.join(name);
-        if src.exists() {
-            fs::copy(&src, &dst)
-                .with_context(|| format!("copy {} → {}", src.display(), dst.display()))?;
-            make_executable(&dst)?;
-            if !quiet {
-                println!("  copied companion lib {name}");
-            }
-        } else if !dst.exists() {
-            bail!(
-                "required companion lib missing: {} (and not already in {}) — \
-                 re-run assemble / copy libsherpa-onnx-c-api + libonnxruntime next to voice-cli",
-                src.display(),
-                install_dir.display()
-            );
-        }
-    }
-    for name in VOICE_CLI_OPTIONAL_LIBS {
-        let src = src_dir.join(name);
-        let dst = install_dir.join(name);
-        if src.exists() {
-            fs::copy(&src, &dst)
-                .with_context(|| format!("copy {} → {}", src.display(), dst.display()))?;
-            if !quiet {
-                println!("  copied companion lib {name}");
-            }
-        }
-    }
     Ok(())
 }
 
-fn maybe_copy_companion_libs(
-    service: &str,
-    bundled_bin: &Path,
-    install_dir: &Path,
-    quiet: bool,
-) -> Result<()> {
-    if service != "voice-cli" {
-        return Ok(());
-    }
-    let Some(src_dir) = bundled_bin.parent() else {
-        return Ok(());
-    };
-    copy_voice_cli_companion_libs(src_dir, install_dir, quiet)
-}
-
+/// Ensure required Whisper model files exist after an OSS extract.
 /// Copy `vendor/<platform>/<service>` into `install_dir/<service>` when the bundle exists.
 ///
 /// If the bundle is missing, keeps an existing binary in place; otherwise errors.
 /// For `voice-cli`, also copies macOS `@rpath` companion dylibs from the same vendor dir.
 pub fn ensure_bundled_binary(service: &str, install_dir: &Path, quiet: bool) -> Result<PathBuf> {
     let bundled = bundled_binary_path(service);
-    let dst = install_dir.join(service);
+    let dst = install_dir.join(crate::binary_name(service));
     if bundled.exists() {
-        fs::copy(&bundled, &dst)
-            .with_context(|| format!("copy {} → {}", bundled.display(), dst.display()))?;
+        stop_service_for_binary_replace(service, quiet);
+        copy_file_atomic(&bundled, &dst)?;
         make_executable(&dst)?;
         if !quiet {
             println!("  copied binary from {}", bundled.display());
@@ -479,16 +188,147 @@ pub fn ensure_bundled_binary(service: &str, install_dir: &Path, quiet: bool) -> 
 /// Replace `install_dir/<service>` from the npm/vendor bundle and print a restart hint.
 pub fn upgrade_bundled_binary(service: &str, install_dir: &Path) -> Result<()> {
     let bundled = bundled_binary_path(service);
-    let dst = install_dir.join(service);
+    let dst = install_dir.join(crate::binary_name(service));
     if !bundled.exists() {
         bail!("bundled binary not found at {}", bundled.display());
     }
-    fs::copy(&bundled, &dst)?;
+    // 替换前探测"服务在跑?"——替换后自动重启原在跑的服务，升级零感知：
+    // Windows 停任务换文件（否则服务留在停止态），Linux/macOS rename 顶替
+    // （旧进程继续跑旧版本直到重启）——两种场景都需要重启才生效新版本
+    let was_running = crate::checks::unit_is_active(service, crate::platform::current_backend());
+    stop_service_for_binary_replace(service, false);
+    // 存量任务定义迁移（实例已 end，重注册安全）：≤0.2.16 的 XML 带
+    // RestartOnFailure，其 failure-restart 会与手动 /run 双起互杀
+    #[cfg(windows)]
+    refresh_stale_task_definition(service, install_dir);
+    copy_file_atomic(&bundled, &dst)?;
     make_executable(&dst)?;
     maybe_copy_companion_libs(service, &bundled, install_dir, false)?;
     println!("✅ upgraded {} → {}", bundled.display(), dst.display());
-    println!("   Run: deploy-installer {service} service restart");
+    if was_running {
+        match restart_in_dir(service, Some(install_dir.to_path_buf())) {
+            Ok(()) => {
+                // 重启成功即契约达成；健康等待尽力而为（首启含模型加载时 45s 可能不够）
+                let port = read_server_port(&install_dir.join(CONFIG_FILENAME));
+                if let Some(port) = port {
+                    print!("   restarting");
+                    if wait_for_health(port, "/health", UPGRADE_HEALTH_WAIT_SECS) {
+                        println!(" … healthy");
+                    } else {
+                        println!(" … health still warming up (service was restarted)");
+                    }
+                } else {
+                    println!("   restarted (config.yml unreadable — skipping health wait)");
+                }
+            }
+            Err(e) => println!(
+                "   ⚠️ restart failed: {e} — run: deploy-installer {service} service restart"
+            ),
+        }
+    } else {
+        println!("   Run: deploy-installer {service} service restart");
+    }
     Ok(())
+}
+
+/// 原子复制文件：先写入同目录临时文件，再 rename 顶替目标。
+///
+/// 直接 `fs::copy` 覆盖**正在运行**的二进制会被 Linux 以 ETXTBSY 拒绝
+/// （macOS 无此限制，因此仅在 Linux 部署中暴露）；dlopen 加载中的 .so 同理。
+/// rename(2) 替换运行中的可执行文件是合法的：旧 inode 继续服务已运行的
+/// 进程，新文件即刻对后续启动生效——install 重跑 / upgrade 无需先停服务。
+///
+/// Windows 特例：目标 exe 正在运行时连 rename 顶替也被拒（ERROR_ACCESS_DENIED），
+/// 但把**运行中的旧文件改名挪走**是合法的——降级链：顶替失败 → 旧文件
+/// rename 为 `.old-<pid>`（进程退出前可能残留，下次替换时清理）→ 新文件就位。
+pub(crate) fn copy_file_atomic(src: &Path, dst: &Path) -> Result<()> {
+    let tmp = dst.with_extension(format!("new-{}", std::process::id()));
+    fs::copy(src, &tmp).with_context(|| format!("copy {} → {}", src.display(), tmp.display()))?;
+    if let Err(e) = fs::rename(&tmp, dst) {
+        #[cfg(windows)]
+        {
+            let moved_away = dst.with_extension(format!("old-{}", std::process::id()));
+            if fs::rename(dst, &moved_away).is_ok() && fs::rename(&tmp, dst).is_ok() {
+                let _ = fs::remove_file(&moved_away);
+                return Ok(());
+            }
+        }
+        let _ = fs::remove_file(&tmp);
+        return Err(anyhow::Error::new(e).context(format!(
+            "replace {} ← {}",
+            dst.display(),
+            src.display()
+        )));
+    }
+    Ok(())
+}
+
+/// Windows：替换服务二进制前的预停——结束任务计划实例并等待文件解锁。
+///
+/// 非 Windows 上是空操作（unix 侧 rename 顶替运行中文件本就合法）。
+#[cfg(windows)]
+fn stop_service_for_binary_replace(service: &str, quiet: bool) {
+    use crate::platform::{ServiceBackend, current_backend};
+    if current_backend() != ServiceBackend::TaskScheduler {
+        return;
+    }
+    let name = format!("com.nuwax.{service}");
+    if !crate::task_scheduler::task_exists(&name) {
+        return;
+    }
+    if !quiet {
+        println!("  stopping running task {name} before binary replace…");
+    }
+    let _ = crate::task_scheduler::end(&name);
+    // 进程退出与句柄释放有延迟：轮询任务状态（非 Running 即视为停稳，≤15s）
+    for _ in 0..30 {
+        if crate::task_scheduler::task_state(&name) != crate::task_scheduler::TaskState::Running {
+            break;
+        }
+        thread::sleep(Duration::from_millis(500));
+    }
+    // 再沉降 1s：任务态转 Ready 与进程退出/端口释放之间仍有窗口，
+    // 紧随其后的端口预检会误报冲突（Windows 重装实测的竞态缓解）
+    thread::sleep(Duration::from_secs(1));
+}
+
+#[cfg(not(windows))]
+fn stop_service_for_binary_replace(_service: &str, _quiet: bool) {}
+
+/// 返回 true=服务已启动（调用方做健康等待）；false=SSH-only 降级未启动（有意状态，
+/// 调用方跳过健康等待、退出码保持 0）。
+///
+/// 处理 macOS launchd 服务安装结果：SSH-only（无桌面会话）时 bootstrap/enable
+/// 会以 exit 134 失败，但 **plist 已写入** `~/Library/LaunchAgents/`——这不是安装
+/// 失败，降级为成功退出并给出激活指引，避免用户对着 "Failed to execute command
+/// with no output" 无所适从。
+///
+/// `manual_cmd` 为该服务的手动运行命令（各服务子命令形状不同：document-parser
+/// 是 `--config <path> server`，voice-cli 是 `server run --config <path>`）。
+#[cfg(target_os = "macos")]
+pub fn handle_launchd_install_result(
+    result: Result<()>,
+    service_name: &str,
+    manual_cmd: &str,
+) -> Result<bool> {
+    if result.is_ok() || crate::macos_gui_session_present() {
+        return result.map(|_| true);
+    }
+    println!(
+        "\n⚠️  {service_name} 服务未启动：当前 SSH 会话无桌面登录（launchd gui domain 不可用）。"
+    );
+    println!("   plist 已写入 ~/Library/LaunchAgents/，桌面登录后服务自动启动。");
+    println!("   也可手动运行：{manual_cmd}");
+    Ok(false)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn handle_launchd_install_result(
+    result: Result<()>,
+    _service_name: &str,
+    _manual_cmd: &str,
+) -> Result<bool> {
+    result.map(|_| true)
 }
 
 /// Shared uninstall / status / restart; `on_install` handles service-specific Install.
@@ -515,58 +355,69 @@ pub fn dispatch_service_action(
             let dir = resolve_service_install_dir(service_name, &args.install_dir);
             restart_in_dir(service_name, Some(dir)).context("restart failed")
         }
+        ServiceAction::Stop(args) => {
+            let dir = resolve_service_install_dir(service_name, &args.install_dir);
+            stop_in_dir(service_name, Some(dir)).context("stop failed")
+        }
+        ServiceAction::Start(args) => {
+            let dir = resolve_service_install_dir(service_name, &args.install_dir);
+            start_in_dir(service_name, Some(dir)).context("start failed")
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::WhisperModelsPack;
-    use tempfile::TempDir;
 
+    /// 出厂模板的 port 行带 `# ← 说明` 尾注（93 实机踩到）：不剥注释时
+    /// `8077   # ← 监听端口` 解析失败 → verify 误报"未解析到 server.port"
     #[test]
-    fn whisper_pack_large_v3_rejects_tiny_stub() {
-        let dir = TempDir::new().unwrap();
-        let model = dir.path().join("models/ggml-large-v3.bin");
-        std::fs::create_dir_all(model.parent().unwrap()).unwrap();
-        std::fs::write(&model, b"stub").unwrap();
-        assert!(!whisper_pack_satisfied(
-            dir.path(),
-            WhisperModelsPack::LargeV3
-        ));
+    fn read_server_port_strips_inline_comments_and_quotes() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = dir.path().join("config.yml");
+
+        std::fs::write(
+            &cfg,
+            "server:\n  host: \"0.0.0.0\"\n  port: 8077                       # ← 监听端口\n",
+        )
+        .unwrap();
+        assert_eq!(read_server_port(&cfg), Some(8077), "裸值 + 尾注应解析成功");
+
+        std::fs::write(&cfg, "server:\n  port: \"8088\"  # quoted\n").unwrap();
+        assert_eq!(
+            read_server_port(&cfg),
+            Some(8088),
+            "引号值 + 尾注应解析成功"
+        );
+
+        std::fs::write(&cfg, "server:\n  port: 8089\n").unwrap();
+        assert_eq!(read_server_port(&cfg), Some(8089), "裸值无注释应解析成功");
+
+        assert_eq!(read_server_port(&dir.path().join("nope.yml")), None);
     }
+}
 
-    #[test]
-    fn whisper_pack_all_needs_every_model_file() {
-        let dir = TempDir::new().unwrap();
-        let models = dir.path().join("models");
-        std::fs::create_dir_all(&models).unwrap();
-        for name in ["tiny", "base", "small", "medium"] {
-            std::fs::write(models.join(format!("ggml-{name}.bin")), b"x").unwrap();
-        }
-        // large-v3 missing
-        assert!(!whisper_pack_satisfied(dir.path(), WhisperModelsPack::All));
-
-        std::fs::write(models.join("ggml-large-v3.bin"), b"stub").unwrap();
-        // large-v3 too small
-        assert!(!whisper_pack_satisfied(dir.path(), WhisperModelsPack::All));
+/// Windows：升级时迁移旧任务定义——≤0.2.16 持久化的 XML 带 RestartOnFailure
+/// （failure-restart 停掉手动 `/run` 刚拉起的健康实例，53 实测），文本剥除后
+/// 重注册，免于构造完整 ServiceSpec 重新渲染。读不到/无变化/失败均静默跳过
+/// （迁移是尽力而为，不阻断升级——新装机器的模板本就不含该段）。
+#[cfg(windows)]
+fn refresh_stale_task_definition(service: &str, install_dir: &Path) {
+    let name = format!("com.nuwax.{service}");
+    let xml_path = install_dir.join(format!("{name}.task.xml"));
+    let Ok(xml) = fs::read_to_string(&xml_path) else {
+        return;
+    };
+    let migrated = crate::render_task::strip_restart_on_failure(&xml);
+    if migrated.as_ref() == xml {
+        return;
     }
-
-    #[test]
-    #[cfg(target_os = "linux")]
-    fn voice_cli_cuda_bundle_requires_all_files() {
-        let dir = TempDir::new().unwrap();
-        assert!(!voice_cli_cuda_bundle_present(dir.path()));
-        for name in VOICE_CLI_CUDA_BUNDLE_FILES {
-            std::fs::write(dir.path().join(name), b"x").unwrap();
-        }
-        assert!(voice_cli_cuda_bundle_present(dir.path()));
+    if crate::installer::write_user_file(&xml_path, &migrated, None).is_err() {
+        return;
     }
-
-    #[test]
-    #[cfg(not(target_os = "linux"))]
-    fn voice_cli_cuda_bundle_not_applicable_off_linux() {
-        let dir = TempDir::new().unwrap();
-        assert!(!voice_cli_cuda_bundle_present(dir.path()));
+    match crate::task_scheduler::create_from_xml(&name, &xml_path) {
+        Ok(()) => println!("  task definition migrated (RestartOnFailure removed)"),
+        Err(e) => println!("  note: task re-registration failed: {e}"),
     }
 }

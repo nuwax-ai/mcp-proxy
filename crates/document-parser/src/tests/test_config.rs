@@ -42,6 +42,9 @@ impl TestEnvironment {
                 queue_size: 10,
                 download_timeout: 30,
                 processing_timeout: 300,
+                sync_parse_max_file_size: crate::config::FileSize::from_mb(500),
+                sync_parse_max_concurrent: 2,
+                sync_parse_timeout_secs: 600,
             },
             file_size_config: {
                 // 从配置文件加载文件大小配置，而不是使用默认值
@@ -70,6 +73,7 @@ impl TestEnvironment {
                     upload_directory: "test".to_string(),
                     region: "oss-rg-china-mainland".to_string(),
                 },
+                custom_upload: Default::default(),
             },
             external_integration: crate::config::ExternalIntegrationConfig {
                 webhook_url: "https://test-webhook.com".to_string(),

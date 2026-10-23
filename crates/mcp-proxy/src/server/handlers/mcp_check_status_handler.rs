@@ -29,7 +29,8 @@ fn create_response(
 /// 这里根据 mcp_json_config配置,启动服务需要异步,不要阻塞,如果服务没准备好,返回 PENDING 状态;
 /// 如果服务启动失败,返回 ERROR 状态;
 /// 如果服务启动成功,返回 READY 状态;
-#[instrument]
+// skip(params)：请求可携带 mcpJsonConfig（懒启动），内含 auth_token 等敏感字段
+#[instrument(skip(params))]
 pub async fn check_mcp_status_handler(
     State(state): State<AppState>,
     uri: Uri,
@@ -175,8 +176,18 @@ pub async fn check_mcp_status_handler(
 }
 
 // SSE协议专用的状态检查处理函数
-#[instrument]
+#[instrument(skip(params))]
 // #[axum::debug_handler]
+#[utoipa::path(
+    post,
+    path = "/mcp/sse/check_status",
+    tag = "mcp-sse",
+    request_body = CheckMcpStatusRequestParams,
+    responses(
+        (status = 200, description = "MCP 服务状态：服务不存在时按 mcpJsonConfig 懒启动，未就绪返回 PENDING，启动失败返回 ERROR（message 携带原因）",
+            body = HttpResult<CheckMcpStatusResponseParams>)
+    )
+)]
 pub async fn check_mcp_status_handler_sse(
     state: State<AppState>,
     uri: Uri,
@@ -186,8 +197,18 @@ pub async fn check_mcp_status_handler_sse(
 }
 
 // Stream协议专用的状态检查处理函数
-#[instrument]
+#[instrument(skip(params))]
 // #[axum::debug_handler]
+#[utoipa::path(
+    post,
+    path = "/mcp/stream/check_status",
+    tag = "mcp-stream",
+    request_body = CheckMcpStatusRequestParams,
+    responses(
+        (status = 200, description = "MCP 服务状态：服务不存在时按 mcpJsonConfig 懒启动，未就绪返回 PENDING，启动失败返回 ERROR（message 携带原因）",
+            body = HttpResult<CheckMcpStatusResponseParams>)
+    )
+)]
 pub async fn check_mcp_status_handler_stream(
     state: State<AppState>,
     uri: Uri,

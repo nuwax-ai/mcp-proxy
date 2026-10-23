@@ -17,7 +17,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-PKG_JSON="$ROOT/npm/nuwax-deploy-installer/package.json"
+PKG_JSON="$ROOT/npm/deploy-installer/package.json"
 
 DRY_RUN=0
 SKIP_VERIFY=0
@@ -134,6 +134,31 @@ create_venv() {
 
   log "pin huggingface-hub<1.0 (mineru dependency conflict)"
   uv pip install "huggingface-hub>=0.34,<1.0" --python "$py"
+
+  # onnxruntime 1.29.0 在 macOS arm64 有退出阶段 native 析构崩溃：
+  # uvicorn server 子进程 "Finished" 后 abort（libc++abi recursive_mutex lock failed，
+  # 与推理设备无关）→ mineru CLI 把已成功的任务报成失败退出码 1 → dp parse-sync 500。
+  # 1.24.4 实测干净（含印章 PDF 连跑）。恢复条件：上游修复或 mineru 4.x 适配完成后放开。
+  log "pin onnxruntime==1.24.4 (1.29.0 macOS exit-time abort)"
+  uv pip install "onnxruntime==1.24.4" --python "$py"
+
+  # mineru 3.4.4 CLI bug：wait_for_task_result 轮询内嵌 server 状态时只重试
+  # httpx.ReadTimeout、不重试 httpx.ReadError——本地回环连接被断（uvicorn
+  # keep-alive 竞态）一次即 TaskFailure(str(exc)='') 空错误退出 1 → dp 500
+  # （复杂文档如含印章 PDF 必现；手动直跑时序不同常侥幸通过）。
+  # 4.0 重构了整块 server 生命周期。升级 4.x 前以源码补丁过渡。
+  log "patch mineru cli: retry httpx.ReadError in wait_for_task_result"
+  local client_py
+  client_py=$(echo "$staging/venv/lib/"python3*/site-packages/mineru/cli/api_client.py)
+  python3 - "$client_py" <<'PYEOF'
+import sys
+path = sys.argv[1]
+s = open(path).read()
+old = "        except httpx.ReadTimeout:"
+new = "        except (httpx.ReadTimeout, httpx.ReadError):"
+assert old in s and new not in s, "patch anchor not found or already patched"
+open(path, "w").write(s.replace(old, new, 1))
+PYEOF
 }
 
 write_metadata() {
@@ -202,4 +227,4 @@ echo "  1. Upload: $OUTPUT_PATH"
 echo "     → oss://nuwa-packages/uploads/document-parser/${ARCHIVE_NAME}"
 echo "  2. Verify: bash scripts/ci/verify-oss-venv-url.sh \\"
 echo "       https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/document-parser/${ARCHIVE_NAME}"
-echo "  3. Publish npm: bash scripts/ci/publish-nuwax-deploy-installer.sh ${VERSION}"
+echo "  3. Publish npm: bash scripts/ci/publish-deploy-installer.sh ${VERSION}"

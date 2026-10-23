@@ -70,10 +70,13 @@ pub async fn get_router(state: AppState) -> Result<Router, AppError> {
         )
         .route("/api/run_code_with_log", post(run_code_handler))
         .layer(DefaultBodyLimit::max(20 * 1024 * 1024))
+        .layer(tower_http::catch_panic::CatchPanicLayer::new())
         .layer(cors);
 
     // 创建基本路由
     let app: Router<AppState> = Router::new().merge(health).merge(api);
+    // OpenAPI 文档 UI（Swagger UI + Scalar 双风格；无状态路由，with_state 前 merge）
+    let app = app.merge(super::openapi::create_docs_router());
 
     // 添加状态
     let app = app.with_state(state.clone());

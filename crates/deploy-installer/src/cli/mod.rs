@@ -1,6 +1,12 @@
+pub mod assets;
 pub mod common;
 mod doctor;
 pub mod document_parser;
+pub mod env_config;
+pub mod linux_gpu;
+mod probe_vulkan;
+pub mod tarball;
+pub mod verify;
 pub mod voice_cli;
 
 use anyhow::Result;
@@ -27,18 +33,23 @@ pub enum Commands {
         #[command(subcommand)]
         action: DocumentParserAction,
     },
-    /// voice-cli deployment commands (macOS launchd + Linux CUDA systemd)
+    /// voice-cli deployment commands (macOS launchd + Linux CUDA/Vulkan systemd)
     VoiceCli {
         #[command(subcommand)]
         action: VoiceCliAction,
     },
+    /// Vulkan GPU probe (internal; runs in a crash-isolated subprocess for
+    /// voice-cli tier detection — exit code, not for interactive use)
+    #[command(hide = true, name = "__probe-vulkan")]
+    ProbeVulkan,
 }
 
 #[derive(Subcommand)]
 pub enum DocumentParserAction {
     /// Initialize install directory, copy binaries/templates, set up Python venv
     Setup(SetupArgs),
-    /// Full install: setup + service registration (prompts for OSS keys if missing)
+    /// Full install: setup + service registration (requires OSS keys or
+    /// custom-upload env; bails with guidance if neither is configured)
     Install(SetupArgs),
     /// Upgrade document-parser binary in an existing install directory
     Upgrade {
@@ -50,6 +61,12 @@ pub enum DocumentParserAction {
     Service {
         #[command(subcommand)]
         action: ServiceAction,
+    },
+    /// Post-install verification: health/ready, API docs, parse smoke
+    Verify {
+        /// Install directory (default: ~/document-parser)
+        #[arg(long)]
+        install_dir: Option<PathBuf>,
     },
 }
 
@@ -70,6 +87,12 @@ pub enum VoiceCliAction {
         #[command(subcommand)]
         action: ServiceAction,
     },
+    /// Post-install verification: health, API docs, transcribe smoke
+    Verify {
+        /// Install directory (default: ~/voice-cli)
+        #[arg(long)]
+        install_dir: Option<PathBuf>,
+    },
 }
 
 #[derive(clap::Args, Clone)]
@@ -83,6 +106,15 @@ pub struct SetupArgs {
     /// Skip pre-built venv on macOS (default: use OSS venv on macOS)
     #[arg(long)]
     pub no_prebuilt_venv: bool,
+    /// Install Python venv from a local tarball (offline environments;
+    /// mutually exclusive with --use-prebuilt-venv / --no-prebuilt-venv)
+    #[arg(long, conflicts_with_all = ["use_prebuilt_venv", "no_prebuilt_venv"])]
+    pub venv_file: Option<PathBuf>,
+    /// Skip MinerU models download (models are fetched from OSS by default;
+    /// with this flag, first PDF parse will fetch from ModelScope, which can
+    /// stall or take minutes on some networks)
+    #[arg(long)]
+    pub skip_models: bool,
     /// OSS base URL for optional assets (venv tarball)
     #[arg(long)]
     pub oss_base: Option<String>,
@@ -105,12 +137,27 @@ pub struct VoiceCliSetupArgs {
     /// OSS base URL prefix for voice-cli optional assets
     #[arg(long)]
     pub oss_base: Option<String>,
-    /// Download prebuilt voice-cli CUDA bundle from OSS (default on Linux x86_64)
-    #[arg(long)]
+    /// Download prebuilt voice-cli CUDA bundle from OSS (default tier on Linux
+    /// x86_64 when an NVIDIA GPU + CUDA toolkit are detected)
+    #[arg(
+        long,
+        conflicts_with_all = ["use_oss_vulkan", "skip_oss_cuda"]
+    )]
     pub use_oss_cuda: bool,
-    /// Skip OSS CUDA bundle download (use vendor binary or existing install)
-    #[arg(long)]
+    /// Skip OSS CUDA bundle download (auto tier may still pick Vulkan; with
+    /// --skip-oss-vulkan forces the CPU build)
+    #[arg(long, conflicts_with = "use_oss_cuda")]
     pub skip_oss_cuda: bool,
+    /// Download prebuilt voice-cli Vulkan bundle from OSS (non-NVIDIA GPU on
+    /// Linux x86_64; auto tier when CUDA is unavailable but Vulkan is)
+    #[arg(
+        long,
+        conflicts_with_all = ["use_oss_cuda", "skip_oss_vulkan"]
+    )]
+    pub use_oss_vulkan: bool,
+    /// Skip OSS Vulkan bundle download (with --skip-oss-cuda forces the CPU build)
+    #[arg(long, conflicts_with = "use_oss_vulkan")]
+    pub skip_oss_vulkan: bool,
     /// NVIDIA CUDA toolkit lib dir for systemd LD_LIBRARY_PATH (Linux CUDA)
     #[arg(long)]
     pub cuda_lib_dir: Option<PathBuf>,
@@ -125,6 +172,10 @@ pub enum ServiceAction {
     Uninstall(ServiceDirArgs),
     Status(ServiceDirArgs),
     Restart(ServiceDirArgs),
+    /// Stop the service (idempotent: already-stopped is success)
+    Stop(ServiceDirArgs),
+    /// Start the service and verify health (idempotent: already-running is success)
+    Start(ServiceDirArgs),
 }
 
 #[derive(clap::Args, Clone)]
@@ -151,5 +202,132 @@ pub fn run(cli: Cli) -> Result<()> {
         Commands::Doctor => doctor::run(),
         Commands::DocumentParser { action } => document_parser::run(action),
         Commands::VoiceCli { action } => voice_cli::run(action),
+        Commands::ProbeVulkan => probe_vulkan::run(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    /// --venv-file 与 --use/--no-prebuilt-venv 互斥（组合传参直接解析失败）
+    #[test]
+    fn venv_file_conflicts_with_prebuilt_flags() {
+        let combined = Cli::try_parse_from([
+            "deploy-installer",
+            "document-parser",
+            "install",
+            "--venv-file",
+            "x.tar.gz",
+            "--use-prebuilt-venv",
+        ]);
+        assert!(combined.is_err(), "组合传参应被 clap 拒绝");
+
+        let solo = Cli::try_parse_from([
+            "deploy-installer",
+            "document-parser",
+            "install",
+            "--venv-file",
+            "x.tar.gz",
+        ]);
+        assert!(solo.is_ok(), "单独传 --venv-file 应通过");
+    }
+
+    /// --use-oss-cuda 与 --use-oss-vulkan 互斥（显式档位只能给一个；
+    /// skip 对不互斥——双 skip 是合法的强制 CPU 组合）
+    #[test]
+    fn oss_cuda_conflicts_with_oss_vulkan() {
+        let combined = Cli::try_parse_from([
+            "deploy-installer",
+            "voice-cli",
+            "install",
+            "--use-oss-cuda",
+            "--use-oss-vulkan",
+        ]);
+        assert!(combined.is_err(), "双显式档位应被 clap 拒绝");
+
+        let both_skip = Cli::try_parse_from([
+            "deploy-installer",
+            "voice-cli",
+            "install",
+            "--skip-oss-cuda",
+            "--skip-oss-vulkan",
+        ]);
+        assert!(both_skip.is_ok(), "双 skip（强制 CPU）应通过");
+
+        let vulkan_only = Cli::try_parse_from([
+            "deploy-installer",
+            "voice-cli",
+            "install",
+            "--use-oss-vulkan",
+        ]);
+        assert!(vulkan_only.is_ok(), "单独 --use-oss-vulkan 应通过");
+    }
+
+    /// 同档 use+skip 组合拒绝（--use-oss-cuda --skip-oss-cuda 一类：旧代码按
+    /// skip 落 CPU、新梯子按 use 直取——语义会跨版本翻转，必须在解析期报错
+    /// 而不是静默二选一）
+    #[test]
+    fn same_tier_use_and_skip_conflict() {
+        for conflict in [
+            ["--use-oss-cuda", "--skip-oss-cuda"],
+            ["--use-oss-vulkan", "--skip-oss-vulkan"],
+        ] {
+            let combined = Cli::try_parse_from([
+                "deploy-installer",
+                "voice-cli",
+                "install",
+                conflict[0],
+                conflict[1],
+            ]);
+            assert!(combined.is_err(), "{:?} 同档 use+skip 应被拒绝", conflict);
+        }
+        // 跨档组合仍合法：--use-oss-vulkan + --skip-oss-cuda（明确"不要 cuda、
+        // 要 vulkan"）不冲突
+        let cross = Cli::try_parse_from([
+            "deploy-installer",
+            "voice-cli",
+            "install",
+            "--use-oss-vulkan",
+            "--skip-oss-cuda",
+        ]);
+        assert!(cross.is_ok(), "跨档 use+skip 组合应通过");
+    }
+
+    /// 隐藏探针子命令可解析且不出现在 help（面向父进程 reexec，非用户接口）
+    #[test]
+    fn probe_vulkan_subcommand_hidden_but_parseable() {
+        let parsed = Cli::try_parse_from(["deploy-installer", "__probe-vulkan"]);
+        assert!(parsed.is_ok(), "探针子命令应可解析");
+        // 验证子命令确实 hide（面向父进程 reexec，非用户接口）
+        let help = <Cli as clap::CommandFactory>::command()
+            .render_help()
+            .to_string();
+        assert!(
+            !help.contains("__probe-vulkan"),
+            "探针不应出现在 help: {help}"
+        );
+    }
+
+    /// stop/start 两个新子命令在两个服务树下都可解析并接受 --install-dir
+    #[test]
+    fn service_stop_start_parse_with_install_dir() {
+        for service in ["document-parser", "voice-cli"] {
+            for action in ["stop", "start"] {
+                let parsed = Cli::try_parse_from([
+                    "deploy-installer",
+                    service,
+                    "service",
+                    action,
+                    "--install-dir",
+                    "/srv/x",
+                ]);
+                assert!(parsed.is_ok(), "{service} service {action} 应可解析");
+            }
+        }
+        // 默认 install_dir 是 "."，不传也应通过
+        let parsed = Cli::try_parse_from(["deploy-installer", "voice-cli", "service", "stop"]);
+        assert!(parsed.is_ok(), "service stop 不带参数应可解析");
     }
 }

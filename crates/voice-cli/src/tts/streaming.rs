@@ -94,15 +94,25 @@ pub fn synthesize_streaming<S: Synthesizer>(
         if cancel_cb.load(Ordering::Relaxed) {
             return false;
         }
-        // 推增量样本（to_vec 取所有权，跨 mpsc Send 安全）
-        if tx_cb
-            .blocking_send(TtsStreamEvent::Audio {
-                samples: samples.to_vec(),
-                progress,
-            })
-            .is_err()
-        {
-            return false; // 接收方关闭 → 中断合成
+        // 推增量样本（to_vec 取所有权，跨 mpsc Send 安全）。
+        // try_send 而非 blocking_send：channel 满且消费端停滞时 blocking_send
+        // 会无限阻塞——cancel 检查点已过、后续 callback 永远不来，引擎锁被
+        // 该会话无限持有（拖垮全部 TTS 入口）。Full → 丢弃本块继续（消费端
+        // 停滞的会话本已超时，丢帧无损；cancel 在下一个 callback 生效，锁的
+        // 释放从"无限"变为一个 chunk 周期）；Closed → 中断合成
+        match tx_cb.try_send(TtsStreamEvent::Audio {
+            samples: samples.to_vec(),
+            progress,
+        }) {
+            Ok(()) => {}
+            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                tracing::warn!(
+                    "tts callback: channel full (consumer stalled?), dropping audio chunk"
+                );
+            }
+            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                return false; // 接收方关闭 → 中断合成
+            }
         }
         true
     };

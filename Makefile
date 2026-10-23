@@ -21,3 +21,4 @@ include mk/publish.mk
 include mk/clean.mk
 include mk/dev.mk
 include mk/help.mk
+include mk/test.mk

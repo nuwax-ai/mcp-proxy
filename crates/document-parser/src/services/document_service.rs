@@ -1,31 +1,35 @@
 use anyhow::{Context, Result as AnyhowResult};
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 use tokio::time::timeout;
 use tracing::{debug, error, info, instrument, warn};
 
-use pulldown_cmark::{Event, Parser, Tag, TagEnd};
-use pulldown_cmark_to_cmark::cmark;
-
 use futures_util::StreamExt;
-use sha2::{Digest, Sha256};
-use tokio::fs::{self, File};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
 
+use crate::ProcessingStage;
 use crate::config::GlobalFileSizeConfig;
 use crate::error::AppError;
 use crate::models::{
-    DocumentFormat, ParseResult, ParserEngine, SourceType, StructuredDocument, StructuredSection,
-    TaskStatus,
+    DocumentFormat, ParseResult, ParserEngine, StructuredDocument, StructuredSection, TaskStatus,
 };
 use crate::parsers::DualEngineParser;
 use crate::processors::MarkdownProcessor;
 use crate::processors::markdown_processor::{CacheStatistics, MarkdownProcessorConfig};
 use crate::services::TaskService;
-use crate::{ImageInfo, ProcessingStage};
+use crate::services::upload_pipeline::TaskUploader;
+
+/// 解析期心跳间隔：parse_document 内 30s touch 一次任务记录（updated_at 推进），
+/// 让"长解析"与"卡死"在运维视角可区分（此前 MinerUExecuting 全程零任务写入）
+const PARSE_HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// 图片上传/路径替换/换签族方法。
+mod images;
+/// 任务生命周期族方法（状态安全更新/任务创建/状态查询）。
+mod tasks;
 
 /// Configuration for DocumentService
 #[derive(Debug, Clone)]
@@ -111,7 +115,7 @@ impl DocumentService {
         markdown_processor: MarkdownProcessor,
         task_service: Arc<TaskService>,
         oss_client: Option<Arc<dyn oss_client::OssClientTrait + Send + Sync>>,
-    ) -> Self {
+    ) -> Result<Self, AppError> {
         Self::with_config(
             dual_parser,
             markdown_processor,
@@ -128,22 +132,31 @@ impl DocumentService {
         task_service: Arc<TaskService>,
         oss_client: Option<Arc<dyn oss_client::OssClientTrait + Send + Sync>>,
         config: DocumentServiceConfig,
-    ) -> Self {
+    ) -> Result<Self, AppError> {
         // Configure HTTP client with timeouts
         let http_client = reqwest::Client::builder()
             .timeout(config.download_timeout)
+            // 连接超时：目标主机不可达/SYN 黑洞时快速失败（也惠及自定义上传后端
+            // 的共享连接池，避免 TCP 连接阶段挂满请求级总超时）
+            .connect_timeout(Duration::from_secs(10))
             .user_agent("DocumentParser/1.0")
             .build()
-            .expect("Failed to create HTTP client");
+            .map_err(|e| AppError::Internal(format!("创建 HTTP 客户端失败: {e}")))?;
 
-        Self {
+        Ok(Self {
             dual_parser: Arc::new(dual_parser),
             markdown_processor: Arc::new(RwLock::new(markdown_processor)),
             task_service,
             oss_client,
             config,
             http_client,
-        }
+        })
+    }
+
+    /// 共享 HTTP 客户端（连接池复用；handler 层构造自定义上传客户端时使用，
+    /// 避免每请求新建连接池）
+    pub(crate) fn http_client(&self) -> &reqwest::Client {
+        &self.http_client
     }
 
     /// 解析文档 - Enhanced with proper async patterns and error handling
@@ -155,9 +168,47 @@ impl DocumentService {
     ) -> AnyhowResult<ParseResult> {
         info!("Start parsing the document: {}", file_path);
 
-        // Wrap the entire operation in a timeout
+        // 任务级取消令牌：注册 + 下传（cancel_task → parse_cancel::request_parse_cancel
+        // → execute 层 select 轮询 kill 子进程）；RAII guard 保证正常/超时/worker
+        // drop 三个出口都注销（手工 unregister 在 drop 路径走不到，会泄漏）
+        let cancel_token = crate::parsers::mineru_parser::CancellationToken::new();
+        let _cancel_guard =
+            crate::services::parse_cancel::register_guarded(task_id, cancel_token.clone());
+
+        // 注册后复查终态：取消若落在"worker 终态检查之后、令牌注册之前"的窗口，
+        // request_parse_cancel 查不到令牌而返回 false——信号丢失，任务会白跑
+        // 全程（PDF 可达 1 小时）。复查把窗口收窄到本检查与解析启动之间的微秒级
+        if let Ok(Some(task)) = self.task_service.get_task(task_id).await
+            && matches!(
+                task.status,
+                TaskStatus::Cancelled { .. } | TaskStatus::Completed { .. }
+            )
+        {
+            return Err(anyhow::anyhow!(
+                "任务 {task_id} 已处于终态（{:?}），跳过解析",
+                task.status
+            ));
+        }
+
+        // 心跳 + 总超时：解析期（尤其 MinerUExecuting 可能数十分钟）此前零任务
+        // 写入，updated_at 冻结在阶段入口，运维无从分辨"在算"还是"已死"——
+        // 30s touch 一次让 updated_at 持续推进；超时/取消/正常结束都停止心跳
         let result = timeout(self.config.task_timeout, async {
-            self.parse_document_internal(task_id, file_path).await
+            let parse_fut = self.parse_document_internal(task_id, file_path, cancel_token);
+            tokio::pin!(parse_fut);
+            let mut heartbeat = tokio::time::interval(PARSE_HEARTBEAT_INTERVAL);
+            heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            heartbeat.tick().await; // 消化 interval 立即到达的首个 tick
+            loop {
+                tokio::select! {
+                    r = &mut parse_fut => break r,
+                    _ = heartbeat.tick() => {
+                        if let Err(e) = self.task_service.touch_task(task_id).await {
+                            warn!("heartbeat: touch task {task_id} failed: {e}");
+                        }
+                    }
+                }
+            }
         })
         .await;
 
@@ -189,8 +240,7 @@ impl DocumentService {
         if !path.exists() {
             return Err(anyhow::anyhow!("文件不存在: {}", path.display()));
         }
-        let absolute_path = path
-            .canonicalize()
+        let absolute_path = dunce::canonicalize(path)
             .context("无法获取文件绝对路径")?
             .to_string_lossy()
             .to_string();
@@ -231,6 +281,7 @@ impl DocumentService {
         &self,
         task_id: &str,
         file_path: &str,
+        cancel_token: crate::parsers::mineru_parser::CancellationToken,
     ) -> AnyhowResult<ParseResult> {
         debug!(
             "parse_document_internal - Task ID: {}, File path: {}",
@@ -321,7 +372,7 @@ impl DocumentService {
         );
         let parse_result = self
             .dual_parser
-            .parse_document_auto(&absolute_path)
+            .parse_document_auto_with_cancel(&absolute_path, Some(cancel_token))
             .await
             .with_context(|| "文档解析失败[parse_document_internal]".to_string())?;
         debug!(
@@ -332,9 +383,10 @@ impl DocumentService {
         info!("Document parsed successfully: {}", file_path.display());
         self.update_task_progress_safe(task_id, 80).await;
 
-        // 新增：处理图片上传和路径替换
+        // 新增：处理图片上传和路径替换（按任务选择上传后端，一次解析两处复用）
+        let resolved_uploader = self.resolve_task_uploader(task_id).await?;
         let final_result = self
-            .process_images_and_replace_paths(task_id, parse_result)
+            .process_images_with_uploader(task_id, parse_result, &resolved_uploader)
             .await?;
 
         info!(
@@ -343,9 +395,13 @@ impl DocumentService {
         );
         self.update_task_progress_safe(task_id, 90).await;
 
-        // 将处理后的新Markdown内容上传到OSS
+        // 将处理后的新Markdown内容上传到 OSS 或自定义上传后端
         let (oss_markdown_url, oss_object_key) = self
-            .upload_processed_markdown_to_oss(task_id, &final_result.markdown_content)
+            .upload_processed_markdown_to_oss(
+                task_id,
+                &final_result.markdown_content,
+                &resolved_uploader,
+            )
             .await?;
 
         info!(
@@ -357,11 +413,12 @@ impl DocumentService {
         // Complete parsing
         self.update_task_progress_safe(task_id, 100).await;
 
-        // 保存解析结果到数据库
+        // 保存解析结果到数据库（判据来自实际执行上传的 resolved，非重读任务快照）
         self.save_parse_result_to_task(
             task_id,
             &final_result,
             Some((oss_markdown_url, oss_object_key)),
+            matches!(resolved_uploader.uploader, TaskUploader::Custom(_)),
         )
         .await?;
 
@@ -375,11 +432,16 @@ impl DocumentService {
     }
 
     /// 保存解析结果到任务
+    ///
+    /// `is_custom_backend` 由调用方从**实际执行上传**的 `resolved.uploader` 推导
+    /// （`matches!(resolved.uploader, TaskUploader::Custom(_))`），保证判据与
+    /// 实际后端一致——本函数内部不再重读任务快照（消除上传期间的 TOCTOU 窗口）。
     async fn save_parse_result_to_task(
         &self,
         task_id: &str,
         parse_result: &ParseResult,
         oss_markdown_data: Option<(String, String)>,
+        is_custom_backend: bool,
     ) -> Result<(), AppError> {
         info!("Start saving parsing results to task: {}", task_id);
 
@@ -398,10 +460,15 @@ impl DocumentService {
         // 设置结构化文档到任务
         task.set_structured_document(structured_doc)?;
 
-        // 如果有OSS数据，设置到任务的oss_data中
+        // 如果有上传数据，设置到任务的oss_data中
         if let Some((oss_url, object_key)) = oss_markdown_data {
-            // 从OSS客户端获取正确的bucket名称
-            let oss_bucket = if let Some(ref oss_client) = self.oss_client {
+            // bucket 标签：自定义后端存 base_url（溯源）；OSS 维持现状取桶名
+            let oss_bucket = if is_custom_backend {
+                task.upload_config
+                    .as_ref()
+                    .map(|endpoint| endpoint.base_url.clone())
+                    .unwrap_or_default()
+            } else if let Some(ref oss_client) = self.oss_client {
                 oss_client.get_config().bucket.clone()
             } else {
                 "default".to_string() // 如果没有OSS客户端，使用默认值
@@ -412,6 +479,13 @@ impl DocumentService {
                 markdown_object_key: Some(object_key),
                 images: vec![],
                 bucket: oss_bucket,
+                // 判别字段：数据自描述，消费方（markdown 下载/URL）按此分支而非
+                // 依赖任务上的 upload_config
+                storage_type: if is_custom_backend {
+                    Some(crate::models::StorageType::Custom)
+                } else {
+                    None
+                },
             };
             task.set_oss_data(oss_data)?;
         }
@@ -465,339 +539,6 @@ impl DocumentService {
         structured_doc.calculate_total_word_count();
 
         Ok(structured_doc)
-    }
-
-    /// 处理图片上传和路径替换
-    pub async fn process_images_and_replace_paths(
-        &self,
-        task_id: &str,
-        parse_result: ParseResult,
-    ) -> AnyhowResult<ParseResult> {
-        info!("Start processing image upload and path replacement");
-
-        // 检查OSS客户端是否可用
-        let oss_client: &Arc<dyn oss_client::OssClientTrait + Send + Sync> = match &self.oss_client
-        {
-            Some(client) => client,
-            None => {
-                warn!("The OSS client is not configured and image uploading is skipped.");
-                return Ok(parse_result);
-            }
-        };
-        // 2. 扫描 MinerU 输出目录图片：优先 auto/images，再兼容 images
-        let mut local_image_paths: Vec<PathBuf> = Vec::new();
-        if let Some(output_path) = parse_result.output_dir.as_ref() {
-            let collected = Self::collect_local_images_from_output(output_path).await?;
-            info!("Scan to {} image files for upload", collected.len());
-            local_image_paths.extend(collected);
-        }
-
-        // 3. 更新任务状态
-        self.update_task_stage_safe(task_id, ProcessingStage::UploadingImages)
-            .await;
-
-        // 4. 上传图片到OSS，生成文件名->URL 的映射列表
-        let mut image_results: Vec<ImageInfo> = Vec::new();
-        for local_path in local_image_paths {
-            let original_filename = match local_path.file_name().and_then(|n| n.to_str()) {
-                Some(name) => name.to_string(),
-                None => {
-                    warn!(
-                        "Unable to get file name, skipping: {}",
-                        local_path.display()
-                    );
-                    continue;
-                }
-            };
-
-            // 计算文件SHA-256哈希作为对象键名称，确保相同图片去重
-            let hash_hex = self
-                .compute_file_sha256_hex(&local_path)
-                .await
-                .map_err(|e| {
-                    AppError::File(format!("计算图片哈希失败: {}: {}", local_path.display(), e))
-                })?;
-
-            // 保留原始扩展名
-            let ext_lower = local_path
-                .extension()
-                .and_then(|e| e.to_str())
-                .map(|s| s.to_lowercase())
-                .unwrap_or_default();
-            let ext_suffix = if ext_lower.is_empty() {
-                String::new()
-            } else {
-                format!(".{ext_lower}")
-            };
-
-            // 使用新的函数生成对象键，支持bucket_dir子目录
-            let object_key = self
-                .generate_image_oss_object_key(task_id, &hash_hex, &ext_suffix)
-                .await?;
-
-            // 直接构造URL上传
-            let oss_url = oss_client
-                .upload_file(local_path.to_string_lossy().as_ref(), &object_key)
-                .await
-                .map_err(|e| {
-                    AppError::Oss(format!(
-                        "上传图片失败: {original_filename} -> {object_key}: {e}"
-                    ))
-                })?;
-
-            // 收集文件尺寸与 MIME
-            let metadata = fs::metadata(&local_path).await.map_err(|e| {
-                AppError::File(format!("读取文件信息失败: {}: {}", local_path.display(), e))
-            })?;
-            let file_size = metadata.len();
-            let mime_type = oss_client::detect_mime_type(local_path.to_string_lossy().as_ref());
-
-            image_results.push(ImageInfo::with_full_info(
-                local_path.to_string_lossy().to_string(),
-                original_filename,
-                object_key,
-                oss_url,
-                file_size,
-                mime_type,
-            ));
-        }
-        info!(
-            "Successfully uploaded {} pictures to OSS",
-            image_results.len()
-        );
-        debug!("image_results: {:?}", image_results);
-
-        // 5. 更新任务状态
-        self.update_task_stage_safe(task_id, ProcessingStage::ReplacingImagePaths)
-            .await;
-
-        // 6. 替换Markdown中的图片路径
-        let updated_content = self
-            .replace_image_paths_in_markdown(&parse_result.markdown_content, &image_results)
-            .await?;
-
-        // 7. 创建新的解析结果
-        let mut final_result = parse_result.clone();
-        final_result.markdown_content = updated_content;
-
-        info!(
-            "Image path replacement completed, content length: {} characters, {} image paths replaced",
-            final_result.markdown_content.len(),
-            image_results.len()
-        );
-        Ok(final_result)
-    }
-
-    /// 递归查找 `images` 目录，并收集其下所有图片文件
-    async fn collect_local_images_from_output(output_path: &str) -> AnyhowResult<Vec<PathBuf>> {
-        debug!(
-            "Scan the directory named 'images' under the output directory: {}",
-            output_path
-        );
-        let base_dir = Path::new(output_path);
-        let mut found: Vec<PathBuf> = Vec::new();
-
-        if !base_dir.exists() || !base_dir.is_dir() {
-            return Ok(found);
-        }
-
-        // 第一步：在整个 output_path 下递归查找名为 "images" 的目录
-        let mut to_visit: Vec<PathBuf> = vec![base_dir.to_path_buf()];
-        let mut images_dirs: Vec<PathBuf> = Vec::new();
-
-        while let Some(dir) = to_visit.pop() {
-            let mut rd = fs::read_dir(&dir)
-                .await
-                .with_context(|| format!("读取目录失败: {}", dir.display()))?;
-            while let Some(entry) = rd
-                .next_entry()
-                .await
-                .with_context(|| format!("遍历目录失败: {}", dir.display()))?
-            {
-                let path = entry.path();
-                // 优先通过 metadata 判断类型，避免竞态
-                match fs::metadata(&path).await {
-                    Ok(meta) if meta.is_dir() => {
-                        if let Some(name) = path.file_name().and_then(|n| n.to_str())
-                            && name == "images"
-                        {
-                            images_dirs.push(path.clone());
-                        }
-                        to_visit.push(path);
-                    }
-                    _ => {}
-                }
-            }
-        }
-
-        // 第二步：对每个 images 目录进行递归遍历，收集图片文件
-        for root in images_dirs {
-            let mut stack: Vec<PathBuf> = vec![root.clone()];
-            while let Some(dir) = stack.pop() {
-                let mut rd = fs::read_dir(&dir)
-                    .await
-                    .with_context(|| format!("读取图片目录失败: {}", dir.display()))?;
-                while let Some(entry) = rd
-                    .next_entry()
-                    .await
-                    .with_context(|| format!("遍历图片目录失败: {}", dir.display()))?
-                {
-                    let path = entry.path();
-                    match fs::metadata(&path).await {
-                        Ok(meta) if meta.is_file() => {
-                            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                                let ext_lower = ext.to_lowercase();
-                                if matches!(
-                                    ext_lower.as_str(),
-                                    "png"
-                                        | "jpg"
-                                        | "jpeg"
-                                        | "gif"
-                                        | "bmp"
-                                        | "webp"
-                                        | "svg"
-                                        | "tiff"
-                                        | "tif"
-                                ) {
-                                    found.push(path);
-                                }
-                            }
-                        }
-                        Ok(meta) if meta.is_dir() => {
-                            stack.push(path);
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
-
-        // 去重（同名同路径不重复）
-        found.sort();
-        found.dedup();
-        Ok(found)
-    }
-
-    /// 替换Markdown中的图片路径
-    pub async fn replace_image_paths_in_markdown(
-        &self,
-        markdown_content: &str,
-        image_results: &[ImageInfo],
-    ) -> AnyhowResult<String> {
-        info!("Replace {} image paths in Markdown", image_results.len());
-
-        // 创建文件名到OSS URL的映射表
-        let mut filename_to_oss_url = HashMap::new();
-        for result in image_results {
-            // 使用文件名作为键（用于匹配Markdown中的图片引用）
-            filename_to_oss_url.insert(result.original_filename.clone(), result.oss_url.clone());
-            // 同时支持以哈希命名的文件匹配（去重后场景，Markdown 里可能是原名，也可能是路径/原名）
-            if let Some(stem) = std::path::Path::new(&result.original_filename)
-                .file_stem()
-                .and_then(|s| s.to_str())
-            {
-                filename_to_oss_url
-                    .entry(stem.to_string())
-                    .or_insert(result.oss_url.clone());
-            }
-        }
-
-        info!("Created {} filename mappings", filename_to_oss_url.len());
-
-        // 使用pulldown-cmark解析Markdown，直接修改Event
-        let parser = Parser::new(markdown_content);
-        let mut updated_events = Vec::new();
-        let mut replacements_count = 0;
-
-        for event in parser {
-            match event {
-                Event::Start(Tag::Image {
-                    dest_url,
-                    link_type,
-                    id,
-                    title,
-                }) => {
-                    let original_url = dest_url.to_string();
-                    if let Some(oss_url) =
-                        self.find_oss_url_for_filename(&original_url, &filename_to_oss_url)
-                    {
-                        // 创建新的Image标签，使用OSS URL
-                        let new_tag = Tag::Image {
-                            dest_url: pulldown_cmark::CowStr::from(oss_url),
-                            link_type,
-                            id,
-                            title,
-                        };
-                        updated_events.push(Event::Start(new_tag));
-                        replacements_count += 1;
-                    } else {
-                        // 如果没有找到匹配的OSS URL，保持原样
-                        updated_events.push(Event::Start(Tag::Image {
-                            dest_url,
-                            link_type,
-                            id,
-                            title,
-                        }));
-                    }
-                }
-                Event::End(TagEnd::Image) => {
-                    updated_events.push(Event::End(TagEnd::Image));
-                }
-                _ => {
-                    updated_events.push(event);
-                }
-            }
-        }
-
-        // 使用pulldown-cmark-to-cmark将修改后的Event转换回Markdown
-        let mut output = String::new();
-        cmark(updated_events.into_iter(), &mut output)?;
-
-        info!(
-            "Image path replacement completed, {} images processed, {} paths replaced",
-            image_results.len(),
-            replacements_count
-        );
-        Ok(output)
-    }
-
-    /// 计算文件的 SHA-256 哈希（hex）
-    async fn compute_file_sha256_hex(&self, path: &std::path::Path) -> AnyhowResult<String> {
-        let mut file = File::open(path)
-            .await
-            .with_context(|| format!("打开文件失败用于计算哈希: {}", path.display()))?;
-        let mut hasher = Sha256::new();
-        let mut buffer = vec![0u8; 1024 * 64]; // 64KB 缓冲
-        loop {
-            let n = file
-                .read(&mut buffer)
-                .await
-                .with_context(|| format!("读取文件失败用于计算哈希: {}", path.display()))?;
-            if n == 0 {
-                break;
-            }
-            hasher.update(&buffer[..n]);
-        }
-        let digest = hasher.finalize();
-        Ok(format!("{digest:x}"))
-    }
-
-    /// 查找匹配的OSS URL（通过文件名匹配）
-    fn find_oss_url_for_filename(
-        &self,
-        image_path: &str,
-        filename_to_oss_url: &std::collections::HashMap<String, String>,
-    ) -> Option<String> {
-        // 从 Markdown 图片路径中提取文件名进行匹配
-        if let Some(filename) = Path::new(image_path).file_name()
-            && let Some(filename_str) = filename.to_str()
-            && let Some(oss_url) = filename_to_oss_url.get(filename_str)
-        {
-            return Some(oss_url.clone());
-        }
-
-        // 如果没有找到匹配，返回None
-        None
     }
 
     /// 从URL解析文档 - Enhanced with proper resource management
@@ -936,67 +677,6 @@ impl DocumentService {
         structured_doc.calculate_total_word_count();
 
         Ok(structured_doc)
-    }
-
-    /// Safe task update methods - handle errors gracefully without failing the main operation
-    async fn update_task_stage_safe(&self, task_id: &str, stage: crate::models::ProcessingStage) {
-        if let Err(e) = self.task_service.update_task_stage(task_id, stage).await {
-            warn!("Failed to update task stage for {}: {}", task_id, e);
-        }
-    }
-
-    async fn update_task_progress_safe(&self, task_id: &str, progress: u32) {
-        if let Err(e) = self
-            .task_service
-            .update_task_progress(task_id, progress)
-            .await
-        {
-            warn!("Failed to update task progress for {}: {}", task_id, e);
-        }
-    }
-
-    async fn update_task_file_info_safe(
-        &self,
-        task_id: &str,
-        file_size: Option<u64>,
-        mime_type: Option<String>,
-    ) {
-        if let Err(e) = self
-            .task_service
-            .set_task_file_info(task_id, file_size, mime_type)
-            .await
-        {
-            warn!("Failed to update task file info for {}: {}", task_id, e);
-        }
-    }
-
-    async fn update_task_parser_engine_safe(&self, task_id: &str, engine: ParserEngine) {
-        if let Err(e) = self
-            .task_service
-            .set_task_parser_engine(task_id, engine)
-            .await
-        {
-            warn!("Failed to update task parser engine for {}: {}", task_id, e);
-        }
-    }
-
-    async fn update_task_document_format_safe(&self, task_id: &str, format: DocumentFormat) {
-        if let Err(e) = self
-            .task_service
-            .update_task(task_id, None, None, format)
-            .await
-        {
-            warn!(
-                "Failed to update task document format for {}: {}",
-                task_id, e
-            );
-        }
-    }
-
-    async fn update_task_status_safe(&self, task_id: &str, status: TaskStatus) {
-        if let Err(e) = self.task_service.update_task_status(task_id, status).await {
-            warn!("Failed to update task status for {}: {}", task_id, e);
-        }
     }
 
     /// 检测文件MIME类型 - Enhanced async version
@@ -1268,234 +948,18 @@ impl DocumentService {
         let processor = self.markdown_processor.read().await;
         processor.get_cache_stats().await
     }
-
-    /// 创建文件上传任务 - Enhanced with proper validation and error handling
-    #[instrument(skip(self), fields(filename = %filename, file_size = file_size))]
-    pub async fn create_upload_task(
-        &self,
-        file_path: &str,
-        filename: &str,
-        file_size: u64,
-    ) -> AnyhowResult<String> {
-        info!(
-            "Create file upload task: {} (size: {} bytes)",
-            filename, file_size
-        );
-
-        // Validate file size
-        let global_config = GlobalFileSizeConfig::new();
-        if file_size > global_config.max_file_size.bytes() {
-            return Err(anyhow::anyhow!(
-                "文件大小超过限制: {} > {} bytes",
-                file_size,
-                global_config.max_file_size.bytes()
-            ));
-        }
-
-        // Validate file exists
-        let file_path_obj = Path::new(file_path);
-        if !file_path_obj.exists() {
-            return Err(anyhow::anyhow!("文件不存在: {}", file_path));
-        }
-
-        // Create task
-        let task = self
-            .task_service
-            .create_task(
-                SourceType::Upload,
-                Some(filename.to_string()),
-                Some(filename.to_string()),
-                None,
-            )
-            .await
-            .context("创建任务失败")?;
-
-        Ok(task.id)
-    }
-
-    /// 创建URL下载任务
-    pub async fn create_url_task(&self, url: &str, filename: &str) -> Result<String, AppError> {
-        log::info!("Create URL download task: {url} -> {filename}");
-
-        // 创建任务：URL 作为 source_url，原始文件名保留
-        let task = self
-            .task_service
-            .create_task(
-                SourceType::Url,
-                Some(url.to_string()),
-                Some(filename.to_string()),
-                None,
-            )
-            .await
-            .map_err(|e| AppError::Task(format!("创建任务失败: {e}")))?;
-
-        Ok(task.id)
-    }
-
-    /// 获取任务状态
-    pub async fn get_task_status(
-        &self,
-        task_id: &str,
-    ) -> Result<crate::models::DocumentTask, AppError> {
-        log::debug!("Get task status: {task_id}");
-
-        self.task_service
-            .get_task(task_id)
-            .await?
-            .ok_or_else(|| AppError::Task(format!("任务不存在: {task_id}")))
-    }
-
-    /// 生成OSS对象键的统一函数
-    ///
-    /// 这个函数根据任务ID、资源类型和可选的bucket_dir生成标准的OSS对象键。
-    /// 支持多种资源类型，便于统一管理和清理。
-    ///
-    /// # 参数
-    /// * `task_id` - 任务ID
-    /// * `resource_type` - 资源类型（如 "processed_markdown", "parsed_images"）
-    /// * `resource_path` - 资源路径（如 "task_id.md" 或 "sha256/hash.ext"）
-    ///
-    /// # 返回
-    /// * `Ok(String)` - 生成的OSS对象键
-    /// * `Err(AnyhowResult)` - 如果获取任务信息失败
-    ///
-    /// # 示例
-    ///
-    /// 无bucket_dir: `"processed_markdown/task_123/task_123.md"`
-    ///
-    /// 有bucket_dir: `"my_bucket/processed_markdown/task_123/task_123.md"`
-    async fn generate_unified_oss_object_key(
-        &self,
-        task_id: &str,
-        resource_type: &str,
-        resource_path: &str,
-    ) -> AnyhowResult<String> {
-        let bucket_dir = {
-            let task_opt = self.task_service.get_task(task_id).await?;
-            if let Some(task) = task_opt {
-                task.bucket_dir
-                    .as_ref()
-                    .map(|dir| dir.trim_matches('/').to_string())
-            } else {
-                None
-            }
-        };
-
-        let object_key = if let Some(dir) = bucket_dir {
-            if dir.is_empty() {
-                format!("{resource_type}/{task_id}/{resource_path}")
-            } else {
-                format!("{dir}/{resource_type}/{task_id}/{resource_path}")
-            }
-        } else {
-            format!("{resource_type}/{task_id}/{resource_path}")
-        };
-
-        Ok(object_key)
-    }
-
-    /// 生成OSS对象键：[bucket_dir/]processed_markdown/<task_id>/<task_id>.md
-    ///
-    /// 这个函数根据任务ID和可选的bucket_dir生成标准的OSS对象键。
-    /// 生成的格式为：[bucket_dir/]processed_markdown/<task_id>/<task_id>.md
-    ///
-    /// # 参数
-    /// * `task_id` - 任务ID
-    ///
-    /// # 返回
-    /// * `Ok(String)` - 生成的OSS对象键
-    /// * `Err(AnyhowResult)` - 如果获取任务信息失败
-    ///
-    /// # 示例
-    ///
-    /// 无bucket_dir: `"processed_markdown/task_123/task_123.md"`
-    ///
-    /// 有bucket_dir: `"my_bucket/processed_markdown/task_456/task_456.md"`
-    async fn generate_oss_object_key(&self, task_id: &str) -> AnyhowResult<String> {
-        self.generate_unified_oss_object_key(
-            task_id,
-            "processed_markdown",
-            &format!("{task_id}.md"),
-        )
-        .await
-    }
-
-    /// 生成图片的OSS对象键：[bucket_dir/]parsed_images/sha256/<hash>.<ext>
-    ///
-    /// 这个函数根据任务ID、图片哈希和扩展名生成标准的OSS对象键。
-    /// 生成的格式为：[bucket_dir/]parsed_images/<task_id>/sha256/<hash>.<ext>
-    ///
-    /// # 参数
-    /// * `task_id` - 任务ID
-    /// * `hash_hex` - 图片文件的SHA-256哈希值
-    /// * `ext_suffix` - 文件扩展名（包含点号，如 ".jpg"）
-    ///
-    /// # 返回
-    /// * `Ok(String)` - 生成的OSS对象键
-    /// * `Err(AnyhowResult)` - 如果获取任务信息失败
-    ///
-    /// # 示例
-    ///
-    /// 无bucket_dir: `"parsed_images/task_123/sha256/abc123.jpg"`
-    ///
-    /// 有bucket_dir: `"my_bucket/parsed_images/task_456/sha256/def456.png"`
-    async fn generate_image_oss_object_key(
-        &self,
-        task_id: &str,
-        hash_hex: &str,
-        ext_suffix: &str,
-    ) -> AnyhowResult<String> {
-        self.generate_unified_oss_object_key(
-            task_id,
-            "parsed_images",
-            &format!("sha256/{hash_hex}{ext_suffix}"),
-        )
-        .await
-    }
-
-    /// 将处理后的Markdown内容上传到OSS
-    async fn upload_processed_markdown_to_oss(
-        &self,
-        task_id: &str,
-        markdown_content: &str,
-    ) -> AnyhowResult<(String, String)> {
-        info!(
-            "Start uploading the processed Markdown content to OSS: {}",
-            task_id
-        );
-
-        // 检查OSS客户端是否可用
-        let oss_client = match &self.oss_client {
-            Some(client) => client,
-            None => {
-                return Err(anyhow::anyhow!("OSS客户端未配置，无法上传Markdown内容"));
-            }
-        };
-
-        // 使用提取的函数生成OSS对象键
-        let object_key = self.generate_oss_object_key(task_id).await?;
-
-        // 将Markdown内容转换为字节
-        let content_bytes = markdown_content.as_bytes();
-
-        // 上传到OSS
-        let upload_result = oss_client
-            .upload_content(content_bytes, &object_key, Some("text/markdown"))
-            .await
-            .with_context(|| format!("上传Markdown内容到OSS失败: {object_key}"))?;
-
-        info!(
-            "Markdown content uploaded successfully: {} -> {}",
-            object_key, upload_result
-        );
-
-        Ok((upload_result, object_key))
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ImageInfo;
+    use crate::services::upload_pipeline::{
+        ImageUploadOps, build_image_object_key, build_markdown_object_key,
+        extract_inline_dest_spans, rebuild_with_replacements,
+    };
+    use async_trait::async_trait;
+    use std::collections::HashMap;
     use tempfile::TempDir;
 
     #[tokio::test]
@@ -1530,5 +994,254 @@ mod tests {
         assert_eq!(names.len(), 2);
         assert_eq!(names[0], "a.png");
         assert_eq!(names[1], "b.JPG");
+    }
+
+    /// 对象键格式回归锚点：与重构前 generate_unified_oss_object_key 输出逐字符一致
+    #[test]
+    fn test_build_object_key_formats_match_legacy() {
+        // 无 bucket_dir
+        assert_eq!(
+            build_markdown_object_key(None, "task_123"),
+            "processed_markdown/task_123/task_123.md"
+        );
+        assert_eq!(
+            build_image_object_key(None, "task_123", "abc123", ".jpg"),
+            "parsed_images/task_123/sha256/abc123.jpg"
+        );
+
+        // 有 bucket_dir
+        assert_eq!(
+            build_markdown_object_key(Some("my_bucket"), "task_456"),
+            "my_bucket/processed_markdown/task_456/task_456.md"
+        );
+        assert_eq!(
+            build_image_object_key(Some("my_bucket"), "task_456", "def456", ".png"),
+            "my_bucket/parsed_images/task_456/sha256/def456.png"
+        );
+
+        // bucket_dir 带首尾斜杠 → trim 后作为前缀
+        assert_eq!(
+            build_markdown_object_key(Some("/proj/docs/"), "task_1"),
+            "proj/docs/processed_markdown/task_1/task_1.md"
+        );
+
+        // bucket_dir trim 后为空 → 不加前缀（与旧逻辑一致）
+        assert_eq!(
+            build_markdown_object_key(Some("/"), "task_1"),
+            "processed_markdown/task_1/task_1.md"
+        );
+
+        // 无扩展名图片
+        assert_eq!(
+            build_image_object_key(None, "task_1", "hash", ""),
+            "parsed_images/task_1/sha256/hash"
+        );
+    }
+
+    /// 图片上传共用循环：mock 上传操作验证调用与结果收集
+    struct CountingMockOps {
+        fail_on: Option<String>,
+    }
+
+    #[async_trait]
+    impl ImageUploadOps for CountingMockOps {
+        async fn upload_image(&self, local_path: &Path) -> Result<ImageInfo, AppError> {
+            let name = local_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default()
+                .to_string();
+            if self.fail_on.as_deref() == Some(name.as_str()) {
+                return Err(AppError::Oss(format!("mock failure: {name}")));
+            }
+            Ok(ImageInfo::with_full_info(
+                local_path.to_string_lossy().to_string(),
+                name.clone(),
+                format!("key/{name}"),
+                format!("https://mock.example.com/{name}"),
+                1,
+                "image/png".to_string(),
+            ))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_upload_images_via_collects_results() {
+        let temp_dir = TempDir::new().unwrap();
+        let a = temp_dir.path().join("a.png");
+        let b = temp_dir.path().join("b.png");
+        tokio::fs::write(&a, b"x").await.unwrap();
+        tokio::fs::write(&b, b"y").await.unwrap();
+
+        let service = crate::tests::test_helpers::create_test_app_state().await;
+        let ops = CountingMockOps { fail_on: None };
+        let results = service
+            .document_service
+            .upload_images_via(&ops, vec![a, b])
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].oss_url, "https://mock.example.com/a.png");
+
+        // 失败路径：单张失败整批报错（Fail Fast）
+        let b2 = temp_dir.path().join("b.png");
+        let ops = CountingMockOps {
+            fail_on: Some("b.png".to_string()),
+        };
+        let err = service
+            .document_service
+            .upload_images_via(&ops, vec![b2])
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("b.png"));
+    }
+
+    // ===== 内嵌 URL 换签（CommonMark 语义） =====
+
+    const SIGN_TEST_PREFIX: &str = "https://agent.example.com/api/f/";
+
+    #[test]
+    fn extract_skips_urls_inside_code_blocks() {
+        // fenced code block 内的示例 URL 不收集（手写扫描器会误伤的场景）
+        let content = "# t\n\n![ok](https://agent.example.com/api/f/s3/a.png)\n\n```rust\n// demo: ![demo](https://agent.example.com/api/f/s3/b.png)\n```\n\ninline `![x](https://agent.example.com/api/f/s3/c.png)` code\n";
+        let spans = extract_inline_dest_spans(content, SIGN_TEST_PREFIX);
+        let urls: Vec<&str> = spans.iter().map(|(d, _)| d.as_str()).collect();
+        assert_eq!(urls, vec!["https://agent.example.com/api/f/s3/a.png"]);
+    }
+
+    #[test]
+    fn extract_handles_title_multiple_and_foreign_prefix() {
+        let content = "![a](https://agent.example.com/api/f/s3/x.png \"fig.1\")\n[link](https://agent.example.com/api/f/s3/x.png)\n![ext](https://other.example.com/api/f/s3/y.png)\n";
+        let spans = extract_inline_dest_spans(content, SIGN_TEST_PREFIX);
+        // 带 title 的图片 + 同 URL 的链接（Link 事件）都收集；外站前缀跳过
+        assert_eq!(spans.len(), 2);
+        assert!(
+            spans
+                .iter()
+                .all(|(d, _)| d == "https://agent.example.com/api/f/s3/x.png")
+        );
+        // span 精确指向 URL 子串
+        for (dest, range) in &spans {
+            assert_eq!(&content[range.clone()], dest);
+        }
+    }
+
+    #[test]
+    fn extract_skips_reference_links() {
+        // 引用式链接 dest 在文档别处定义，不在事件 span 内——安全跳过
+        let content = "[ref]: https://agent.example.com/api/f/s3/r.png\n\n![alt][ref]\n";
+        let spans = extract_inline_dest_spans(content, SIGN_TEST_PREFIX);
+        assert!(spans.is_empty());
+    }
+
+    #[test]
+    fn extract_nested_image_in_link_ordered_and_no_panic() {
+        // 可点击缩略图（badge）形态：嵌套使事件序与位置序相反——
+        // 修复前 spans 降序导致 rebuild 切片 panic，现应按位置序安全重建
+        let content = "[![thumb](https://agent.example.com/api/f/s3/a.png)](https://agent.example.com/api/f/s3/b.png)";
+        let spans = extract_inline_dest_spans(content, SIGN_TEST_PREFIX);
+        assert_eq!(spans.len(), 2, "嵌套两层都应收集");
+        // 严格递增且不重叠
+        assert!(spans[0].1.start < spans[1].1.start && spans[0].1.end <= spans[1].1.start);
+
+        let mut signed = HashMap::new();
+        signed.insert(
+            "https://agent.example.com/api/f/s3/a.png".to_string(),
+            "SA".to_string(),
+        );
+        signed.insert(
+            "https://agent.example.com/api/f/s3/b.png".to_string(),
+            "SB".to_string(),
+        );
+        let out = rebuild_with_replacements(content, &spans, &signed);
+        assert_eq!(
+            out, "[![thumb](SA)](SB)",
+            "两个 href 都应被替换（嵌套顺序无关）"
+        );
+    }
+
+    #[test]
+    fn extract_alt_echoing_url_replaces_href_not_alt() {
+        // alt 回显 URL（LLM 生成内容常见）：定位必须命中 href 而非 alt 文本
+        let content =
+            "![https://agent.example.com/api/f/s3/x.png](https://agent.example.com/api/f/s3/x.png)";
+        let spans = extract_inline_dest_spans(content, SIGN_TEST_PREFIX);
+        assert_eq!(spans.len(), 1);
+        let (dest, range) = &spans[0];
+        assert_eq!(dest, "https://agent.example.com/api/f/s3/x.png");
+        // span 起点应在 href 区段（`](` 之后），而非 alt 内的首次出现
+        assert_eq!(&content[range.clone()], dest, "span 应精确覆盖 href 子串");
+        let mut signed = HashMap::new();
+        signed.insert(dest.clone(), "SIGNED".to_string());
+        let out = rebuild_with_replacements(content, &spans, &signed);
+        assert_eq!(out, "![https://agent.example.com/api/f/s3/x.png](SIGNED)");
+
+        // 裸链接惯用法 [url](url)
+        let content2 = "[P/y.png](P/y.png)";
+        let spans2 = extract_inline_dest_spans(content2, "P/");
+        assert_eq!(spans2.len(), 1);
+        assert_eq!(&content2[spans2[0].1.clone()], "P/y.png");
+        // span 应指向括号内（offset 10 起），而非链接文本（offset 1 起）
+        assert_eq!(spans2[0].1.start, content2.find("](P/").unwrap() + 2);
+    }
+
+    #[test]
+    fn extract_title_containing_bracket_paren_locates_real_href() {
+        // title 内含 `](` 字面量（CommonMark 合法）：rfind 会越过真 href，
+        // 应回退首个 `](` 定位——真 href 被换签、title 不被污染
+        let content = "![img](P/a.png \"ti](P/a.png\")";
+        let spans = extract_inline_dest_spans(content, "P/");
+        assert_eq!(spans.len(), 1);
+        let (dest, range) = &spans[0];
+        assert_eq!(dest, "P/a.png");
+        // span 必须覆盖括号内的真 href，而非 title 里的副本
+        assert_eq!(&content[range.clone()], "P/a.png");
+        let mut signed = HashMap::new();
+        signed.insert("P/a.png".to_string(), "S".to_string());
+        let out = rebuild_with_replacements(content, &spans, &signed);
+        assert_eq!(out, "![img](S \"ti](P/a.png\")");
+
+        // title 含 `](` 但无 dest 副本：仍应命中真 href（而非静默跳过）
+        let content2 = "![img](P/b.png \"ti](tle\")";
+        let spans2 = extract_inline_dest_spans(content2, "P/");
+        assert_eq!(spans2.len(), 1, "title 含 ]( 不应导致链接被跳过");
+        assert_eq!(&content2[spans2[0].1.clone()], "P/b.png");
+    }
+
+    #[test]
+    fn extract_same_url_nested_positions_both_hrefs_correctly() {
+        // 同 URL 嵌套 `[![x](P/z)](P/z)`：`](` 从 span 尾部定位使内层 Image
+        // 与外层 Link 各自命中自己的 href——两个 span 均覆盖正确子串、
+        // 不重叠且有序（修复前 find 首次命中会让外层落在内层 href 上）
+        let content = "[![x](P/z)](P/z)";
+        let spans = extract_inline_dest_spans(content, "P/");
+        assert_eq!(spans.len(), 2, "嵌套两层各收集一个: {spans:?}");
+        for (dest, range) in &spans {
+            assert_eq!(dest, "P/z");
+            assert_eq!(
+                &content[range.clone()],
+                "P/z",
+                "每个 span 精确覆盖一个 href"
+            );
+        }
+        assert!(spans[0].1.end <= spans[1].1.start, "不重叠且有序");
+        // rebuild：两个 href 都替换、不 panic
+        let mut signed = HashMap::new();
+        signed.insert("P/z".to_string(), "S".to_string());
+        let out = rebuild_with_replacements(content, &spans, &signed);
+        assert_eq!(out, "[![x](S)](S)");
+    }
+
+    #[test]
+    fn rebuild_replaces_only_signed_and_keeps_rest() {
+        let content = "pre ![a](P/U1.png) mid [b](P/U2.png) post ![c](P/U3.png) end";
+        // span 由 extract 计算（真实偏移），保证 rebuild 消费的就是生产路径的输入
+        let spans = extract_inline_dest_spans(content, "P/");
+        assert_eq!(spans.len(), 3);
+        let mut signed = HashMap::new();
+        signed.insert("P/U1.png".to_string(), "S1".to_string());
+        signed.insert("P/U3.png".to_string(), "S3".to_string()); // U2 换签失败：保留原文
+        let out = rebuild_with_replacements(content, &spans, &signed);
+        assert_eq!(out, "pre ![a](S1) mid [b](P/U2.png) post ![c](S3) end");
     }
 }

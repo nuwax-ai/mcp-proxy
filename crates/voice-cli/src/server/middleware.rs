@@ -9,6 +9,95 @@ use serde_json::Value;
 use std::time::Instant;
 use tracing::{error, info, warn};
 
+/// 日志脱敏后 body 参数的最大序列化长度；超限只记录字段名清单
+const BODY_LOG_MAX_LEN: usize = 2048;
+/// 单字段（字符串）超过该长度视为大载荷（如 base64 音频），只记长度摘要
+const BODY_LOG_FIELD_TRUNCATE: usize = 512;
+/// 已知敏感/大体积字段：TTS 零样本克隆的参考音频（声纹数据）等
+const BODY_LOG_REDACTED_KEYS: &[&str] = &["reference_audio", "audio_data"];
+
+/// 请求体参数的日志脱敏：大字段换长度摘要、超长字符串截断、整体超限只记 keys。
+/// 防止 base64 参考音频（可达数 MB）与声纹文本整段进入日志。
+fn sanitize_body_params_for_log(params: &Value) -> Value {
+    match params {
+        Value::Object(map) => {
+            let mut sanitized = serde_json::Map::new();
+            for (k, v) in map {
+                if BODY_LOG_REDACTED_KEYS.contains(&k.as_str()) {
+                    sanitized.insert(
+                        k.clone(),
+                        Value::String(format!(
+                            "<redacted: {} bytes>",
+                            v.as_str().map_or_else(|| v.to_string().len(), str::len)
+                        )),
+                    );
+                } else {
+                    sanitized.insert(k.clone(), sanitize_body_params_for_log(v));
+                }
+            }
+            let obj = Value::Object(sanitized);
+            if obj.to_string().len() > BODY_LOG_MAX_LEN {
+                let keys: Vec<&str> = obj
+                    .as_object()
+                    .map_or_default(|m| m.keys().map(String::as_str).collect());
+                Value::String(format!(
+                    "<body too large: {} bytes, keys: {}>",
+                    obj.to_string().len(),
+                    keys.join(", ")
+                ))
+            } else {
+                obj
+            }
+        }
+        Value::Array(items) => {
+            Value::Array(items.iter().map(sanitize_body_params_for_log).collect())
+        }
+        Value::String(s) if s.len() > BODY_LOG_FIELD_TRUNCATE => {
+            Value::String(format!("<truncated: {} chars>", s.len()))
+        }
+        _ => params.clone(),
+    }
+}
+
+#[cfg(test)]
+mod sanitize_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn redacts_reference_audio_and_truncates_large_strings() {
+        let params = json!({
+            "text": "要合成的文本",
+            "reference_audio": "A".repeat(1024),
+            "reference_text": "参考文本",
+        });
+        let sanitized = sanitize_body_params_for_log(&params);
+        let obj = sanitized.as_object().unwrap();
+        assert!(
+            obj["reference_audio"]
+                .as_str()
+                .unwrap()
+                .starts_with("<redacted:")
+        );
+        assert_eq!(obj["text"], json!("要合成的文本"));
+    }
+
+    #[test]
+    fn oversized_body_falls_back_to_keys_summary() {
+        // 10 个 400 字节字段：每个都低于单字段截断阈值，但总量超过
+        // BODY_LOG_MAX_LEN，应整体退化为 keys 摘要
+        let mut big = serde_json::Map::new();
+        for i in 0..10 {
+            big.insert(format!("field_{i}"), json!("x".repeat(400)));
+        }
+        let params = Value::Object(big);
+        let sanitized = sanitize_body_params_for_log(&params);
+        let summary = sanitized.as_str().unwrap();
+        assert!(summary.starts_with("<body too large:"));
+        assert!(summary.contains("field_0"));
+    }
+}
+
 /// Connection: close 中间件
 /// 为所有HTTP响应添加 Connection: close 头，禁用长连接
 pub async fn connection_close_middleware(request: Request, next: Next) -> Response {
@@ -94,7 +183,7 @@ pub async fn request_logging_middleware(request: Request, next: Next) -> Respons
             content_type = %content_type,
             content_length = content_length,
             query_params = ?query_params,
-            body_params = ?body_params,
+            body_params = ?sanitize_body_params_for_log(&body_params),
             is_multipart = false,
             "HTTP request started (body params extracted)"
         );

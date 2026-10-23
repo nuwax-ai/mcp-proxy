@@ -75,8 +75,10 @@ pub async fn download_model_from_url(url: &str, cache_dir: &Path) -> Result<()> 
 static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
     reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(1800))
+        // 构建失败仅发生在 TLS 后端不可用等极端场景；退回默认 Client
+        // 而非 panic（模型拉取是常驻服务的运行期路径，生产禁 expect）
         .build()
-        .expect("Failed to create HTTP client")
+        .unwrap_or_default()
 });
 
 /// 从 HTTP(S) URL 下载文件到本地路径

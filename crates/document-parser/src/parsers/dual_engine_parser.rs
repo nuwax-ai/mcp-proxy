@@ -103,6 +103,19 @@ impl DualEngineParser {
     /// 根据文件路径自动检测 `DocumentFormat`（优先魔数，其次 MIME/扩展名/内容分析），
     /// 然后选择合适的引擎进行解析。该方法避免了显式传入 `format`。
     pub async fn parse_document_auto(&self, file_path: &str) -> Result<ParseResult, AppError> {
+        self.parse_document_auto_with_cancel(file_path, None).await
+    }
+
+    /// 解析文档（自动检测格式，带任务级取消令牌）。
+    ///
+    /// 令牌透传给选中引擎的 [`DocumentParser::parse_with_cancel`]——execute 层
+    /// select 轮询令牌，取消时 kill 解析子进程。调用方（DocumentService）
+    /// 以文档 task_id 为 key 在 [`crate::services::parse_cancel`] 注册同名令牌。
+    pub async fn parse_document_auto_with_cancel(
+        &self,
+        file_path: &str,
+        cancel: Option<crate::parsers::mineru_parser::CancellationToken>,
+    ) -> Result<ParseResult, AppError> {
         let detector = FormatDetector::new();
         let detection = detector.detect_format(file_path, None)?;
         let detected_format = detection.format;
@@ -114,7 +127,7 @@ impl DualEngineParser {
         }
 
         let parser = self.get_parser_for_format(&detected_format);
-        parser.parse(file_path).await
+        parser.parse_with_cancel(file_path, cancel).await
     }
 
     /// 检查是否支持指定格式

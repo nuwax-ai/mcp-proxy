@@ -18,6 +18,7 @@ members = [
     "crates/deploy-installer",
     "crates/voice-cli",
     "crates/fastembed",
+    "crates/test-e2e",
 ]
 default-members = [
     "crates/mcp-common",
@@ -28,34 +29,40 @@ default-members = [
     "crates/oss-client",
     "crates/run-code-rmcp",
 ]
+# 桌面客户端（gpui 依赖树千级 crate）独立 workspace——锁文件/CI/Docker 构建链完全隔离
+exclude = ["clients/desktop"]
 resolver = "2"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 # 统一版本管理：所有 crate 用 version.workspace = true 继承此处版本，bump 只改这一处
 [workspace.package]
-version = "0.2.7"
+version = "0.2.9"
 edition = "2024"
+# MSRV：sqlx 0.9（apalis-sqlite 1.0 拉入）要求 rustc >= 1.94；Docker 构建镜像统一用滚动标签
+# rust:trixie（跟随最新 stable，见 docker/Dockerfile.*），本机工具链 1.99 满足
+rust-version = "1.94"
 
 [workspace.dependencies]
 # 内部 crate（依赖版本串也集中在此，配合 [workspace.package] 实现根一处维护）
-mcp-proxy = { version = "0.2.7", path = "crates/mcp-proxy" }
-mcp-common = { version = "0.2.7", path = "crates/mcp-common" }
-mcp-proxy-args = { version = "0.2.7", path = "crates/mcp-proxy-args" }
-mcp-sse-proxy = { version = "0.2.7", path = "crates/mcp-sse-proxy" }
-mcp-streamable-proxy = { version = "0.2.7", path = "crates/mcp-streamable-proxy" }
-oss-client = { version = "0.2.7", path = "crates/oss-client" }
+mcp-proxy = { version = "0.2.9", path = "crates/mcp-proxy" }
+mcp-common = { version = "0.2.9", path = "crates/mcp-common" }
+mcp-proxy-args = { version = "0.2.9", path = "crates/mcp-proxy-args" }
+mcp-sse-proxy = { version = "0.2.9", path = "crates/mcp-sse-proxy" }
+mcp-streamable-proxy = { version = "0.2.9", path = "crates/mcp-streamable-proxy" }
+oss-client = { version = "0.2.9", path = "crates/oss-client" }
 deploy-installer = { version = "0.2.0", path = "crates/deploy-installer" }
 # run_code_rmcp 已 vendor 到本地（crates/run-code-rmcp/）；发布 mcp-stdio-proxy 时仍需 version
 # 以便 cargo publish 把 path 依赖解析为 crates.io 上的同名版本
-run_code_rmcp = { version = "0.2.7", path = "crates/run-code-rmcp" }
+run_code_rmcp = { version = "0.2.9", path = "crates/run-code-rmcp" }
 # voice-toolkit 已 vendor 到本地（crates/voice-toolkit 等 4 个 crate），不再从 crates.io 拉取
 voice-toolkit = { path = "crates/voice-toolkit", features = ["audio"] }
 # FFmpeg wrapper：统一到 2.5（voice-cli 原 2.2 + voice crates 2.5 → 合并）
-ffmpeg-sidecar = "2.5"
-# STT 引擎（替代 vendor 的 rs-voice-toolkit-stt）：transcribe-rs 0.3.11 依赖 ort=2.0.0-rc.12，
-# 与 fastembed 的 ort 版本完全一致，共存无冲突。GPU feature（whisper-metal/cuda/vulkan）
-# 由 voice-cli 按平台 [target.'cfg'] 选用，不在此处统一开。
+ffmpeg-sidecar = "2.7"
+# STT 引擎（替代 vendor 的 rs-voice-toolkit-stt）：0.3.11（最新）精确钉 ort =2.0.0-rc.12——
+# 这个钉同时决定了全 workspace 的 ort 上限，也是 fastembed 被钉 =5.17.3 的原因（见下方
+# fastembed 条目注释）。GPU feature（whisper-metal/cuda/vulkan）由 voice-cli 按平台
+# [target.'cfg'] 选用，不在此处统一开。
 transcribe-rs = "0.3.11"
 # TTS/STT 引擎：sherpa-onnx 官方 crate，自带 onnxruntime C 库（与 fastembed/transcribe-rs
 # 的 ort 隔离，三套引擎同属 ONNX 生态）。-sys 编译期从 github releases 下载预编译库
@@ -63,37 +70,43 @@ transcribe-rs = "0.3.11"
 # default-features=false：由各 crate 按平台选 static/shared（见 voice-cli Cargo.toml）。
 #   关键：macOS **static** 变体编译时禁用 CoreML（session.cc #else → CPU 回退）；
 #   macOS **shared** 变体启用 CoreML EP → STT sherpa 三引擎可走 Mac GPU/ANE。
-# ⚠️ 钉 1.13.3（**不**用 1.13.4）：1.13.4 bundle 的 onnxruntime 1.27.0 在本机 macOS 启动即被
-#   SIGKILL（--help 都 exit 137，main 前死；非内存/非 codesign/非下载损坏，重新下载复现）。
-#   1.13.3 的 onnxruntime 1.24.4 正常。`version="1.13.3"` 仍允许 1.13.4，靠 Cargo.lock 钉；
-#   若 `cargo update` 升到 1.13.4 会复发，需 `cargo update -p sherpa-onnx --precise 1.13.3` 回退。
-sherpa-onnx = { version = "1.13.3", default-features = false }
+# ⚠️ onnxruntime 版本史（macOS 启动即 SIGKILL 风险）：1.13.3→1.24.4 正常；
+#   1.13.4→1.27.0 在本机 macOS 启动即被 SIGKILL（--help 都 exit 137，main 前死；
+#   非内存/非 codesign/非下载损坏，重新下载复现）；1.13.8→1.28.2 已实测正常
+#   （2026-09-17 Mac Studio：--help 冒烟 exit 0 + TTS Kokoro 模型加载 + STT FireRedASR2
+#   CoreML 转写 jfk.wav 全通过）。
+#   因此精确钉 =1.13.8（`cargo update` 不会动它）：坏版本能静默通过 cargo build，
+#   升级必须显式改本行，且改完重跑三层冒烟：binary --help → server health
+#   （models_loaded）→ /transcribe?engine=fireredasr2 转写一条。
+sherpa-onnx = { version = "=1.13.8", default-features = false }
 # 繁→简中文转换（STT 后处理）：纯 Rust 核心，字典编译期内嵌，zstd 复用现有依赖树
 ferrous-opencc = "0.4"
 
-# Note: rmcp 依赖由各子项目独立管理（mcp-sse-proxy 用 0.10，mcp-streamable-proxy 用 3.1.1）
-tokio = { version = "1.52", features = ["macros", "net", "rt", "rt-multi-thread"] }
-tokio-util = "0.7"
+# Note: rmcp 依赖由各子项目独立管理（mcp-sse-proxy 用 0.10，mcp-streamable-proxy 用 3.6，run-code-rmcp 的 mcp feature 用 3.6）
+tokio = { version = "1.54", features = ["macros", "net", "rt", "rt-multi-thread"] }
+socket2 = "0.6"
+tokio-util = "0.7.20"
 
 # Logging and tracing
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
-tracing-opentelemetry = "0.33"
-opentelemetry = { version = "0.32", features = ["trace"] }
+tracing-opentelemetry = "0.34"
+opentelemetry = { version = "0.33", features = ["trace"] }
 opentelemetry-jaeger = { version = "0.22", features = ["rt-tokio"] }
-opentelemetry-semantic-conventions = { version = "0.32", features = ["semconv_experimental"] }
-opentelemetry_sdk = "0.32"
-opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic"] }
+opentelemetry-semantic-conventions = { version = "0.33", features = ["semconv_experimental"] }
+opentelemetry_sdk = "0.33"
+opentelemetry-otlp = { version = "0.33", features = ["grpc-tonic"] }
 tonic = "0.14"
 hostname = "0.4"
-uuid = { version = "1.23", features = ["v4", "v7"] }
+uuid = { version = "1.28", features = ["v4", "v7"] }
 rand = "0.10"
 log = "0.4"
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde", "now"] }
 thiserror = "2.0"
-sha2 = "0.10"
+sha2 = "0.11"
+hex = "0.4"
 axum = { version = "0.8", features = [
     "http2",
     "query",
@@ -109,77 +122,94 @@ tower-http = { version = "0.7", features = [
     "fs",
     "trace",
     "limit",
+    "catch-panic",
 ] }
 axum-extra = { version = "0.12", features = ["typed-header"] }
-utoipa = { version = "5.5", features = ["axum_extras", "chrono", "uuid"] }
-utoipa-rapidoc = { version = "6", features = ["axum"] }
-utoipa-redoc = { version = "6", features = ["axum"] }
-utoipa-swagger-ui = { version = "9", features = ["axum"] }
-dashmap = "6.1"
-arc-swap = "1.9"
+utoipa = { version = "6", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { version = "10", features = ["axum"] }
+utoipa-scalar = { version = "0.4", features = ["axum"] }
+dashmap = "6.2"
+arc-swap = "1.9.3"
+# Windows canonicalize 返回 \\?\ 扩展长度路径，子进程（mineru 等 Python CLI）不认——
+# dunce 返回普通绝对路径（Unix 行为等同 std）
+dunce = "1"
+# WebSocket 客户端（test-e2e 用；axum "ws" feature 已把 tungstenite 0.29 拉进 lock，零新增编译）
+tokio-tungstenite = "0.30"
+futures-util = "0.3"
 moka = { version = "0.12", features = ["future"] }
 criterion = "0.8"
 once_cell = "1.21"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "=0.9.33"
-serde_with = "3.21"
+serde_with = "3.24"
 # reqwest：非 STT crate（mcp-proxy/oss-client/document-parser/mcp-streamable-proxy）用 workspace 0.13。
 # voice-cli / mcp-sse-proxy 各自 0.12 inline（见各 Cargo.toml：rmcp trait 对齐 + 避免 0.13 的 aws-lc-rs
 # 令 STT 重二进制启动被 macOS jetsam SIGKILL）。0.13 default features 即 rustls（无 native TLS）。
 reqwest = { version = "0.13", features = ["json"] }
-http = "1.4"
+http = "1.5"
 aliyun-oss-rust-sdk = { version = "0.2", default-features = false, features = ["async"] }
 clap = { version = "4.6", features = ["derive", "env"] }
 futures = "0.3"
 
 derive_builder = "0.20"
 bytes = "1.12"
-base64 = "0.22"
+base64 = "0.23"
 tempfile = "3.27"
-service-manager = "0.10"
+service-manager = "0.11"
 dotenvy = "0.15"
-dirs = "6.0"
+dirs = "7.0"
 scopeguard = "1.2"
 
 # voice-cli 专用（迁入 workspace 统一版本；除 reqwest 外 voice-cli 不再 inline 版本）
 # config-rs（the `config` crate）：YAML/JSON/TOML 配置加载
 config = { version = "0.15", features = ["yaml", "json", "toml"] }
 url = "2.5"
-infer = "0.19"
+infer = "0.22"
 # Windows 仅：窗口/进程信息（voice-cli daemon 模式）
 winapi = { version = "0.3", features = ["winuser", "processthreadsapi"] }
 
-async-trait = "0.1"
+async-trait = "0.1.92"
 
 # Task queue and persistence for async processing
-apalis = { version = "0.7", features = ["tracing", "limit"] }
-apalis-sql = { version = "0.7", features = ["sqlite"] }
-# sqlx 0.8（**不**升 0.9）：0.8→0.9 是 breaking（Pool<Sqlite> API 变），需改 voice-cli 代码，
-# 留作单独迁移。0.9 的特性名也改了（runtime-tokio-rustls 拆成 runtime-tokio + tls-*）。
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
+# apalis 1.0（2026-10-12 转正）：SQL 存储拆分到独立 apalis-sqlite crate（sqlx ^0.9）
+apalis = { version = "1.0", features = ["tracing", "limit"] }
+apalis-sqlite = { version = "1.0", features = ["tokio", "json"] }
+# sqlx 0.9：随 apalis-sqlite 1.0 解锁（其钉 ^0.9.0）。0.8→0.9 注意：TLS feature 拆分
+# （runtime-tokio-rustls → runtime-tokio + tls-*）；SQLite 本地场景无需 TLS。
+sqlx = { version = "0.9", features = ["runtime-tokio", "sqlite", "chrono", "uuid"] }
 sled = "0.34"
 
 # 可执行文件查找
 which = "8.0"
 
-# 国际化支持
-rust-i18n = "4"
+# Vulkan 绑定（deploy-installer Linux 三档检测的 GPU 探针）：标准能力查询
+# vkCreateInstance→enumerate→deviceType 由驱动自报（wgpu 同款库）。
+# 仅挂 deploy-installer 的 linux target——运行期经 libloading 加载 libvulkan.so.1，
+# 编译期无需 Vulkan SDK，mac/win 构建不受影响。
+ash = "0.38"
 
-# Embedding library (fastembed-server 专用)
-# 版本须与上游 fastembed-rs 同步；features 由各 crate 按需添加
-fastembed = "5.17.3"
+# 国际化支持
+rust-i18n = "4.2"
+
+# Embedding library (fastembed-server 专用)；features 由各 crate 按需添加
+# ⚠️ 钉 =5.17.3：5.17.4 起上游把 ort 精确钉到 =2.0.0-rc.13，与 transcribe-rs 0.3.11 钉的
+#   ort =2.0.0-rc.12 冲突（ort 的 rc 预发布同属 2.0.0 槽位，全 workspace 只能统一一个版本，
+#   `cargo update` 会报 failed to select a version for `ort`）。
+#   transcribe-rs 0.3.11 已是最新（2026-04 后未发版），只能按它锁 ort；
+#   待其升级 ort 后解钉：本行与下方 ort 一起升。
+fastembed = "=5.17.3"
 # ort 直接依赖：拿 ort::ep::{CoreML,CUDA,DirectML} 配 GPU execution provider
-# 版本须与 fastembed-rs 锁的 ort 一致（=2.0.0-rc.12）
+# 版本须与 fastembed-rs 锁的 ort 一致（=2.0.0-rc.12，与 transcribe-rs 的钉一致）
 ort = "=2.0.0-rc.12"
 
 # Archive extraction（document-parser / fastembed-server 共用）
-flate2 = "1.0"
+flate2 = "1.1"
 tar = "0.4"
 
 # Audio format detection and processing
 symphonia = { version = "0.6", features = ["all"] }
-tokio-stream = "0.1.18"
+tokio-stream = "0.1.19"
 backtrace = "0.3"
 tracing-futures = "0.2.5"
 urlencoding = "2.1.3"

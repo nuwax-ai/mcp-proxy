@@ -192,14 +192,15 @@ pub async fn create_task(
         return ApiResponse::from_app_error::<TaskOperationResponse>(e).into_response();
     }
 
-    // 创建任务
+    // 创建任务（format 透传——校验过的格式此前被丢弃传 None，引擎判定退回
+    // 自动检测）
     match state
         .task_service
         .create_task(
             request.source_type,
             request.source_path,
             None, // 通过API创建任务时暂时不设置原始文件名
-            None,
+            Some(request.format),
         )
         .await
     {
@@ -581,7 +582,15 @@ pub async fn batch_operation_tasks(
                 .await
                 .map(|_| ()),
             BatchOperation::Delete => state.task_service.delete_task(task_id).await.map(|_| ()),
-            BatchOperation::Retry => state.task_service.retry_task(task_id).await.map(|_| ()),
+            // 同单任务 retry：重置状态后必须重新入队（否则挂 Pending 无人处理）
+            BatchOperation::Retry => match state.task_service.retry_task(task_id).await {
+                Ok(task) => state
+                    .task_queue
+                    .enqueue_task(task.id.clone(), 1)
+                    .await
+                    .map(|_| ()),
+                Err(e) => Err(e),
+            },
         };
 
         match result {
@@ -684,9 +693,15 @@ pub async fn retry_task(
         }
     }
 
-    // 执行重试操作
+    // 执行重试操作（retry_task 只重置状态——必须重新入队，否则任务挂
+    // Pending 永远无人处理，直到下次服务重启才被 restore 捞起）
     match state.task_service.retry_task(&task_id).await {
         Ok(task) => {
+            if let Err(e) = state.task_queue.enqueue_task(task.id.clone(), 1).await {
+                error!("Task re-enqueue failed after retry {}: {}", task_id, e);
+            } else {
+                info!("Task re-enqueued after retry: {}", task_id);
+            }
             info!("Task retry successful: {}", task_id);
             let complete = task.status.is_terminal();
             let response = TaskOperationResponse {
@@ -1023,6 +1038,10 @@ pub struct TaskOssInfo {
     pub bucket: String,
     pub markdown_available: bool,
     pub images_count: usize,
+    /// 存储后端判别（向后兼容的可选字段）：OSS 任务不输出（None），
+    /// 自定义上传后端任务为 "custom"——此时 bucket 字段装的是后端 base_url
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub storage_type: Option<crate::models::StorageType>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -1092,6 +1111,7 @@ pub async fn get_task_result(
         bucket: oss.bucket.clone(),
         markdown_available: !oss.markdown_url.is_empty(),
         images_count: oss.images.len(),
+        storage_type: oss.storage_type,
     });
 
     // 构建处理统计信息

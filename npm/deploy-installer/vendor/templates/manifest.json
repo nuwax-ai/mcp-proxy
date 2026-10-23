@@ -1,0 +1,37 @@
+{
+  "version": "0.2.33-beta.1",
+  "assetVersion": "0.2.33",
+  "optionalAssets": {
+    "venv": {
+      "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/document-parser/v{version}/venv-macos-arm64-{version}.tar.gz"
+    },
+    "whisperLargeV3": {
+      "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/whisper-ggml-large-v3-{version}.tar.gz",
+      "linux-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/whisper-ggml-large-v3-{version}.tar.gz",
+      "windows-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/whisper-ggml-large-v3-{version}.tar.gz"
+    },
+    "whisperAll": {
+      "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/whisper-ggml-all-{version}.tar.gz",
+      "linux-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/whisper-ggml-all-{version}.tar.gz",
+      "windows-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/whisper-ggml-all-{version}.tar.gz"
+    },
+    "voiceCliCuda": {
+      "linux-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/voice-cli-cuda-linux-x64-{version}.tar.gz"
+    },
+    "voiceCliVulkan": {
+      "linux-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/voice-cli-vulkan-linux-x64-{version}.tar.gz"
+    },
+    "mineruModels": {
+      "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/document-parser/models/mineru-pipeline-models-pdf-extract-kit-1.0.tar.gz",
+      "linux-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/document-parser/models/mineru-pipeline-models-pdf-extract-kit-1.0.tar.gz",
+      "windows-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/document-parser/models/mineru-pipeline-models-pdf-extract-kit-1.0.tar.gz"
+    },
+    "ffmpeg": {
+      "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/ffmpeg/ffmpeg-static-darwin-arm64.tar.gz",
+      "darwin-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/ffmpeg/ffmpeg-static-darwin-x64.tar.gz",
+      "linux-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/ffmpeg/ffmpeg-static-linux-x64.tar.gz",
+      "linux-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/ffmpeg/ffmpeg-static-linux-arm64.tar.gz",
+      "windows-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/ffmpeg/ffmpeg-static-windows-x64.tar.gz"
+    }
+  }
+}

@@ -161,13 +161,14 @@ fn build_local_document_service(app_config: &AppConfig) -> Result<DocumentServic
     let markdown_processor =
         MarkdownProcessor::new(MarkdownProcessorConfig::with_global_config(), None);
 
-    Ok(DocumentService::with_config(
+    let service = DocumentService::with_config(
         dual_parser,
         markdown_processor,
         task_service,
         None, // CLI 本地解析不使用 OSS
         DocumentServiceConfig::from_app_config(app_config),
-    ))
+    )?;
+    Ok(service)
 }
 
 /// Markdown 图片引用模式：![alt](dest)

@@ -151,10 +151,11 @@ mod document_service_tests {
             markdown_processor,
             Arc::clone(&app_state.task_service),
             app_state.oss_client.clone(),
-        );
+        )
+        .expect("test DocumentService");
 
         // 验证服务创建成功
-        // DocumentService::new 不返回 Result，所以直接验证创建成功
+        // DocumentService::new 返回 Result，创建失败时 expect 快速失败
     }
 
     #[tokio::test]
@@ -174,7 +175,8 @@ mod document_service_tests {
             markdown_processor,
             Arc::clone(&app_state.task_service),
             app_state.oss_client.clone(),
-        );
+        )
+        .expect("test DocumentService");
 
         let formats = service.get_supported_formats();
         assert!(!formats.is_empty());
@@ -672,7 +674,8 @@ mod comprehensive_service_tests {
             markdown_processor,
             Arc::clone(&app_state.task_service),
             app_state.oss_client.clone(),
-        );
+        )
+        .expect("test DocumentService");
 
         // Test supported formats
         let formats = document_service.get_supported_formats();

@@ -3,21 +3,22 @@ use crate::config::GlobalFileSizeConfig;
 use crate::error::AppError;
 use crate::models::{DocumentFormat, ParseResult, ParserEngine};
 use crate::parsers::FormatDetector;
-use crate::utils::environment_manager::EnvironmentManager;
 use async_trait::async_trait;
-#[cfg(unix)]
-use std::os::unix::process::ExitStatusExt;
+use parking_lot::Mutex;
 use std::path::Path;
-use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::fs;
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command;
-use tokio::sync::{Mutex, RwLock, mpsc};
-use tokio::time::{sleep, timeout};
-use tracing::{debug, error, info, instrument, trace, warn};
+use tokio::sync::RwLock;
+use tracing::{debug, error, info, instrument, warn};
 use uuid::{NoContext, Timestamp, Uuid};
+
+/// 环境校验族方法（环境验证/就绪等待/地区检测）。
+mod environment;
+/// 子进程执行族方法（命令构建/输出流监控/路径解析）。
+pub(crate) mod execute;
+/// 输出读取族方法（输出目录调试/Markdown 定位/递归查找）。
+mod output;
 
 /// MinerU 子进程 stderr 输出行的分级（用于按内容选择日志级别，避免 tqdm/loguru 正常输出污染 ERROR 日志）。
 ///
@@ -121,6 +122,40 @@ impl CancellationToken {
     }
 }
 
+/// 活跃任务注册守卫（RAII）
+///
+/// 创建时向 `active_tasks` 注册任务，`Drop` 时自动移除。确保 parse future
+/// 被取消（timeout/连接中断）时 `active_tasks` 不泄漏条目。使用
+/// `parking_lot::Mutex`（同步锁），使其能在 `Drop` 中安全调用。
+///
+/// 泛型 `T` 为各 parser 各自的 `CancellationToken` 类型（MinerU 与 MarkItDown
+/// 各有独立定义），由调用处类型推导自动适配。
+pub(crate) struct ActiveTaskGuard<T> {
+    active_tasks: Arc<Mutex<std::collections::HashMap<String, T>>>,
+    task_id: String,
+}
+
+impl<T> ActiveTaskGuard<T> {
+    /// 注册任务并创建守卫
+    pub(crate) fn new(
+        active_tasks: Arc<Mutex<std::collections::HashMap<String, T>>>,
+        task_id: String,
+        token: T,
+    ) -> Self {
+        active_tasks.lock().insert(task_id.clone(), token);
+        Self {
+            active_tasks,
+            task_id,
+        }
+    }
+}
+
+impl<T> Drop for ActiveTaskGuard<T> {
+    fn drop(&mut self) {
+        self.active_tasks.lock().remove(&self.task_id);
+    }
+}
+
 // MinerUConfig 和 QualityLevel 现在在 crate::config 中定义
 pub use crate::config::{MinerUConfig, QualityLevel};
 
@@ -204,36 +239,26 @@ impl MinerUParser {
         let start_time = Instant::now();
         let task_id = Uuid::new_v7(Timestamp::now(NoContext)).to_string();
 
-        // 注册取消令牌
+        // 注册取消令牌（RAII 守卫：future 取消时 Drop 自动从 active_tasks 移除，不泄漏）
         let token = cancellation_token.unwrap_or_default();
-        {
-            let mut tasks = self.active_tasks.lock().await;
-            tasks.insert(task_id.clone(), token.clone());
-        }
+        let _task_guard =
+            ActiveTaskGuard::new(self.active_tasks.clone(), task_id.clone(), token.clone());
 
-        let result = self
-            .parse_internal_with_progress(
-                file_path,
-                &task_id,
-                progress_callback,
-                token.clone(),
-                start_time,
-            )
-            .await;
-
-        // 清理任务
-        {
-            let mut tasks = self.active_tasks.lock().await;
-            tasks.remove(&task_id);
-        }
-
-        result
+        self.parse_internal_with_progress(
+            file_path,
+            &task_id,
+            progress_callback,
+            token.clone(),
+            start_time,
+        )
+        .await
     }
 
     /// 取消指定任务
     pub async fn cancel_task(&self, task_id: &str) -> Result<(), AppError> {
-        let tasks = self.active_tasks.lock().await;
-        if let Some(token) = tasks.get(task_id) {
+        // 锁内取出 token 克隆后立即释放锁，避免持锁跨 await
+        let token = self.active_tasks.lock().get(task_id).cloned();
+        if let Some(token) = token {
             token.cancel().await;
             info!("MinerU analysis task canceled: {}", task_id);
             Ok(())
@@ -243,9 +268,8 @@ impl MinerUParser {
     }
 
     /// 获取活跃任务数量
-    pub async fn get_active_task_count(&self) -> usize {
-        let tasks = self.active_tasks.lock().await;
-        tasks.len()
+    pub fn get_active_task_count(&self) -> usize {
+        self.active_tasks.lock().len()
     }
 
     /// 内部解析实现（带进度跟踪）
@@ -488,474 +512,13 @@ impl MinerUParser {
         Ok(())
     }
 
-    /// 执行MinerU命令
-    async fn execute_mineru_command<F>(
-        &self,
-        file_path: &str,
-        output_dir: &Path,
-        progress_callback: &F,
-        cancellation_token: &CancellationToken,
-        start_time: Instant,
-    ) -> Result<(), AppError>
-    where
-        F: Fn(ParseProgress) + Send + Sync + 'static,
-    {
-        debug!(
-            "MinerU command execution - input file: {}, output directory: {}",
-            file_path,
-            output_dir.display()
-        );
-
-        // 验证输入文件是否存在
-        if !std::path::Path::new(file_path).exists() {
-            error!("MinerU input file does not exist: {}", file_path);
-            return Err(AppError::MinerU(format!("输入文件不存在: {file_path}")));
-        }
-
-        // 获取文件绝对路径
-        let absolute_file_path = std::path::Path::new(file_path)
-            .canonicalize()
-            .map_err(|e| AppError::MinerU(format!("无法获取文件绝对路径: {e}")))?
-            .to_string_lossy()
-            .to_string();
-        debug!("MinerU input file absolute path: {}", absolute_file_path);
-
-        // 自动检测并使用虚拟环境中的 mineru 命令
-        let mineru_command = self.get_mineru_command_path()?;
-        let mut cmd = Command::new(&mineru_command);
-        cmd.arg("-p")
-            .arg(&absolute_file_path)
-            .arg("-o")
-            .arg(output_dir);
-
-        // 后端类型：mineru 3.4 合法值为 pipeline/vlm-engine/hybrid-engine/vlm-http-client/hybrid-http-client。
-        // 统一传 -b（不再对 pipeline 做特殊处理）
-        if !self.config.backend.is_empty() {
-            cmd.arg("-b").arg(&self.config.backend);
-            debug!("MinerU sets the backend type: {}", self.config.backend);
-        }
-
-        // vllm 显存占用比例(仅 hybrid-engine/vlm-engine 等走 vllm 的后端)。
-        // mineru 3.4 默认约 0.5(占一半显存)；多 GPU 进程共存时调低避免 OOM。pipeline 后端不走 vllm，无需设置。
-        if self.config.backend != "pipeline" && self.config.gpu_memory_utilization > 0.0 {
-            cmd.arg("--gpu-memory-utilization")
-                .arg(self.config.gpu_memory_utilization.to_string());
-            debug!(
-                "MinerU sets gpu_memory_utilization: {}",
-                self.config.gpu_memory_utilization
-            );
-        }
-
-        // 设备：mineru 3.4 不再支持 -d CLI 参数，改用环境变量 MINERU_DEVICE_MODE。
-        // 有 CUDA 且 config 未显式指定非 cpu 设备时自动用 cuda；否则用 config 里的设备
-        let cuda_available = crate::config::is_cuda_available();
-        let device = if cuda_available && self.config.device == "cpu" {
-            "cuda"
-        } else {
-            self.config.device.as_str()
-        };
-        cmd.env("MINERU_DEVICE_MODE", device);
-        debug!("MinerU sets device (MINERU_DEVICE_MODE): {}", device);
-
-        // 显存：mineru 3.4 不再支持 --vram CLI 参数，改用环境变量 MINERU_VIRTUAL_VRAM_SIZE。
-        // vram=0 表示不限制，交由 mineru/vllm 自动管理
-        if self.config.vram > 0 {
-            cmd.env("MINERU_VIRTUAL_VRAM_SIZE", self.config.vram.to_string());
-            debug!(
-                "MinerU sets VRAM limit (MINERU_VIRTUAL_VRAM_SIZE): {}GB",
-                self.config.vram
-            );
-        }
-
-        // 模型源：mineru 3.4 的 main CLI 不再支持 --source 参数，统一用环境变量
-        if self.is_china_region().await {
-            cmd.env("MINERU_MODEL_SOURCE", "modelscope");
-            debug!("MinerU sets model source (MINERU_MODEL_SOURCE): modelscope");
-        }
-
-        cmd.stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
-
-        info!(
-            "MinerU command parameters: {} -p {} -o {}",
-            mineru_command,
-            absolute_file_path,
-            output_dir.display()
-        );
-        info!("Execute MinerU command: {:?}", cmd);
-
-        let mut child = cmd.spawn().map_err(|e| {
-            error!("Failed to start MinerU process: {}", e);
-            AppError::MinerU(format!("启动MinerU进程失败: {e}"))
-        })?;
-
-        info!("MinerU process has been started, PID: {:?}", child.id());
-
-        // 监控进程输出
-        let stdout = child.stdout.take().unwrap();
-        let stderr = child.stderr.take().unwrap();
-
-        let stdout_reader = BufReader::new(stdout);
-        let stderr_reader = BufReader::new(stderr);
-
-        let (tx, mut rx) = mpsc::channel(100);
-        let tx_clone = tx.clone();
-
-        // 监控stdout
-        let stdout_task = tokio::spawn(async move {
-            let mut lines = stdout_reader.lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                let _ = tx.send(("stdout".to_string(), line)).await;
-            }
-        });
-
-        // 监控stderr
-        let stderr_task = tokio::spawn(async move {
-            let mut lines = stderr_reader.lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                let _ = tx_clone.send(("stderr".to_string(), line)).await;
-            }
-        });
-
-        // 监控进程和输出
-        let timeout_seconds = if self.config.timeout == 0 {
-            3600
-        } else {
-            self.config.timeout
-        };
-        let timeout_duration = Duration::from_secs(timeout_seconds as u64);
-        info!(
-            "MinerU parsing timeout setting: {} seconds ({})",
-            timeout_seconds,
-            if self.config.timeout == 0 {
-                "using global config"
-            } else {
-                "using MinerU config"
-            }
-        );
-        let process_result = timeout(timeout_duration, async {
-            let mut progress = 20.0;
-            let mut stderr_output = String::new();
-
-            loop {
-                tokio::select! {
-                    // 检查取消
-                    _ = tokio::time::sleep(Duration::from_millis(100)) => {
-                        if cancellation_token.is_cancelled().await {
-                            let _ = child.kill().await;
-                            return Err(AppError::MinerU("解析已取消".to_string()));
-                        }
-                    }
-
-                    // 处理输出
-                    Some((source, line)) = rx.recv() => {
-                        if source == "stderr" {
-                            stderr_output.push_str(&line);
-                            stderr_output.push('\n');
-                            // 按内容分级记录（tqdm 进度条/loguru INFO 等不再误报 ERROR）
-                            match classify_mineru_stderr(&line) {
-                                StderrKind::Error => error!("MinerU stderr: {}", line),
-                                StderrKind::Warning => warn!("MinerU stderr: {}", line),
-                                StderrKind::Progress => trace!("MinerU stderr: {}", line),
-                                StderrKind::Info => debug!("MinerU stderr: {}", line),
-                            }
-                        } else {
-                            info!("MinerU stdout: {}", line);
-                        }
-
-                        // 更新进度（基于输出内容推测）
-                        if line.contains("Processing") || line.contains("解析") {
-                            progress = (progress + 1.0_f32).min(75.0_f32);
-                            progress_callback(ParseProgress {
-                                stage: ParseStage::Parsing,
-                                progress,
-                                message: line.clone(),
-                                elapsed_time: start_time.elapsed(),
-                            });
-                        }
-                    }
-
-                    // 等待进程完成
-                    result = child.wait() => {
-                        match result {
-                            Ok(status) => {
-                                if status.success() {
-                                    info!("The MinerU process completed successfully with exit code: {}", status.code().unwrap_or(0));
-                                    return Ok(());
-                                } else {
-                                    let exit_code = status.code().unwrap_or(-1);
-                                    #[cfg(unix)]
-                                    let signal = status.signal();
-                                    #[cfg(not(unix))]
-                                    let signal: Option<i32> = None;
-
-                                    let error_msg = if let Some(sig) = signal {
-                                        format!(
-                                            "MinerU执行失败，进程被信号 {sig} 终止，错误输出: {stderr_output}"
-                                        )
-                                    } else {
-                                        format!(
-                                            "MinerU执行失败，退出码: {exit_code}，错误输出: {stderr_output}"
-                                        )
-                                    };
-
-                                    error!("{}", error_msg);
-                                    return Err(AppError::MinerU(error_msg));
-                                }
-                            }
-                            Err(e) => {
-                                let error_msg = format!("等待进程完成失败: {e}");
-                                error!("{}", error_msg);
-                                return Err(AppError::MinerU(error_msg));
-                            }
-                        }
-                    }
-                }
-            }
-        })
-        .await;
-
-        // 清理任务
-        stdout_task.abort();
-        stderr_task.abort();
-
-        match process_result {
-            Ok(result) => result,
-            Err(_) => {
-                error!(
-                    "MinerU execution timeout ({} seconds), terminating process",
-                    timeout_seconds
-                );
-                let _ = child.kill().await;
-
-                // 提供更详细的超时信息
-                let timeout_msg = format!(
-                    "MinerU执行超时（{timeout_seconds}秒）。可能的原因：\n\
-                    1. 模型下载时间过长\n\
-                    2. 文档处理时间过长\n\
-                    3. 系统资源不足\n\
-                    4. 网络连接问题\n\
-                    建议：\n\
-                    - 检查网络连接\n\
-                    - 增加超时时间\n\
-                    - 检查系统资源"
-                );
-
-                Err(AppError::MinerU(timeout_msg))
-            }
-        }
-    }
-
-    /// 清理工作目录
-    async fn cleanup_work_dir(&self, work_dir: &Path) {
-        if let Err(e) = fs::remove_dir_all(work_dir).await {
-            warn!(
-                "Failed to clean working directory: {} - {}",
-                work_dir.display(),
-                e
-            );
-        } else {
-            debug!("Cleaned working directory: {}", work_dir.display());
-        }
-    }
-
-    /// 调试输出目录内容
-    async fn debug_output_directory(&self, output_dir: &Path) -> Result<String, AppError> {
-        let mut debug_info = format!("输出目录: {}\n", output_dir.display());
-
-        if !output_dir.exists() {
-            return Ok(format!("{debug_info} (目录不存在)"));
-        }
-
-        if !output_dir.is_dir() {
-            return Ok(format!("{debug_info} (不是目录)"));
-        }
-
-        let mut entries = fs::read_dir(output_dir)
-            .await
-            .map_err(|e| AppError::File(format!("读取输出目录失败: {e}")))?;
-
-        let mut file_count = 0;
-        let mut dir_count = 0;
-        let mut total_size = 0u64;
-
-        while let Some(entry) = entries
-            .next_entry()
-            .await
-            .map_err(|e| AppError::File(format!("遍历输出目录失败: {e}")))?
-        {
-            let path = entry.path();
-            let metadata = match fs::metadata(&path).await {
-                Ok(m) => m,
-                Err(_) => continue,
-            };
-
-            if metadata.is_file() {
-                file_count += 1;
-                total_size += metadata.len();
-                debug_info.push_str(&format!(
-                    "  文件: {} ({} 字节)\n",
-                    path.file_name().unwrap_or_default().to_string_lossy(),
-                    metadata.len()
-                ));
-            } else if metadata.is_dir() {
-                dir_count += 1;
-                debug_info.push_str(&format!(
-                    "  目录: {}\n",
-                    path.file_name().unwrap_or_default().to_string_lossy()
-                ));
-            }
-        }
-
-        debug_info.push_str(&format!(
-            "总计: {file_count} 个文件, {dir_count} 个目录, 总大小: {total_size} 字节"
-        ));
-
-        Ok(debug_info)
-    }
-
-    /// 读取Markdown输出
-    async fn read_markdown_output(&self, output_dir: &Path) -> Result<String, AppError> {
-        debug!("Read Markdown output: {}", output_dir.display());
-
-        // 递归查找所有markdown文件
-        let mut markdown_files = Vec::new();
-        self.find_markdown_files_recursively(output_dir, &mut markdown_files)
-            .await?;
-
-        if markdown_files.is_empty() {
-            error!(
-                "No Markdown files found in the output directory: {}",
-                output_dir.display()
-            );
-            // 提供调试信息
-            match self.debug_output_directory(output_dir).await {
-                Ok(debug_info) => {
-                    error!("Output directory debugging information: {}", debug_info);
-                }
-                Err(debug_err) => {
-                    error!(
-                        "Unable to obtain output directory debugging information: {}",
-                        debug_err
-                    );
-                }
-            }
-            return Err(AppError::MinerU("未找到Markdown输出文件".to_string()));
-        }
-
-        // 按文件大小排序，选择最大的文件（通常是主要内容）
-        markdown_files.sort_by_key(|path| std::fs::metadata(path).map(|m| m.len()).unwrap_or(0));
-        markdown_files.reverse();
-
-        let selected_file = &markdown_files[0];
-        let file_size = std::fs::metadata(selected_file)
-            .map(|m| m.len())
-            .unwrap_or(0);
-        debug!(
-            "Select Markdown file: {} (Size: {} bytes)",
-            selected_file.display(),
-            file_size
-        );
-
-        // 读取markdown文件
-        let content = fs::read_to_string(selected_file)
-            .await
-            .map_err(|e| AppError::File(format!("读取Markdown文件失败: {e}")))?;
-
-        // 验证内容不为空
-        if content.trim().is_empty() {
-            return Err(AppError::MinerU("Markdown文件内容为空".to_string()));
-        }
-
-        info!(
-            "Successfully read Markdown file: {}, size: {} bytes",
-            selected_file.display(),
-            content.len()
-        );
-        Ok(content)
-    }
-
-    /// 递归查找所有Markdown文件
-    async fn find_markdown_files_recursively(
-        &self,
-        dir: &Path,
-        markdown_files: &mut Vec<std::path::PathBuf>,
-    ) -> Result<(), AppError> {
-        self.find_markdown_files_recursively_impl(dir, markdown_files)
-            .await
-    }
-
-    /// 递归查找所有Markdown文件的实现（使用Box避免递归Future问题）
-    async fn find_markdown_files_recursively_impl(
-        &self,
-        dir: &Path,
-        markdown_files: &mut Vec<std::path::PathBuf>,
-    ) -> Result<(), AppError> {
-        if !dir.exists() || !dir.is_dir() {
-            return Ok(());
-        }
-
-        let mut entries = fs::read_dir(dir)
-            .await
-            .map_err(|e| AppError::File(format!("读取目录失败: {e}")))?;
-
-        while let Some(entry) = entries
-            .next_entry()
-            .await
-            .map_err(|e| AppError::File(format!("遍历目录失败: {e}")))?
-        {
-            let path = entry.path();
-
-            if path.is_file() {
-                // 检查是否是Markdown文件
-                if let Some(ext) = path.extension().and_then(|s| s.to_str())
-                    && ext.to_lowercase() == "md"
-                {
-                    markdown_files.push(path.clone());
-                    debug!("Markdown file found: {}", path.display());
-                }
-            } else if path.is_dir() {
-                // 递归搜索子目录
-                Box::pin(self.find_markdown_files_recursively_impl(&path, markdown_files)).await?;
-            }
-        }
-
-        Ok(())
-    }
-
-    /// 获取MinerU命令路径
-    fn get_mineru_command_path(&self) -> Result<String, AppError> {
-        let current_dir = std::env::current_dir()
-            .map_err(|e| AppError::MinerU(format!("无法获取当前目录: {e}")))?;
-
-        let venv_path = current_dir.join("venv");
-        let mineru_path = if cfg!(windows) {
-            venv_path.join("Scripts").join("mineru.exe")
-        } else {
-            venv_path.join("bin").join("mineru")
-        };
-
-        // 检查mineru命令是否存在
-        if mineru_path.exists() {
-            debug!("Found the MinerU command: {}", mineru_path.display());
-            Ok(mineru_path.to_string_lossy().to_string())
-        } else {
-            // 如果虚拟环境中没有mineru命令，尝试使用系统PATH中的mineru
-            debug!(
-                "The mineru command was not found in the virtual environment, try using mineru in the system PATH"
-            );
-            Ok("mineru".to_string())
-        }
-    }
-
     /// 获取解析统计信息
     pub async fn get_parse_statistics(
         &self,
     ) -> std::collections::HashMap<String, serde_json::Value> {
         let mut stats = std::collections::HashMap::new();
 
-        let active_count = self.get_active_task_count().await;
+        let active_count = self.get_active_task_count();
         stats.insert(
             "active_tasks".to_string(),
             serde_json::Value::Number(active_count.into()),
@@ -971,113 +534,21 @@ impl MinerUParser {
 
         stats
     }
-
-    /// 验证MinerU环境
-    pub async fn validate_environment(&self) -> Result<(), AppError> {
-        // 检查临时目录
-        let temp_dir = Path::new("temp/mineru");
-        if !temp_dir.exists() {
-            fs::create_dir_all(temp_dir)
-                .await
-                .map_err(|e| AppError::MinerU(format!("创建临时目录失败: {e}")))?;
-        }
-
-        // 等待环境依赖安装完成
-        self.wait_for_environment_ready().await?;
-
-        // 检查 mineru 命令是否可用（使用虚拟环境中的命令）
-        let mineru_command = self.get_mineru_command_path()?;
-        let output = Command::new(&mineru_command)
-            .arg("--help")
-            .output()
-            .await
-            .map_err(|e| {
-                AppError::MinerU(format!(
-                    "检查MinerU命令失败: {e}. 请确保已安装MinerU并且mineru命令在虚拟环境中可用"
-                ))
-            })?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(AppError::MinerU(format!(
-                "MinerU命令不可用: {stderr}. 请运行 'pip install magic-pdf[full]' 安装MinerU"
-            )));
-        }
-
-        // 检查版本信息
-        let version_output = Command::new(&mineru_command)
-            .arg("--version")
-            .output()
-            .await;
-
-        match version_output {
-            Ok(output) if output.status.success() => {
-                let version_str = String::from_utf8_lossy(&output.stdout);
-                info!("MinerU version book: {}", version_str.trim());
-            }
-            _ => {
-                info!("Unable to get MinerU version information, but the command is available");
-            }
-        }
-
-        // MinerU 会自动检测和使用可用的 GPU，无需手动检查
-
-        info!("MinerU environment verification passed");
-        Ok(())
-    }
-
-    /// 等待环境依赖安装完成
-    async fn wait_for_environment_ready(&self) -> Result<(), AppError> {
-        let environment_manager = EnvironmentManager::for_current_directory()
-            .map_err(|e| AppError::MinerU(format!("创建环境管理器失败: {e}")))?;
-
-        let max_wait_time = Duration::from_secs(600); // 最多等待10分钟
-        let check_interval = Duration::from_secs(5); // 每5秒检查一次
-        let start_time = Instant::now();
-
-        loop {
-            // 检查环境状态
-            match environment_manager.check_environment().await {
-                Ok(status) => {
-                    if status.mineru_available {
-                        info!(
-                            "MinerU dependency is ready, version: {:?}",
-                            status.mineru_version
-                        );
-                        return Ok(());
-                    } else {
-                        let elapsed = start_time.elapsed();
-                        if elapsed >= max_wait_time {
-                            return Err(AppError::MinerU(
-                                "等待MinerU依赖安装超时，请检查安装状态".to_string(),
-                            ));
-                        }
-
-                        info!(
-                            "Waiting for MinerU dependency installation to complete... (Waiting: {:?})",
-                            elapsed
-                        );
-                        sleep(check_interval).await;
-                    }
-                }
-                Err(e) => {
-                    warn!("Failed to check environment status: {}", e);
-                    sleep(check_interval).await;
-                }
-            }
-        }
-    }
-
-    /// 检测是否在中国大陆地区,默认为true
-    async fn is_china_region(&self) -> bool {
-        true
-    }
 }
 
 #[async_trait]
 impl DocumentParser for MinerUParser {
     #[instrument(skip(self), fields(file_path = %file_path))]
     async fn parse(&self, file_path: &str) -> Result<ParseResult, AppError> {
+        self.parse_with_cancel(file_path, None).await
+    }
+
+    /// 任务级取消：令牌经 parse_with_progress 传给 execute 层 select 轮询
+    async fn parse_with_cancel(
+        &self,
+        file_path: &str,
+        cancel: Option<CancellationToken>,
+    ) -> Result<ParseResult, AppError> {
         let detector = FormatDetector::new();
         let detection = detector.detect_format(file_path, None)?;
         let format = detection.format;
@@ -1093,7 +564,7 @@ impl DocumentParser for MinerUParser {
             |progress| {
                 info!("MinerU parsing progress: {:?}", progress);
             },
-            None,
+            cancel,
         )
         .await
     }
@@ -1198,7 +669,7 @@ mod tests {
         assert_eq!(parser.config().python_path, config.python_path);
         assert_eq!(parser.config().backend, config.backend);
         assert_eq!(parser.config().device, config.device);
-        assert_eq!(parser.get_active_task_count().await, 0);
+        assert_eq!(parser.get_active_task_count(), 0);
     }
 
     #[tokio::test]
@@ -1411,7 +882,7 @@ mod tests {
         let progress_callback = move |progress: ParseProgress| {
             let updates = progress_updates_clone.clone();
             tokio::spawn(async move {
-                let mut updates = updates.lock().await;
+                let mut updates = updates.lock();
                 updates.push(progress);
             });
         };
@@ -1423,7 +894,7 @@ mod tests {
             .await;
 
         // 验证至少收到了一些进度更新
-        let updates = progress_updates.lock().await;
+        let updates = progress_updates.lock();
         if !updates.is_empty() {
             assert!(updates.iter().any(|p| p.stage == ParseStage::Initializing));
         }

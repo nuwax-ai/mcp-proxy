@@ -1,9 +1,11 @@
 use crate::cache::CodeFileCache;
-use crate::model::{CodeExecutor, CodeScriptExecutionResult, CommandExecutor, LanguageScript};
+use crate::model::{
+    CodeExecutor, CodeScriptExecutionResult, LanguageScript, ParamsTempFile,
+    run_command_with_timeout,
+};
 use anyhow::Result;
 use log::{debug, error, info};
 use serde_json::Value;
-use tokio::fs;
 use tokio::process::Command;
 
 /// 通用的 Deno 脚本执行逻辑，供 JS/TS Runner 复用
@@ -47,25 +49,13 @@ where
         .arg(&temp_path)
         .kill_on_drop(true);
 
-    // 处理参数：统一使用临时文件传递
-    let temp_input_path = if let Some(params) = params {
-        let params_json = serde_json::to_string(&params)?;
-
-        // 创建临时文件写入参数
-        let temp_dir = tempfile::TempDir::new()?;
-        let temp_file_path = temp_dir.path().join("input_params.json");
-
-        // 写入参数到临时文件
-        std::fs::write(&temp_file_path, params_json.as_bytes())?;
-
-        // 保持TempDir存在（这样文件就不会被删除）
-        std::mem::forget(temp_dir);
-
-        // 设置环境变量指向临时文件
-        execute_command.env("INPUT_JSON_FILE", &temp_file_path);
-        debug!("使用临时文件传递参数，文件路径: {:?}", temp_file_path);
-
-        Some(temp_file_path)
+    // 处理参数：统一使用临时文件传递；守卫存续到函数结束，
+    // 成功/失败/超时任何退出路径都由 Drop 自动清理
+    let _params_guard = if let Some(params) = params.as_ref() {
+        let temp = ParamsTempFile::create(params)?;
+        execute_command.env("INPUT_JSON_FILE", &temp.path);
+        debug!("使用临时文件传递参数，文件路径: {:?}", temp.path);
+        Some(temp)
     } else {
         // 没有参数时设置空对象
         execute_command.env("INPUT_JSON", "{}");
@@ -73,40 +63,18 @@ where
     };
 
     debug!("Deno命令[{:?}]: {:?}", lang, execute_command);
-
-    let executor = match timeout_seconds {
-        Some(timeout) => CommandExecutor::with_timeout(execute_command.output(), timeout),
-        None => CommandExecutor::default(execute_command.output()),
-    };
     info!("执行命令: {:?}", execute_command);
 
-    let executor_result = executor.await;
-    let output = match executor_result {
-        Ok(cmd_result) => match cmd_result {
-            Ok(output) => output,
-            Err(e) => {
-                error!("Deno命令执行失败 [{lang:?}]: {e:?}");
-                return Err(e.into());
-            }
-        },
+    // 进程组执行 + 超时组杀
+    let output = match run_command_with_timeout(execute_command, timeout_seconds).await {
+        Ok(output) => output,
         Err(e) => {
-            error!("Deno任务执行异常 [{lang:?}]: {e:?}");
+            error!("Deno命令执行失败 [{lang:?}]: {e:?}");
             return Err(e.into());
         }
     };
     debug!("标准输出:\n{}", String::from_utf8_lossy(&output.stdout));
     debug!("错误输出:\n{}", String::from_utf8_lossy(&output.stderr));
-
-    // 执行完成后删除临时文件和目录
-    if let Some(temp_file_path) = temp_input_path {
-        // 删除文件
-        let _ = fs::remove_file(&temp_file_path).await;
-        // 尝试删除父目录（如果为空）
-        if let Some(parent) = temp_file_path.parent() {
-            let _ = fs::remove_dir(parent).await;
-        }
-        debug!("已删除临时文件: {:?}", temp_file_path);
-    }
 
     CodeExecutor::parse_execution_output(&output.stdout, &output.stderr).await
 }

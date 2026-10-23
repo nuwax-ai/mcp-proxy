@@ -361,6 +361,14 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    /// 这些测试读写共享环境变量 NUWAX_APP_RUNTIME_PATH，cargo test 默认并行——
+    /// 不串行化会互相踩（i18n.rs / fastembed config.rs 同款做法）
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     #[test]
     fn test_check_windows_command_non_windows() {
@@ -371,6 +379,7 @@ mod tests {
 
     #[test]
     fn test_ensure_runtime_path_no_env() {
+        let _env = env_lock().lock().unwrap_or_else(|e| e.into_inner());
         // NUWAX_APP_RUNTIME_PATH 未设置时，返回原始 PATH
         unsafe { std::env::remove_var("NUWAX_APP_RUNTIME_PATH") };
         let result = ensure_runtime_path("/usr/bin:/usr/local/bin");
@@ -379,6 +388,7 @@ mod tests {
 
     #[test]
     fn test_ensure_runtime_path_prepend() {
+        let _env = env_lock().lock().unwrap_or_else(|e| e.into_inner());
         unsafe {
             std::env::set_var("NUWAX_APP_RUNTIME_PATH", "/app/node/bin:/app/uv/bin");
         }
@@ -389,6 +399,7 @@ mod tests {
 
     #[test]
     fn test_ensure_runtime_path_dedup() {
+        let _env = env_lock().lock().unwrap_or_else(|e| e.into_inner());
         // 模拟：PATH 中已有 runtime 的部分段 → 不应重复
         unsafe {
             std::env::set_var("NUWAX_APP_RUNTIME_PATH", "/app/node/bin:/app/uv/bin");
@@ -403,6 +414,7 @@ mod tests {
 
     #[test]
     fn test_ensure_runtime_path_all_present() {
+        let _env = env_lock().lock().unwrap_or_else(|e| e.into_inner());
         // PATH 已含全部 runtime 段 → 仅调整顺序确保 runtime 在前
         unsafe {
             std::env::set_var("NUWAX_APP_RUNTIME_PATH", "/app/node/bin:/app/uv/bin");
@@ -414,6 +426,7 @@ mod tests {
 
     #[test]
     fn test_ensure_runtime_path_double_node() {
+        let _env = env_lock().lock().unwrap_or_else(|e| e.into_inner());
         // 模拟日志中的问题：node/bin 出现两次
         unsafe {
             std::env::set_var(

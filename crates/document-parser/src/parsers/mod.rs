@@ -1,6 +1,7 @@
 // 解析器模块
 pub mod dual_engine_parser;
 pub mod format_detector;
+pub mod managed_process;
 pub mod markitdown_parser;
 pub mod mineru_parser;
 pub mod parser_trait;

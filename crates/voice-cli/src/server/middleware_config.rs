@@ -24,6 +24,13 @@ where
         app
     };
 
+    // handler panic 转 500 响应而非硬重置连接（与 document-parser/mcp-proxy
+    // 一致的纵深防御；TaskManagementConfig.catch_panic 是任务层语义，勿混用）
+    let app = {
+        use tower_http::catch_panic::CatchPanicLayer;
+        app.layer(CatchPanicLayer::new())
+    };
+
     info!("Maximum file size limit: {}MB", max_file_size / 1024 / 1024);
 
     app.layer(

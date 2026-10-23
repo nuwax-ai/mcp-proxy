@@ -13,8 +13,32 @@ use crate::server::task::integrate_server_with_axum;
 use serde_json::json;
 
 // 修改 add_route_handler 函数，使用新的集成方法
-#[instrument]
+// skip(params)：mcp_json_config 对 URL 型配置内含 auth_token/env 等敏感字段，
+// 不能整段进默认 INFO 级 span（需要排查时再显式 debug 输出脱敏摘要）
+#[instrument(skip(params))]
 // #[axum::debug_handler]
+#[utoipa::path(
+    post,
+    path = "/mcp/sse/add",
+    tag = "mcp-sse",
+    request_body = AddRouteParams,
+    responses(
+        (status = 200, description = "注册成功。data 内含 mcp_id 与接入路径：SSE 协议返回 sse_path/message_path，Streamable HTTP 协议返回 stream_path",
+            body = Object,
+            example = json!({
+                "code": "0000",
+                "message": "成功",
+                "data": {
+                    "mcp_id": "018f6a2b3c4d5e6f7a8b9c0d1e2f3a4b",
+                    "sse_path": "/mcp/sse/proxy/018f6a2b3c4d5e6f7a8b9c0d1e2f3a4b/sse",
+                    "message_path": "/mcp/sse/proxy/018f6a2b3c4d5e6f7a8b9c0d1e2f3a4b/message",
+                    "mcp_type": "OneShot"
+                },
+                "tid": null,
+                "success": true
+            }))
+    )
+)]
 pub async fn add_route_handler(
     State(state): State<AppState>,
     uri: Uri,
@@ -36,8 +60,8 @@ pub async fn add_route_handler(
 
         let mcp_plugin_json = params.mcp_json_config;
         // 将mcp_plugin_json转换为 McpServerConfig 结构体
-        let mcp_server_config =
-            McpServerConfig::try_from(mcp_plugin_json.clone()).expect("解析 MCP 配置失败");
+        let mcp_server_config = McpServerConfig::try_from(mcp_plugin_json.clone())
+            .map_err(|e| AppError::mcp_server_error(format!("解析 MCP 配置失败: {e}")))?;
 
         let mcp_type = params.mcp_type.unwrap_or(McpType::default());
 

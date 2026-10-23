@@ -78,6 +78,13 @@ impl std::error::Error for SessionError {}
 pub trait Decoder: Send + Sync + 'static {
     /// 同步解码 samples → 带时间戳的 segments
     fn decode(&self, samples: &[f32]) -> Result<Vec<SttSegment>, SttError>;
+
+    /// 握手期预热（默认 no-op）。Whisper 实现预初始化引擎池——把懒加载失败
+    /// （模型文件缺失/损坏）从首帧 decode 提前到 ready 之前，客户端能立即
+    /// 收到 error 事件而非 ready 后静默断开。
+    fn prepare(&self) -> Result<(), SttError> {
+        Ok(())
+    }
 }
 
 /// transcribe-rs Whisper 解码器（真实实现）
@@ -89,11 +96,27 @@ pub struct WhisperDecoder {
 }
 
 impl Decoder for WhisperDecoder {
+    fn prepare(&self) -> Result<(), SttError> {
+        let key = EngineKey::new(&self.model_id);
+        get_or_init_whisper(key, self.model_path.clone(), self.pool_size).map(|_| ())
+    }
+
     fn decode(&self, samples: &[f32]) -> Result<Vec<SttSegment>, SttError> {
         let key = EngineKey::new(&self.model_id);
         let pool = get_or_init_whisper(key, self.model_path.clone(), self.pool_size)?;
         let inst = pool.pick();
-        let mut guard = inst.lock().unwrap_or_else(|p| p.into_inner());
+        // try_lock：whisper 全量解码无中断点（C API），超时会话的孤儿任务
+        // 会持锁跑完（decode_timeout 量级）——排队等锁的后续会话会把这段
+        // 时间计入自己的 decode 预算并级联超时；快速失败让客户端立刻重试
+        let mut guard = match inst.try_lock() {
+            Ok(g) => g,
+            Err(std::sync::TryLockError::Poisoned(p)) => p.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return Err(SttError::EngineBusy(
+                    "解码引擎忙（其它会话占用），请稍后重试".to_string(),
+                ));
+            }
+        };
         let result = guard.transcribe_with(samples, &self.opts.to_inference_params())?;
         // segments 无条件生成（transcribe-rs 0.3.11）；映射为 SttSegment
         let segs = result

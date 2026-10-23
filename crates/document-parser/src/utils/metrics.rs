@@ -241,7 +241,9 @@ impl Summary {
         }
 
         let mut sorted_values = values.clone();
-        sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        // total_cmp 是全序且 NaN 安全；partial_cmp().unwrap() 遇 NaN 即 panic
+        // （metrics 是外部可写接口，observe 进 NaN 不能拖垮服务）
+        sorted_values.sort_by(|a, b| a.total_cmp(b));
 
         let count = sorted_values.len() as u64;
         let sum: f64 = sorted_values.iter().sum();

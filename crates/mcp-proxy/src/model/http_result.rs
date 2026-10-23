@@ -1,15 +1,18 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize, Serializer, ser::SerializeStruct};
+use utoipa::ToSchema;
 
 #[allow(dead_code)]
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct HttpResult<T> {
     pub code: String,
     pub message: String,
     pub data: Option<T>,
     pub tid: Option<String>,
-    #[serde(skip)]
+    // 手写 Serialize 恒输出该字段；skip_deserializing 仅让 derive(Deserialize)
+    // 走 Default（与原 #[serde(skip)] 行为一致），同时 utoipa 不会把它排除出 schema
+    #[serde(skip_deserializing)]
     pub success: bool,
 }
 

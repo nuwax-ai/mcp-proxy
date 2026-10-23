@@ -14,6 +14,7 @@ use tower_http::{
     trace::TraceLayer,
 };
 use utoipa::OpenApi;
+use utoipa_scalar::{Scalar, Servable};
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::config::AppConfig;
@@ -101,16 +102,21 @@ pub fn create_router(state: Arc<AppState>) -> Router {
 
     // 创建 Swagger UI（无状态路由）
     let swagger = SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi());
+    // Scalar 风格文档（与 Swagger UI 并存；UI JS 由浏览器从公网 CDN 加载）
+    let scalar = Scalar::with_url("/api/docs/scalar", ApiDoc::openapi());
 
     // 创建 API 路由（有状态）
     Router::new()
         .merge(swagger)
+        .merge(scalar)
         .route("/health", get(handle_health))
         .route("/api/embeddings", post(handle_embed))
         .route("/api/models/available", get(handle_list_models))
         .layer(cors)
         .layer(body_limit)
         .layer(TraceLayer::new_for_http())
+        // handler panic 转 500 而非硬重置连接（与其余三服务一致的纵深防御）
+        .layer(tower_http::catch_panic::CatchPanicLayer::new())
         .with_state(state)
 }
 
@@ -228,16 +234,26 @@ fn warmup_model(state: Arc<AppState>, config: &AppConfig) -> Result<()> {
 
 /// 优雅关闭信号
 async fn shutdown_signal() {
+    // 信号处理器安装失败不应 panic 关闭任务：记录后保持 pending，
+    // 让另一路信号兜底（与 voice-cli shutdown 同范式）
     let ctrl_c = async {
-        signal::ctrl_c().await.expect("无法安装 Ctrl+C 信号处理器");
+        if let Err(e) = signal::ctrl_c().await {
+            tracing::error!("Ctrl+C 处理器异常: {e}，优雅关闭退化为仅依赖 SIGTERM");
+            std::future::pending::<()>().await;
+        }
     };
 
     #[cfg(unix)]
     let terminate = async {
-        signal::unix::signal(signal::unix::SignalKind::terminate())
-            .expect("无法安装 SIGTERM 信号处理器")
-            .recv()
-            .await;
+        match signal::unix::signal(signal::unix::SignalKind::terminate()) {
+            Ok(mut sig) => {
+                sig.recv().await;
+            }
+            Err(e) => {
+                tracing::error!("SIGTERM 处理器安装失败: {e}，优雅关闭退化为仅依赖 Ctrl+C");
+                std::future::pending::<()>().await;
+            }
+        }
     };
 
     #[cfg(not(unix))]

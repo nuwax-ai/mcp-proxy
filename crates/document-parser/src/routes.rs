@@ -13,6 +13,7 @@ use axum::{
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use utoipa::OpenApi;
+use utoipa_scalar::{Scalar, Servable};
 use utoipa_swagger_ui::SwaggerUi;
 
 /// 创建应用路由
@@ -23,8 +24,20 @@ pub fn create_routes(state: AppState) -> Router {
         .route("/ready", get(health_handler::ready_check))
         // OpenAPI 文档路由 - 使用 utoipa-swagger-ui 内置支持
         .merge(SwaggerUi::new("/api/docs").url("/api/docs/openapi.json", ApiDoc::openapi()))
+        // Scalar 风格文档（与 Swagger UI 共用同一份 OpenAPI 文档；UI JS 由浏览器从
+        // 公网 CDN 加载，内网浏览器不可出网时页面白屏，用 Swagger UI 不受影响）
+        .merge(Scalar::with_url("/api/docs/scalar", ApiDoc::openapi()))
         // 文档处理路由
-        .nest("/api/v1/documents", document_routes())
+        .nest(
+            "/api/v1/documents",
+            document_routes(
+                state
+                    .config
+                    .document_parser
+                    .sync_parse_max_file_size
+                    .bytes() as usize,
+            ),
+        )
         // 任务管理路由
         .nest("/api/v1/tasks", task_routes())
         // OSS 服务路由
@@ -36,13 +49,24 @@ pub fn create_routes(state: AppState) -> Router {
                 .layer(CorsLayer::permissive())
                 .layer(DefaultBodyLimit::max(
                     get_global_file_size_config().max_file_size.bytes() as usize,
-                )),
+                ))
+                // handler panic 转 500 响应而非硬重置连接（纵深防御——配合
+                // 生产代码零 unwrap/expect 的规范兜底）
+                .layer(tower_http::catch_panic::CatchPanicLayer::new()),
         )
         .with_state(state)
 }
 
 /// 文档处理相关路由
-fn document_routes() -> Router<AppState> {
+///
+/// `sync_parse_max_file_size`：同步解析接口（/parse-sync）专属请求体大小上限，
+/// 由路由级 [`DefaultBodyLimit`] 承载，覆盖全局限制（middleware 统一管理文件大小）。
+fn document_routes(sync_parse_max_file_size: usize) -> Router<AppState> {
+    // 同步解析接口单独挂载路由级 body 限制：仅该路由生效，不影响其他文档路由
+    let parse_sync_router = Router::new()
+        .route("/parse-sync", post(document_handler::parse_document_sync))
+        .route_layer(DefaultBodyLimit::max(sync_parse_max_file_size));
+
     Router::new()
         // 文档上传和解析
         .route("/upload", post(document_handler::upload_document))
@@ -50,6 +74,8 @@ fn document_routes() -> Router<AppState> {
             "/uploadFromUrl",
             post(document_handler::download_document_from_url),
         )
+        // 同步解析（仅供测试验证，同一请求内同步返回 Markdown）
+        .merge(parse_sync_router)
         // 结构化文档生成
         .route(
             "/structured",
@@ -121,6 +147,11 @@ fn oss_routes() -> Router<AppState> {
             "/download-sign-url",
             get(private_oss_handler::get_download_sign_url),
         )
-        // 删除OSS文件
-        .route("/delete", get(private_oss_handler::delete_file_from_oss))
+        // 删除OSS文件（GET 保留兼容已标 deprecated；POST 为推荐动词——GET
+        // 破坏性操作 + permissive CORS 下任意网页可用 <img src> 跨站触发删除）
+        .route(
+            "/delete",
+            get(private_oss_handler::delete_file_from_oss)
+                .post(private_oss_handler::delete_file_from_oss),
+        )
 }

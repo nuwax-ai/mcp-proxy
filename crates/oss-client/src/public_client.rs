@@ -404,8 +404,9 @@ impl OssClientTrait for PublicOssClient {
             builder = builder.with_content_type("application/octet-stream");
         }
 
-        // 执行上传
-        let temp_path_string = temp_file.path().to_str().unwrap().to_string();
+        // 执行上传（to_string_lossy：tempfile 路径仅前缀来自 TMPDIR，
+        // 非 UTF-8 时降级替换而非 panic）
+        let temp_path_string = temp_file.path().to_string_lossy().into_owned();
         match oss_client
             .put_object_from_file(&prefixed_key, &temp_path_string, builder)
             .await

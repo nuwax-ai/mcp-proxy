@@ -1,14 +1,10 @@
 use crate::get_proxy_manager;
-use crate::model::{CheckMcpStatusResponseStatus, GLOBAL_RESTART_TRACKER, McpType};
-use crate::server::task::mcp_start_task::mcp_start_task;
+use crate::model::{CheckMcpStatusResponseStatus, McpType};
 use tokio::time::Duration;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info};
 
 // OneShot 服务超时时间：5分钟无活动则清理
 const ONESHOT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
-
-// 连续健康检查失败阈值：连续失败 3 次才触发重启
-const MAX_PROBE_FAILURES: u32 = 3;
 
 /// 定期检查全局动态 router 里的 MCP 服务状态
 ///
@@ -106,90 +102,22 @@ pub async fn schedule_check_mcp_live() {
 
                 // 执行健康探测
                 let handler = proxy_manager.get_proxy_handler(&mcp_id);
-                if let Some(handler) = handler {
-                    let is_terminated = handler.is_terminated_async().await;
-
-                    if is_terminated {
-                        let failures = proxy_manager.increment_probe_failures(&mcp_id);
-                        info!(
-                            "OneShot service {} health check failed ({}/{})",
-                            mcp_id, failures, MAX_PROBE_FAILURES
-                        );
-
-                        if failures >= MAX_PROBE_FAILURES {
-                            info!(
-                                "OneShot service {} failed continuously {} times, triggering a restart",
-                                mcp_id, failures
-                            );
-                            restart_mcp_service(&mcp_id, proxy_manager).await;
-                        }
-                    } else {
-                        // 探测成功，重置失败计数
-                        proxy_manager.reset_probe_failures(&mcp_id);
-                    }
+                if let Some(handler) = handler
+                    && handler.is_terminated_async().await
+                {
+                    // OneShot 进程退出是**正常终态**（脚本/任务执行完即退出）。
+                    // 与 router 层约定一致（mcp_dynamic_router_service：
+                    // "OneShot 只清理、不重启"），此处不再计数自动重启——旧逻辑
+                    // 会把已完成的 OneShot 每 ~60s 无限拉起再退出。保留实例等
+                    // 空闲超时（ONESHOT_TIMEOUT）统一清理，给客户端留出
+                    // check_status 取终态的窗口（0006/0007 语义）。
+                    debug!(
+                        "OneShot service {} process exited (normal end state); \
+                         kept until idle-timeout cleanup",
+                        mcp_id
+                    );
                 }
             }
-        }
-    }
-}
-
-/// 重启 MCP 服务
-///
-/// ## 重启流程
-///
-/// 1. 检查重启冷却期（30秒）
-/// 2. 获取配置（从服务状态或缓存）
-/// 3. 清理旧资源（保留配置缓存）
-/// 4. 重新启动服务（复用 mcp_start_task）
-async fn restart_mcp_service(mcp_id: &str, proxy_manager: &crate::model::ProxyHandlerManager) {
-    // 1. 检查重启冷却期
-    if !GLOBAL_RESTART_TRACKER.can_restart(mcp_id) {
-        info!(
-            "Service {} is skipped during the restart cooling period.",
-            mcp_id
-        );
-        return;
-    }
-
-    // 2. 获取配置（优先从服务状态，其次从缓存）
-    let mcp_config = proxy_manager.get_mcp_config(mcp_id);
-    let mcp_config = match mcp_config {
-        Some(config) => Some(config),
-        None => proxy_manager.get_mcp_config_from_cache(mcp_id).await,
-    };
-
-    let Some(mcp_config) = mcp_config else {
-        warn!(
-            "Service {} has no configuration and cannot be restarted. Clean up resources.",
-            mcp_id
-        );
-        if let Err(e) = proxy_manager.cleanup_resources(mcp_id).await {
-            error!("Failed to cleanup resources for {}: {}", mcp_id, e);
-        }
-        return;
-    };
-
-    // 3. 清理旧资源（保留配置缓存）
-    if let Err(e) = proxy_manager.cleanup_resources_for_restart(mcp_id).await {
-        error!("Cleanup service {} resource failed: {}", mcp_id, e);
-        return;
-    }
-
-    // 4. 重新启动服务（复用 mcp_start_task，自动设置 Pending 状态）
-    match mcp_start_task(mcp_config).await {
-        Ok((_router, _cancellation_token)) => {
-            // 重置失败计数（已在新的服务实例中初始化为 0）
-            // 注意：此时 mcp_id 对应的是新的服务实例
-            proxy_manager.reset_probe_failures(mcp_id);
-            // 记录重启时间
-            GLOBAL_RESTART_TRACKER.record_restart(mcp_id);
-            info!("Service {} restarted successfully", mcp_id);
-        }
-        Err(e) => {
-            error!("Service {} failed to restart: {}", mcp_id, e);
-            // 重启失败，设置 Error 状态
-            // 注意：此时服务已被清理，无法设置状态，只能记录日志
-            // 下次请求到来时会触发重新启动
         }
     }
 }

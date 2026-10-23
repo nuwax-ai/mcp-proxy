@@ -1,6 +1,7 @@
 pub mod handlers;
 mod mcp_dynamic_router_service;
 mod middlewares;
+mod openapi;
 pub mod protocol_detector;
 mod router_layer;
 mod task;

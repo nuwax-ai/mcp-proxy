@@ -25,6 +25,6 @@ log = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 # voice 专属依赖（workspace 未集中管理）
 hound = "3.5"
-rubato = "3"
-audioadapter-buffers = "3.0"
+rubato = "5"
+audioadapter-buffers = "5.2"
 ffmpeg-sidecar = { workspace = true }

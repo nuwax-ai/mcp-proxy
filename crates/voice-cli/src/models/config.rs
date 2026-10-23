@@ -111,8 +111,6 @@ pub struct TaskManagementConfig {
     pub retry_attempts: usize,
     /// 任务超时时间（秒）
     pub task_timeout_seconds: u64,
-    /// 是否捕获 panic
-    pub catch_panic: bool,
     /// 任务保留分钟数
     pub task_retention_minutes: u32,
 }
@@ -691,7 +689,6 @@ impl Default for TaskManagementConfig {
             sqlite_db_path: "./data/tasks.db".to_string(),
             retry_attempts: 2,
             task_timeout_seconds: 3600,
-            catch_panic: true,
             task_retention_minutes: 1440, // 24 hours in minutes
         }
     }

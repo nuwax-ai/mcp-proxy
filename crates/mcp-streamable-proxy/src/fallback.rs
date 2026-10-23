@@ -1,9 +1,9 @@
 use anyhow::{Context, Result, bail};
-use rmcp::model::{ListToolsResult, ProtocolVersion, ServerInfo};
+use rmcp::model::{ListToolsResult, ProtocolVersion, ServerConfig};
 
 #[derive(Clone, Debug)]
 pub struct DiscoverySnapshot {
-    pub server_info: ServerInfo,
+    pub server_info: ServerConfig,
     pub tools: ListToolsResult,
 }
 
@@ -14,7 +14,7 @@ pub struct FallbackMetadata {
 
 impl FallbackMetadata {
     pub fn from_json(initialize: &str, tools: &str) -> Result<Self> {
-        let server_info: ServerInfo = serde_json::from_str(initialize)
+        let server_info: ServerConfig = serde_json::from_str(initialize)
             .context("invalid Streamable HTTP initialize fallback JSON")?;
         validate_protocol_version(&server_info.protocol_version)?;
         if server_info.capabilities.tools.is_none() {

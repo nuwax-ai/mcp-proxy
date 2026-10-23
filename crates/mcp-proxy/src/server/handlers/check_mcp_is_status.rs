@@ -8,6 +8,29 @@ use crate::{
 
 ///根据 mcpId，检查 mcp 透明代理服务是否正在运行的状态
 // #[axum::debug_handler]
+#[utoipa::path(
+    get,
+    path = "/mcp/check/status/{mcp_id}",
+    tag = "mcp-config",
+    params(
+        ("mcp_id" = String, Path, description = "注册 MCP 服务时返回的服务唯一标识")
+    ),
+    responses(
+        (status = 200, description = "服务运行状态（ready=true 表示就绪；status=Error 时 message 携带错误信息）",
+            body = HttpResult<CheckMcpStatusResponseParams>,
+            example = json!({
+                "code": "0000",
+                "message": "成功",
+                "data": {
+                    "ready": true,
+                    "status": "Ready",
+                    "message": null
+                },
+                "tid": null,
+                "success": true
+            }))
+    )
+)]
 pub async fn check_mcp_is_status_handler(
     Path(mcp_id): Path<String>,
 ) -> Result<HttpResult<CheckMcpStatusResponseParams>, AppError> {

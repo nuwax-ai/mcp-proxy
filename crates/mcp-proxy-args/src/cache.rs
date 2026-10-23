@@ -143,7 +143,7 @@ pub(crate) fn write_content_addressed(
     ensure_cache_dir(cache_dir)?;
 
     let digest = Sha256::digest(bytes);
-    let hash = format!("{digest:x}");
+    let hash = hex::encode(digest);
     let target = cache_dir.join(format!("{prefix}-{kind}-{hash}.json"));
 
     if target.exists() {

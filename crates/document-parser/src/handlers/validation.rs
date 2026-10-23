@@ -50,15 +50,10 @@ impl RequestValidator {
             return Err(AppError::Validation("只支持HTTP和HTTPS协议".to_string()));
         }
 
-        // 检查主机
-        let host = url
-            .host_str()
+        // 检查主机（不做本地/内网地址拦截——本产品主场景是内网私有部署，
+        // 用户以 URL 任务拉内网文件服务器是合法流量，详见 2026-09-12 决策）
+        url.host_str()
             .ok_or_else(|| AppError::Validation("URL缺少主机名".to_string()))?;
-
-        // 防止访问本地地址
-        if Self::is_local_address(host) {
-            return Err(AppError::Validation("不允许访问本地地址".to_string()));
-        }
 
         Ok(url)
     }
@@ -217,38 +212,6 @@ impl RequestValidator {
             return Err(AppError::Validation("每页大小必须在1-100之间".to_string()));
         }
         Ok(())
-    }
-
-    /// 检查是否为本地地址
-    fn is_local_address(host: &str) -> bool {
-        //todo: 找rust生态的库,看能否用更简单的方式实现"检查是否为本地地址"
-        matches!(
-            host,
-            "localhost"
-                | "127.0.0.1"
-                | "::1"
-                | "0.0.0.0"
-                | "10.0.0.0"
-                | "172.16.0.0"
-                | "192.168.0.0"
-        ) || host.starts_with("10.")
-            || host.starts_with("172.16.")
-            || host.starts_with("172.17.")
-            || host.starts_with("172.18.")
-            || host.starts_with("172.19.")
-            || host.starts_with("172.20.")
-            || host.starts_with("172.21.")
-            || host.starts_with("172.22.")
-            || host.starts_with("172.23.")
-            || host.starts_with("172.24.")
-            || host.starts_with("172.25.")
-            || host.starts_with("172.26.")
-            || host.starts_with("172.27.")
-            || host.starts_with("172.28.")
-            || host.starts_with("172.29.")
-            || host.starts_with("172.30.")
-            || host.starts_with("172.31.")
-            || host.starts_with("192.168.")
     }
 }
 

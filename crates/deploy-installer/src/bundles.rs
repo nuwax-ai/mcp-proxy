@@ -19,6 +19,17 @@ struct OptionalAssets {
     whisper_all: std::collections::HashMap<String, String>,
     #[serde(default, rename = "voiceCliCuda")]
     voice_cli_cuda: std::collections::HashMap<String, String>,
+    #[serde(default, rename = "voiceCliVulkan")]
+    voice_cli_vulkan: std::collections::HashMap<String, String>,
+    /// MinerU pipeline 模型缓存包（平台无关——三平台同 URL，模型是纯文件）。
+    /// URL 不含 {version} 占位符：模型版本独立于包版本（PDF-Extract-Kit-1.0）
+    #[serde(default, rename = "mineruModels")]
+    mineru_models: std::collections::HashMap<String, String>,
+    /// 静态 ffmpeg 二进制（voice-cli STT 音频解码依赖；顶层平铺 ffmpeg(.exe)
+    /// 的 tar.gz）。**平台强相关**——按平台精确取键，无跨平台 fallback
+    ///（错架构二进制比缺失更糟）。URL 无 {version}：ffmpeg 版本独立于包版本
+    #[serde(default)]
+    ffmpeg: std::collections::HashMap<String, String>,
 }
 
 /// Which prebuilt Whisper ggml tarball to fetch from OSS.
@@ -50,12 +61,33 @@ impl WhisperModelsPack {
 
 /// Vendor key for the current platform, e.g. `darwin-arm64`.
 pub fn platform_vendor_key() -> &'static str {
-    match (std::env::consts::OS, std::env::consts::ARCH) {
-        ("macos", "aarch64") => "darwin-arm64",
-        ("macos", "x86_64") => "darwin-x64",
-        ("linux", "x86_64") => "linux-x64",
-        ("linux", "aarch64") => "linux-arm64",
-        (os, arch) => panic!("unsupported platform for deploy-installer: {os}-{arch}"),
+    vendor_key_for(std::env::consts::OS, std::env::consts::ARCH).unwrap_or_else(|| {
+        panic!(
+            "unsupported platform for deploy-installer: {}-{}",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        )
+    })
+}
+
+/// 纯函数：OS/arch → vendor key（任意平台可单测）。未支持组合返回 None。
+pub fn vendor_key_for(os: &str, arch: &str) -> Option<&'static str> {
+    match (os, arch) {
+        ("macos", "aarch64") => Some("darwin-arm64"),
+        ("macos", "x86_64") => Some("darwin-x64"),
+        ("linux", "x86_64") => Some("linux-x64"),
+        ("linux", "aarch64") => Some("linux-arm64"),
+        ("windows", "x86_64") => Some("windows-x64"),
+        _ => None,
+    }
+}
+
+/// 服务可执行文件名（Windows 带 `.exe` 后缀，vendor 与 install 目录统一）。
+pub fn binary_name(service: &str) -> String {
+    if cfg!(windows) {
+        format!("{service}.exe")
+    } else {
+        service.to_string()
     }
 }
 
@@ -71,7 +103,7 @@ pub fn deploy_root() -> PathBuf {
         let mut dir = exe.parent().map(PathBuf::from);
         for _ in 0..12 {
             let Some(d) = dir.clone() else { break };
-            let candidate = d.join("npm/nuwax-deploy-installer/vendor");
+            let candidate = d.join("npm/deploy-installer/vendor");
             if candidate.is_dir() {
                 return candidate;
             }
@@ -121,7 +153,9 @@ fn manifest_asset_version() -> Option<String> {
 
 /// `vendor/<platform>/document-parser` bundled binary.
 pub fn bundled_binary_path(service: &str) -> PathBuf {
-    deploy_root().join(platform_vendor_key()).join(service)
+    deploy_root()
+        .join(platform_vendor_key())
+        .join(binary_name(service))
 }
 
 /// `vendor/templates/<service>/`
@@ -129,20 +163,28 @@ pub fn bundled_templates_dir(service: &str) -> PathBuf {
     deploy_root().join("templates").join(service)
 }
 
-/// Default install directory for document-parser on macOS.
+/// Default install directory for document-parser.
 pub fn default_document_parser_install_dir() -> PathBuf {
-    if let Ok(home) = std::env::var("HOME") {
-        return PathBuf::from(home).join("document-parser");
+    if let Some(home) = home_dir() {
+        return home.join("document-parser");
     }
     PathBuf::from("./document-parser")
 }
 
-/// Default install directory for voice-cli on macOS.
+/// Default install directory for voice-cli.
 pub fn default_voice_cli_install_dir() -> PathBuf {
-    if let Ok(home) = std::env::var("HOME") {
-        return PathBuf::from(home).join("voice-cli");
+    if let Some(home) = home_dir() {
+        return home.join("voice-cli");
     }
     PathBuf::from("./voice-cli")
+}
+
+/// 用户主目录（unix HOME；Windows USERPROFILE——npm 全局运行环境两者其一存在）。
+pub(crate) fn home_dir() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
 }
 
 /// Resolve optional prebuilt venv download URL from `vendor/templates/manifest.json`.
@@ -174,12 +216,72 @@ pub fn voice_cli_cuda_download_url_from_base(base: &str) -> String {
     format!("{}/{}", base.trim_end_matches('/'), name)
 }
 
+/// OSS tarball basename for prebuilt voice-cli Vulkan bundle (Linux x86_64).
+pub fn voice_cli_vulkan_archive_filename(version: &str) -> String {
+    format!("voice-cli-vulkan-linux-x64-{version}.tar.gz")
+}
+
+/// Resolve optional voice-cli Vulkan bundle URL from manifest (Linux x86_64 only).
+pub fn optional_voice_cli_vulkan_url() -> Option<String> {
+    optional_asset_url(|assets| assets.voice_cli_vulkan.get("linux-x64"))
+}
+
+/// Build voice-cli Vulkan tarball URL from an OSS base directory.
+pub fn voice_cli_vulkan_download_url_from_base(base: &str) -> String {
+    let version = deploy_asset_version();
+    let name = voice_cli_vulkan_archive_filename(&version);
+    format!("{}/{}", base.trim_end_matches('/'), name)
+}
+
 /// Resolve optional prebuilt Whisper ggml tarball URL from manifest.
 pub fn optional_whisper_download_url(pack: WhisperModelsPack) -> Option<String> {
     optional_asset_url(|assets| match pack {
         WhisperModelsPack::LargeV3 => assets.whisper_large_v3.get(platform_vendor_key()),
         WhisperModelsPack::All => assets.whisper_all.get(platform_vendor_key()),
     })
+}
+
+/// Resolve optional MinerU pipeline models cache URL from manifest.
+///
+/// 模型平台无关（三平台键同 URL）——按本平台键取，缺键时回退任一可用键
+/// （manifest 只配部分平台的容错）。
+pub fn optional_mineru_models_url() -> Option<String> {
+    optional_asset_url(|assets| {
+        assets
+            .mineru_models
+            .get(platform_vendor_key())
+            .or_else(|| assets.mineru_models.values().next())
+    })
+}
+
+/// Build MinerU models cache URL from an OSS base directory
+/// （`uploads/document-parser` 层级，与 venv/whisper 的 from_base 模式对齐）。
+/// 模型版本独立于包版本：路径稳定、无 {version} 占位符
+pub fn mineru_models_download_url_from_base(base: &str) -> String {
+    format!(
+        "{}/models/mineru-pipeline-models-pdf-extract-kit-1.0.tar.gz",
+        base.trim_end_matches('/')
+    )
+}
+
+/// 纯函数：指定 vendor key 的 ffmpeg 资产 URL（任意平台可单测）。
+/// 平台强相关——不做跨平台 fallback（错架构二进制比缺失更糟）
+pub fn ffmpeg_url_for(vendor_key: &str) -> Option<String> {
+    optional_asset_url(|assets| assets.ffmpeg.get(vendor_key))
+}
+
+/// 本平台（vendor key 精确匹配）的 ffmpeg 资产 URL
+pub fn optional_ffmpeg_url() -> Option<String> {
+    ffmpeg_url_for(platform_vendor_key())
+}
+
+/// Build ffmpeg tarball URL from an OSS base directory
+/// （`uploads/voice-cli` 层级；文件名与 manifest 的 ffmpeg-static-<key> 约定一致）
+pub fn ffmpeg_download_url_from_base(base: &str, vendor_key: &str) -> String {
+    format!(
+        "{base}/ffmpeg/ffmpeg-static-{vendor_key}.tar.gz",
+        base = base.trim_end_matches('/')
+    )
 }
 
 /// Build Whisper tarball URL from an OSS base directory and pack kind.
@@ -218,86 +320,152 @@ pub fn make_executable(_path: &Path) -> std::io::Result<()> {
 mod tests {
     use super::*;
 
+    /// 这些测试都通过 set_var 突变全局 env（NUWAX_DEPLOY_ROOT/VERSION），
+    /// 并行执行会互踩——用互斥锁在模块内串行化（无新依赖）。
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// 读取仓库 manifest 的 assetVersion（测试期望跟随 manifest 而非硬编码，
+    /// 提升 assetVersion 时无需同步改测试）。
+    fn manifest_asset_version() -> String {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../npm/deploy-installer/vendor/templates/manifest.json");
+        let content = std::fs::read_to_string(path).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&content).unwrap();
+        v["assetVersion"].as_str().unwrap().to_string()
+    }
+
     #[test]
     fn asset_version_strips_prerelease_when_manifest_missing_asset_version() {
-        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../npm/nuwax-deploy-installer/vendor");
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // 构造无 assetVersion 的 manifest，验证回退到包版本剥离 prerelease
+        let dir = tempfile::tempdir().unwrap();
+        let templates = dir.path().join("templates");
+        std::fs::create_dir_all(&templates).unwrap();
+        std::fs::write(
+            templates.join("manifest.json"),
+            r#"{"version": "0.2.1", "optionalAssets": {}}"#,
+        )
+        .unwrap();
+        // SAFETY: test-only env mutation; no concurrent env access in unit tests.
         unsafe {
-            std::env::set_var("NUWAX_DEPLOY_ROOT", root.display().to_string());
-            std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.1-beta.2");
+            std::env::set_var("NUWAX_DEPLOY_ROOT", dir.path().display().to_string());
+            std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.9-beta.2");
         }
-        assert_eq!(deploy_asset_version(), "0.2.1");
+        assert_eq!(deploy_asset_version(), "0.2.9");
         unsafe {
-            std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.1");
+            std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.9");
         }
-        assert_eq!(deploy_asset_version(), "0.2.1");
+        assert_eq!(deploy_asset_version(), "0.2.9");
     }
 
     #[test]
     fn asset_version_from_manifest_overrides_newer_package_version() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../npm/nuwax-deploy-installer/vendor");
+            .join("../../npm/deploy-installer/vendor");
+        let expected = manifest_asset_version();
+        // SAFETY: test-only env mutation; no concurrent env access in unit tests.
         unsafe {
             std::env::set_var("NUWAX_DEPLOY_ROOT", root.display().to_string());
             std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.3-beta.2");
         }
         assert_eq!(
             deploy_asset_version(),
-            "0.2.1",
+            expected,
             "manifest assetVersion should pin OSS filenames"
         );
-        let url = optional_whisper_download_url(WhisperModelsPack::LargeV3).unwrap();
-        assert!(
-            url.contains("whisper-ggml-large-v3-0.2.1.tar.gz"),
-            "got {url}"
-        );
-        assert!(!url.contains("0.2.3"));
+        // 交叉验证一个资产 URL 的版本号被 assetVersion 钉住（whisper 仅 darwin，
+        // 用各平台都有的资产：macos→whisper，linux→cuda，windows→两者皆无跳过）
+        let url_for_version_check = if cfg!(target_os = "macos") {
+            optional_whisper_download_url(WhisperModelsPack::LargeV3)
+        } else if cfg!(target_os = "linux") {
+            optional_voice_cli_cuda_url()
+        } else {
+            None
+        };
+        if let Some(url) = url_for_version_check {
+            assert!(url.contains(&expected), "got {url}");
+            assert!(!url.contains("0.2.3"));
+        }
     }
 
     #[test]
     fn optional_venv_url_from_manifest() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../npm/nuwax-deploy-installer/vendor");
+            .join("../../npm/deploy-installer/vendor");
+        let expected = manifest_asset_version();
         // SAFETY: test-only env mutation; no concurrent env access in unit tests.
         unsafe {
             std::env::set_var("NUWAX_DEPLOY_ROOT", root.display().to_string());
             std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.1-beta.2");
         }
-        let url = optional_venv_download_url();
-        assert!(
-            url.is_some(),
-            "manifest should provide darwin-arm64 venv URL"
-        );
-        let url = url.unwrap();
-        assert!(
-            url.contains("venv-macos-arm64-0.2.1.tar.gz"),
-            "beta package must reuse stable venv asset, got {url}"
-        );
-        assert!(!url.contains("beta"));
+        // venv 预编译资产当前仅 darwin-arm64（按 platform_vendor_key 查表），
+        // 断言按平台镜像生产语义：mac 有 URL，其他平台正确返回 None
+        if cfg!(target_os = "macos") {
+            let url = optional_venv_download_url()
+                .expect("manifest should provide darwin-arm64 venv URL");
+            assert!(
+                url.contains(&format!("venv-macos-arm64-{expected}.tar.gz")),
+                "beta package must reuse stable venv asset, got {url}"
+            );
+            assert!(!url.contains("beta"));
+        } else {
+            assert!(
+                optional_venv_download_url().is_none(),
+                "manifest has no venv asset for this platform"
+            );
+        }
     }
 
     #[test]
     fn optional_whisper_large_v3_url_from_manifest() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../npm/nuwax-deploy-installer/vendor");
+            .join("../../npm/deploy-installer/vendor");
+        let expected = manifest_asset_version();
+        // SAFETY: test-only env mutation; no concurrent env access in unit tests.
         unsafe {
             std::env::set_var("NUWAX_DEPLOY_ROOT", root.display().to_string());
             std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.1-beta.2");
         }
-        let url = optional_whisper_download_url(WhisperModelsPack::LargeV3);
-        assert!(url.is_some(), "manifest should provide whisperLargeV3 URL");
-        let url = url.unwrap();
+        // whisper 资产全平台（ggml 平台无关，三平台同 URL——2026-09-10 起）
+        let url = optional_whisper_download_url(WhisperModelsPack::LargeV3)
+            .expect("manifest should provide whisperLargeV3 URL on every platform");
         assert!(
-            url.contains("whisper-ggml-large-v3-0.2.1.tar.gz"),
+            url.contains(&format!("whisper-ggml-large-v3-{expected}.tar.gz")),
             "got {url}"
         );
         assert!(!url.contains("beta"));
     }
 
     #[test]
-    fn optional_voice_cli_cuda_url_from_manifest() {
+    fn optional_mineru_models_url_from_manifest() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../npm/nuwax-deploy-installer/vendor");
+            .join("../../npm/deploy-installer/vendor");
+        // SAFETY: test-only env mutation; no concurrent env access in unit tests.
+        unsafe {
+            std::env::set_var("NUWAX_DEPLOY_ROOT", root.display().to_string());
+            std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.1-beta.2");
+        }
+        let url = optional_mineru_models_url()
+            .expect("manifest should provide mineruModels URL on every platform");
+        // 模型版本独立于包版本：URL 无 {version} 占位符（替换为 no-op）、稳定路径
+        assert!(
+            url.contains("mineru-pipeline-models-pdf-extract-kit-1.0.tar.gz"),
+            "got {url}"
+        );
+        assert!(!url.contains("0.2."), "models URL 不应带包版本: {url}");
+    }
+
+    #[test]
+    fn optional_voice_cli_cuda_url_from_manifest() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../npm/deploy-installer/vendor");
+        let expected = manifest_asset_version();
+        // SAFETY: test-only env mutation; no concurrent env access in unit tests.
         unsafe {
             std::env::set_var("NUWAX_DEPLOY_ROOT", root.display().to_string());
             std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.1-beta.2");
@@ -306,7 +474,51 @@ mod tests {
         assert!(url.is_some(), "manifest should provide voiceCliCuda URL");
         let url = url.unwrap();
         assert!(
-            url.contains("voice-cli-cuda-linux-x64-0.2.1.tar.gz"),
+            url.contains(&format!("voice-cli-cuda-linux-x64-{expected}.tar.gz")),
+            "got {url}"
+        );
+        assert!(!url.contains("beta"));
+    }
+
+    #[test]
+    fn optional_ffmpeg_url_covers_all_five_platforms() {
+        // ffmpeg 资产五平台键齐全（arm64/amd64 双架构）；直查任意宿主可测
+        for key in [
+            "darwin-arm64",
+            "darwin-x64",
+            "linux-x64",
+            "linux-arm64",
+            "windows-x64",
+        ] {
+            let url = ffmpeg_url_for(key).unwrap_or_else(|| panic!("{key} 应有 ffmpeg URL"));
+            assert!(
+                url.contains(&format!("ffmpeg-static-{key}.tar.gz")),
+                "{key}: {url}"
+            );
+        }
+        // 无跨平台 fallback：未知键返回 None
+        assert!(ffmpeg_url_for("windows-arm64").is_none());
+        assert!(ffmpeg_url_for("nope").is_none());
+    }
+
+    #[test]
+    fn optional_voice_cli_vulkan_url_from_manifest() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../npm/deploy-installer/vendor");
+        let expected = manifest_asset_version();
+        // SAFETY: test-only env mutation; no concurrent env access in unit tests.
+        unsafe {
+            std::env::set_var("NUWAX_DEPLOY_ROOT", root.display().to_string());
+            std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.1-beta.2");
+        }
+        // 与 cuda URL 测试不同：不按 platform_vendor_key 查表（linux-x64 直查），
+        // 任意平台都能断言（vulkan bundle 是 manifest 新增键，缺失即测试失败）
+        let url = optional_voice_cli_vulkan_url();
+        assert!(url.is_some(), "manifest should provide voiceCliVulkan URL");
+        let url = url.unwrap();
+        assert!(
+            url.contains(&format!("voice-cli-vulkan-linux-x64-{expected}.tar.gz")),
             "got {url}"
         );
         assert!(!url.contains("beta"));

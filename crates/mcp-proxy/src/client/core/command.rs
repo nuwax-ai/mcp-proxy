@@ -108,9 +108,11 @@ pub async fn run_command_mode(
     if !quiet {
         eprintln!("✅ Child process started, proxying to stdio...");
 
-        // 打印工具列表
-        match running.list_tools(None).await {
-            Ok(tools_result) => {
+        // 打印工具列表（限时 15s：本地子进程初始化挂起时不能卡死 CLI）
+        match tokio::time::timeout(std::time::Duration::from_secs(15), running.list_tools(None))
+            .await
+        {
+            Ok(Ok(tools_result)) => {
                 let tools = &tools_result.tools;
                 if tools.is_empty() {
                     eprintln!("⚠️  Tool list is empty (tools/list returned 0 tools)");
@@ -123,8 +125,11 @@ pub async fn run_command_mode(
                     }
                 }
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 eprintln!("⚠️  Failed to list tools: {}", e);
+            }
+            Err(_) => {
+                eprintln!("⚠️  Timed out listing tools (15s) — continuing anyway");
             }
         }
 

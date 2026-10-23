@@ -2,7 +2,6 @@ use crate::error::{InstallerError, Result};
 use crate::platform::ServiceBackend;
 use crate::spec::{ServiceIdentity, ServiceSpec};
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -70,6 +69,7 @@ fn is_executable(path: &Path) -> bool {
         Ok(meta) => {
             #[cfg(unix)]
             {
+                use std::os::unix::fs::PermissionsExt;
                 meta.is_file() && (meta.permissions().mode() & 0o111) != 0
             }
             #[cfg(not(unix))]
@@ -108,9 +108,45 @@ fn local_addr_has_port(token: &str, port: u16) -> bool {
         == Some(port)
 }
 
+/// 解析 `netstat -ano -p tcp` 输出中监听 `port` 的行，返回其 PID（纯函数，任意平台可单测）。
+///
+/// 行样例：`  TCP    0.0.0.0:8087    0.0.0.0:0    LISTENING    12345`；
+/// IPv6 形如 `[::]:8087`（复用 [`local_addr_has_port`] 的括号处理）。
+/// state 名（LISTENING 等）来自 IP Helper API，不随系统显示语言本地化。
+pub fn netstat_listener_pid(output: &str, port: u16) -> Option<String> {
+    for line in output.lines() {
+        let mut cols = line.split_whitespace();
+        if cols.next()? != "TCP" {
+            continue;
+        }
+        let Some(local) = cols.next() else { continue };
+        if !local_addr_has_port(local, port) {
+            continue;
+        }
+        let Some(_remote) = cols.next() else { continue };
+        let Some(state) = cols.next() else { continue };
+        if state != "LISTENING" {
+            continue;
+        }
+        let pid = cols.next().unwrap_or("unknown");
+        return Some(pid.to_string());
+    }
+    None
+}
+
 /// Try to detect which PID holds `port`. Returns Ok(Some(pid)) if occupied,
 /// Ok(None) if free, Err if detection tools unavailable.
-fn port_occupant(port: u16) -> std::result::Result<Option<String>, String> {
+pub(crate) fn port_occupant(port: u16) -> std::result::Result<Option<String>, String> {
+    // Windows: netstat -ano（PID 列在行尾；state 名 LISTENING 来自 IP Helper API，不本地化）
+    if cfg!(windows) {
+        let output = Command::new("netstat")
+            .args(["-ano", "-p", "tcp"])
+            .output()
+            .map_err(|e| format!("netstat failed: {e}"))?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        return Ok(netstat_listener_pid(&stdout, port));
+    }
+
     // Prefer `ss` (modern), fall back to `lsof`.
     if which_exists("ss") {
         let output = Command::new("ss")
@@ -165,7 +201,9 @@ fn extract_pid_from_ss(stdout: &str) -> Option<String> {
 }
 
 /// Whether this unit is already active (idempotent reinstall should not fail on own port).
-fn unit_is_active(name: &str, backend: ServiceBackend) -> bool {
+///
+/// pub：upgrade 流程在替换二进制前探测"服务在跑?"复用（三后端名形差异在此收敛）。
+pub fn unit_is_active(name: &str, backend: ServiceBackend) -> bool {
     match backend {
         ServiceBackend::Launchd => {
             let spec = ServiceSpec {
@@ -201,18 +239,28 @@ fn unit_is_active(name: &str, backend: ServiceBackend) -> bool {
                     .map(|s| s.success())
                     .unwrap_or(false)
         }
+        // 任务名与 unit 名不同形（com.nuwax.<name>）；直接按任务名查状态
+        ServiceBackend::TaskScheduler => {
+            crate::task_scheduler::task_state(&format!("com.nuwax.{name}"))
+                == crate::task_scheduler::TaskState::Running
+        }
     }
 }
 
 fn which_exists(bin: &str) -> bool {
-    Command::new("which")
+    let probe = if cfg!(windows) { "where" } else { "which" };
+    Command::new(probe)
         .arg(bin)
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
 }
 
-/// Probe whether sudo works non-interactively (`sudo -n true`).
+/// Probe whether sudo works non-interactively for the commands we actually need.
+///
+/// 探测 `sudo -n systemctl daemon-reload`（install 必经且幂等无害）而非泛化的
+/// `sudo -n true`：后者要求 NOPASSWD: ALL，会误拒"仅 systemctl/journalctl
+/// NOPASSWD"的最小权限配置（sudoers 推荐做法）。
 pub fn sudo_available() -> std::result::Result<(), String> {
     if nix_geteuid_is_root() {
         return Ok(());
@@ -221,14 +269,19 @@ pub fn sudo_available() -> std::result::Result<(), String> {
         return Err("sudo not found in PATH".into());
     }
     let status = Command::new("sudo")
-        .args(["-n", "true"])
+        .args(["-n", "systemctl", "daemon-reload"])
         .status()
         .map_err(|e| format!("failed to run sudo: {e}"))?;
     if status.success() {
         Ok(())
     } else {
         Err(
-            "sudo requires a password (sudo -n failed). Use NOPASSWD sudoers, or run interactively so sudo can prompt."
+            "sudo requires a password (sudo -n systemctl daemon-reload failed). \
+             Configure NOPASSWD sudoers for the commands we need: \
+             'user ALL=(root) NOPASSWD: /usr/bin/systemctl, /usr/bin/journalctl, \
+             /usr/bin/install, /usr/bin/mkdir, /usr/bin/rm' \
+             (systemctl/journalctl 管理 + install/mkdir/rm 写删 unit 文件), \
+             or run install interactively so sudo can prompt."
                 .into(),
         )
     }
@@ -293,20 +346,28 @@ pub fn resolve_service_user(explicit: Option<String>) -> Result<String> {
 
 /// Resolve primary group for `user` via `id -gn`.
 pub fn group_for_user(user: &str) -> Result<String> {
-    let output = Command::new("id")
-        .args(["-gn", user])
-        .output()
-        .map_err(|e| InstallerError::CommandFailed {
-            cmd: "id -gn".into(),
-            detail: e.to_string(),
-        })?;
-    if !output.status.success() {
-        return Err(InstallerError::CommandFailed {
-            cmd: format!("id -gn {user}"),
-            detail: String::from_utf8_lossy(&output.stderr).into(),
-        });
+    // Windows 无 id/主组概念；Task Scheduler 后端不消费组身份
+    #[cfg(windows)]
+    {
+        return Ok(user.to_string());
     }
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    #[cfg(not(windows))]
+    {
+        let output = Command::new("id")
+            .args(["-gn", user])
+            .output()
+            .map_err(|e| InstallerError::CommandFailed {
+                cmd: "id -gn".into(),
+                detail: e.to_string(),
+            })?;
+        if !output.status.success() {
+            return Err(InstallerError::CommandFailed {
+                cmd: format!("id -gn {user}"),
+                detail: String::from_utf8_lossy(&output.stderr).into(),
+            });
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    }
 }
 
 /// Options controlling which prechecks are hard requirements.
@@ -496,16 +557,29 @@ pub fn precheck(spec: &ServiceSpec, opts: &PrecheckOptions) -> Result<PrecheckRe
         report.push("sudo", CheckSeverity::Pass, "skipped (dry-run)");
     }
 
-    // 7. existing unit / plist
+    // 7. existing unit / plist / task xml
     let existing = match opts.backend {
         ServiceBackend::Launchd => spec.launchd_plist_path(),
         ServiceBackend::Systemd => spec.unit_path(),
+        ServiceBackend::TaskScheduler => spec.task_xml_path(),
     };
     if existing.exists() {
         report.push(
             "existing_unit",
             CheckSeverity::Warn,
             format!("{} exists and will be overwritten", existing.display()),
+        );
+    } else if opts.backend == ServiceBackend::TaskScheduler
+        && crate::task_scheduler::task_exists(&spec.task_name())
+    {
+        // 注册的任务与持久化 XML 可能单边存在（手工删过文件/未卸载干净），都提示
+        report.push(
+            "existing_unit",
+            CheckSeverity::Warn,
+            format!(
+                "scheduled task {} is registered and will be re-created",
+                spec.task_name()
+            ),
         );
     } else {
         report.push("existing_unit", CheckSeverity::Pass, "no existing unit");
@@ -518,6 +592,89 @@ pub fn precheck(spec: &ServiceSpec, opts: &PrecheckOptions) -> Result<PrecheckRe
         });
     }
     Ok(report)
+}
+
+/// 检测当前用户是否存在已登录的 macOS GUI 会话（`launchctl print gui/<uid>` 成功）。
+///
+/// doctor 与 install 共用：SSH-only 场景下 launchd 的 gui domain 不可用，
+/// LaunchAgent 的 bootstrap/enable 会以 exit 134 (SIGABRT) 失败。
+#[cfg(target_os = "macos")]
+pub fn macos_gui_session_present() -> bool {
+    let uid = Command::new("id")
+        .arg("-u")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    if uid.is_empty() {
+        return false;
+    }
+    Command::new("launchctl")
+        .args(["print", &format!("gui/{uid}")])
+        .output()
+        .is_ok_and(|o| o.status.success())
+}
+
+/// MinerU（opencv 依赖链）在 headless Linux 上运行所需的基础共享库（ldconfig 名称）。
+///
+/// 无桌面的服务器发行版默认不带这些 X11/GL 客户端库；缺失时 venv 内 mineru 会在
+/// `--help` 自检阶段以 `ImportError: libxcb.so.1: cannot open shared object file` 失败。
+/// 该清单与 document-parser 侧 `detection::shared_lib_install_hint` 的建议命令保持一致。
+pub const REQUIRED_LINUX_SYSLIBS: &[&str] = &["libxcb.so.1", "libGL.so.1", "libglib-2.0.so.0"];
+
+/// ldconfig 缺库时的安装提示文案（RHEL/Debian 双系命令），doctor 与 setup 预检共用。
+pub fn linux_syslibs_install_hint() -> String {
+    "缺少上述库时按发行版安装：\n  \
+     RHEL 系: sudo dnf install libxcb libxkbcommon libXext libXrender mesa-libGL glib2\n  \
+     Debian 系: sudo apt install libxcb1 libxkbcommon-x11-0 libgl1 libglib2.0-0"
+        .to_string()
+}
+
+/// 在 `ldconfig -p` 缓存文本中返回无法解析的库名（纯函数，任意平台可单测）。
+///
+/// 缓存行样例：`        libxcb.so.1 (libc6,x86-64) => /lib/x86_64-linux-gnu/libxcb.so.1`
+/// 行首库名后必须紧跟空格或 `(`（避免 `libxcb.so` 前缀误匹配 `libxcb.so.1` 的行，
+/// 以及 `libglib-2.0.so.0x` 之类的超长名误报）。
+pub fn libs_missing_from_ldconfig(required: &[&str], ldconfig_cache: &str) -> Vec<String> {
+    required
+        .iter()
+        .filter(|lib| {
+            !ldconfig_cache.lines().any(|line| {
+                let t = line.trim_start();
+                t.strip_prefix(*lib)
+                    .is_some_and(|rest| rest.starts_with(' ') || rest.starts_with('('))
+            })
+        })
+        .map(|lib| (*lib).to_string())
+        .collect()
+}
+
+/// Linux 系统库预检结果。
+#[derive(Debug, Clone, Default)]
+pub struct LinuxSyslibStatus {
+    /// 未解析到的库名（空 = 全部就绪）。
+    pub missing: Vec<String>,
+    /// `ldconfig` 不可用（如 musl 环境）时检查被跳过，调用方应降级为 WARN 而非失败。
+    pub skipped: bool,
+}
+
+/// 运行 `ldconfig -p` 并比对 [`REQUIRED_LINUX_SYSLIBS`]。
+#[cfg(target_os = "linux")]
+pub fn check_required_linux_syslibs() -> LinuxSyslibStatus {
+    match Command::new("ldconfig").arg("-p").output() {
+        Ok(out) if out.status.success() => LinuxSyslibStatus {
+            missing: libs_missing_from_ldconfig(
+                REQUIRED_LINUX_SYSLIBS,
+                &String::from_utf8_lossy(&out.stdout),
+            ),
+            skipped: false,
+        },
+        _ => LinuxSyslibStatus {
+            missing: Vec::new(),
+            skipped: true,
+        },
+    }
 }
 
 #[cfg(test)]
@@ -541,6 +698,7 @@ mod tests {
         fs::write(&bin, b"#!/bin/sh\necho ok\n").unwrap();
         #[cfg(unix)]
         {
+            use std::os::unix::fs::PermissionsExt;
             let mut perms = fs::metadata(&bin).unwrap().permissions();
             perms.set_mode(0o755);
             fs::set_permissions(&bin, perms).unwrap();
@@ -588,5 +746,39 @@ mod tests {
         // Can't easily run full precheck without sudo; assert path_writable + required
         assert!(!spec.required_paths[0].exists());
         assert!(path_writable(dir.path()));
+    }
+
+    #[test]
+    fn ldconfig_missing_reports_missing_libs() {
+        let cache = "\tlibxcb.so.1 (libc6,x86-64) => /lib/x86_64-linux-gnu/libxcb.so.1\n\
+                     \tlibGL.so.1 (libc6,x86-64) => /lib/x86_64-linux-gnu/libGL.so.1\n";
+        let missing = libs_missing_from_ldconfig(REQUIRED_LINUX_SYSLIBS, cache);
+        assert_eq!(missing, vec!["libglib-2.0.so.0"]);
+    }
+
+    #[test]
+    fn ldconfig_no_prefix_false_positive() {
+        // 行首库名后必须跟空格/括号：libxcb.so.1 的行不能糊弄 libxcb.so，
+        // libglib-2.0.so.0x 的行不能糊弄 libglib-2.0.so.0
+        let cache = "\tlibxcb.so.1 (libc6) => /lib/libxcb.so.1\n\
+                     \tlibglib-2.0.so.0x (libc6) => /lib/libglib-2.0.so.0x\n";
+        let missing = libs_missing_from_ldconfig(&["libxcb.so", "libglib-2.0.so.0"], cache);
+        assert_eq!(missing, vec!["libxcb.so", "libglib-2.0.so.0"]);
+    }
+
+    #[test]
+    fn ldconfig_empty_cache_reports_all_missing() {
+        let missing = libs_missing_from_ldconfig(REQUIRED_LINUX_SYSLIBS, "");
+        assert_eq!(
+            missing,
+            vec!["libxcb.so.1", "libGL.so.1", "libglib-2.0.so.0"]
+        );
+    }
+
+    #[test]
+    fn linux_syslib_hint_contains_dnf_and_apt() {
+        let hint = linux_syslibs_install_hint();
+        assert!(hint.contains("dnf install libxcb"));
+        assert!(hint.contains("apt install libxcb1"));
     }
 }

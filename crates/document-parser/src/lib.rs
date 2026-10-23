@@ -17,9 +17,7 @@ pub mod handlers;
 pub mod middleware;
 pub mod models;
 pub mod parsers;
-pub mod performance;
 pub mod processors;
-pub mod production;
 pub mod routes;
 pub mod service_cli;
 pub mod services;
@@ -72,6 +70,7 @@ pub fn get_default_config() -> AppConfig {
         handlers::document_handler::get_supported_formats,
         handlers::document_handler::get_parser_stats,
         handlers::document_handler::check_parser_health,
+        handlers::document_handler::parse_document_sync,
 
         // 任务管理接口
         handlers::task_handler::create_task,
@@ -126,12 +125,14 @@ pub fn get_default_config() -> AppConfig {
             models::DocumentStatistics,
             models::OssData,
             models::ImageInfo,
+            models::UploadEndpoint,
 
             // 文档处理相关
             handlers::document_handler::DocumentParseResponse,
             handlers::document_handler::StructuredDocumentResponse,
             handlers::document_handler::SupportedFormatsResponse,
             handlers::document_handler::ParserStatsResponse,
+            handlers::document_handler::SyncParseResponse,
 
 
             // 任务管理相关

@@ -2,10 +2,8 @@ use anyhow::Result;
 use rmcp::{
     ErrorData as McpError, ServerHandler,
     handler::server::wrapper::Parameters,
-    model::{
-        CallToolResult, Content, Implementation, ProtocolVersion, ServerCapabilities, ServerInfo,
-    },
-    tool, tool_router,
+    model::{CallToolResult, ContentBlock, ServerCapabilities, ServerConfig},
+    tool, tool_handler, tool_router,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -26,122 +24,35 @@ pub struct CodeRunRequest {
 #[derive(Debug, Clone, Default)]
 pub struct CodeRunnerService;
 
-#[tool_router]
 impl CodeRunnerService {
-    #[tool(description = "执行JavaScript代码并返回结果")]
-    async fn run_javascript(
+    /// 三种语言工具共用的执行与结果包装逻辑
+    async fn execute_tool(
         &self,
-        request: Parameters<CodeRunRequest>,
+        language: LanguageScript,
+        request: CodeRunRequest,
     ) -> Result<CallToolResult, McpError> {
-        let request = request.0;
-        match CodeExecutor::execute_with_params_compat(
-            &request.code,
-            LanguageScript::Js,
-            request.params,
-        )
-        .await
+        match CodeExecutor::execute_with_params_compat(&request.code, language, request.params)
+            .await
         {
             Ok(result) => {
-                if result.success {
-                    let content = Content::json(json!({
+                let payload = if result.success {
+                    json!({
                         "result": result.result,
                         "logs": result.logs,
                         "success": true
-                    }))?;
-                    Ok(CallToolResult::success(vec![content]))
+                    })
                 } else {
-                    let content = Content::json(json!({
+                    json!({
                         "success": false,
                         "error": result.error,
                         "logs": result.logs
-                    }))?;
-                    Ok(CallToolResult::success(vec![content]))
-                }
-            }
-            Err(err) => {
-                let content = Content::json(json!({
-                    "success": false,
-                    "error": err.to_string(),
-                    "logs": []
-                }))?;
+                    })
+                };
+                let content = ContentBlock::json(payload)?;
                 Ok(CallToolResult::success(vec![content]))
             }
-        }
-    }
-
-    #[tool(description = "执行TypeScript代码并返回结果")]
-    async fn run_typescript(
-        &self,
-        request: Parameters<CodeRunRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let request = request.0;
-        match CodeExecutor::execute_with_params_compat(
-            &request.code,
-            LanguageScript::Ts,
-            request.params,
-        )
-        .await
-        {
-            Ok(result) => {
-                if result.success {
-                    let content = Content::json(json!({
-                        "result": result.result,
-                        "logs": result.logs,
-                        "success": true
-                    }))?;
-                    Ok(CallToolResult::success(vec![content]))
-                } else {
-                    let content = Content::json(json!({
-                        "success": false,
-                        "error": result.error,
-                        "logs": result.logs
-                    }))?;
-                    Ok(CallToolResult::success(vec![content]))
-                }
-            }
             Err(err) => {
-                let content = Content::json(json!({
-                    "success": false,
-                    "error": err.to_string(),
-                    "logs": []
-                }))?;
-                Ok(CallToolResult::success(vec![content]))
-            }
-        }
-    }
-
-    #[rmcp::tool(description = "执行Python代码并返回结果")]
-    async fn run_python(
-        &self,
-        request: Parameters<CodeRunRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let request = request.0;
-        match CodeExecutor::execute_with_params_compat(
-            &request.code,
-            LanguageScript::Python,
-            request.params,
-        )
-        .await
-        {
-            Ok(result) => {
-                if result.success {
-                    let content = Content::json(json!({
-                        "result": result.result,
-                        "logs": result.logs,
-                        "success": true
-                    }))?;
-                    Ok(CallToolResult::success(vec![content]))
-                } else {
-                    let content = Content::json(json!({
-                        "success": false,
-                        "error": result.error,
-                        "logs": result.logs
-                    }))?;
-                    Ok(CallToolResult::success(vec![content]))
-                }
-            }
-            Err(err) => {
-                let content = Content::json(json!({
+                let content = ContentBlock::json(json!({
                     "success": false,
                     "error": err.to_string(),
                     "logs": []
@@ -152,13 +63,37 @@ impl CodeRunnerService {
     }
 }
 
+#[tool_router]
+impl CodeRunnerService {
+    #[tool(description = "执行JavaScript代码并返回结果")]
+    async fn run_javascript(
+        &self,
+        request: Parameters<CodeRunRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        self.execute_tool(LanguageScript::Js, request.0).await
+    }
+
+    #[tool(description = "执行TypeScript代码并返回结果")]
+    async fn run_typescript(
+        &self,
+        request: Parameters<CodeRunRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        self.execute_tool(LanguageScript::Ts, request.0).await
+    }
+
+    #[tool(description = "执行Python代码并返回结果")]
+    async fn run_python(
+        &self,
+        request: Parameters<CodeRunRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        self.execute_tool(LanguageScript::Python, request.0).await
+    }
+}
+
+#[tool_handler]
 impl ServerHandler for CodeRunnerService {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            protocol_version: ProtocolVersion::V_2024_11_05,
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
-            server_info: Implementation::from_build_env(),
-            instructions: Some("一个支持执行JavaScript、TypeScript和Python代码的服务".to_string()),
-        }
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
+            .with_instructions("一个支持执行JavaScript、TypeScript和Python代码的服务")
     }
 }

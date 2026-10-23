@@ -100,14 +100,23 @@ impl RateLimiter {
 
     pub fn check_rate_limit(&self, client_ip: &str) -> bool {
         let now = SystemTime::now();
-        let mut requests = self.requests.lock().unwrap();
+        // 锁中毒恢复（与 parse_cancel.rs 同范式）：一次 panic 不应让后续所有
+        // 请求连锁失败（被 CatchPanicLayer 转成 500，服务事实不可用）
+        let mut requests = self
+            .requests
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        // 清理过期记录并驱逐空条目：一次性 IP 的条目若不驱逐，扫描流量下
+        // HashMap 会无界增长
+        requests.retain(|_, times| {
+            times.retain(|&time| {
+                now.duration_since(time).unwrap_or(Duration::MAX) < self.window_duration
+            });
+            !times.is_empty()
+        });
 
         let client_requests = requests.entry(client_ip.to_string()).or_default();
-
-        // 清理过期的请求记录
-        client_requests.retain(|&time| {
-            now.duration_since(time).unwrap_or(Duration::MAX) < self.window_duration
-        });
 
         // 检查是否超过限制
         if client_requests.len() >= self.max_requests {

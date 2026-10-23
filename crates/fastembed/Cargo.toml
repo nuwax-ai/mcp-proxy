@@ -60,6 +60,7 @@ futures = { workspace = true }
 # OpenAPI documentation
 utoipa = { workspace = true }
 utoipa-swagger-ui = { workspace = true }
+utoipa-scalar = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
