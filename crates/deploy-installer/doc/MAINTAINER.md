@@ -238,7 +238,10 @@ bash scripts/ci/verify-oss-sensevoice-url.sh \
 ```
 
 manifest 模板已带 `sensevoiceModels` 键（`npm/deploy-installer/vendor/templates/manifest.json`，
-指向上方 public URL）——**OSS 上传前该键解析出的 URL 会 404，安装器只 WARN 不阻断**（模型是可选增强）。
+指向上方 public URL）——**已上传**（2026-11-03，`nuwax-ossutil upload` 严格模式，CRC64
+`7203345292179577587`，160306092 B，回执 `dist/voice-cli/models/sensevoice-upload-report.json`）。
+重新打包上传时用 `--forbid-overwrite`：同名对象会被 OSS 拒绝（`FileAlreadyExists`），
+避免误覆盖线上资产。
 用户侧：`deploy-installer voice-cli install --sensevoice` → 装完在 `config.yml` 设
 `whisper.engine.backend: sensevoice`（默认 `whisper` 不变）。
 
