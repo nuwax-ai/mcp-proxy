@@ -268,6 +268,18 @@ GPU 统一经 `whisper.engine.sherpa.provider`（`coreml`/`cuda`/空=CPU）。
 >    ldconfig -p | grep libcudnn.so.9                                 # 必须有输出
 >    ```
 >    先在 `provider` 留空（CPU）跑通链路，再切 GPU——与 §9 TTS GPU 的升级路径同理。
+>
+> **免 root 补齐新版运行时**（deb 解出来 + `LD_LIBRARY_PATH`，无需装系统；已在 RTX 3090 /
+> Ubuntu 24 实测 SenseVoice GPU 转写通过）：
+> ```bash
+> # cudart 12.9（v1.13.8 的 CUDA 包需要）+ cuDNN 9.8（SenseVoice Conv 节点需要）
+> base=https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64
+> curl -O $base/cuda-cudart-12-9_12.9.79-1_amd64.deb
+> curl -O $base/libcudnn9-cuda-12_9.8.0.87-1_amd64.deb
+> mkdir -p /opt/cuda-rt && for d in *.deb; do dpkg-deb -x "$d" /opt/cuda-rt; done
+> export LD_LIBRARY_PATH=/opt/cuda-rt/usr/local/cuda-12.9/targets/x86_64-linux/lib:/opt/cuda-rt/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
+> ```
+> systemd 部署时把上面的 `LD_LIBRARY_PATH` 写进 drop-in（`--cuda-lib-dir` 同款机制）。
 
 ```bash
 # 1) 拉模型（任选，sherpa-onnx asr-models release，gh-proxy 镜像自动探活）
