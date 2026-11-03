@@ -11,11 +11,18 @@
 7. spec 里 engine 参数枚举覆盖全部 5 个引擎（sensevoice 迁移后不能漏）
 
 用法：python3 openapi_check.py http://127.0.0.1:8099
+（Windows GBK 控制台自动兼容；或 python3 -X utf8 显式指定）
 """
+import io
 import json
 import sys
 import urllib.request
 import urllib.error
+
+# Windows 控制台默认 GBK，编不了 ✅/❌ → 强制 UTF-8 输出（失败则降级 replace）
+if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 BASE = sys.argv[1].rstrip("/") if len(sys.argv) > 1 else "http://127.0.0.1:8099"
 TIMEOUT = 180
