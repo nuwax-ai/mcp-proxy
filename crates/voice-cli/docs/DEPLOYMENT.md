@@ -255,6 +255,20 @@ A/B 对比（同音频，免重启）：`/api/v1/transcribe` 传 `-F engine=sens
 四者同走 sherpa-onnx `OfflineRecognizer`（与 TTS 同库），**均仅批量**，流式端点仍 whisper；
 GPU 统一经 `whisper.engine.sherpa.provider`（`coreml`/`cuda`/空=CPU）。
 
+> ⚠️ **Linux `provider: cuda` 的运行时前置条件**（四引擎共用，含 SenseVoice）：
+> 1. CUDA 运行时版本要**匹配** sherpa-onnx CUDA 预编译包（v1.13.8 包需要较新的
+>    libcudart，实测 CUDA 12.6 缺 `cudaLibraryGetKernel` 符号会加载失败）
+> 2. **cuDNN 9 必须在场**：SenseVoice 的 FSMN Conv 节点走 cuDNN，缺了 onnxruntime
+>    报 `Non-zero status code ... Conv node` 并返回空文本（不报错、不崩）
+> 3. **版本不匹配的失败模式是进程 abort，不是请求报错**：onnxruntime 加载 provider 失败时
+>    sherpa-onnx C++ 抛异常穿过 FFI → `fatal runtime error: Rust cannot catch foreign
+>    exceptions, aborting` → **整个服务进程退出**。切 GPU 前先自检：
+>    ```bash
+>    ldd libonnxruntime_providers_cuda.so | grep -E 'cudart|cublas'   # 缺什么装什么
+>    ldconfig -p | grep libcudnn.so.9                                 # 必须有输出
+>    ```
+>    先在 `provider` 留空（CPU）跑通链路，再切 GPU——与 §9 TTS GPU 的升级路径同理。
+
 ```bash
 # 1) 拉模型（任选，sherpa-onnx asr-models release，gh-proxy 镜像自动探活）
 cd ~/voice-cli-test
