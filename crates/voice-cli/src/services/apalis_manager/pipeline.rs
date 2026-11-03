@@ -197,35 +197,41 @@ async fn transcription_step(
             }
         }
         crate::models::config::SttBackend::SenseVoice => {
-            // SenseVoice：从 config.whisper.engine.sensevoice 解析目录 + 量化（host 预置，无自动下载）
-            #[cfg(feature = "sensevoice")]
-            {
-                let models_dir = cfg.whisper.models_dir.clone();
-                let sv_cfg = &cfg.whisper.engine.sensevoice;
-                let model_dir = crate::stt::sensevoice::resolve_model_dir(&models_dir, sv_cfg);
-                let quantization = crate::stt::sensevoice::parse_quantization(&sv_cfg.quantization)
-                    .map_err(|e| -> BoxDynError {
-                        Box::new(AbortError::new(std::io::Error::other(format!(
-                            "SenseVoice 量化解析失败: {e}"
-                        ))))
-                    })?;
-                let model_id = model_dir.display().to_string();
-                crate::stt::SttInvocation::TranscribeRs {
-                    model_id,
-                    spec: crate::stt::SttEngineSpec::SenseVoice {
-                        model_dir,
-                        quantization,
+            // SenseVoice：sherpa-onnx 通道（与 FireRedAsr2 三引擎同构；host 预置，无自动下载）
+            let sv_cfg = &cfg.whisper.engine.sensevoice;
+            let sh_cfg = &cfg.whisper.engine.sherpa;
+            let models_dir = std::path::Path::new(&cfg.whisper.models_dir);
+            let quant = crate::stt::SenseVoiceQuant::parse(&sv_cfg.quantization).map_err(
+                |e| -> BoxDynError {
+                    Box::new(AbortError::new(std::io::Error::other(format!(
+                        "SenseVoice 量化解析失败: {e}"
+                    ))))
+                },
+            )?;
+            let model_dir = crate::stt::sherpa_model_paths::resolve_model_dir(
+                models_dir,
+                "sensevoice",
+                crate::stt::sherpa_model_paths::DEFAULT_SENSEVOICE_DIR,
+                sv_cfg.model_dir.as_deref(),
+            );
+            let model_id = model_dir.display().to_string();
+            crate::stt::SttInvocation::Sherpa {
+                model_id,
+                load_params: crate::stt::SherpaAsrLoadParams {
+                    model_dir,
+                    kind: crate::stt::SherpaAsrKind::SenseVoice {
+                        language: sv_cfg.language.clone(),
+                        use_itn: sv_cfg.use_itn,
+                        quant,
                     },
-                }
-            }
-            #[cfg(not(feature = "sensevoice"))]
-            {
-                return Err(Box::new(AbortError::new(std::io::Error::other(
-                    "backend=sensevoice 但未启用 sensevoice feature（请 --features sensevoice 编译）",
-                ))));
+                    provider: sh_cfg.provider.clone(),
+                    num_threads: sh_cfg.num_threads,
+                    pool_size: sh_cfg.pool_size,
+                    debug: sh_cfg.debug,
+                },
             }
         }
-        // sherpa-onnx 三引擎（FireRedASR2 / Fun-ASR-Nano / Qwen3-ASR）：仅批量，走独立 sherpa 池
+        // sherpa-onnx 引擎（FireRedASR2 / Fun-ASR-Nano / Qwen3-ASR）：仅批量，走独立 sherpa 池
         crate::models::config::SttBackend::FireRedAsr2
         | crate::models::config::SttBackend::FunAsrNano
         | crate::models::config::SttBackend::Qwen3Asr => {

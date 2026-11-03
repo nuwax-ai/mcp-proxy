@@ -122,9 +122,11 @@ workspace root.
   with an 11-stage state machine, task cancellation, dual OSS buckets plus
   nuwax REST custom upload backend. ~32 HTTP endpoints, full utoipa OpenAPI.
 - **voice-cli**: all-Rust STT/TTS service.
-  - STT engines: Whisper (whisper.cpp via transcribe-rs), SenseVoice (ONNX via
-    transcribe-rs), FireRedASR2 / Fun-ASR-Nano / Qwen3-ASR (sherpa-onnx pool).
-    Streaming STT uses Local Agreement 2 over WebSocket, always Whisper.
+  - STT engines: Whisper (whisper.cpp via transcribe-rs; streaming + batch) and
+    SenseVoice / FireRedASR2 / Fun-ASR-Nano / Qwen3-ASR (all via sherpa-onnx
+    `OfflineRecognizer` pool — no cargo feature needed, sherpa-onnx is already
+    linked for TTS). Streaming STT uses Local Agreement 2 over WebSocket, always
+    Whisper (the four sherpa engines are offline/batch-only).
   - TTS engines: Kokoro and ZipVoice (sherpa-onnx, `TtsBackend` enum);
     ZipVoice supports zero-shot voice cloning (preset profiles + runtime base64).
   - apalis + SQLite task queues (separate DBs for STT/TTS).

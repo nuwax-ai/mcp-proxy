@@ -2,7 +2,10 @@
 # 拉取 SenseVoice ONNX 模型（sherpa-onnx 布局）到 ./models/sensevoice/。
 #
 # transcribe-rs SenseVoiceModel::load 需目录含 `model.int8.onnx` + `tokens.txt`（无自动下载）。
-# 规范目录名 `sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17`（中英日韩粤，int8 ~900MB）。
+# 规范目录名 `sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17`（中英日韩粤）。
+# 发布包内同时含 `model.onnx`(fp32 894M) 与 `model.int8.onnx`(int8 228M)——**默认用 int8**
+# （同文本输出、CPU 推理快 2.6×、内存少 4×）。整包 tar.bz2 ~1GB。
+# 引擎现走 sherpa-onnx 通道（默认编译即可用，无需 --features sensevoice）。
 # 源：sherpa-onnx github `asr-models` release（github 阻断时走 gh-proxy 镜像，自动探活）。
 #
 # 用法（在 voice-cli 工作目录下执行）:
@@ -98,4 +101,9 @@ echo "    engine:"
 echo "      backend: sensevoice"
 echo "      sensevoice:"
 echo "        model_dir: ${DEST}"
-echo "        quantization: ${QREC}   # 文件: ${ONNX_BASENAME}"
+echo "        quantization: ${QREC}   # 文件: ${ONNX_BASENAME}（int8 228M 默认，快 2.6×/省 4× 内存）"
+echo "        language: \"auto\"       # auto/zh/en/ja/ko/yue（影响 ITN）"
+echo "        use_itn: true          # 口语数字/日期 → 书面（\"二零二六年\" → \"2026年\"）"
+echo
+echo "注：SenseVoice 走 sherpa-onnx 通道（与 TTS 同库），默认编译即可用，无需 --features sensevoice。"
+echo "    GPU：whisper.engine.sherpa.provider 设 coreml(Mac)/cuda(Linux)。"

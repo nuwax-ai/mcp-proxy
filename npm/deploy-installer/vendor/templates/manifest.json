@@ -15,6 +15,13 @@
       "linux-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/whisper-ggml-all-{version}.tar.gz",
       "windows-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/whisper-ggml-all-{version}.tar.gz"
     },
+    "sensevoiceModels": {
+      "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/models/sensevoice-models.tar.gz",
+      "darwin-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/models/sensevoice-models.tar.gz",
+      "linux-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/models/sensevoice-models.tar.gz",
+      "linux-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/models/sensevoice-models.tar.gz",
+      "windows-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/models/sensevoice-models.tar.gz"
+    },
     "voiceCliCuda": {
       "linux-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/voice-cli-cuda-linux-x64-{version}.tar.gz"
     },

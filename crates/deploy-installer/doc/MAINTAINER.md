@@ -220,6 +220,31 @@ bash scripts/ci/verify-oss-whisper-url.sh \
   https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v0.2.13/whisper-ggml-large-v3-0.2.13.tar.gz
 ```
 
+#### 打包 SenseVoice 模型（可选，`--sensevoice`）
+
+SenseVoice 走 sherpa-onnx 通道（默认编译即含，无需 cargo feature），模型是**平台无关纯文件**——
+与 `mineruModels` 同款：**URL 不带 `{version}`**（模型版本独立于包版本，不必每次发版重传）。
+
+| manifest 键 | OSS 文件 | 说明 |
+|-------------|----------|------|
+| `sensevoiceModels.*`（三平台同 URL） | `models/sensevoice-models.tar.gz` | `models/sensevoice/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/`：`model.int8.onnx` 228M + `tokens.txt`，**~160MB 压缩包** |
+
+```bash
+# 打包（默认只打 int8 228M；--with-fp32 另带 894M fp32；--local-dir 复用本地已拉好的模型免 1GB 下载）
+bash scripts/ci/pack-voice-cli-sensevoice-models.sh --local-dir /path/to/models/sensevoice
+# 上传: oss://nuwa-packages/uploads/voice-cli/models/sensevoice-models.tar.gz
+bash scripts/ci/verify-oss-sensevoice-url.sh \
+  https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/models/sensevoice-models.tar.gz
+```
+
+manifest 模板已带 `sensevoiceModels` 键（`npm/deploy-installer/vendor/templates/manifest.json`，
+指向上方 public URL）——**OSS 上传前该键解析出的 URL 会 404，安装器只 WARN 不阻断**（模型是可选增强）。
+用户侧：`deploy-installer voice-cli install --sensevoice` → 装完在 `config.yml` 设
+`whisper.engine.backend: sensevoice`（默认 `whisper` 不变）。
+
+> 打包布局必须是**顶层 `models/`**（与 whisper-ggml 包同款约定：安装器解压到 install_dir），
+> verify 脚本会校验这一点。
+
 ### Linux CUDA（二期）
 
 | manifest 键 | OSS 文件 | 说明 |
@@ -230,19 +255,20 @@ bash scripts/ci/verify-oss-whisper-url.sh \
 
 ```bash
 # 一次性依赖：CUDA toolkit（/usr/local/cuda，apt nvidia-cuda-toolkit 或官方 runfile）
-# 注意 cuDNN 非必需：whisper-cuda 只用 cublas；sensevoice 的 GPU providers 仅运行时需要
-#（编译期 ort load-dynamic 不链 cudnn）
+# 注意 cuDNN 非必需（编译期）：whisper-cuda 只用 cublas；sherpa-onnx 引擎
+# （sensevoice/fireredasr2/funasrnano/qwen3asr）的 GPU providers 仅运行时需要
 export PATH="$HOME/.cargo/bin:/usr/local/cuda/bin:$PATH" CUDA_PATH=/usr/local/cuda
 # 架构 61=1080Ti/75=20系/80=A6000/86=30系/89=4090（4090 实测须真机；sm_89 与 61 同链路）
 RUSTFLAGS="-C link-arg=-Wl,-rpath,\$ORIGIN" \
   GGML_NATIVE=OFF \
   CMAKE_CUDA_ARCHITECTURES="61;75;80;86;89" \
-  cargo build --release -p voice-cli --features cuda,sensevoice-cuda
+  cargo build --release -p voice-cli --features cuda
 # 验证（必做）
 readelf -d target/release/voice-cli | grep RUNPATH   # 应含 $ORIGIN
 # GPU 实测（编译机有卡时）：临时目录放 binary+so+config（独立端口）→ server run →
 # transcribe → 日志应出现 ggml_cuda_init: found 1 CUDA devices
-# providers_cuda/shared 两枚 .so 来自 ort-cuda feature 的构建产物
+# providers_cuda/shared 两枚 .so 来自 sherpa-onnx CUDA 预编译包（SHERPA_ONNX_LIB_DIR），
+# 供全部 sherpa-onnx 引擎（含 sensevoice）走 GPU；详见 crates/voice-cli/deploy/README.md
 ```
 
 打包/上传/校验（staging 目录需收齐 voice-cli + 4×`.so`）：

@@ -1,9 +1,9 @@
-//! sherpa-onnx `OfflineRecognizer` 引擎池（FireRedASR2-AED / Fun-ASR-Nano / Qwen3-ASR）。
+//! sherpa-onnx `OfflineRecognizer` 引擎池（SenseVoice / FireRedASR2-AED / Fun-ASR-Nano / Qwen3-ASR）。
 //!
 //! 镜像 TTS [`crate::tts::engine_pool`]（`OfflineTts` 池）+ 复用 [`crate::pool::Pool`]。
-//! 与 transcribe-rs 的 dyn 池（whisper/sensevoice）**独立**：sherpa-onnx `OfflineRecognizer`
+//! 与 transcribe-rs 的 dyn 池（whisper）**独立**：sherpa-onnx `OfflineRecognizer`
 //! 不实现 transcribe-rs `SpeechModel` trait，且返回 `OfflineRecognizerResult`（非
-//! `TranscriptionResult`），故单列一池，避免动已验证的 whisper/sensevoice 路径。
+//! `TranscriptionResult`），故单列一池，避免动已验证的 whisper 路径。
 //!
 //! # 设计要点（与 TTS engine_pool 同构）
 //! - 全局 `LazyLock<DashMap<EngineKey, Arc<SherpaEnginePool>>>` 按 model_id 缓存
@@ -26,7 +26,7 @@ use dashmap::DashMap;
 use sherpa_onnx::{
     OfflineFireRedAsrModelConfig, OfflineFunASRNanoModelConfig, OfflineModelConfig,
     OfflineQwen3ASRModelConfig, OfflineRecognizer, OfflineRecognizerConfig,
-    OfflineRecognizerResult,
+    OfflineRecognizerResult, OfflineSenseVoiceModelConfig,
 };
 
 use crate::pool::Pool;
@@ -127,6 +127,21 @@ fn build_recognizer(
     };
 
     match paths {
+        SherpaAsrPaths::SenseVoice { model, tokens } => {
+            let (language, use_itn) = match kind {
+                SherpaAsrKind::SenseVoice {
+                    language, use_itn, ..
+                } => (language.clone(), *use_itn),
+                _ => (None, true),
+            };
+            // ⚠️ tokens 走全局字段（OfflineSenseVoiceModelConfig 无 tokens 字段，但 C 端强制校验）
+            model_config.tokens = Some(p2s(tokens));
+            model_config.sense_voice = OfflineSenseVoiceModelConfig {
+                model: Some(p2s(model)),
+                language,
+                use_itn,
+            };
+        }
         SherpaAsrPaths::FireRedAsr2 {
             encoder,
             decoder,

@@ -169,3 +169,12 @@ whisper:
 ```
 
 STT/TTS 引擎选择（whisper | sensevoice、Kokoro | ZipVoice）、批转写并发、模型目录等完整配置见 [crates/voice-cli/docs/DEPLOYMENT.md](../../../crates/voice-cli/docs/DEPLOYMENT.md)。
+
+**可选：SenseVoice 模型**（中文更准、原生简体，int8 228MB；sherpa-onnx 通道，默认编译即含引擎）
+
+```bash
+deploy-installer voice-cli install --sensevoice     # 额外拉 SenseVoice 模型包（~160MB）
+# 装完在 ~/voice-cli/config.yml 设 whisper.engine.backend: sensevoice（默认 whisper 不变）
+```
+
+模型缺失不阻断安装（只 WARN）；`--skip-models` 不影响 `--sensevoice`（显式请求优先）。

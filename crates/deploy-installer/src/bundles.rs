@@ -17,6 +17,10 @@ struct OptionalAssets {
     whisper_large_v3: std::collections::HashMap<String, String>,
     #[serde(default, rename = "whisperAll")]
     whisper_all: std::collections::HashMap<String, String>,
+    /// SenseVoice STT 模型包（平台无关纯文件，三平台键同 URL；URL 无 {version}——
+    /// 模型版本独立于包版本，见 `mineruModels` 同款处理）
+    #[serde(default, rename = "sensevoiceModels")]
+    sensevoice_models: std::collections::HashMap<String, String>,
     #[serde(default, rename = "voiceCliCuda")]
     voice_cli_cuda: std::collections::HashMap<String, String>,
     #[serde(default, rename = "voiceCliVulkan")]
@@ -233,6 +237,36 @@ pub fn voice_cli_vulkan_download_url_from_base(base: &str) -> String {
     format!("{}/{}", base.trim_end_matches('/'), name)
 }
 
+/// OSS tarball basename for the SenseVoice STT model pack (platform-independent).
+/// 模型版本独立于包版本：文件名固定，不带 {version} 占位符
+/// （ SenseVoice 上游 release 名 `sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` ）。
+pub fn sensevoice_models_archive_filename() -> String {
+    "sensevoice-models.tar.gz".to_string()
+}
+
+/// Resolve optional SenseVoice model pack URL from manifest.
+///
+/// 模型平台无关（三平台键同 URL）——按本平台键取，缺键时回退任一可用键
+/// （同 `optional_mineru_models_url` 的容错）。
+pub fn optional_sensevoice_models_url() -> Option<String> {
+    optional_asset_url(|assets| {
+        assets
+            .sensevoice_models
+            .get(platform_vendor_key())
+            .or_else(|| assets.sensevoice_models.values().next())
+    })
+}
+
+/// Build SenseVoice model pack URL from an OSS base directory
+/// （`uploads/voice-cli` 层级；文件名固定、无 {version}，模型版本独立于包版本）。
+pub fn sensevoice_models_download_url_from_base(base: &str) -> String {
+    format!(
+        "{}/models/{}",
+        base.trim_end_matches('/'),
+        sensevoice_models_archive_filename()
+    )
+}
+
 /// Resolve optional prebuilt Whisper ggml tarball URL from manifest.
 pub fn optional_whisper_download_url(pack: WhisperModelsPack) -> Option<String> {
     optional_asset_url(|assets| match pack {
@@ -385,7 +419,13 @@ mod tests {
         };
         if let Some(url) = url_for_version_check {
             assert!(url.contains(&expected), "got {url}");
-            assert!(!url.contains("0.2.3"));
+            // 必须用 manifest 的 assetVersion，不能被包版本（NUWAX_DEPLOY_VERSION 注入值）污染。
+            // 注意：断言要排除**完整包版本串**（"0.2.3-beta.2"），不能只查 "0.2.3" 子串——
+            // assetVersion 升到 0.2.3x 系列时子串会误报（0.2.33 就含 "0.2.3"）。
+            assert!(
+                !url.contains("0.2.3-beta.2"),
+                "asset URL 应被 assetVersion 钉住，而非包版本: {url}"
+            );
         }
     }
 
@@ -522,5 +562,33 @@ mod tests {
             "got {url}"
         );
         assert!(!url.contains("beta"));
+    }
+
+    #[test]
+    fn optional_sensevoice_models_url_from_manifest() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../npm/deploy-installer/vendor");
+        // SAFETY: test-only env mutation; no concurrent env access in unit tests.
+        unsafe {
+            std::env::set_var("NUWAX_DEPLOY_ROOT", root.display().to_string());
+            std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.1-beta.2");
+        }
+        let url =
+            optional_sensevoice_models_url().expect("manifest should provide sensevoiceModels URL");
+        assert!(url.contains("models/sensevoice-models.tar.gz"), "got {url}");
+        // 模型版本独立于包版本：URL 无 {version} 占位符、不带包版本号
+        assert!(!url.contains("{version}"), "URL 不应含占位符: {url}");
+        assert!(!url.contains("0.2."), "models URL 不应带包版本: {url}");
+    }
+
+    #[test]
+    fn sensevoice_models_url_from_base_is_versionless() {
+        let url =
+            sensevoice_models_download_url_from_base("https://oss.example.com/uploads/voice-cli/");
+        assert_eq!(
+            url,
+            "https://oss.example.com/uploads/voice-cli/models/sensevoice-models.tar.gz"
+        );
     }
 }

@@ -4,20 +4,21 @@
 use crate::{
     DropIn, InstallOptions, ServiceIdentity, ServiceSpec, WhisperModelsPack, bundled_binary_path,
     bundled_templates_dir, copy_if_exists, default_voice_cli_install_dir, deploy_asset_version,
-    ffmpeg_download_url_from_base, install, optional_ffmpeg_url, optional_voice_cli_cuda_url,
-    optional_voice_cli_vulkan_url, optional_whisper_download_url, platform_vendor_key,
-    voice_cli_cuda_archive_filename, voice_cli_cuda_download_url_from_base,
-    voice_cli_vulkan_archive_filename, voice_cli_vulkan_download_url_from_base,
-    whisper_download_url_from_base,
+    ffmpeg_download_url_from_base, install, optional_ffmpeg_url, optional_sensevoice_models_url,
+    optional_voice_cli_cuda_url, optional_voice_cli_vulkan_url, optional_whisper_download_url,
+    platform_vendor_key, sensevoice_models_download_url_from_base, voice_cli_cuda_archive_filename,
+    voice_cli_cuda_download_url_from_base, voice_cli_vulkan_archive_filename,
+    voice_cli_vulkan_download_url_from_base, whisper_download_url_from_base,
 };
 use anyhow::{Context, Result, bail};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::cli::assets::{
-    VOICE_CLI_CUDA_BUNDLE_FILES, VOICE_CLI_CUDA_BUNDLE_MARKER, VOICE_CLI_VULKAN_BUNDLE_FILES,
-    VOICE_CLI_VULKAN_BUNDLE_MARKER, WHISPER_DEFAULT_MODEL, ensure_whisper_pack_models,
-    patch_whisper_default_model, voice_cli_bundle_marker_version, voice_cli_cuda_bundle_present,
+    SENSEVOICE_MODEL_DIR, VOICE_CLI_CUDA_BUNDLE_FILES, VOICE_CLI_CUDA_BUNDLE_MARKER,
+    VOICE_CLI_VULKAN_BUNDLE_FILES, VOICE_CLI_VULKAN_BUNDLE_MARKER, WHISPER_DEFAULT_MODEL,
+    ensure_sensevoice_models, ensure_whisper_pack_models, patch_whisper_default_model,
+    sensevoice_models_present, voice_cli_bundle_marker_version, voice_cli_cuda_bundle_present,
     voice_cli_vulkan_bundle_present, whisper_large_v3_present, whisper_pack_satisfied,
 };
 use crate::cli::common::{
@@ -479,6 +480,7 @@ fn upgrade_bundle_args(
         use_prebuilt_models: false,
         skip_models: true,
         models: "large-v3".into(),
+        sensevoice: false,
         oss_base: oss_base.map(String::from),
         use_oss_cuda: tier == VoiceCliLinuxTier::Cuda,
         skip_oss_cuda: false,
@@ -595,6 +597,12 @@ pub fn setup(
         download_prebuilt_whisper(args, &install_dir, quiet)?;
     } else if !quiet {
         println!("  models: skipped (--skip-models); place models/ggml-*.bin manually if needed");
+    }
+
+    // SenseVoice STT 模型（可选，显式 --sensevoice 才下；与 --skip-models 独立——
+    // 显式请求优先于"跳过模型"的隐式默认）
+    if args.sensevoice {
+        download_sensevoice_models(args, &install_dir, quiet);
     }
 
     // ffmpeg（STT 音频解码依赖，与 whisper 模型独立——--skip-models 不影响）：
@@ -731,6 +739,54 @@ fn download_prebuilt_whisper(
     ensure_whisper_pack_models(install_dir, effective)
 }
 
+/// 下载 SenseVoice STT 模型包（`--sensevoice`，可选）。
+///
+/// 模型是平台无关纯文件（同 mineruModels）：解压到 `models/sensevoice/`。
+/// **不阻断安装**——资产缺失只 WARN + 提示手动放置（模型是可选增强，装不上模型
+/// 不代表服务不可用；与 whisper 的"必须有大模型"语义不同）。
+fn download_sensevoice_models(args: &VoiceCliSetupArgs, install_dir: &Path, quiet: bool) {
+    if sensevoice_models_present(install_dir) {
+        if !quiet {
+            println!("  sensevoice: model already present, skipping download");
+        }
+        return;
+    }
+    let url = if let Some(base) = args.oss_base.as_deref() {
+        sensevoice_models_download_url_from_base(base)
+    } else {
+        match optional_sensevoice_models_url() {
+            Some(url) => url,
+            None => {
+                println!(
+                    "  sensevoice: WARN (manifest.json 无 sensevoiceModels 键 — 上传 \
+                     sensevoice-models.tar.gz 到 OSS uploads/voice-cli/models/，\
+                     或手动放置 models/sensevoice/{SENSEVOICE_MODEL_DIR}/)"
+                );
+                return;
+            }
+        }
+    };
+    if let Err(e) = download_and_extract_tarball(
+        &url,
+        install_dir,
+        "sensevoice-models.tar.gz",
+        quiet,
+        "sensevoice",
+    ) {
+        println!("  sensevoice: WARN (download failed: {e}) — 可稍后重跑 install --sensevoice");
+        return;
+    }
+    if let Err(e) = ensure_sensevoice_models(install_dir) {
+        println!("  sensevoice: WARN ({e})");
+        return;
+    }
+    if !quiet {
+        println!(
+            "  sensevoice: model ready → config.yml 设 whisper.engine.backend: sensevoice（默认 whisper 不变）"
+        );
+    }
+}
+
 /// 请求包 → 实际可下载包（纯函数，便于单测）：--oss-base 恒按请求包；manifest
 /// 路径下 All 无本平台资产时回退 LargeV3；LargeV3 亦无资产返回 None（真错误）
 fn effective_pack(
@@ -858,8 +914,10 @@ fn copy_templates(install_dir: &Path, quiet: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::effective_pack;
+    use super::{VoiceCliSetupArgs, download_sensevoice_models};
     use super::{ffmpeg_binary_name, ffmpeg_sidecar_present};
     use crate::WhisperModelsPack::{All, LargeV3};
+    use crate::cli::assets::{ensure_sensevoice_models, sensevoice_models_present};
 
     /// `--models all` 平台回归：manifest 无 whisperAll 键的平台（Linux/Windows）
     /// 回退 large-v3 而不是 bail；--oss-base 恒按请求包
@@ -904,5 +962,42 @@ mod tests {
             "{url}"
         );
         assert!(!url.contains("//uploads"), "base 尾斜杠应剥除: {url}");
+    }
+
+    /// `--sensevoice` 端到端（本地 file:// 源，不打真实 OSS）：下载 + 解压到
+    /// `models/sensevoice/<规范目录>/`，且 `ensure_sensevoice_models` 校验通过。
+    /// 幂等：二次调用命中"already present"分支不再下载。
+    #[test]
+    fn download_sensevoice_models_extracts_expected_layout() {
+        // 本地资产源：仓库 dist/（pack 脚本产物，CI/本机均已 gitignore）
+        let dist =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../dist/voice-cli");
+        let archive = dist.join("models/sensevoice-models.tar.gz");
+        if !archive.is_file() {
+            // 未打包时跳过（而非失败）：跑 `bash scripts/ci/pack-voice-cli-sensevoice-models.sh --local-dir <models>`
+            eprintln!("skip: {} not packed", archive.display());
+            return;
+        }
+        let install = tempfile::tempdir().unwrap();
+        let args = VoiceCliSetupArgs {
+            install_dir: Some(install.path().to_path_buf()),
+            use_prebuilt_models: false,
+            skip_models: true,
+            models: "large-v3".into(),
+            sensevoice: true,
+            oss_base: Some(format!("file://{}", dist.display())),
+            use_oss_cuda: false,
+            skip_oss_cuda: false,
+            use_oss_vulkan: false,
+            skip_oss_vulkan: false,
+            cuda_lib_dir: None,
+            cudnn_lib_dir: None,
+        };
+        download_sensevoice_models(&args, install.path(), true);
+        ensure_sensevoice_models(install.path()).expect("SenseVoice 模型应落位并通过校验");
+
+        // 幂等：再跑一次不报错（命中 present 分支）
+        download_sensevoice_models(&args, install.path(), true);
+        assert!(sensevoice_models_present(install.path()));
     }
 }
