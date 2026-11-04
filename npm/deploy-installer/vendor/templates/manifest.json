@@ -1,6 +1,6 @@
 {
   "version": "0.2.33-beta.1",
-  "assetVersion": "0.2.34",
+  "assetVersion": "0.2.35",
   "optionalAssets": {
     "venv": {
       "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/document-parser/v0.2.33/venv-macos-arm64-0.2.33.tar.gz"
@@ -23,10 +23,10 @@
       "windows-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/models/sensevoice-models.tar.gz"
     },
     "voiceCliCuda": {
-      "linux-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/voice-cli-cuda-linux-x64-{version}.tar.gz"
+      "linux-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v0.2.34/voice-cli-cuda-linux-x64-0.2.34.tar.gz"
     },
     "voiceCliVulkan": {
-      "linux-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/voice-cli-vulkan-linux-x64-{version}.tar.gz"
+      "linux-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v0.2.34/voice-cli-vulkan-linux-x64-0.2.34.tar.gz"
     },
     "mineruModels": {
       "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/document-parser/models/mineru-pipeline-models-pdf-extract-kit-1.0.tar.gz",
