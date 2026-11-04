@@ -408,18 +408,28 @@ mod tests {
             expected,
             "manifest assetVersion should pin OSS filenames"
         );
-        // 交叉验证 {version} 占位资产解析为 assetVersion（cuda 是 linux 键直查，
-        // 任意宿主平台都能断言；whisper/venv 已钉字面版本，见下方各自测试）
-        let url_for_version_check = optional_voice_cli_cuda_url();
-        if let Some(url) = url_for_version_check {
-            assert!(url.contains(&expected), "got {url}");
-            // 必须用 manifest 的 assetVersion，不能被包版本（NUWAX_DEPLOY_VERSION 注入值）污染。
-            // 注意：断言要排除**完整包版本串**（"0.2.3-beta.2"），不能只查 "0.2.3" 子串——
-            // assetVersion 升到 0.2.3x 系列时子串会误报（0.2.33 就含 "0.2.3"）。
+        // 交叉验证所有可选资产 URL 都被解析过：不含未替换的 {version} 占位符，
+        // 也不被包版本（NUWAX_DEPLOY_VERSION 注入值）污染。
+        // 注意：不断言具体版本号——manifest 允许把内容未变的资产钉字面旧版本
+        // （venv/whisper 钉 0.2.33、cuda/vulkan 钉 0.2.34），版本策略由各资产
+        // 自己的测试覆盖（断言文件名形态）
+        for (name, url) in [
+            ("cuda", optional_voice_cli_cuda_url()),
+            ("vulkan", optional_voice_cli_vulkan_url()),
+            (
+                "whisper",
+                optional_whisper_download_url(WhisperModelsPack::LargeV3),
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(name, url)| url.map(|u| (name, u)))
+        {
+            assert!(!url.contains("{version}"), "{name} URL 占位符未替换: {url}");
             assert!(
                 !url.contains("0.2.3-beta.2"),
-                "asset URL 应被 assetVersion 钉住，而非包版本: {url}"
+                "{name} URL 应被 assetVersion 钉住，而非包版本: {url}"
             );
+            assert!(!url.contains("beta"), "{name} URL 不应含 beta: {url}");
         }
     }
 
@@ -442,7 +452,10 @@ mod tests {
             // 断言文件名形态 + 无 beta 污染 + 占位符已替换，不锁具体版本号
             assert!(url.contains("venv-macos-arm64-"), "got {url}");
             assert!(url.ends_with(".tar.gz"), "got {url}");
-            assert!(!url.contains("beta"), "beta 包须复用 stable venv 资产: {url}");
+            assert!(
+                !url.contains("beta"),
+                "beta 包须复用 stable venv 资产: {url}"
+            );
             assert!(!url.contains("{version}"), "占位符应已替换: {url}");
         } else {
             assert!(
@@ -467,10 +480,7 @@ mod tests {
         // 断言文件名形态 + 无 beta 污染 + 占位符已替换，不锁具体版本号
         let url = optional_whisper_download_url(WhisperModelsPack::LargeV3)
             .expect("manifest should provide whisperLargeV3 URL on every platform");
-        assert!(
-            url.contains("whisper-ggml-large-v3-"),
-            "got {url}"
-        );
+        assert!(url.contains("whisper-ggml-large-v3-"), "got {url}");
         assert!(url.ends_with(".tar.gz"), "got {url}");
         assert!(!url.contains("beta"), "got {url}");
         assert!(!url.contains("{version}"), "占位符应已替换: {url}");
@@ -510,10 +520,14 @@ mod tests {
         let url = optional_voice_cli_cuda_url();
         assert!(url.is_some(), "manifest should provide voiceCliCuda URL");
         let url = url.unwrap();
-        assert!(
-            url.contains(&format!("voice-cli-cuda-linux-x64-{expected}.tar.gz")),
-            "got {url}"
-        );
+        // GPU bundle 内容与 npm 版本解耦：manifest 可能把 {version} 换成字面版本
+        // （0.2.35 起 cuda/vulkan 钉 0.2.34——bundle 未变，免 705MB 重传）。
+        // 断言文件名形态 + 无 beta 污染 + 占位符已替换，不锁具体版本号
+        assert!(url.contains("voice-cli-cuda-linux-x64-"), "got {url}");
+        assert!(url.ends_with(".tar.gz"), "got {url}");
+        assert!(!url.contains("beta"), "got {url}");
+        assert!(!url.contains("{version}"), "占位符应已替换: {url}");
+        let _ = expected;
         assert!(!url.contains("beta"));
     }
 
@@ -554,11 +568,12 @@ mod tests {
         let url = optional_voice_cli_vulkan_url();
         assert!(url.is_some(), "manifest should provide voiceCliVulkan URL");
         let url = url.unwrap();
-        assert!(
-            url.contains(&format!("voice-cli-vulkan-linux-x64-{expected}.tar.gz")),
-            "got {url}"
-        );
-        assert!(!url.contains("beta"));
+        // 同 cuda：bundle 版本可钉字面值，断言形态而非具体版本号
+        assert!(url.contains("voice-cli-vulkan-linux-x64-"), "got {url}");
+        assert!(url.ends_with(".tar.gz"), "got {url}");
+        assert!(!url.contains("beta"), "got {url}");
+        assert!(!url.contains("{version}"), "占位符应已替换: {url}");
+        let _ = expected;
     }
 
     #[test]
