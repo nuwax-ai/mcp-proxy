@@ -319,7 +319,10 @@ deploy-installer voice-cli install --install-dir ~/voice-cli
 
 ```bash
 # 一次性依赖（glslc 来自 glslang-tools；libvulkan-dev 提供 find_package(Vulkan)）
-sudo apt install -y libvulkan-dev glslang-tools
+# ⚠️ libclang-18-dev 必须装（bindgen 用）：缺它 bindgen generate() 静默失败并回退
+# 预生成 bindings（无 vk 符号）→ whisper-rs 编译报 unresolved ggml_backend_vk_* ——
+# 错误信息完全不提 libclang，0.2.34 构建时在此踩坑（2026-11-04 实测）
+sudo apt install -y libvulkan-dev glslang-tools libclang-18-dev
 # 构建（rpath $ORIGIN 必须——否则 systemd 下伴生 .so 找不到，启动 127）
 RUSTFLAGS="-C link-arg=-Wl,-rpath,\$ORIGIN" \
   cargo build --release -p voice-cli --features vulkan
@@ -328,6 +331,17 @@ readelf -d target/release/voice-cli | grep -E 'RUNPATH|RPATH'   # 应含 $ORIGIN
 ldd target/release/voice-cli | grep vulkan                      # 应有 libvulkan.so.1 => 系统
 # sherpa CPU .so 复用 CUDA 构建产物（libsherpa-onnx-c-api.so / libonnxruntime.so）
 ```
+
+> **CUDA 产物 strip**：`strip target/release/voice-cli` 再打包（Vulkan 59M→52M；
+> CUDA 的 .nv_fatbin 占大头 strip 不掉，见下）。
+
+> **0.2.34 CUDA bundle 体积说明**（705M，0.2.33 是 158M）：两个原因，均属预期——
+> 1. **架构覆盖修复**：0.2.33 的二进制实际只有 **sm_86 单架构**（`CMAKE_CUDA_ARCHITECTURES`
+>    传成 UNINITIALIZED 未生效，native-only 编译；1080Ti/A6000/4090 上其实跑不了/靠运气）。
+>    0.2.34 起是真 5 架构（61/75/80/86/89，`strings voice-cli | grep -c sm_86` 可验），
+>    fatbin 745M 是多架构的合理代价
+> 2. **sherpa 1.13.8 CUDA 包的 onnxruntime 1.28.2**：providers_cuda.so 593M
+>    （1.13.3 时代是 104M，上游膨胀，非我们可控）
 
 打包/上传/校验：
 
