@@ -178,3 +178,11 @@ deploy-installer voice-cli install --sensevoice     # 额外拉 SenseVoice 模�
 ```
 
 模型缺失不阻断安装（只 WARN）；`--skip-models` 不影响 `--sensevoice`（显式请求优先）。
+模型目录 `models/sensevoice/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/`
+（不配 `model_dir` 时默认解析即命中）；`doctor` / `voice-cli verify` 均有在场诊断行。
+
+> ⚠️ **bundle 版本前置**：SenseVoice 走 sherpa-onnx 通道是 0.2.10 之后的代码
+> （`backend: sensevoice` 无需编译 feature）。**OSS 上的旧 bundle（≤ v0.2.33 资产）
+> 是迁移前的二进制**——配 `backend: sensevoice` 会明确报错
+> （"未启用 sensevoice feature"）。即 `--sensevoice` 模型下载即刻可用，但完整
+> 体验需等下一版 bundle 发布（CPU/CUDA/Vulkan 三档重新出包）。
