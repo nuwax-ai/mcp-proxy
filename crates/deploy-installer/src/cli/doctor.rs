@@ -75,6 +75,7 @@ pub fn run() -> Result<()> {
     check_disk_space(&voice_dir);
     check_upload_backend(&parser_dir);
     check_mineru_models();
+    check_sensevoice_models(&voice_dir);
 
     if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
         let (has_smi, cublas_ok) = crate::cli::linux_gpu::linux_cuda_runtime_available();
@@ -577,6 +578,21 @@ fn check_mineru_models() {
             "  mineru models: WARN (no mineruModels URL in manifest.json — 首跑 PDF 解析\
              将从 ModelScope 下载)"
         );
+    }
+}
+
+/// SenseVoice STT 模型在场检查（可选增强，缺失只 WARN 不阻断——whisper 是默认后端）。
+/// 检查默认安装目录；自定义 --install-dir 的部署经 `verify` 看（其同样带此诊断行）。
+fn check_sensevoice_models(voice_dir: &std::path::Path) {
+    if crate::cli::assets::sensevoice_models_present(voice_dir) {
+        println!("  sensevoice:    OK (model present — config.backend 可切 sensevoice)");
+    } else if crate::optional_sensevoice_models_url().is_some() {
+        println!(
+            "  sensevoice:    WARN (not downloaded — 中文更准的可选后端；\
+             install --sensevoice 从 OSS 供给)"
+        );
+    } else {
+        println!("  sensevoice:    -- (no sensevoiceModels URL in manifest.json — 可选后端不可用)");
     }
 }
 

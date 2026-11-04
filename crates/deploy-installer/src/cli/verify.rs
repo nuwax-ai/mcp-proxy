@@ -263,6 +263,14 @@ pub fn verify_voice_cli(install_dir: Option<PathBuf>) -> Result<()> {
         println!("  ffmpeg:        WARN (缺失——transcribe 将失败；重跑 install 自动供给)");
     }
 
+    // 3.5 SenseVoice 模型在场（可选后端；纯诊断行不计失败——whisper 冒烟是
+    // 默认链路判定。模型经 `install --sensevoice` 供给或手动放置）
+    if crate::cli::assets::sensevoice_models_present(&dir) {
+        println!("  sensevoice:    OK (model present — backend 可切 sensevoice)");
+    } else {
+        println!("  sensevoice:    -- (model absent, 可选；install --sensevoice 下载)");
+    }
+
     // 4. whisper 模型在场 → 转写冒烟；缺失 → WARN 跳过。
     // 模型选择：**在场最小档**（tiny→base→…→large-v3）——冒烟只验链路完整，
     // 与模型质量无关；large-v3 在慢 CPU（如 53 的 Zen2 笔记本 U）推理超 300s，
