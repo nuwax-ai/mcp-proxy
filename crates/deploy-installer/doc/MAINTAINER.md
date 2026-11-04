@@ -123,6 +123,18 @@ git push origin deploy-v0.2.3-beta.4
 
 CI 自动：更新 workspace 版本 → 双平台构建（各 job 内原生 smoke）→ 合并切片 → `npm publish --tag beta`。
 
+> **0.2.34 发布经验**（2026-11-04 实测）：
+> - **beta 包 npm 侧验证不必等 Mac Mini**：本机隔离 prefix
+>   （`npm install @nuwax-ai/deploy-installer@beta` 到临时目录，跑 `vendor/<platform>/` 里的
+>   二进制）+ Linux/Windows 真机跑切片二进制即可覆盖三平台；Mac Mini 留给正式版前的最终确认
+> - **GPU bundle 要先传 OSS 再发 npm**：CI 只构建 npm 内嵌的 CPU 三件套；CUDA/Vulkan bundle
+>   需在编译机手动构建上传（§4 配方），否则安装器自动降级 CPU（不报错）
+> - **manifest 版本策略**：内容未变的大资产（venv ~10GB / whisper ggml）可把 URL 里的
+>   `{version}` 替换为字面旧版本，省一次重传；`nuwax-ossutil` 无服务端 copy 接口
+> - **CI Windows job 现在能构建 voice-cli 了**：0.2.34 起 windows-x64 切片是完整三件套
+>   （此前长期降级为两件套——`whisper-rs` 的 bindgen 在 runner 上需要 libclang，CI 镜像已带）
+> - npm registry 传播有延迟（publish 成功后 `npm view dist-tags` 可能仍显示旧值，等 1-2 分钟）
+
 ### Mac Mini 验证清单
 
 ```bash
