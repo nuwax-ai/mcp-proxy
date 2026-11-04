@@ -1,19 +1,19 @@
 {
   "version": "0.2.33-beta.1",
-  "assetVersion": "0.2.33",
+  "assetVersion": "0.2.34",
   "optionalAssets": {
     "venv": {
-      "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/document-parser/v{version}/venv-macos-arm64-{version}.tar.gz"
+      "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/document-parser/v0.2.33/venv-macos-arm64-0.2.33.tar.gz"
     },
     "whisperLargeV3": {
-      "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/whisper-ggml-large-v3-{version}.tar.gz",
-      "linux-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/whisper-ggml-large-v3-{version}.tar.gz",
-      "windows-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/whisper-ggml-large-v3-{version}.tar.gz"
+      "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v0.2.33/whisper-ggml-large-v3-0.2.33.tar.gz",
+      "linux-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v0.2.33/whisper-ggml-large-v3-0.2.33.tar.gz",
+      "windows-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v0.2.33/whisper-ggml-large-v3-0.2.33.tar.gz"
     },
     "whisperAll": {
-      "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/whisper-ggml-all-{version}.tar.gz",
-      "linux-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/whisper-ggml-all-{version}.tar.gz",
-      "windows-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v{version}/whisper-ggml-all-{version}.tar.gz"
+      "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v0.2.33/whisper-ggml-all-0.2.33.tar.gz",
+      "linux-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v0.2.33/whisper-ggml-all-0.2.33.tar.gz",
+      "windows-x64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v0.2.33/whisper-ggml-all-0.2.33.tar.gz"
     },
     "sensevoiceModels": {
       "darwin-arm64": "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/models/sensevoice-models.tar.gz",
