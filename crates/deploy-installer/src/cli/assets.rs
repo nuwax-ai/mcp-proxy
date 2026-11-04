@@ -5,7 +5,11 @@
 
 use super::common::copy_file_atomic;
 use crate::{WhisperModelsPack, make_executable};
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Result, bail};
+// Context（with_context）仅在下方 macOS 伴生库拷贝块使用；cfg 门控避免
+// Linux/Windows 上 unused import 告警（构建机 --deny warnings 场景友好）
+#[cfg(target_os = "macos")]
+use anyhow::Context as _;
 use std::fs;
 use std::path::Path;
 
