@@ -408,15 +408,9 @@ mod tests {
             expected,
             "manifest assetVersion should pin OSS filenames"
         );
-        // 交叉验证一个资产 URL 的版本号被 assetVersion 钉住（whisper 仅 darwin，
-        // 用各平台都有的资产：macos→whisper，linux→cuda，windows→两者皆无跳过）
-        let url_for_version_check = if cfg!(target_os = "macos") {
-            optional_whisper_download_url(WhisperModelsPack::LargeV3)
-        } else if cfg!(target_os = "linux") {
-            optional_voice_cli_cuda_url()
-        } else {
-            None
-        };
+        // 交叉验证 {version} 占位资产解析为 assetVersion（cuda 是 linux 键直查，
+        // 任意宿主平台都能断言；whisper/venv 已钉字面版本，见下方各自测试）
+        let url_for_version_check = optional_voice_cli_cuda_url();
         if let Some(url) = url_for_version_check {
             assert!(url.contains(&expected), "got {url}");
             // 必须用 manifest 的 assetVersion，不能被包版本（NUWAX_DEPLOY_VERSION 注入值）污染。
@@ -434,7 +428,6 @@ mod tests {
         let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../npm/deploy-installer/vendor");
-        let expected = manifest_asset_version();
         // SAFETY: test-only env mutation; no concurrent env access in unit tests.
         unsafe {
             std::env::set_var("NUWAX_DEPLOY_ROOT", root.display().to_string());
@@ -445,11 +438,12 @@ mod tests {
         if cfg!(target_os = "macos") {
             let url = optional_venv_download_url()
                 .expect("manifest should provide darwin-arm64 venv URL");
-            assert!(
-                url.contains(&format!("venv-macos-arm64-{expected}.tar.gz")),
-                "beta package must reuse stable venv asset, got {url}"
-            );
-            assert!(!url.contains("beta"));
+            // venv 内容随包版本演进慢——0.2.34 起 URL 钉字面版本（未必等于 assetVersion），
+            // 断言文件名形态 + 无 beta 污染 + 占位符已替换，不锁具体版本号
+            assert!(url.contains("venv-macos-arm64-"), "got {url}");
+            assert!(url.ends_with(".tar.gz"), "got {url}");
+            assert!(!url.contains("beta"), "beta 包须复用 stable venv 资产: {url}");
+            assert!(!url.contains("{version}"), "占位符应已替换: {url}");
         } else {
             assert!(
                 optional_venv_download_url().is_none(),
@@ -463,20 +457,23 @@ mod tests {
         let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../npm/deploy-installer/vendor");
-        let expected = manifest_asset_version();
         // SAFETY: test-only env mutation; no concurrent env access in unit tests.
         unsafe {
             std::env::set_var("NUWAX_DEPLOY_ROOT", root.display().to_string());
             std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.1-beta.2");
         }
-        // whisper 资产全平台（ggml 平台无关，三平台同 URL——2026-09-10 起）
+        // whisper 资产全平台（ggml 平台无关，三平台同 URL——2026-09-10 起）。
+        // ggml 模型文件与代码解耦——0.2.34 起 URL 钉字面版本（未必等于 assetVersion），
+        // 断言文件名形态 + 无 beta 污染 + 占位符已替换，不锁具体版本号
         let url = optional_whisper_download_url(WhisperModelsPack::LargeV3)
             .expect("manifest should provide whisperLargeV3 URL on every platform");
         assert!(
-            url.contains(&format!("whisper-ggml-large-v3-{expected}.tar.gz")),
+            url.contains("whisper-ggml-large-v3-"),
             "got {url}"
         );
-        assert!(!url.contains("beta"));
+        assert!(url.ends_with(".tar.gz"), "got {url}");
+        assert!(!url.contains("beta"), "got {url}");
+        assert!(!url.contains("{version}"), "占位符应已替换: {url}");
     }
 
     #[test]
