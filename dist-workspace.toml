@@ -12,8 +12,7 @@ ci = "github"
 installers = ["shell", "powershell", "npm"]
 # Target platforms to build apps for (Rust target-triple syntax)
 targets = [
-    # aarch64-apple-darwin 暂移除: GitHub macOS arm64 runner 连续分配失败(v0.2.11 三次秒取消);
-    # 服务器部署只需 linux 双架构。runner 恢复后加回并重新发版即可。
+    "aarch64-apple-darwin",
     "x86_64-apple-darwin",
     "aarch64-unknown-linux-gnu",
     "x86_64-unknown-linux-gnu",
