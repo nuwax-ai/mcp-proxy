@@ -1,0 +1,70 @@
+name: OSS Asset Sync (manual)
+# 手动同步某个 release tag 的资产到阿里云 OSS。
+# 用途: 补发平台资产(如 aarch64-apple-darwin)——先 gh release upload 到 GitHub
+# Release,再触发本 workflow,免本地 OSS 凭据(secrets 仅 CI 内解密)。
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.2.12)"
+        required: true
+        default: "v0.2.12"
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    name: Sync release assets to OSS
+    runs-on: "ubuntu-22.04"
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ github.event.inputs.tag }}
+    steps:
+      - name: Install ossutil v2
+        run: |
+          curl -fSL -o /tmp/ossutil.zip \
+            "https://gosspublic.alicdn.com/ossutil/v2/2.2.0/ossutil-2.2.0-linux-amd64.zip"
+          unzip -q /tmp/ossutil.zip -d /tmp
+          sudo mv /tmp/ossutil-2.2.0-linux-amd64/ossutil /usr/local/bin/
+          ossutil version
+
+      - name: Download release assets
+        run: |
+          mkdir -p /tmp/release-assets
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir /tmp/release-assets
+          echo "==> Downloaded assets:"
+          ls -lh /tmp/release-assets/
+
+      - name: Upload assets to OSS
+        env:
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+        run: |
+          OSS_ENDPOINT="https://oss-rg-china-mainland.aliyuncs.com"
+          OSS_REGION="rg-china-mainland"
+          OSS_BUCKET="oss://nuwa-packages"
+          OSS_PREFIX="mcp-stdio-proxy/${TAG}"
+
+          for file in /tmp/release-assets/*.tar.xz /tmp/release-assets/*.zip; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              echo "Uploading: ${filename}"
+              ossutil cp --force "$file" "${OSS_BUCKET}/${OSS_PREFIX}/${filename}" \
+                --endpoint "$OSS_ENDPOINT" \
+                --region "$OSS_REGION" \
+                --access-key-id "$OSS_ACCESS_KEY_ID" \
+                --access-key-secret "$OSS_ACCESS_KEY_SECRET"
+            fi
+          done
+
+      - name: Verify OSS upload
+        run: |
+          for f in mcp-stdio-proxy-x86_64-unknown-linux-gnu.tar.xz \
+                   mcp-stdio-proxy-aarch64-unknown-linux-gnu.tar.xz \
+                   mcp-stdio-proxy-x86_64-apple-darwin.tar.xz \
+                   mcp-stdio-proxy-aarch64-apple-darwin.tar.xz; do
+            URL="https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/mcp-stdio-proxy/${TAG}/${f}"
+            HTTP_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" "$URL")
+            echo "${f}: HTTP ${HTTP_STATUS}"
+          done
