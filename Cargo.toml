@@ -37,7 +37,7 @@ resolver = "2"
 
 # 统一版本管理：所有 crate 用 version.workspace = true 继承此处版本，bump 只改这一处
 [workspace.package]
-version = "0.2.14-beta.1"
+version = "0.2.14"
 edition = "2024"
 # MSRV：sqlx 0.9（apalis-sqlite 1.0 拉入）要求 rustc >= 1.94；Docker 构建镜像统一用滚动标签
 # rust:trixie（跟随最新 stable，见 docker/Dockerfile.*），本机工具链 1.99 满足
