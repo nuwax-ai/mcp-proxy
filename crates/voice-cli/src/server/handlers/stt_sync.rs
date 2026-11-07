@@ -75,7 +75,7 @@ pub async fn transcribe_handler(
     let output_script = engine_cfg.output_script;
 
     // 模型解析 + ensure + 构造分派产物（按 backend 分派）。两库引擎统一为 SttInvocation：
-    // transcribe-rs（whisper/sensevoice）走 dyn 池；sherpa-onnx（fireredasr2/funasrnano/qwen3asr）走独立池。
+    // transcribe-rs（whisper）走 dyn 池；sherpa-onnx（sensevoice/fireredasr2/funasrnano/qwen3asr）走独立池。
     let invocation: crate::stt::SttInvocation = match backend {
         crate::models::config::SttBackend::Whisper => {
             // 模型 id：请求字段优先，回退到 config.whisper.default_model（与异步 handler 一致）
@@ -93,32 +93,36 @@ pub async fn transcribe_handler(
             }
         }
         crate::models::config::SttBackend::SenseVoice => {
-            // SenseVoice：从 config.whisper.engine.sensevoice 解析目录 + 量化（host 预置，无自动下载）
-            #[cfg(feature = "sensevoice")]
-            {
-                let models_dir = state.config.whisper.models_dir.clone();
-                let sv_cfg = &engine_cfg.sensevoice;
-                let model_dir = crate::stt::sensevoice::resolve_model_dir(&models_dir, sv_cfg);
-                let quantization =
-                    crate::stt::sensevoice::parse_quantization(&sv_cfg.quantization)?;
-                let model_id = model_dir.display().to_string();
-                crate::stt::SttInvocation::TranscribeRs {
-                    model_id,
-                    spec: crate::stt::SttEngineSpec::SenseVoice {
-                        model_dir,
-                        quantization,
-                    },
-                }
-            }
-            #[cfg(not(feature = "sensevoice"))]
-            {
-                let _ = request.model;
-                return Err(VoiceCliError::TranscriptionFailed(
-                    "backend=sensevoice 但未启用 sensevoice feature（请用 --features sensevoice 编译）".into(),
-                ));
+            // SenseVoice：从 config.whisper.engine.sensevoice 解析目录 + 量化/语言/ITN
+            // （sherpa-onnx 通道，与 FireRedASR2 三引擎同构；host 预置，无自动下载）
+            let sv_cfg = &engine_cfg.sensevoice;
+            let models_dir = std::path::Path::new(&state.config.whisper.models_dir);
+            let quant = crate::stt::SenseVoiceQuant::parse(&sv_cfg.quantization)?;
+            let model_dir = crate::stt::sherpa_model_paths::resolve_model_dir(
+                models_dir,
+                "sensevoice",
+                crate::stt::sherpa_model_paths::DEFAULT_SENSEVOICE_DIR,
+                sv_cfg.model_dir.as_deref(),
+            );
+            let model_id = model_dir.display().to_string();
+            let load_params = crate::stt::SherpaAsrLoadParams {
+                model_dir,
+                kind: crate::stt::SherpaAsrKind::SenseVoice {
+                    language: sv_cfg.language.clone(),
+                    use_itn: sv_cfg.use_itn,
+                    quant,
+                },
+                provider: engine_cfg.sherpa.provider.clone(),
+                num_threads: engine_cfg.sherpa.num_threads,
+                pool_size: engine_cfg.sherpa.pool_size,
+                debug: engine_cfg.sherpa.debug,
+            };
+            crate::stt::SttInvocation::Sherpa {
+                model_id,
+                load_params,
             }
         }
-        // sherpa-onnx 三引擎（FireRedASR2 / Fun-ASR-Nano / Qwen3-ASR）：仅批量，走独立 sherpa 池
+        // sherpa-onnx 引擎（FireRedASR2 / Fun-ASR-Nano / Qwen3-ASR）：仅批量，走独立 sherpa 池
         crate::models::config::SttBackend::FireRedAsr2
         | crate::models::config::SttBackend::FunAsrNano
         | crate::models::config::SttBackend::Qwen3Asr => {
@@ -203,7 +207,7 @@ pub async fn transcribe_handler(
             let samples = crate::stt::audio::to_whisper_samples(&temp_file_for_blocking)?;
             match invocation {
                 crate::stt::SttInvocation::TranscribeRs { model_id, spec } => {
-                    // 进程级 dyn 池：whisper/sensevoice 统一 Box<dyn SpeechModel>
+                    // 进程级 dyn 池：whisper（Box<dyn SpeechModel>）
                     let key = crate::stt::EngineKey::new(&model_id);
                     let pool = crate::stt::get_or_init_engine(key, spec, tr_pool_size)?;
                     let inst = pool.pick();

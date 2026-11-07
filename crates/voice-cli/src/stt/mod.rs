@@ -21,8 +21,6 @@ pub mod error;
 pub mod local_agreement;
 pub mod options;
 pub mod script_convert;
-#[cfg(feature = "sensevoice")]
-pub mod sensevoice;
 pub mod sherpa_engine_pool;
 pub mod sherpa_model_paths;
 pub mod sherpa_punc;
@@ -40,7 +38,9 @@ pub use sherpa_engine_pool::{
     SherpaAsrLoadParams, SherpaEngineInstance, SherpaEnginePool,
     get_or_init_engine as sherpa_get_or_init_engine, recognize as sherpa_recognize,
 };
-pub use sherpa_model_paths::{SherpaAsrKind, SherpaAsrPaths};
+pub use sherpa_model_paths::{
+    DEFAULT_SENSEVOICE_DIR, SenseVoiceQuant, SherpaAsrKind, SherpaAsrPaths,
+};
 pub use streaming_session::{
     Decoder, SessionConfig, SessionError, StreamEvent, StreamingSession, WhisperDecoder,
     build_streaming_decoder,
@@ -62,9 +62,8 @@ pub fn clear_all_caches() {
 /// 把 transcribe-rs [`transcribe_rs::TranscriptionResult`] 映射为 HTTP `TranscriptionResponse`，
 /// 并按 `output_script` 对 `text` + `segments[].text` 做繁→简转换。
 ///
-/// `TranscriptionResult` 是 transcribe-rs **顶层共享类型**（whisper 与 sensevoice 同型返回），
-/// 故本函数引擎无关，两引擎批量转录结果统一走这里。统一同步（`/transcribe`）与异步
-/// （`/api/v1/tasks/transcribe`、`transcribeFromUrl`）三处映射，消除重复代码；异步存库即简体
+/// 仅 **transcribe-rs whisper** 走这里（sherpa-onnx 四引擎走 [`map_sherpa_recognition_result`]）。
+/// 统一同步（`/transcribe`）与异步（`/api/v1/tasks/transcribe`、`transcribeFromUrl`）三处映射，消除重复代码；异步存库即简体
 /// （取结果端点无需再转）。返回 response 的 `language`/`duration`/`processing_time`/`metadata`
 /// 留空，由调用方按上下文补（如同步 handler 补 metadata）。
 pub fn map_transcription_result(
@@ -94,6 +93,7 @@ pub fn map_transcription_result(
 /// 把 sherpa-onnx [`OfflineRecognizerResult`] 映射为 HTTP `TranscriptionResponse`，
 /// 并按 `output_script` 对 `text` 做繁→简转换。
 ///
+/// SenseVoice / FireRedASR2 / Fun-ASR-Nano / Qwen3-ASR 四引擎共用（sherpa-onnx 池）。
 /// 与 [`map_transcription_result`] 对称（统一同步/异步三处映射），但**源类型不同**：
 /// sherpa-onnx 返回 `OfflineRecognizerResult`（非 transcribe-rs `TranscriptionResult`）。
 /// AED/LLM-decoder 模型（FireRedASR2-AED / Fun-ASR-Nano / Qwen3-ASR）不返回 segment 级

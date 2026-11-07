@@ -134,6 +134,10 @@ pub struct VoiceCliSetupArgs {
     /// Which OSS model pack: large-v3 (default) or all
     #[arg(long, default_value = "large-v3", value_name = "PACK")]
     pub models: String,
+    /// Also download the SenseVoice STT model pack (~228MB int8) from OSS
+    /// (`whisper.engine.backend: sensevoice` 用；默认关闭——体积另计)
+    #[arg(long)]
+    pub sensevoice: bool,
     /// OSS base URL prefix for voice-cli optional assets
     #[arg(long)]
     pub oss_base: Option<String>,

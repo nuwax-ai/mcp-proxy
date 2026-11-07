@@ -138,12 +138,23 @@ impl RemoteProtocolAdapter for FakeAdapter {
     }
 }
 
+/// 原子递减（0 则不动），返回是否成功。
+///
+/// 用 CAS 循环而非 `fetch_update`（已被 std 改名 `try_update` 并 deprecate，但
+/// workspace MSRV=1.94 低于 `try_update` 的稳定版本）——CAS 自 1.0 起可用，无版本约束。
 fn consume_failure(counter: &AtomicUsize) -> bool {
-    counter
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-            current.checked_sub(1)
-        })
-        .is_ok()
+    loop {
+        let current = counter.load(Ordering::Relaxed);
+        let Some(next) = current.checked_sub(1) else {
+            return false;
+        };
+        if counter
+            .compare_exchange_weak(current, next, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
+        {
+            return true;
+        }
+    }
 }
 
 fn options() -> RuntimeOptions {

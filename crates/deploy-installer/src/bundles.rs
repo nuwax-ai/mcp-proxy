@@ -17,6 +17,10 @@ struct OptionalAssets {
     whisper_large_v3: std::collections::HashMap<String, String>,
     #[serde(default, rename = "whisperAll")]
     whisper_all: std::collections::HashMap<String, String>,
+    /// SenseVoice STT 模型包（平台无关纯文件，三平台键同 URL；URL 无 {version}——
+    /// 模型版本独立于包版本，见 `mineruModels` 同款处理）
+    #[serde(default, rename = "sensevoiceModels")]
+    sensevoice_models: std::collections::HashMap<String, String>,
     #[serde(default, rename = "voiceCliCuda")]
     voice_cli_cuda: std::collections::HashMap<String, String>,
     #[serde(default, rename = "voiceCliVulkan")]
@@ -233,6 +237,36 @@ pub fn voice_cli_vulkan_download_url_from_base(base: &str) -> String {
     format!("{}/{}", base.trim_end_matches('/'), name)
 }
 
+/// OSS tarball basename for the SenseVoice STT model pack (platform-independent).
+/// 模型版本独立于包版本：文件名固定，不带 {version} 占位符
+/// （ SenseVoice 上游 release 名 `sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` ）。
+pub fn sensevoice_models_archive_filename() -> String {
+    "sensevoice-models.tar.gz".to_string()
+}
+
+/// Resolve optional SenseVoice model pack URL from manifest.
+///
+/// 模型平台无关（三平台键同 URL）——按本平台键取，缺键时回退任一可用键
+/// （同 `optional_mineru_models_url` 的容错）。
+pub fn optional_sensevoice_models_url() -> Option<String> {
+    optional_asset_url(|assets| {
+        assets
+            .sensevoice_models
+            .get(platform_vendor_key())
+            .or_else(|| assets.sensevoice_models.values().next())
+    })
+}
+
+/// Build SenseVoice model pack URL from an OSS base directory
+/// （`uploads/voice-cli` 层级；文件名固定、无 {version}，模型版本独立于包版本）。
+pub fn sensevoice_models_download_url_from_base(base: &str) -> String {
+    format!(
+        "{}/models/{}",
+        base.trim_end_matches('/'),
+        sensevoice_models_archive_filename()
+    )
+}
+
 /// Resolve optional prebuilt Whisper ggml tarball URL from manifest.
 pub fn optional_whisper_download_url(pack: WhisperModelsPack) -> Option<String> {
     optional_asset_url(|assets| match pack {
@@ -374,18 +408,28 @@ mod tests {
             expected,
             "manifest assetVersion should pin OSS filenames"
         );
-        // 交叉验证一个资产 URL 的版本号被 assetVersion 钉住（whisper 仅 darwin，
-        // 用各平台都有的资产：macos→whisper，linux→cuda，windows→两者皆无跳过）
-        let url_for_version_check = if cfg!(target_os = "macos") {
-            optional_whisper_download_url(WhisperModelsPack::LargeV3)
-        } else if cfg!(target_os = "linux") {
-            optional_voice_cli_cuda_url()
-        } else {
-            None
-        };
-        if let Some(url) = url_for_version_check {
-            assert!(url.contains(&expected), "got {url}");
-            assert!(!url.contains("0.2.3"));
+        // 交叉验证所有可选资产 URL 都被解析过：不含未替换的 {version} 占位符，
+        // 也不被包版本（NUWAX_DEPLOY_VERSION 注入值）污染。
+        // 注意：不断言具体版本号——manifest 允许把内容未变的资产钉字面旧版本
+        // （venv/whisper 钉 0.2.33、cuda/vulkan 钉 0.2.34），版本策略由各资产
+        // 自己的测试覆盖（断言文件名形态）
+        for (name, url) in [
+            ("cuda", optional_voice_cli_cuda_url()),
+            ("vulkan", optional_voice_cli_vulkan_url()),
+            (
+                "whisper",
+                optional_whisper_download_url(WhisperModelsPack::LargeV3),
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(name, url)| url.map(|u| (name, u)))
+        {
+            assert!(!url.contains("{version}"), "{name} URL 占位符未替换: {url}");
+            assert!(
+                !url.contains("0.2.3-beta.2"),
+                "{name} URL 应被 assetVersion 钉住，而非包版本: {url}"
+            );
+            assert!(!url.contains("beta"), "{name} URL 不应含 beta: {url}");
         }
     }
 
@@ -394,7 +438,6 @@ mod tests {
         let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../npm/deploy-installer/vendor");
-        let expected = manifest_asset_version();
         // SAFETY: test-only env mutation; no concurrent env access in unit tests.
         unsafe {
             std::env::set_var("NUWAX_DEPLOY_ROOT", root.display().to_string());
@@ -405,11 +448,15 @@ mod tests {
         if cfg!(target_os = "macos") {
             let url = optional_venv_download_url()
                 .expect("manifest should provide darwin-arm64 venv URL");
+            // venv 内容随包版本演进慢——0.2.34 起 URL 钉字面版本（未必等于 assetVersion），
+            // 断言文件名形态 + 无 beta 污染 + 占位符已替换，不锁具体版本号
+            assert!(url.contains("venv-macos-arm64-"), "got {url}");
+            assert!(url.ends_with(".tar.gz"), "got {url}");
             assert!(
-                url.contains(&format!("venv-macos-arm64-{expected}.tar.gz")),
-                "beta package must reuse stable venv asset, got {url}"
+                !url.contains("beta"),
+                "beta 包须复用 stable venv 资产: {url}"
             );
-            assert!(!url.contains("beta"));
+            assert!(!url.contains("{version}"), "占位符应已替换: {url}");
         } else {
             assert!(
                 optional_venv_download_url().is_none(),
@@ -423,20 +470,20 @@ mod tests {
         let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../npm/deploy-installer/vendor");
-        let expected = manifest_asset_version();
         // SAFETY: test-only env mutation; no concurrent env access in unit tests.
         unsafe {
             std::env::set_var("NUWAX_DEPLOY_ROOT", root.display().to_string());
             std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.1-beta.2");
         }
-        // whisper 资产全平台（ggml 平台无关，三平台同 URL——2026-09-10 起）
+        // whisper 资产全平台（ggml 平台无关，三平台同 URL——2026-09-10 起）。
+        // ggml 模型文件与代码解耦——0.2.34 起 URL 钉字面版本（未必等于 assetVersion），
+        // 断言文件名形态 + 无 beta 污染 + 占位符已替换，不锁具体版本号
         let url = optional_whisper_download_url(WhisperModelsPack::LargeV3)
             .expect("manifest should provide whisperLargeV3 URL on every platform");
-        assert!(
-            url.contains(&format!("whisper-ggml-large-v3-{expected}.tar.gz")),
-            "got {url}"
-        );
-        assert!(!url.contains("beta"));
+        assert!(url.contains("whisper-ggml-large-v3-"), "got {url}");
+        assert!(url.ends_with(".tar.gz"), "got {url}");
+        assert!(!url.contains("beta"), "got {url}");
+        assert!(!url.contains("{version}"), "占位符应已替换: {url}");
     }
 
     #[test]
@@ -473,10 +520,14 @@ mod tests {
         let url = optional_voice_cli_cuda_url();
         assert!(url.is_some(), "manifest should provide voiceCliCuda URL");
         let url = url.unwrap();
-        assert!(
-            url.contains(&format!("voice-cli-cuda-linux-x64-{expected}.tar.gz")),
-            "got {url}"
-        );
+        // GPU bundle 内容与 npm 版本解耦：manifest 可能把 {version} 换成字面版本
+        // （0.2.35 起 cuda/vulkan 钉 0.2.34——bundle 未变，免 705MB 重传）。
+        // 断言文件名形态 + 无 beta 污染 + 占位符已替换，不锁具体版本号
+        assert!(url.contains("voice-cli-cuda-linux-x64-"), "got {url}");
+        assert!(url.ends_with(".tar.gz"), "got {url}");
+        assert!(!url.contains("beta"), "got {url}");
+        assert!(!url.contains("{version}"), "占位符应已替换: {url}");
+        let _ = expected;
         assert!(!url.contains("beta"));
     }
 
@@ -517,10 +568,39 @@ mod tests {
         let url = optional_voice_cli_vulkan_url();
         assert!(url.is_some(), "manifest should provide voiceCliVulkan URL");
         let url = url.unwrap();
-        assert!(
-            url.contains(&format!("voice-cli-vulkan-linux-x64-{expected}.tar.gz")),
-            "got {url}"
+        // 同 cuda：bundle 版本可钉字面值，断言形态而非具体版本号
+        assert!(url.contains("voice-cli-vulkan-linux-x64-"), "got {url}");
+        assert!(url.ends_with(".tar.gz"), "got {url}");
+        assert!(!url.contains("beta"), "got {url}");
+        assert!(!url.contains("{version}"), "占位符应已替换: {url}");
+        let _ = expected;
+    }
+
+    #[test]
+    fn optional_sensevoice_models_url_from_manifest() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../npm/deploy-installer/vendor");
+        // SAFETY: test-only env mutation; no concurrent env access in unit tests.
+        unsafe {
+            std::env::set_var("NUWAX_DEPLOY_ROOT", root.display().to_string());
+            std::env::set_var("NUWAX_DEPLOY_VERSION", "0.2.1-beta.2");
+        }
+        let url =
+            optional_sensevoice_models_url().expect("manifest should provide sensevoiceModels URL");
+        assert!(url.contains("models/sensevoice-models.tar.gz"), "got {url}");
+        // 模型版本独立于包版本：URL 无 {version} 占位符、不带包版本号
+        assert!(!url.contains("{version}"), "URL 不应含占位符: {url}");
+        assert!(!url.contains("0.2."), "models URL 不应带包版本: {url}");
+    }
+
+    #[test]
+    fn sensevoice_models_url_from_base_is_versionless() {
+        let url =
+            sensevoice_models_download_url_from_base("https://oss.example.com/uploads/voice-cli/");
+        assert_eq!(
+            url,
+            "https://oss.example.com/uploads/voice-cli/models/sensevoice-models.tar.gz"
         );
-        assert!(!url.contains("beta"));
     }
 }

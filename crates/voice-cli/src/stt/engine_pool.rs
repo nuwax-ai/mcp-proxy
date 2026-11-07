@@ -1,12 +1,11 @@
 //! STT 引擎池（批量 = dyn 池；流式 = whisper 具象池）。
 //!
 //! 设计要点：
-//! - **批量池** `ENGINE_CACHE`：`Pool<Box<dyn SpeechModel + Send + 'static>>`，whisper / sensevoice
-//!   统一为 trait object 共池（transcribe-rs 两引擎同实现 [`transcribe_rs::SpeechModel`]）。
+//! - **批量池** `ENGINE_CACHE`：`Pool<Box<dyn SpeechModel + Send + 'static>>`，whisper 专用
+//!   （SenseVoice 已迁 sherpa-onnx 通道，见 [`crate::stt::sherpa_engine_pool`]）。
 //!   调用方走 trait 方法 `transcribe(&samples, &TranscribeOptions)`（语言等共享参数）。
 //! - **流式池** `WHISPER_CACHE`：`Pool<WhisperEngine>` 具象，保留 whisper 专属 `transcribe_with`
 //!   （`WhisperInferenceParams`，含 initial_prompt 等），供 LA2 token 级双解码用。
-//!   SenseVoice 非流式，不进此池。
 //! - 全局 `LazyLock<DashMap<EngineKey, Arc<EnginePool>>>` 按 model_id 缓存
 //! - double-checked `INIT_LOCK`：序列化同一模型的并发首次加载（whisper.cpp context 初始化非并发安全）
 //! - **不用** DashMap entry api：entry 闭包持 shard 锁期间不能再拿 `INIT_LOCK`（嵌套死锁）
@@ -24,24 +23,19 @@ use crate::stt::error::SttError;
 
 /// 引擎加载规格：决定 [`get_or_init_engine`] 如何构造实例。
 ///
-/// 两引擎 `load` 签名差异大（whisper=单文件路径，sensevoice=目录+量化），用枚举比 struct 清爽。
+/// dyn 池现只有 whisper 一个引擎（SenseVoice 已迁到 sherpa-onnx 通道，见
+/// [`crate::stt::sherpa_engine_pool`]）；保留枚举是为后续新增 transcribe-rs 引擎留位。
 #[derive(Debug, Clone)]
 pub enum SttEngineSpec {
     /// Whisper（GGML 单文件 `ggml-*.bin`）
     Whisper { model_path: PathBuf },
-    /// SenseVoice（ONNX 目录：`model.{quant}.onnx` + `tokens.txt`）
-    #[cfg(feature = "sensevoice")]
-    SenseVoice {
-        model_dir: PathBuf,
-        quantization: transcribe_rs::onnx::Quantization,
-    },
 }
 
 /// 转录分派产物：统一 transcribe-rs 与 sherpa-onnx 两类引擎的 `spawn_blocking` 入口。
 ///
-/// - [`SttInvocation::TranscribeRs`]：走 dyn 池（whisper / sensevoice，`Box<dyn SpeechModel>`）
-/// - [`SttInvocation::Sherpa`]：走 sherpa-onnx 池（FireRedASR2 / Fun-ASR-Nano / Qwen3-ASR，
-///   `OfflineRecognizer`），与 transcribe-rs 池独立
+/// - [`SttInvocation::TranscribeRs`]：走 dyn 池（whisper，`Box<dyn SpeechModel>`）
+/// - [`SttInvocation::Sherpa`]：走 sherpa-onnx 池（SenseVoice / FireRedASR2 / Fun-ASR-Nano /
+///   Qwen3-ASR，`OfflineRecognizer`），与 transcribe-rs 池独立
 ///
 /// `spawn_blocking` 闭包 `match invocation` 分两条路径，共享 `to_whisper_samples`，
 /// 统一返回 `TranscriptionResponse`（各自走 `map_transcription_result` / `map_sherpa_recognition_result`）。
@@ -69,7 +63,7 @@ pub type EngineInstance = Arc<Mutex<Box<dyn SpeechModel + Send + 'static>>>;
 /// 批量引擎池（N 个独立实例，round-robin 分配）。复用 [`crate::pool::Pool`]。
 pub type EnginePool = crate::pool::Pool<Box<dyn SpeechModel + Send + 'static>>;
 
-/// 引擎缓存键：模型 id（whisper = `ggml-{id}.bin` 的 id；sensevoice = 模型目录名）。
+/// 引擎缓存键：模型 id（whisper = `ggml-{id}.bin` 的 id）。
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct EngineKey {
     pub model_id: String,
@@ -96,7 +90,7 @@ static INIT_LOCK: Mutex<()> = Mutex::new(());
 /// 流式 Whisper 实例（具象；`transcribe_with` 需 `&mut self`）。
 pub type WhisperInstance = Arc<Mutex<WhisperEngine>>;
 
-/// 流式 Whisper 池。SenseVoice 非流式，不进此池。
+/// 流式 Whisper 池。仅 whisper 支持 LA2 真流式（sherpa-onnx 四引擎是离线模型，无流式能力）。
 pub type WhisperPool = crate::pool::Pool<WhisperEngine>;
 
 /// 全局流式 Whisper 缓存（独立于批量 dyn 池：流式需具象 `transcribe_with`）。
@@ -128,8 +122,8 @@ pub fn clear_cache() {
 
 /// 获取或初始化**批量**引擎池（dyn；幂等；同 key 首次调用加载模型，后续命中缓存）。
 ///
-/// - `spec` 决定引擎类型 + 模型位置（whisper 文件 / sensevoice 目录）
-/// - GPU 后端由全局 `accel::init_global_accel` 决定（whisper + ORT 两套，启动早期各调一次）
+/// - `spec` 决定引擎类型 + 模型位置（whisper 文件）
+/// - GPU 后端由全局 `accel::init_global_accel` 决定（whisper；启动早期调一次）
 /// - `pool_size` 被 clamp 到 `>= 1`
 pub fn get_or_init_engine(
     key: EngineKey,
@@ -166,17 +160,6 @@ pub fn get_or_init_engine(
                 })?;
                 Box::new(e)
             }
-            #[cfg(feature = "sensevoice")]
-            SttEngineSpec::SenseVoice {
-                model_dir,
-                quantization,
-            } => crate::stt::sensevoice::load(model_dir, quantization).map_err(|e| {
-                SttError::InitFailed(format!(
-                    "加载 SenseVoice 模型 {}（第 {} 实例）失败: {e}",
-                    model_dir.display(),
-                    i + 1
-                ))
-            })?,
         };
         tracing::debug!(
             "STT engine pool {}/{} ready (model={})",
@@ -194,7 +177,7 @@ pub fn get_or_init_engine(
 /// 获取或初始化**流式** Whisper 池（具象；幂等）。
 ///
 /// 流式独立于批量 dyn 池：LA2 双解码需 whisper 专属 `transcribe_with(WhisperInferenceParams)`
-/// （含 initial_prompt 等），trait object 上无法调用。SenseVoice 非流式，不进此池。
+/// （含 initial_prompt 等），trait object 上无法调用。
 pub fn get_or_init_whisper(
     key: EngineKey,
     model_path: PathBuf,

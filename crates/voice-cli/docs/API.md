@@ -16,7 +16,7 @@
 | 健康 | GET | `/health` | 服务状态 |
 | 模型 | GET | `/models` | 已就绪 STT 模型列表 |
 | **STT 同步** | POST | `/transcribe` | 上传音频 → 文本（阻塞） |
-| STT 同步 | POST | `/transcribeFromUrl` | 从 URL 拉音频转写 |
+| STT 异步 | POST | `/api/v1/tasks/transcribeFromUrl` | 从 URL 拉音频转写（异步任务） |
 | **STT 异步** | POST | `/api/v1/tasks/transcribe` | 提交 → task_id |
 | STT 异步 | GET | `/api/v1/tasks/{id}` | 查状态 |
 | STT 异步 | GET | `/api/v1/tasks/{id}/result` | 取结果 |

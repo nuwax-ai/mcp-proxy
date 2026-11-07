@@ -322,20 +322,21 @@ pub enum OutputScript {
 ///
 /// **transcribe-rs 引擎**（`Box<dyn SpeechModel>` dyn 池）：
 /// - `Whisper`（默认）：whisper.cpp（GGML）；支持流式 + 批量；中文默认输出繁体
-/// - `SenseVoice`：ONNX SenseVoice（阿里 FunASR）；**仅批量**，中文 CER 优于 Whisper、原生输出简体；
-///   需 `--features sensevoice`（Mac）/ `sensevoice-cuda`（Linux CUDA）
 ///
 /// **sherpa-onnx 引擎**（独立 `Pool<OfflineRecognizer>`，镜像 TTS engine_pool）：
+/// - `SenseVoice`：SenseVoice-Small（中英日韩粤，int8 228M）；**仅批量**，中文 CER 优于 Whisper、
+///   原生输出简体、CPU 推理 ~90ms/5.6s 音频；Mac 可 CoreML GPU/ANE
 /// - `FireRedAsr2`：FireRedASR2-AED（zh/en/20+ 方言，1.1B int8）；Mac 可 CoreML GPU
 /// - `FunAsrNano`：Fun-ASR-Nano-2512（800M，audio-encoder + Qwen3-0.6B LLM decoder，31 语 + 热词）
 /// - `Qwen3Asr`：Qwen3-ASR-0.6B（52 语 + 22 方言 + 热词）
 ///
-/// sherpa-onnx 三引擎均为**批量离线**。sherpa-onnx C 库本就为 TTS 无条件链接，故这三者无需
-/// Cargo feature 门控（区别于 sensevoice）。
+/// 四个 sherpa-onnx 引擎均为**批量离线**。sherpa-onnx C 库本就为 TTS 无条件链接，故它们无需
+/// Cargo feature 门控——默认 `cargo build -p voice-cli` 即可用（SenseVoice 早期走
+/// transcribe-rs `ort` 通道需 `--features sensevoice`，已废弃迁移至此）。
 ///
 /// **backend 只管批量**：`/transcribe`、`/api/v1/tasks/transcribe` 用 backend。
-/// **流式端点** `/api/v1/stream/transcribe`（WS）**恒走 whisper**（LA2 真流式；sherpa/sensevoice
-/// 是离线模型无流式能力），与 backend 解耦 —— 故 `backend: fireredasr2` 时批量=fireredasr2、
+/// **流式端点** `/api/v1/stream/transcribe`（WS）**恒走 whisper**（LA2 真流式；sherpa
+/// 是离线模型无流式能力），与 backend 解耦 —— 故 `backend: sensevoice` 时批量=sensevoice、
 /// 流式=whisper，一个进程两不耽误。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -458,13 +459,20 @@ impl Default for SherpaAsrEngineConfig {
 pub struct SenseVoiceConfig {
     /// 模型目录（绝对路径，或相对 CWD）。`None` = `{whisper.models_dir}/sensevoice/
     ///   sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17`（规范名）。
-    /// 目录须含 `model.{quantization}.onnx` + `tokens.txt`（sherpa-onnx 布局）。
+    /// 目录须含 `model.{quantization}.onnx`（int8 档缺失时回退 `model.onnx`）+ `tokens.txt`。
     #[serde(default)]
     pub model_dir: Option<String>,
-    /// 量化等级：`fp32` / `fp16` / `int8`（默认）/ `int4`。决定读取 `model.{quant}.onnx` 文件。
+    /// 量化等级：`int8`（默认）/ `fp32` / `fp16` / `int4`。决定读取 `model.{quant}.onnx` 文件。
+    /// sherpa 发布目录同时含 `model.onnx`(fp32 894M) 与 `model.int8.onnx`(int8 228M)——
+    /// int8 实测同文本输出、CPU 推理快 2.6×、内存少 4×，故默认 int8。
     #[serde(default = "default_sv_quantization")]
     pub quantization: String,
-    /// 逆文本归一化（数字/日期等口语→书面，默认 true）。SenseVoice 走 trait 转录时恒 true。
+    /// 语种提示：`auto` / `zh` / `en` / `ja` / `ko` / `yue`（不配 = sherpa 默认，等同 `auto`）。
+    /// 影响 ITN 路径（实测 `lang=yue` 转普通话时数字不做阿拉伯化，`lang=zh` 会）。
+    #[serde(default)]
+    pub language: Option<String>,
+    /// 逆文本归一化（口语数字/日期 → 书面，默认 true）。关掉后输出"二零二六年十一月三日"，
+    /// 开启后输出"2026年11月3日"（并带标点）。
     #[serde(default = "default_bool_true")]
     pub use_itn: bool,
 }
@@ -474,6 +482,7 @@ impl Default for SenseVoiceConfig {
         Self {
             model_dir: None,
             quantization: default_sv_quantization(),
+            language: None,
             use_itn: default_bool_true(),
         }
     }

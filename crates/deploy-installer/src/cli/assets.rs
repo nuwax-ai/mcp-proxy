@@ -5,13 +5,23 @@
 
 use super::common::copy_file_atomic;
 use crate::{WhisperModelsPack, make_executable};
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Result, bail};
+// Context（with_context）仅在下方 macOS 伴生库拷贝块使用；cfg 门控避免
+// Linux/Windows 上 unused import 告警（构建机 --deny warnings 场景友好）
+#[cfg(target_os = "macos")]
+use anyhow::Context as _;
 use std::fs;
 use std::path::Path;
 
 pub const WHISPER_DEFAULT_MODEL: &str = "large-v3";
 pub const WHISPER_MODEL_FILE: &str = "ggml-large-v3.bin";
 pub const WHISPER_ALL_MODEL_NAMES: &[&str] = &["tiny", "base", "small", "medium", "large-v3"];
+/// SenseVoice STT 模型（sherpa-onnx 通道；平台无关）。规范目录名 + 必备文件。
+/// int8 权重 ~228MB（fp32 是 894MB，int8 实测同输出、快 2.6×、省 4× 内存，故默认）。
+pub const SENSEVOICE_MODEL_DIR: &str = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17";
+pub const SENSEVOICE_MODEL_SUBDIR: &str = "sensevoice";
+/// `model.int8.onnx` 体积下限（识别占位/截断文件；真实 ~228MB）。
+const SENSEVOICE_INT8_MIN_BYTES: u64 = 100_000_000;
 /// Model names inside `whisper-ggml-all-{version}.tar.gz`.
 /// macOS 不用枚举清单：`copy_voice_cli_companion_libs` 通配拷贝 vendor 目录的
 /// 全部 lib*.dylib（二进制按带版本号名引用 onnxruntime，名字随版本漂移）。
@@ -197,6 +207,48 @@ pub fn ensure_whisper_large_v3_model(install_dir: &Path) -> Result<()> {
     );
 }
 
+/// SenseVoice 模型是否已就位（`models/sensevoice/{SENSEVOICE_MODEL_DIR}/` 含可用 onnx + tokens）。
+pub fn sensevoice_models_present(install_dir: &Path) -> bool {
+    let dir = install_dir
+        .join("models")
+        .join(SENSEVOICE_MODEL_SUBDIR)
+        .join(SENSEVOICE_MODEL_DIR);
+    let Ok(tokens) = fs::metadata(dir.join("tokens.txt")) else {
+        return false;
+    };
+    if tokens.len() == 0 {
+        return false;
+    }
+    // int8 优先（默认档位）；fp32 亦可（内存↑），下限阈值只卡 int8
+    for (name, min) in [
+        ("model.int8.onnx", SENSEVOICE_INT8_MIN_BYTES),
+        ("model.onnx", SENSEVOICE_INT8_MIN_BYTES),
+    ] {
+        if let Ok(meta) = fs::metadata(dir.join(name))
+            && meta.len() >= min
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Ensure SenseVoice model pack exists after an OSS extract.
+pub fn ensure_sensevoice_models(install_dir: &Path) -> Result<()> {
+    if sensevoice_models_present(install_dir) {
+        return Ok(());
+    }
+    let dir = install_dir
+        .join("models")
+        .join(SENSEVOICE_MODEL_SUBDIR)
+        .join(SENSEVOICE_MODEL_DIR);
+    bail!(
+        "missing SenseVoice model: {}（需 model.int8.onnx ~228MB + tokens.txt）— \
+         上传 sensevoice-models.tar.gz 到 OSS（uploads/voice-cli/models/）或手动放置",
+        dir.display()
+    );
+}
+
 /// Copy sherpa/onnxruntime shared libs that must live beside `voice-cli`.
 fn copy_voice_cli_companion_libs(src_dir: &Path, install_dir: &Path, quiet: bool) -> Result<()> {
     #[cfg(target_os = "macos")]
@@ -340,6 +392,71 @@ mod tests {
         std::fs::write(models.join("ggml-large-v3.bin"), b"stub").unwrap();
         // large-v3 too small
         assert!(!whisper_pack_satisfied(dir.path(), WhisperModelsPack::All));
+    }
+
+    /// 造一个 SenseVoice 模型目录骨架。onnx 用稀疏文件（`set_len`）造到阈值以上，
+    /// 不占实际磁盘（int8 真实 ~228MB，测试里只需跨过 100MB 下限）。
+    fn sensevoice_fixture(dir: &Path, with_int8: bool, with_fp32: bool) {
+        let model_dir = dir
+            .join("models")
+            .join(SENSEVOICE_MODEL_SUBDIR)
+            .join(SENSEVOICE_MODEL_DIR);
+        std::fs::create_dir_all(&model_dir).unwrap();
+        std::fs::write(model_dir.join("tokens.txt"), b"<unk> 0\n").unwrap();
+        let sparse = |name: &str, len: u64| {
+            let f = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(model_dir.join(name))
+                .unwrap();
+            f.set_len(len).unwrap();
+        };
+        if with_int8 {
+            sparse("model.int8.onnx", SENSEVOICE_INT8_MIN_BYTES + 1);
+        }
+        if with_fp32 {
+            sparse("model.onnx", SENSEVOICE_INT8_MIN_BYTES + 1);
+        }
+    }
+
+    #[test]
+    fn sensevoice_models_present_needs_tokens_and_onnx() {
+        let dir = TempDir::new().unwrap();
+        assert!(!sensevoice_models_present(dir.path()));
+
+        // 只有 tokens → 不算就绪
+        sensevoice_fixture(dir.path(), false, false);
+        assert!(!sensevoice_models_present(dir.path()));
+
+        // 只有 fp32（int8 缺失）→ 仍算就绪（voice-cli 会 WARN 回退 fp32）
+        sensevoice_fixture(dir.path(), false, true);
+        assert!(sensevoice_models_present(dir.path()));
+    }
+
+    #[test]
+    fn sensevoice_models_present_rejects_truncated_int8() {
+        let dir = TempDir::new().unwrap();
+        sensevoice_fixture(dir.path(), true, false);
+        assert!(sensevoice_models_present(dir.path()));
+
+        // 截断的 int8（远低于 100MB 下限）+ 无 fp32 → 不算就绪
+        let model_dir = dir
+            .path()
+            .join("models")
+            .join(SENSEVOICE_MODEL_SUBDIR)
+            .join(SENSEVOICE_MODEL_DIR);
+        std::fs::write(model_dir.join("model.int8.onnx"), vec![0u8; 1024]).unwrap();
+        assert!(!sensevoice_models_present(dir.path()));
+    }
+
+    #[test]
+    fn sensevoice_ensure_error_names_missing_dir() {
+        let dir = TempDir::new().unwrap();
+        let err = ensure_sensevoice_models(dir.path()).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains(SENSEVOICE_MODEL_DIR), "got {msg}");
+        assert!(msg.contains("tokens.txt"), "got {msg}");
     }
 
     #[test]

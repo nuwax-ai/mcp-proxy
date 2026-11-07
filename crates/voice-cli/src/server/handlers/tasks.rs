@@ -104,10 +104,10 @@ pub async fn get_task_result_handler(
 }
 
 /// 取消任务
-/// POST /tasks/:task_id
+/// POST /api/v1/tasks/{task_id}/cancel
 #[utoipa::path(
     post,
-    path = "/api/v1/tasks/{task_id}",
+    path = "/api/v1/tasks/{task_id}/cancel",
     tag = "任务管理", 
     summary = "取消任务",
     description = "取消待处理或正在处理的转录任务",

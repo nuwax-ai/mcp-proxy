@@ -30,8 +30,10 @@ echo "==> Building deploy-installer + document-parser ($TARGET)"
 cd "$ROOT"
 cargo build --release -p deploy-installer -p document-parser --target "$TARGET"
 
-# voice-cli：Windows 上尝试构建，失败降级（sherpa/onnx Windows 链未完全验证）
-# ——vendor 只含两件套，doctor/voice-cli install 会给出明确提示
+# voice-cli：Windows 上尝试构建，失败降级
+# 2026-11-03 实测：默认 feature 下 Windows 可正常构建并跑通全部 STT 接口
+# （VS2022 BuildTools + Windows SDK + CMake； SenseVoice 迁移到 sherpa-onnx 通道后
+#  transcribe-rs 的 ort 已从默认依赖树移除，Windows 链接面变小）。降级路径保留为安全网。
 VOICE_CLI_BUILT=1
 if [[ "$VENDOR_KEY" == windows-* ]]; then
   if ! cargo build --release -p voice-cli --target "$TARGET"; then

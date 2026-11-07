@@ -6,7 +6,7 @@
 use anyhow::{Result, bail};
 use mcp_common::{McpServiceConfig, check_windows_command, wrap_process_v9};
 use rmcp::{
-    ServiceExt,
+    ClientServiceExt,
     transport::{
         TokioChildProcess,
         streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService},
@@ -20,7 +20,7 @@ use tracing::{error, info, warn};
 // process-wrap 9.0 使用 CommandWrap 而不是 TokioCommandWrap
 use process_wrap::tokio::{CommandWrap, KillOnDrop};
 
-use crate::backend_client::{BackendNotificationBridge, UpstreamPeerRegistry};
+use crate::backend_client::{BackendNotificationBridge, UpstreamPeerRegistry, backend_lifecycle};
 use crate::{ProxyAwareSessionManager, ProxyHandler};
 
 /// 从配置启动 Streamable HTTP 服务器
@@ -91,7 +91,9 @@ pub async fn run_stream_server_from_config(
     // 3. 创建带通知桥的后端客户端并连接子进程
     let upstream_peers = Arc::new(UpstreamPeerRegistry::new());
     let bridge = BackendNotificationBridge::with_default_info(upstream_peers);
-    let client = bridge.serve(tokio_process).await?;
+    let client = bridge
+        .serve_with_lifecycle(tokio_process, backend_lifecycle())
+        .await?;
 
     // 记录子进程启动到日志文件
     info!(

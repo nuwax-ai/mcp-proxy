@@ -6,7 +6,7 @@
 use anyhow::{Context, Result};
 use mcp_common::McpClientConfig;
 use rmcp::{
-    ServiceExt,
+    ClientServiceExt,
     transport::{
         common::client_side_sse::SseRetryPolicy,
         streamable_http_client::{
@@ -17,7 +17,7 @@ use rmcp::{
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::backend_client::{BackendNotificationBridge, UpstreamPeerRegistry};
+use crate::backend_client::{BackendNotificationBridge, UpstreamPeerRegistry, backend_lifecycle};
 use crate::fallback::DiscoverySnapshot;
 use crate::proxy_handler::{BackendRunningService, ProxyHandler};
 use mcp_common::ToolFilter;
@@ -136,7 +136,7 @@ impl StreamClientConnection {
 
         let bridge = BackendNotificationBridge::with_default_info(upstream_peers);
         let running = bridge
-            .serve(transport)
+            .serve_with_lifecycle(transport, backend_lifecycle())
             .await
             .context("Failed to initialize MCP client")?;
 

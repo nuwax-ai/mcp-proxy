@@ -239,6 +239,45 @@ jobs:
           echo "==> current dist-tags:"
           npm dist-tag ls @nuwax-ai/deploy-installer || true
 
-          # 旧包名（≤0.2.27）标弃用指向新 scope 包——幂等，重复执行无害
+      # 旧包名（≤0.2.27）标弃用指向新 scope 包。独立 step + continue-on-error：
+      # 弃用是运维附属动作，失败绝不能影响/回滚上面的正式发布
+      # （2026-11-04 实测：deprecate 的 E422 曾让整次 publish 流程非零退出）
+      - name: Deprecate legacy package name
+        if: always()
+        continue-on-error: true
+        working-directory: npm/deploy-installer
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
           npm deprecate "nuwax-deploy-installer@*" \
-            "Renamed to @nuwax-ai/deploy-installer. Migrate: npm uninstall -g nuwax-deploy-installer && npm install -g @nuwax-ai/deploy-installer" || true
+            "Renamed to @nuwax-ai/deploy-installer. Migrate: npm uninstall -g nuwax-deploy-installer && npm install -g @nuwax-ai/deploy-installer" \
+            || echo "::warning::legacy deprecate failed (non-fatal)"
+
+      # 发布结果校验：确认目标版本在 registry 可见、dist-tag 指向正确。
+      # 失败即让 job 红——避免"CI 绿但 npm 没发布"的静默事故
+      - name: Verify publish result
+        working-directory: npm/deploy-installer
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
+          CHANNEL: ${{ needs.resolve.outputs.channel }}
+        run: |
+          set -euo pipefail
+          echo "==> verifying @nuwax-ai/deploy-installer@${VERSION} on registry"
+          for i in 1 2 3 4 5; do
+            if npm view "@nuwax-ai/deploy-installer@${VERSION}" version >/dev/null 2>&1; then
+              echo "  ✅ version ${VERSION} visible on registry"
+              break
+            fi
+            if [[ $i -eq 5 ]]; then
+              echo "::error::version ${VERSION} not visible on registry after publish"
+              exit 1
+            fi
+            echo "  retry $i (registry propagation)..."
+            sleep 15
+          done
+          tag_now="$(npm dist-tag ls @nuwax-ai/deploy-installer 2>/dev/null | awk -v t="${CHANNEL}:" '$1==t{print $2}')"
+          if [[ "${tag_now}" != "${VERSION}" ]]; then
+            echo "::error::dist-tag ${CHANNEL} is '${tag_now}', expected '${VERSION}'"
+            exit 1
+          fi
+          echo "  ✅ dist-tag ${CHANNEL} → ${VERSION}"

@@ -123,6 +123,18 @@ git push origin deploy-v0.2.3-beta.4
 
 CI 自动：更新 workspace 版本 → 双平台构建（各 job 内原生 smoke）→ 合并切片 → `npm publish --tag beta`。
 
+> **0.2.34 发布经验**（2026-11-04 实测）：
+> - **beta 包 npm 侧验证不必等 Mac Mini**：本机隔离 prefix
+>   （`npm install @nuwax-ai/deploy-installer@beta` 到临时目录，跑 `vendor/<platform>/` 里的
+>   二进制）+ Linux/Windows 真机跑切片二进制即可覆盖三平台；Mac Mini 留给正式版前的最终确认
+> - **GPU bundle 要先传 OSS 再发 npm**：CI 只构建 npm 内嵌的 CPU 三件套；CUDA/Vulkan bundle
+>   需在编译机手动构建上传（§4 配方），否则安装器自动降级 CPU（不报错）
+> - **manifest 版本策略**：内容未变的大资产（venv ~10GB / whisper ggml）可把 URL 里的
+>   `{version}` 替换为字面旧版本，省一次重传；`nuwax-ossutil` 无服务端 copy 接口
+> - **CI Windows job 现在能构建 voice-cli 了**：0.2.34 起 windows-x64 切片是完整三件套
+>   （此前长期降级为两件套——`whisper-rs` 的 bindgen 在 runner 上需要 libclang，CI 镜像已带）
+> - npm registry 传播有延迟（publish 成功后 `npm view dist-tags` 可能仍显示旧值，等 1-2 分钟）
+
 ### Mac Mini 验证清单
 
 ```bash
@@ -220,6 +232,34 @@ bash scripts/ci/verify-oss-whisper-url.sh \
   https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/v0.2.13/whisper-ggml-large-v3-0.2.13.tar.gz
 ```
 
+#### 打包 SenseVoice 模型（可选，`--sensevoice`）
+
+SenseVoice 走 sherpa-onnx 通道（默认编译即含，无需 cargo feature），模型是**平台无关纯文件**——
+与 `mineruModels` 同款：**URL 不带 `{version}`**（模型版本独立于包版本，不必每次发版重传）。
+
+| manifest 键 | OSS 文件 | 说明 |
+|-------------|----------|------|
+| `sensevoiceModels.*`（三平台同 URL） | `models/sensevoice-models.tar.gz` | `models/sensevoice/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/`：`model.int8.onnx` 228M + `tokens.txt`，**~160MB 压缩包** |
+
+```bash
+# 打包（默认只打 int8 228M；--with-fp32 另带 894M fp32；--local-dir 复用本地已拉好的模型免 1GB 下载）
+bash scripts/ci/pack-voice-cli-sensevoice-models.sh --local-dir /path/to/models/sensevoice
+# 上传: oss://nuwa-packages/uploads/voice-cli/models/sensevoice-models.tar.gz
+bash scripts/ci/verify-oss-sensevoice-url.sh \
+  https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com/uploads/voice-cli/models/sensevoice-models.tar.gz
+```
+
+manifest 模板已带 `sensevoiceModels` 键（`npm/deploy-installer/vendor/templates/manifest.json`，
+指向上方 public URL）——**已上传**（2026-11-03，`nuwax-ossutil upload` 严格模式，CRC64
+`7203345292179577587`，160306092 B，回执 `dist/voice-cli/models/sensevoice-upload-report.json`）。
+重新打包上传时用 `--forbid-overwrite`：同名对象会被 OSS 拒绝（`FileAlreadyExists`），
+避免误覆盖线上资产。
+用户侧：`deploy-installer voice-cli install --sensevoice` → 装完在 `config.yml` 设
+`whisper.engine.backend: sensevoice`（默认 `whisper` 不变）。
+
+> 打包布局必须是**顶层 `models/`**（与 whisper-ggml 包同款约定：安装器解压到 install_dir），
+> verify 脚本会校验这一点。
+
 ### Linux CUDA（二期）
 
 | manifest 键 | OSS 文件 | 说明 |
@@ -230,19 +270,20 @@ bash scripts/ci/verify-oss-whisper-url.sh \
 
 ```bash
 # 一次性依赖：CUDA toolkit（/usr/local/cuda，apt nvidia-cuda-toolkit 或官方 runfile）
-# 注意 cuDNN 非必需：whisper-cuda 只用 cublas；sensevoice 的 GPU providers 仅运行时需要
-#（编译期 ort load-dynamic 不链 cudnn）
+# 注意 cuDNN 非必需（编译期）：whisper-cuda 只用 cublas；sherpa-onnx 引擎
+# （sensevoice/fireredasr2/funasrnano/qwen3asr）的 GPU providers 仅运行时需要
 export PATH="$HOME/.cargo/bin:/usr/local/cuda/bin:$PATH" CUDA_PATH=/usr/local/cuda
 # 架构 61=1080Ti/75=20系/80=A6000/86=30系/89=4090（4090 实测须真机；sm_89 与 61 同链路）
 RUSTFLAGS="-C link-arg=-Wl,-rpath,\$ORIGIN" \
   GGML_NATIVE=OFF \
   CMAKE_CUDA_ARCHITECTURES="61;75;80;86;89" \
-  cargo build --release -p voice-cli --features cuda,sensevoice-cuda
+  cargo build --release -p voice-cli --features cuda
 # 验证（必做）
 readelf -d target/release/voice-cli | grep RUNPATH   # 应含 $ORIGIN
 # GPU 实测（编译机有卡时）：临时目录放 binary+so+config（独立端口）→ server run →
 # transcribe → 日志应出现 ggml_cuda_init: found 1 CUDA devices
-# providers_cuda/shared 两枚 .so 来自 ort-cuda feature 的构建产物
+# providers_cuda/shared 两枚 .so 来自 sherpa-onnx CUDA 预编译包（SHERPA_ONNX_LIB_DIR），
+# 供全部 sherpa-onnx 引擎（含 sensevoice）走 GPU；详见 crates/voice-cli/deploy/README.md
 ```
 
 打包/上传/校验（staging 目录需收齐 voice-cli + 4×`.so`）：
@@ -290,7 +331,10 @@ deploy-installer voice-cli install --install-dir ~/voice-cli
 
 ```bash
 # 一次性依赖（glslc 来自 glslang-tools；libvulkan-dev 提供 find_package(Vulkan)）
-sudo apt install -y libvulkan-dev glslang-tools
+# ⚠️ libclang-18-dev 必须装（bindgen 用）：缺它 bindgen generate() 静默失败并回退
+# 预生成 bindings（无 vk 符号）→ whisper-rs 编译报 unresolved ggml_backend_vk_* ——
+# 错误信息完全不提 libclang，0.2.34 构建时在此踩坑（2026-11-04 实测）
+sudo apt install -y libvulkan-dev glslang-tools libclang-18-dev
 # 构建（rpath $ORIGIN 必须——否则 systemd 下伴生 .so 找不到，启动 127）
 RUSTFLAGS="-C link-arg=-Wl,-rpath,\$ORIGIN" \
   cargo build --release -p voice-cli --features vulkan
@@ -299,6 +343,17 @@ readelf -d target/release/voice-cli | grep -E 'RUNPATH|RPATH'   # 应含 $ORIGIN
 ldd target/release/voice-cli | grep vulkan                      # 应有 libvulkan.so.1 => 系统
 # sherpa CPU .so 复用 CUDA 构建产物（libsherpa-onnx-c-api.so / libonnxruntime.so）
 ```
+
+> **CUDA 产物 strip**：`strip target/release/voice-cli` 再打包（Vulkan 59M→52M；
+> CUDA 的 .nv_fatbin 占大头 strip 不掉，见下）。
+
+> **0.2.34 CUDA bundle 体积说明**（705M，0.2.33 是 158M）：两个原因，均属预期——
+> 1. **架构覆盖修复**：0.2.33 的二进制实际只有 **sm_86 单架构**（`CMAKE_CUDA_ARCHITECTURES`
+>    传成 UNINITIALIZED 未生效，native-only 编译；1080Ti/A6000/4090 上其实跑不了/靠运气）。
+>    0.2.34 起是真 5 架构（61/75/80/86/89，`strings voice-cli | grep -c sm_86` 可验），
+>    fatbin 745M 是多架构的合理代价
+> 2. **sherpa 1.13.8 CUDA 包的 onnxruntime 1.28.2**：providers_cuda.so 593M
+>    （1.13.3 时代是 104M，上游膨胀，非我们可控）
 
 打包/上传/校验：
 

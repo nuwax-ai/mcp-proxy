@@ -1,7 +1,7 @@
 //! STT 引擎端到端性能基准（criterion，**经运行中的 voice-cli server HTTP 调用**）。
 //!
 //! # 为什么走 HTTP 而非直链引擎
-//! 直链 `voice_cli`（拉入 whisper.cpp GGML 静态库 + ort + sherpa 动态库）的 bench 二进制在本机
+//! 直链 `voice_cli`（拉入 whisper.cpp GGML 静态库 + sherpa 动态库）的 bench 二进制在本机
 //! macOS 上**启动即被 jetsam SIGKILL**（重原生库静态初始化，deps/ 下的 bench 进程比 server 主
 //! 进程更易被杀；改 debug/release/criterion 版本/DYLD_LIBRARY_PATH 均无效）。走 HTTP 只链
 //! `reqwest + criterion`（轻量），稳定可跑，且测的是**端到端 RTF**（含 ffmpeg 解码 + HTTP），
@@ -11,8 +11,9 @@
 //! ```bash
 //! cd ~/voice-cli-test
 //! SHERPA_ONNX_ARCHIVE_DIR=~/.cache/sherpa-onnx-prebuilt \
-//!   cargo run -p voice-cli --features sensevoice -- server run --config config.yml
+//!   cargo run -p voice-cli -- server run --config config.yml
 //! ```
+//! （sensevoice/fireredasr2/funasrnano/qwen3asr 走 sherpa-onnx 通道，默认编译即含，无需 feature）
 //!
 //! # 用法
 //! ```bash

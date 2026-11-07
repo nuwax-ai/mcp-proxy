@@ -60,7 +60,7 @@ rust-i18n = { workspace = true }
 # 使用 rustls + webpki-roots（内置 Mozilla 根证书），避免动态链接系统 OpenSSL。
 # 这样产物不依赖任何版本的 libssl.so，跨发行版部署不会再出现 libssl.so.1.1 找不到的问题。
 # reqwest 0.12（**不**走 workspace 0.13）：0.13 的 rustls 拉入 aws-lc-rs（大 C 加密库），
-# 令本 STT 重二进制（whisper.cpp + ort + sherpa）启动即被 macOS jetsam SIGKILL。
+# 令本 STT 重二进制（whisper.cpp + sherpa-onnx；历史上还静态链过 ort）启动即被 macOS jetsam SIGKILL。
 # 0.12 同 mcp-sse-proxy（rmcp 0.10 trait impl 对齐）。default-features=false + rustls-tls 免系统 TLS。
 reqwest = { version = "0.12", default-features = false, features = [
     "json",
@@ -162,11 +162,10 @@ default = []
 # - Linux 用 cuda（NVIDIA + CUDA toolkit）或 vulkan（Vulkan SDK）
 cuda = ["transcribe-rs/whisper-cuda"]
 vulkan = ["transcribe-rs/whisper-vulkan"]
-# STT SenseVoice ONNX 引擎（transcribe-rs `onnx` 后端，与 whisper 并存）：
-# - sensevoice：CPU ONNX（Mac dev 默认，功能验证；裸 cargo build -p voice-cli --features sensevoice）
-# - sensevoice-coreml：Mac Neural Engine/GPU 加速（需 ort-coreml，可选）
-# - sensevoice-cuda：Linux NVIDIA CUDA 加速（需 ort-cuda + CUDA toolkit/cuDNN，~800MB）
-# 配 `whisper.engine.backend: sensevoice` 启用；批量转录用 SenseVoice，流式仍 whisper。
-sensevoice = ["transcribe-rs/onnx"]
-sensevoice-coreml = ["sensevoice", "transcribe-rs/ort-coreml"]
-sensevoice-cuda = ["sensevoice", "transcribe-rs/ort-cuda"]
+# STT SenseVoice / FireRedASR2 / Fun-ASR-Nano / Qwen3-ASR 四引擎走 **sherpa-onnx** 通道
+# （`whisper.engine.backend` 切换）。sherpa-onnx C 库本就为 TTS 无条件链接，故**无需 Cargo
+# feature**：默认 `cargo build -p voice-cli` 即可用。GPU 经 `whisper.engine.sherpa.provider`
+# 选 EP（Mac `coreml` = CoreML GPU/ANE；Linux `cuda`；留空 = CPU）。
+# 历史：SenseVoice 早期走 transcribe-rs `onnx`(ort) 通道，需 `--features sensevoice`（Mac CPU）
+# / `sensevoice-coreml` / `sensevoice-cuda`，实测迁移至 sherpa 通道后已废弃删除
+# （见 spec/SENSEVOICE_SHERPA_INTEGRATION_PLAN.md）。
