@@ -357,6 +357,27 @@ pub fn default_backend_client_info() -> ClientConfig {
     )
 }
 
+/// 后端连接生命周期：Auto —— 先探测 `server/discover`（2026-07-28 无握手生命周期），
+/// 旧服务端（不支持 discover / 10s 超时）自动回退 legacy `initialize`。
+///
+/// 动机：claude SDK 2.1.3+ 已改用 discover 生命周期（每个请求 `_meta` 携带
+/// `protocolVersion: 2026-07-28`）。若代理后端仍用 Initialize 模式，协商结果停在
+/// 2025-11-25，转发时透传的 `_meta` 与 rmcp client 盖的版本 header 不一致，触发
+/// 上游 rmcp server `HEADER_MISMATCH(-32020)`（"MCP-Protocol-Version header does
+/// not match request _meta protocolVersion"）。全链 discover 后各段协商版本一致
+/// （优先 2026-07-28），版本瀑布消失；旧上游经 Auto 回退保持兼容。
+pub fn backend_lifecycle() -> rmcp::ClientLifecycleMode {
+    // rmcp 要求 preferred_versions 非空；按新到旧列出全部已知版本，
+    // discover 阶段与上游 supportedVersions 取交集时优先协商最高共同版本。
+    let mut preferred: Vec<rmcp::model::ProtocolVersion> =
+        rmcp::model::ProtocolVersion::KNOWN_VERSIONS.to_vec();
+    preferred.reverse();
+    rmcp::ClientLifecycleMode::Auto {
+        preferred_versions: preferred,
+        legacy_version: None,
+    }
+}
+
 async fn with_session_peer<F, Fut>(slot: &UpstreamPeerSlot, send: F)
 where
     F: FnOnce(Peer<RoleServer>) -> Fut,

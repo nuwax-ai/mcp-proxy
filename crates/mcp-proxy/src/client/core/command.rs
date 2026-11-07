@@ -10,7 +10,8 @@ use crate::proxy::{StreamProxyHandler, ToolFilter};
 
 // 使用 mcp-streamable-proxy 的类型
 use mcp_streamable_proxy::{
-    BackendNotificationBridge, ServiceExt, TokioChildProcess, UpstreamPeerRegistry, stdio,
+    BackendNotificationBridge, ClientServiceExt, ServiceExt, TokioChildProcess,
+    UpstreamPeerRegistry, backend_lifecycle, stdio,
 };
 
 use crate::client::support::utils::truncate_str;
@@ -103,7 +104,9 @@ pub async fn run_command_mode(
     let bridge = BackendNotificationBridge::with_default_info(std::sync::Arc::new(
         UpstreamPeerRegistry::new(),
     ));
-    let running = bridge.serve(tokio_process).await?;
+    let running = bridge
+        .serve_with_lifecycle(tokio_process, backend_lifecycle())
+        .await?;
 
     if !quiet {
         eprintln!("✅ Child process started, proxying to stdio...");

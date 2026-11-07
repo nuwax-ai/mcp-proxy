@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use process_wrap::tokio::{CommandWrap, KillOnDrop};
 use rmcp::{
-    ServiceExt,
+    ClientServiceExt,
     transport::{
         TokioChildProcess,
         streamable_http_client::{
@@ -25,7 +25,7 @@ use process_wrap::tokio::ProcessGroup;
 #[cfg(windows)]
 use process_wrap::tokio::{CreationFlags, JobObject};
 
-use crate::backend_client::{BackendNotificationBridge, UpstreamPeerRegistry, UpstreamPeerSlot};
+use crate::backend_client::{BackendNotificationBridge, UpstreamPeerRegistry, UpstreamPeerSlot, backend_lifecycle};
 use crate::proxy_handler::BackendRunningService;
 
 /// How upstream sessions share (or isolate) backend MCP connections.
@@ -128,7 +128,7 @@ impl UrlBackendConnector {
 
         let transport = StreamableHttpClientTransport::with_client(http_client, config);
         let client = bridge
-            .serve(transport)
+            .serve_with_lifecycle(transport, backend_lifecycle())
             .await
             .context("Failed to connect URL backend")?;
         info!(url = %self.url, "URL backend connected");
@@ -238,7 +238,7 @@ impl StdioBackendConnector {
 
         let bridge = BackendNotificationBridge::with_default_info(registry);
         let client = bridge
-            .serve(tokio_process)
+            .serve_with_lifecycle(tokio_process, backend_lifecycle())
             .await
             .context("Failed to connect stdio backend")?;
         info!(mcp_id = %self.mcp_id, "Stdio backend connected");

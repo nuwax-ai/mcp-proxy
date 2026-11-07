@@ -46,8 +46,9 @@ pub mod session_manager;
 // Re-export main types
 pub use backend_client::{
     BackendNotificationBridge, NotifyTarget, ProgressRouteGuard, UpstreamPeerRegistry,
-    UpstreamPeerSlot,
+    UpstreamPeerSlot, backend_lifecycle,
 };
+pub use rmcp::ClientServiceExt;
 pub use backend_connector::{
     BackendConnector, BackendIsolation, StdioBackendConnector, UrlBackendConnector,
 };
